@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "types": ["bun"], "lib": ["ES2023"] },
+  "include": ["src", "drizzle.config.ts"]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@ai-parter/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "NODE_ENV=production bun src/index.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@ai-parter/core": "workspace:*",
+    "@ai-parter/shared": "workspace:*",
+    "@hono/zod-validator": "^0.9.1",
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.13.13",
+    "sharp": "^0.35.5",
+    "ulid": "^3.0.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11"
+  }
+}

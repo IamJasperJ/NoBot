@@ -1,0 +1,24 @@
+{
+  "name": "ai-parter",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '@ai-parter/server' --filter '@ai-parter/web' dev",
+    "build": "bun run --filter '@ai-parter/web' build",
+    "start": "bun run --filter '@ai-parter/server' start",
+    "test": "bun test",
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "db:generate": "bun run --filter '@ai-parter/server' db:generate"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/bun": "^1.4.3",
+    "typescript": "^7.0.2"
+  }
+}

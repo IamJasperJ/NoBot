@@ -430,7 +430,15 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     remainingImages -= count
   }
   const historyPiece = (message: HistoryMessage, continuation = false): Piece => {
-    let output: ChatMessage = { role: message.role, content: message.content }
+    // 历史消息也要做宏替换（开场白里常有 {{user}}）；续写预填充保留原文。
+    // 角色消息里的 {{char}} 指说这句话的角色（群聊里可能不是当前发言者）
+    const content = continuation
+      ? message.content
+      : applyMacros(message.content, {
+          ...context,
+          char: message.role === 'assistant' && message.name ? message.name : context.char,
+        })
+    let output: ChatMessage = { role: message.role, content }
     if (input.toolsEnabled) {
       if (message.toolCalls?.length)
         output.tool_calls = message.toolCalls.map((call) => ({

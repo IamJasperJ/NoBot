@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useLorebooks, usePersonas } from '../../api/queries'
 import { SelectField } from '../../components/form'
-import { DetailHeader, EmptyDetail, ListItem, ManagerLayout } from '../../components/layout'
+import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Avatar, Button } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { AvatarUpload, CountedArea, CountedText, useAction } from '../characters/editor'
@@ -25,6 +25,7 @@ export function PersonasPage() {
   const persona = personas.data?.find((p) => p.id === selected)
   return (
     <ManagerLayout
+      detailIn="panel"
       title="人设"
       showDetailOnMobile={selected !== null}
       actions={
@@ -88,9 +89,7 @@ export function PersonasPage() {
                   : '该人设已不存在，请返回列表选择其他人设。'}
             </p>
           </>
-        ) : (
-          <EmptyDetail text="选择一个人设，设置你在对话中的名字与背景。" />
-        )
+        ) : null
       }
     />
   )
@@ -124,7 +123,7 @@ function PersonaEditor({
   return (
     <>
       <DetailHeader title={draft.name} onBack={onBack} />
-      <fieldset disabled={busy} className="min-w-0 space-y-5 p-4 sm:p-6">
+      <fieldset disabled={busy} className="min-w-0 space-y-5 p-3">
         <div className="flex flex-wrap gap-2">
           <Button
             variant="primary"

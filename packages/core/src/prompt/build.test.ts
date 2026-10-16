@@ -653,3 +653,24 @@ describe('图片组装', () => {
     expect(buildPrompt(value).messages.at(-1)?.images).toEqual(['a'])
   })
 })
+
+describe('历史消息的宏', () => {
+  test('开场白和历史里的 {{user}} {{char}} 会被替换', () => {
+    const value = minimal()
+    value.history = [
+      history('g', 'assistant', '{{char}} stood awkwardly in front of {{user}}. <USER>'),
+      history('u', 'user', '我是{{user}}，你是{{char}}吗'),
+    ]
+    const { messages } = buildPrompt(value)
+    expect(messages.map((m) => m.content)).toEqual([
+      '小明 stood awkwardly in front of 小红. 小红',
+      '我是小红，你是小明吗',
+    ])
+  })
+
+  test('群聊里角色消息的 {{char}} 指说这句话的角色', () => {
+    const value = minimal()
+    value.history = [{ ...history('a', 'assistant', '我是{{char}}'), name: '莱恩', speakerId: 'lyon' }]
+    expect(buildPrompt(value).messages[0]?.content).toBe('我是莱恩')
+  })
+})

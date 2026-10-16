@@ -20,8 +20,6 @@ export interface Appearance {
   chatAlign: 'center' | 'left'
   /** 聊天侧栏宽度（px） */
   sidebarWidth: number
-  /** 聊天侧栏是否收起（只影响宽屏；窄屏的侧栏本来就是抽屉） */
-  sidebarCollapsed: boolean
   /** 是否显示消息头像 */
   showAvatars: boolean
 }
@@ -34,7 +32,6 @@ export const DEFAULT_APPEARANCE: Appearance = {
   chatWidth: 768,
   chatAlign: 'center',
   sidebarWidth: 288,
-  sidebarCollapsed: false,
   showAvatars: true,
 }
 
@@ -79,7 +76,6 @@ function persist(state: Appearance) {
     chatWidth: state.chatWidth,
     chatAlign: state.chatAlign,
     sidebarWidth: state.sidebarWidth,
-    sidebarCollapsed: state.sidebarCollapsed,
     showAvatars: state.showAvatars,
   }
   try {
@@ -102,7 +98,7 @@ export function applyAppearance(a: Appearance) {
   root.style.setProperty('--msg-font-size', `${a.messageFontSize}px`)
   root.style.setProperty('--msg-line-height', String(a.messageLineHeight))
   root.style.setProperty('--chat-width', a.chatWidth > 0 ? `${a.chatWidth}px` : '100%')
-  root.style.setProperty('--chat-margin', a.chatAlign === 'center' ? 'auto' : '0')
+  root.dataset.chatAlign = a.chatAlign
   root.style.setProperty('--sidebar-width', `${a.sidebarWidth}px`)
   root.toggleAttribute('data-hide-avatars', !a.showAvatars)
 }

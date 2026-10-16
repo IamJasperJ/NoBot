@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useRef } from 'react'
+import { type CSSProperties, type ReactNode, useEffect, useRef } from 'react'
 import { useCharacters, useConnections } from './api/queries'
 import {
   BookIcon,
@@ -17,8 +17,8 @@ import { Button, cx, IconButton } from './components/ui'
 import { loadExtensions, useExtensionsRuntime } from './extensions/runtime'
 import { ExtensionPage } from './extensions/Slot'
 import { CharactersPage } from './features/characters/CharactersPage'
+import { ChatPanelContent, ResizeHandle } from './features/chat/ChatPanelContent'
 import { ChatView } from './features/chat/ChatView'
-import { SidePanel } from './features/chat/SidePanel'
 import { ConnectionsPage } from './features/connections/ConnectionsPage'
 import { ExtensionsPage } from './features/extensions/ExtensionsPage'
 import { LogsPage } from './features/logs/LogsPage'
@@ -26,7 +26,7 @@ import { LorebooksPage } from './features/lorebooks/LorebooksPage'
 import { PersonasPage } from './features/personas/PersonasPage'
 import { PresetsPage } from './features/presets/PresetsPage'
 import { SettingsPage } from './features/settings/SettingsPage'
-import { useAppearance } from './stores/appearance'
+import { useMobile } from './hooks/useMobile'
 import { useToasts } from './stores/toast'
 import { useUi, type View } from './stores/ui'
 
@@ -43,16 +43,17 @@ const NAV: { view: View; label: string; icon: ReactNode }[] = [
 
 /** 最左侧的图标导航。项目多时可以滚动；「设置」固定在最下面 */
 function NavRail() {
-  const { view, openView } = useUi()
+  const { view, panelOpen, toggleView } = useUi()
   const pages = useExtensionsRuntime((s) => s.pages)
   const item = (n: { view: View; label: string; icon: ReactNode }) => (
     <button
       key={n.view}
       type="button"
-      onClick={() => openView(n.view)}
+      onClick={() => toggleView(n.view)}
+      aria-pressed={panelOpen && view === n.view}
       className={cx(
         'flex w-14 shrink-0 flex-col items-center gap-0.5 rounded-lg py-1.5 text-[11px]',
-        view === n.view
+        panelOpen && view === n.view
           ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
           : 'text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800',
       )}
@@ -94,12 +95,15 @@ function Welcome() {
 
   return (
     <div className="flex h-full flex-1 flex-col">
-      <header className="flex h-14 items-center px-3 md:hidden">
+      <header
+        className="flex h-14 shrink-0 items-center pr-3 md:hidden"
+        style={{ paddingLeft: 'calc(var(--panel-offset) + 0.75rem)' }}
+      >
         <IconButton label="打开侧栏" onClick={() => setSidebarOpen(true)}>
           <MenuIcon />
         </IconButton>
       </header>
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+      <div className="chat-column flex flex-1 flex-col items-center justify-center gap-4 py-8 text-center">
         <div className="text-2xl font-semibold tracking-tight">AI-Parter</div>
         <p className="max-w-sm text-sm text-zinc-500">{tip}</p>
         {action && (
@@ -154,9 +158,11 @@ function Toasts() {
   )
 }
 
-function Page({ view }: { view: View }) {
+function PanelContent({ view }: { view: View }) {
   if (String(view).startsWith('ext:')) return <ExtensionPage view={view} />
   switch (view) {
+    case 'chat':
+      return <ChatPanelContent />
     case 'characters':
       return <CharactersPage />
     case 'lorebooks':
@@ -183,14 +189,14 @@ export function App() {
   useEffect(() => {
     void loadExtensions(qc)
   }, [qc])
-  const { view, chatId, previewOpen, chatSettingsOpen, sidebarOpen, setSidebarOpen } = useUi()
-  const isChat = view === 'chat'
-  // 宽屏下收起侧栏；打开了会话设置 / 预览时总是显示（它们就在侧栏的位置）
-  const collapsed = useAppearance((s) => s.sidebarCollapsed) && !chatSettingsOpen && !previewOpen
+  const { view, chatId, panelOpen, sidebarOpen, setSidebarOpen } = useUi()
+  const mobile = useMobile()
 
   return (
-    <div className="flex h-dvh overflow-hidden">
-      {/* 桌面端：导航和聊天侧栏常驻；手机端：收进抽屉，点左上角菜单打开 */}
+    <div
+      className="app-root flex h-dvh overflow-hidden"
+      style={{ '--panel-offset': panelOpen ? 'var(--sidebar-width)' : '0px' } as CSSProperties}
+    >
       {sidebarOpen && (
         <button
           type="button"
@@ -200,22 +206,28 @@ export function App() {
         />
       )}
       <div
+        inert={mobile && !sidebarOpen}
         className={cx(
-          'z-30 flex h-full max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:transition-transform',
+          'fixed inset-y-0 left-0 z-30 flex h-full transition-transform md:contents',
           !sidebarOpen && 'max-md:-translate-x-full',
         )}
       >
         <NavRail />
-        {isChat && (
-          <div className={cx('h-full', collapsed && 'md:hidden')}>
-            <SidePanel />
-          </div>
+        {/* 抽屉隐藏时卸载面板，手机上的详情传送门也随之关闭。 */}
+        {panelOpen && (!mobile || sidebarOpen) && (
+          <aside className="relative h-full w-[min(var(--sidebar-width),calc(100vw-4rem))] min-w-0 shrink-0 border-r border-zinc-200 bg-white md:fixed md:inset-y-0 md:left-16 md:z-20 md:w-[var(--sidebar-width)] dark:border-zinc-800 dark:bg-zinc-950">
+            <PanelContent view={view} />
+            <ResizeHandle />
+          </aside>
         )}
       </div>
-
-      <main className="flex min-w-0 flex-1">
-        {!isChat ? <Page view={view} /> : chatId ? <ChatView key={chatId} chatId={chatId} /> : <Welcome />}
+      <main className="relative min-w-0 flex-1">
+        {chatId ? <ChatView key={chatId} chatId={chatId} /> : <Welcome />}
       </main>
+      <div
+        id="overlay-root"
+        className="fixed inset-0 z-40 bg-white md:left-[calc(4rem+var(--panel-offset))] md:z-30 md:border-l md:border-zinc-200 dark:bg-zinc-950 dark:md:border-zinc-800"
+      />
       <Toasts />
     </div>
   )

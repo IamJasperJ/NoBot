@@ -4,7 +4,7 @@ import { useEffect, useEffectEvent, useId, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useConnections } from '../../api/queries'
 import { TextField } from '../../components/form'
-import { DetailHeader, EmptyDetail, ListItem, ManagerLayout } from '../../components/layout'
+import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Button, Field, inputClass } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -81,6 +81,7 @@ export function ConnectionsPage() {
   const locked = busy || testing
   return (
     <ManagerLayout
+      detailIn="panel"
       title="连接"
       showDetailOnMobile={!!draft}
       actions={
@@ -132,7 +133,7 @@ export function ConnectionsPage() {
               }}
             />
             <form
-              className="p-4 sm:p-6"
+              className="p-3"
               onSubmit={(event) => {
                 event.preventDefault()
                 if (!dirty || locked) return
@@ -237,7 +238,7 @@ export function ConnectionsPage() {
                   label="模型"
                   hint="输入准确的模型 ID，或测试连接后从建议列表选择；测试使用当前表单的接口和密钥。"
                 >
-                  <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="flex flex-col gap-2">
                     <input
                       className={`${inputClass} min-w-0 flex-1`}
                       value={draft.model}
@@ -258,9 +259,7 @@ export function ConnectionsPage() {
               </fieldset>
             </form>
           </>
-        ) : (
-          <EmptyDetail text="选择一个连接，或点击「新建」配置模型接口。" />
-        )
+        ) : null
       }
     />
   )

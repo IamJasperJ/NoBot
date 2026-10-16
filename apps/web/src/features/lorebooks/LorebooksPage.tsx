@@ -1,9 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useLorebook, useLorebooks, useWorldInfoSettings } from '../../api/queries'
 import { BookIcon, SettingsIcon } from '../../components/icons'
-import { EmptyDetail, ListItem, ManagerLayout } from '../../components/layout'
+import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Button } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -44,12 +44,18 @@ export function LorebooksPage() {
       setPending(false)
     }
   }
-  let detail = <EmptyDetail text="选择一本世界书开始编辑，或打开全局激活设置。" />
+  const statusDetail = (text: string) => (
+    <>
+      <DetailHeader title={selected === SETTINGS ? '全局激活设置' : '世界书'} onBack={() => choose(null)} />
+      <p className="p-4 text-sm text-zinc-500">{text}</p>
+    </>
+  )
+  let detail: ReactNode = null
   if (selected === SETTINGS) {
     detail = settings.isPending ? (
-      <EmptyDetail text="加载中…" />
+      statusDetail('加载中…')
     ) : settings.isError && !settings.data ? (
-      <EmptyDetail text={errorMessage(settings.error)} />
+      statusDetail(errorMessage(settings.error))
     ) : (
       <>
         {settings.isError && (
@@ -62,9 +68,9 @@ export function LorebooksPage() {
     )
   } else if (selected) {
     detail = book.isPending ? (
-      <EmptyDetail text="加载中…" />
+      statusDetail('加载中…')
     ) : book.isError && !book.data ? (
-      <EmptyDetail text={errorMessage(book.error)} />
+      statusDetail(errorMessage(book.error))
     ) : book.data ? (
       <>
         {book.isError && (

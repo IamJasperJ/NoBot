@@ -37,9 +37,16 @@ export function ExtensionPage({ view }: { view: string }) {
   const pages = useExtensionsRuntime((s) => s.pages)
   const page = pages.find((p) => `ext:${p.extensionId}:${p.id}` === view)
   return page ? (
-    <ExtensionBoundary key={view} id={page.extensionId}>
-      <Render render={page.render} />
-    </ExtensionBoundary>
+    <div className="flex h-full min-w-0 flex-col">
+      <header className="flex h-14 shrink-0 items-center px-3">
+        <h1 className="truncate font-semibold">{page.label}</h1>
+      </header>
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto p-3">
+        <ExtensionBoundary key={view} id={page.extensionId}>
+          <Render render={page.render} />
+        </ExtensionBoundary>
+      </div>
+    </div>
   ) : (
     <p className="p-6 text-sm text-zinc-500">扩展页面不存在或已停用</p>
   )

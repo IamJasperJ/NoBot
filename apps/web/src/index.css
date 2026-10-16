@@ -8,15 +8,31 @@
   --msg-font-size: 15px;
   --msg-line-height: 1.7;
   --chat-width: 768px;
-  --chat-margin: auto;
   --sidebar-width: 288px;
 }
 
-/* 对话区宽度和位置 */
+/*
+ * 对话区宽度和位置。--panel-offset 是浮在聊天区上方的侧栏面板宽度（面板关闭或手机上为 0）。
+ * 居中时：如果居中位置已经不和面板重叠，就保持不动；重叠了才往右让开，宽度不够时再收窄。
+ */
 .chat-column {
-  max-width: var(--chat-width);
-  margin-left: var(--chat-margin);
-  margin-right: auto;
+  width: min(var(--chat-width), calc(100% - var(--panel-offset, 0px) - 2rem));
+  margin-left: max(calc(var(--panel-offset, 0px) + 1rem), calc((100% - var(--chat-width)) / 2));
+}
+[data-chat-align="left"] .chat-column {
+  margin-left: calc(var(--panel-offset, 0px) + 1rem);
+}
+
+/* 手机上面板在抽屉里，不占聊天区的位置 */
+@media (max-width: 767px) {
+  .app-root {
+    --panel-offset: 0px !important;
+  }
+}
+
+/* 覆盖层容器：没有内容时不占位置，不挡点击 */
+#overlay-root:empty {
+  display: none;
 }
 
 /* 消息正文字号和行距 */

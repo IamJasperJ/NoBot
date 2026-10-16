@@ -58,9 +58,11 @@ export function PromptPreview({ chatId }: { chatId: string }) {
   return (
     <aside className="flex h-full w-full flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 dark:border-zinc-800">
-        <div className="flex-1 font-semibold">Prompt 预览</div>
+        <div className="min-w-0 flex-1 truncate font-semibold" title="Prompt 预览">
+          Prompt 预览
+        </div>
         <select
-          className={cx(inputClass, 'w-auto py-1')}
+          className={cx(inputClass, 'max-w-24 shrink-0 py-1')}
           value={type}
           onChange={(e) => setType(e.target.value as GenerationType)}
         >

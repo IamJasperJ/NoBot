@@ -245,7 +245,7 @@ export function ExtensionsPage() {
                 />
                 <button
                   type="button"
-                  className="min-w-[8em] flex-1 truncate text-left text-sm font-medium"
+                  className="min-w-0 flex-1 truncate text-left text-sm font-medium"
                   title={item.name}
                   onClick={() => select(item.id)}
                 >
@@ -262,7 +262,7 @@ export function ExtensionsPage() {
             ，重启后加载。扩展代码在后端和浏览器中运行，只安装你信任的扩展。
           </p>
           {selectedId === null && (
-            <div className="mt-4 md:hidden">
+            <div className="mt-4">
               <ToolSection />
             </div>
           )}

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useLog, useLogs } from '../../api/queries'
 import { Section, Toggle } from '../../components/form'
-import { DetailHeader, EmptyDetail, ListItem, ManagerLayout } from '../../components/layout'
+import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Button, cx } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -184,7 +184,7 @@ export function LogsPage() {
                   className="flex h-8 min-w-0 flex-1 items-center gap-2"
                   title={`${kindLabels[log.kind]} · ${time(log.createdAt)} · ${log.summary || '（无摘要）'}`}
                 >
-                  <span className="min-w-[8em] flex-1 truncate">{log.model ?? '未记录模型'}</span>
+                  <span className="min-w-0 flex-1 truncate">{log.model ?? '未记录模型'}</span>
                   <span className="shrink-0 text-xs text-zinc-500">{duration(log.durationMs)}</span>
                 </div>
               </ListItem>
@@ -192,13 +192,7 @@ export function LogsPage() {
           )}
         </>
       }
-      detail={
-        selectedId ? (
-          <LogDetail key={selectedId} id={selectedId} onBack={() => setSelectedId(null)} />
-        ) : (
-          <EmptyDetail text="选择一条日志，查看完整请求、组装报告和模型返回" />
-        )
-      }
+      detail={selectedId ? <LogDetail key={selectedId} id={selectedId} onBack={() => setSelectedId(null)} /> : null}
     />
   )
 }

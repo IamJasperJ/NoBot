@@ -5,7 +5,7 @@ import { api } from '../../api/client'
 import { keys, useCharacter, useCharacters, useLorebooks, usePersonas } from '../../api/queries'
 import { NumberField, Section, SelectField } from '../../components/form'
 import { ChevronLeftIcon, ChevronRightIcon } from '../../components/icons'
-import { DetailHeader, EmptyDetail, ListItem, ManagerLayout } from '../../components/layout'
+import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Avatar, Button, IconButton } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -98,9 +98,7 @@ export function CharactersPage() {
         </div>
       }
       detail={
-        !selected ? (
-          <EmptyDetail text="选择一个角色查看和编辑，或新建角色。" />
-        ) : detail.isPending ? (
+        !selected ? null : detail.isPending ? (
           <>
             <DetailHeader title="角色" onBack={() => select(null)} />
             <p className="p-4">加载中…</p>
@@ -131,7 +129,7 @@ export function CharactersPage() {
   )
 }
 
-function CharacterEditor({
+export function CharacterEditor({
   character,
   onBack,
   onDirty,
@@ -209,6 +207,7 @@ function CharacterEditor({
               if (dirty && !confirm('有未保存的修改，是否放弃并开始聊天？')) return
               void run(async () => {
                 const chat = await api.createChat({ characterId: character.id })
+                useUi.getState().openView('chat')
                 openChat({ characterId: character.id }, chat.id)
               })
             }}

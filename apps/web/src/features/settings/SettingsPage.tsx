@@ -1,8 +1,6 @@
 import { NumberField, Section, SelectField, SwitchField } from '../../components/form'
-import { MenuIcon } from '../../components/icons'
-import { Button, IconButton } from '../../components/ui'
+import { Button } from '../../components/ui'
 import { SIDEBAR_MAX, SIDEBAR_MIN, useAppearance } from '../../stores/appearance'
-import { useUi } from '../../stores/ui'
 
 /**
  * 设置页：外观和布局。改动立即生效，自动保存在这台设备的浏览器里。
@@ -10,14 +8,10 @@ import { useUi } from '../../stores/ui'
  */
 export function SettingsPage() {
   const a = useAppearance()
-  const setSidebarOpen = useUi((s) => s.setSidebarOpen)
 
   return (
     <div className="h-full min-w-0 flex-1 overflow-y-auto">
       <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b border-zinc-200 bg-white/90 px-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
-        <IconButton label="打开导航" className="md:hidden" onClick={() => setSidebarOpen(true)}>
-          <MenuIcon />
-        </IconButton>
         <h1 className="flex-1 font-semibold">设置</h1>
         <Button
           onClick={() => {
@@ -28,7 +22,7 @@ export function SettingsPage() {
         </Button>
       </header>
 
-      <div className="mx-auto max-w-2xl space-y-4 p-4">
+      <div className="space-y-4 p-3">
         <p className="text-sm text-zinc-500">外观设置只保存在当前浏览器里，手机和电脑可以分别设置。改动立即生效。</p>
 
         <Section title="外观">
@@ -111,18 +105,12 @@ export function SettingsPage() {
         <Section title="侧栏">
           <NumberField
             label="侧栏宽度"
-            hint={`聊天页左侧会话列表的宽度（像素），${SIDEBAR_MIN}–${SIDEBAR_MAX}。也可以直接拖动侧栏右边缘调整，双击边缘恢复默认`}
+            hint={`左侧面板的宽度（像素），${SIDEBAR_MIN}–${SIDEBAR_MAX}。也可以直接拖动侧栏右边缘调整，双击边缘恢复默认`}
             min={SIDEBAR_MIN}
             max={SIDEBAR_MAX}
             step={4}
             value={a.sidebarWidth}
             onChange={(sidebarWidth) => a.set({ sidebarWidth })}
-          />
-          <SwitchField
-            label="收起侧栏"
-            hint="宽屏下隐藏聊天页的会话列表，把空间留给对话。聊天页标题栏左边的按钮也可以切换"
-            checked={a.sidebarCollapsed}
-            onChange={(sidebarCollapsed) => a.set({ sidebarCollapsed })}
           />
         </Section>
       </div>

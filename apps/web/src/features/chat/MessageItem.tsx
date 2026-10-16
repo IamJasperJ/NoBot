@@ -20,7 +20,7 @@ import { Slot } from '../../extensions/Slot'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
-import { FormattedText } from './format'
+import { displayMacros, FormattedText } from './format'
 import { runGeneration } from './generate'
 
 /** 会话里出场的人：角色（群聊里是全部成员）和用户人设 */
@@ -72,7 +72,13 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
   const speaker = msg.speakerId ? cast.speakers[msg.speakerId] : undefined
   const who = isUser ? cast.user : (speaker ?? { ...cast.fallback, name: msg.meta.name ?? cast.fallback.name })
   const isStreaming = liveText !== null || msg.status === 'streaming'
-  const text = transformMessage(liveText ?? msg.content, msg, transforms)
+  // {{char}} 用这条消息的角色（用户消息里用会话的角色），{{user}} 用当前人设
+  const charName = isUser ? (speaker?.name ?? cast.fallback.name) : who.name
+  const text = transformMessage(
+    displayMacros(liveText ?? msg.content, { char: charName, user: cast.user.name }),
+    msg,
+    transforms,
+  )
   const reasoning = liveReasoning || msg.meta.reasoning
   // 最后一条角色回复可以向右滑出新的回复、可以续写；其他消息只能在已有的 swipe 间切换
   const isReply = msg.role === 'assistant' && msg.parentId !== null

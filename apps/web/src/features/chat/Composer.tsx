@@ -172,6 +172,15 @@ export function Composer({
             </span>
           </summary>
           <div className="absolute bottom-10 left-0 z-20 w-52 rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+            <MenuButton
+              onClick={() => {
+                closeMenu()
+                fileRef.current?.click()
+              }}
+              label={images.length >= 10 ? '附加图片（最多 10 张）' : '附加图片'}
+              disabled={sending || images.length >= 10}
+            />
+            <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
             <MenuButton onClick={() => trigger()} label={group ? '按发言顺序让角色接着说' : '让角色接着说'} />
             {group && (
               <>
@@ -198,13 +207,6 @@ export function Composer({
             event.target.value = ''
           }}
         />
-        <IconButton
-          label="附加图片"
-          disabled={busy || sending || images.length >= 10}
-          onClick={() => fileRef.current?.click()}
-        >
-          <span aria-hidden="true">▧</span>
-        </IconButton>
         <textarea
           ref={ref}
           rows={1}

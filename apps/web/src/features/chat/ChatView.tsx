@@ -6,7 +6,7 @@ import { EyeIcon, MenuIcon, PanelIcon, SettingsIcon } from '../../components/ico
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
-import { useAppearance } from '../../stores/appearance'
+import { useMobile } from '../../hooks/useMobile'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -28,9 +28,22 @@ export function ChatView({ chatId }: { chatId: string }) {
   const personas = usePersonas()
   const messages = useMemo(() => flattenPages(pages.data), [pages.data])
   const streamingHere = useStreaming((s) => s.chatId === chatId)
-  const { setSidebarOpen, setPreviewOpen, previewOpen, chatSettingsOpen, setChatSettingsOpen } = useUi()
-  const sidebarCollapsed = useAppearance((s) => s.sidebarCollapsed)
-  const setAppearance = useAppearance((s) => s.set)
+  const {
+    sidebarOpen,
+    setSidebarOpen,
+    setPreviewOpen,
+    previewOpen,
+    chatSettingsOpen,
+    setChatSettingsOpen,
+    panelOpen,
+    setPanelOpen,
+    openView,
+    view,
+  } = useUi()
+  const mobile = useMobile()
+  const panelVisible = panelOpen && view === 'chat' && (!mobile || sidebarOpen)
+  const settingsVisible = panelVisible && chatSettingsOpen
+  const previewVisible = panelVisible && previewOpen
 
   // 会话里出场的人：群聊是全部成员，单人会话是那个角色；用户是会话绑定的人设（没有就用默认人设）
   const persona = personas.data?.find((p) => p.id === chat?.personaId) ?? personas.data?.find((p) => p.isDefault)
@@ -69,15 +82,18 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 dark:border-zinc-800">
+      <header
+        className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 pr-3 dark:border-zinc-800"
+        style={{ paddingLeft: 'calc(var(--panel-offset) + 0.75rem)' }}
+      >
         <IconButton label="打开侧栏" className="md:hidden" onClick={() => setSidebarOpen(true)}>
           <MenuIcon />
         </IconButton>
         {/* 宽屏：收起 / 展开侧栏 */}
         <IconButton
-          label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+          label={panelOpen ? '收起侧栏' : '展开侧栏'}
           className="max-md:hidden"
-          onClick={() => setAppearance({ sidebarCollapsed: !sidebarCollapsed })}
+          onClick={() => setPanelOpen(!panelOpen)}
         >
           <PanelIcon />
         </IconButton>
@@ -89,9 +105,9 @@ export function ChatView({ chatId }: { chatId: string }) {
         <IconButton
           label="会话设置"
           onClick={() => {
-            setChatSettingsOpen(!chatSettingsOpen)
+            setChatSettingsOpen(!settingsVisible)
             setPreviewOpen(false)
-            if (!chatSettingsOpen) setSidebarOpen(true)
+            if (!settingsVisible) openView('chat')
           }}
         >
           <SettingsIcon />
@@ -99,9 +115,9 @@ export function ChatView({ chatId }: { chatId: string }) {
         <IconButton
           label="Prompt 预览"
           onClick={() => {
-            setPreviewOpen(!previewOpen)
+            setPreviewOpen(!previewVisible)
             setChatSettingsOpen(false)
-            if (!previewOpen) setSidebarOpen(true)
+            if (!previewVisible) openView('chat')
           }}
         >
           <EyeIcon />

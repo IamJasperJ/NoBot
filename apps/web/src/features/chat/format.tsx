@@ -1,6 +1,20 @@
 import { memo, type ReactNode } from 'react'
 
 /**
+ * 显示时替换角色卡里常见的宏。数据库里保存的是原文（发给模型时由后端统一替换），
+ * 这里只影响显示，所以换了人设之后旧消息也会显示新名字。
+ * 只处理名字类的宏：{{char}} {{user}}，以及酒馆的旧写法 <BOT> <CHAR> <USER>，不区分大小写。
+ */
+export function displayMacros(text: string, names: { char: string; user: string }): string {
+  if (!text.includes('{{') && !text.includes('<')) return text
+  return text
+    .replace(/\{\{\s*char\s*\}\}/gi, names.char)
+    .replace(/\{\{\s*user\s*\}\}/gi, names.user)
+    .replace(/<(BOT|CHAR)>/gi, names.char)
+    .replace(/<USER>/gi, names.user)
+}
+
+/**
  * 角色扮演常用的轻量格式：
  *   *动作*      → 灰色斜体
  *   **强调**    → 加粗

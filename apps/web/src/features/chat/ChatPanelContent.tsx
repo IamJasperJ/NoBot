@@ -5,29 +5,16 @@ import { Sidebar } from '../characters/Sidebar'
 import { ChatSettings } from './ChatSettings'
 import { PromptPreview } from './PromptPreview'
 
-/**
- * 聊天页左侧的面板位：平时是会话列表（Sidebar）；
- * 打开「会话设置」或「Prompt 预览」时，面板就在这个位置替换会话列表，不遮挡对话区。
- * 宽屏下右边缘可以拖动调节宽度（也可以在设置页里填数值）。
- */
-export function SidePanel() {
+/** 聊天导航项的面板内容，宽度和拖拽手柄统一由应用外壳提供。 */
+export function ChatPanelContent() {
   const { chatId, chatSettingsOpen, previewOpen } = useUi()
-
-  let content = <Sidebar />
-  if (chatId && chatSettingsOpen) content = <ChatSettings chatId={chatId} />
-  else if (chatId && previewOpen) content = <PromptPreview chatId={chatId} />
-
-  return (
-    // 手机上侧栏在抽屉里，宽度不能超过屏幕减去导航栏
-    <div className="relative h-full w-[min(var(--sidebar-width),calc(100vw-4rem))] shrink-0 md:w-[var(--sidebar-width)]">
-      {content}
-      <ResizeHandle />
-    </div>
-  )
+  if (chatId && chatSettingsOpen) return <ChatSettings chatId={chatId} />
+  if (chatId && previewOpen) return <PromptPreview chatId={chatId} />
+  return <Sidebar />
 }
 
 /** 拖动右边缘调节侧栏宽度 */
-function ResizeHandle() {
+export function ResizeHandle() {
   const start = useRef<{ x: number; width: number } | null>(null)
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
@@ -53,8 +40,10 @@ function ResizeHandle() {
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onLostPointerCapture={onPointerUp}
       onDoubleClick={() => useAppearance.getState().set({ sidebarWidth: 288 })}
-      className="absolute inset-y-0 -right-1 z-10 hidden w-2 cursor-col-resize hover:bg-violet-500/30 md:block"
+      className="absolute inset-y-0 -right-1 z-10 hidden w-2 touch-none cursor-col-resize hover:bg-violet-500/30 md:block"
     />
   )
 }

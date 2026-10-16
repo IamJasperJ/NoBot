@@ -4,7 +4,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, usePresets } from '../../api/queries'
 import { Tabs } from '../../components/form'
-import { DetailHeader, EmptyDetail, ListItem, ManagerLayout } from '../../components/layout'
+import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Button, inputClass } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -246,9 +246,7 @@ export function PresetsPage() {
               )}
             </fieldset>
           </>
-        ) : (
-          <EmptyDetail text="选择一个预设，或新建、导入酒馆预设。" />
-        )
+        ) : null
       }
     />
   )

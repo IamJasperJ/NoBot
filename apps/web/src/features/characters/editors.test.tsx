@@ -8,7 +8,7 @@ import { keys } from '../../api/queries'
 import { useUi } from '../../stores/ui'
 import { GroupDialog } from '../groups/GroupDialog'
 import { PersonasPage } from '../personas/PersonasPage'
-import { CharactersPage } from './CharactersPage'
+import { CharacterEditor, CharactersPage } from './CharactersPage'
 import { CountedArea, moveItem } from './editor'
 
 const character: CharacterDTO = {
@@ -57,10 +57,18 @@ afterEach(() => {
 })
 
 describe('E3 管理界面', () => {
-  test('聊天页 focusId 能直接打开角色，并展示所有设定分组和开场白编辑器', () => {
+  test('聊天页 focusId 高亮侧栏中的角色，编辑器不再内联到列表', () => {
     // 服务端渲染使用 Zustand 的初始快照，预置它来模拟从聊天页进入。
     useUi.getInitialState().focusId = character.id
     const html = render(<CharactersPage />)
+    expect(html).toContain('bg-violet-100 dark:bg-violet-950')
+    expect(html).toContain('测试角色')
+    expect(html).toContain('accept=".png,.json" multiple=""')
+    expect(html).not.toContain('基础设定')
+  })
+
+  test('角色编辑器保留所有设定分组和开场白字段', () => {
+    const html = render(<CharacterEditor character={character} onBack={noop} onDirty={noop} onSelect={noop} />)
     for (const text of [
       '基础设定',
       '进阶设定',
@@ -74,7 +82,6 @@ describe('E3 管理界面', () => {
       '开始聊天',
     ])
       expect(html).toContain(text)
-    expect(html).toContain('accept=".png,.json" multiple=""')
     expect(html).toContain('accept="image/*"')
     expect(html).toContain('rows="8"')
     expect(html).toContain('rows="6"')

@@ -87,6 +87,7 @@ function PlaceholderRow({ name, used }: { name: string; used: boolean }) {
   return (
     <li className="flex items-center gap-2 font-mono text-xs">
       <span
+        role="img"
         aria-label={used ? '已使用' : '未使用'}
         className={cx(
           'flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white',
@@ -155,7 +156,6 @@ function WorkflowEditor({
               {custom.map((item, index) => {
                 const status = inspection.custom.find((c) => c.name === item.find.trim().replace(/^%|%$/g, ''))
                 return (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 自定义占位符没有 id，按位置编辑
                   <div key={index} className="flex items-center gap-1.5">
                     <span
                       className={cx(

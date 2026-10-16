@@ -64,6 +64,18 @@ export function orientResolution(width: number, height: number, orientation?: 'p
   }
   return { width, height }
 }
+/**
+ * 发给 OpenAI 兼容图片接口的尺寸。默认原样发送用户设置的分辨率（不按模型名做任何限制）；
+ * 只有开启「按模型修正尺寸」时，才把 gpt-image / DALL·E 的尺寸贴合到它们接受的固定规格
+ */
+export function fitOpenaiSize(
+  settings: { openaiModel: string; openaiSnapSize: boolean },
+  width: number,
+  height: number,
+) {
+  return settings.openaiSnapSize ? openaiSize(settings.openaiModel, width, height) : `${width}x${height}`
+}
+
 export function openaiSize(model: string, width: number, height: number) {
   if (/gpt-image-/i.test(model)) return width === height ? '1024x1024' : width > height ? '1536x1024' : '1024x1536'
   if (/dall-e-3/i.test(model)) return width === height ? '1024x1024' : width > height ? '1792x1024' : '1024x1792'

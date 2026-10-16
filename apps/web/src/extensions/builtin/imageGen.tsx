@@ -295,14 +295,6 @@ export default function activate(api: ClientExtensionAPI) {
     const pending = message.meta.imageGen?.status === 'pending'
     // 占位框的刷新由聊天页统一负责（有 pending 图片时每 2 秒刷新会话），这里不再单独轮询
     if (!message.meta.imageGen) return null
-    const retry = async () => {
-      try {
-        await request('retry', { messageId: message.id })
-        await refresh(chatId)
-      } catch (error) {
-        api.toast.error(errorText(error))
-      }
-    }
     const background = async () => {
       try {
         await request('to-background', {
@@ -341,18 +333,6 @@ export default function activate(api: ClientExtensionAPI) {
         h(
           R.Fragment,
           null,
-          h(
-            'button',
-            {
-              type: 'button',
-              className: mediaButton,
-              disabled: pending,
-              onClick: retry,
-              title: '保留现有图片，再生成一张备选（可左右切换）',
-            },
-            icon('M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5'),
-            '重新生成',
-          ),
           h(
             'button',
             { type: 'button', className: mediaButton, disabled: pending, onClick: background },

@@ -67,7 +67,7 @@ export function Background({ chatId }: { chatId: string | null }) {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden transition-opacity duration-300"
+      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden transition-opacity duration-300"
       style={{ opacity: active ? 1 : 0 }}
     >
       {[layers.previous, layers.current].map(
@@ -94,7 +94,7 @@ export function Background({ chatId }: { chatId: string | null }) {
             </div>
           ),
       )}
-      <div className="absolute inset-0 bg-white dark:bg-zinc-950" style={{ opacity: bgDim / 100 }} />
+      {bgDim > 0 && <div className="absolute inset-0 bg-white dark:bg-zinc-950" style={{ opacity: bgDim / 100 }} />}
     </div>
   )
 }

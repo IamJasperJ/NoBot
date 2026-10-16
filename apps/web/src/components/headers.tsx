@@ -23,7 +23,6 @@ export function HeadersEditor({
   return (
     <div className="space-y-2">
       {rows.map(([name, v], index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: 请求头按位置编辑
         <div key={index} className="flex items-center gap-1.5">
           <input
             aria-label="请求头名称"

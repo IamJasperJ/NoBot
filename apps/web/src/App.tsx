@@ -65,7 +65,7 @@ function NavRail() {
     </button>
   )
   return (
-    <nav className="flex w-16 shrink-0 flex-col items-center border-r border-zinc-200 bg-zinc-50 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+    <nav className="nav-rail flex w-16 shrink-0 flex-col items-center border-r border-zinc-200 bg-zinc-50 py-3 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">{NAV.map(item)}</div>
       <div className="mt-1 border-t border-zinc-200 pt-1 dark:border-zinc-800">
         {item({ view: 'settings', label: '设置', icon: <SettingsIcon /> })}
@@ -101,13 +101,15 @@ function Welcome() {
         </IconButton>
       </header>
       <div className="chat-column flex flex-1 flex-col items-center justify-center gap-4 py-8 text-center">
-        <div className="text-2xl font-semibold tracking-tight">AI-Parter</div>
-        <p className="max-w-sm text-sm text-zinc-500">{tip}</p>
-        {action && (
-          <Button variant="primary" onClick={action.run}>
-            {action.label}
-          </Button>
-        )}
+        <div className="welcome-card flex flex-col items-center gap-4">
+          <div className="text-2xl font-semibold tracking-tight">AI-Parter</div>
+          <p className="max-w-sm text-sm text-zinc-500">{tip}</p>
+          {action && (
+            <Button variant="primary" onClick={action.run}>
+              {action.label}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -192,9 +194,11 @@ export function App() {
 
   return (
     <div
-      className="app-root flex h-dvh overflow-hidden"
+      className="app-root relative isolate flex h-dvh overflow-hidden"
       style={{ '--panel-offset': panelOpen ? 'var(--sidebar-width)' : '0px' } as CSSProperties}
     >
+      {/* 背景铺满整个窗口（导航栏下面也有），在所有内容下面 */}
+      <Background chatId={chatId} />
       {sidebarOpen && (
         <button
           type="button"
@@ -213,14 +217,13 @@ export function App() {
         <NavRail />
         {/* 抽屉隐藏时卸载面板，手机上的详情传送门也随之关闭。 */}
         {panelOpen && (!mobile || sidebarOpen) && (
-          <aside className="relative h-full w-[min(var(--sidebar-width),calc(100vw-4rem))] min-w-0 shrink-0 border-r border-zinc-200 bg-white md:fixed md:inset-y-0 md:left-16 md:z-20 md:w-[var(--sidebar-width)] dark:border-zinc-800 dark:bg-zinc-950">
+          <aside className="side-panel relative h-full w-[min(var(--sidebar-width),calc(100vw-4rem))] min-w-0 shrink-0 border-r border-zinc-200 bg-white md:fixed md:inset-y-0 md:left-16 md:z-20 md:w-[var(--sidebar-width)] dark:border-zinc-800 dark:bg-zinc-950">
             <PanelContent view={view} />
             <ResizeHandle />
           </aside>
         )}
       </div>
-      <main className="relative isolate min-w-0 flex-1">
-        <Background chatId={chatId} />
+      <main className="relative min-w-0 flex-1">
         {chatId ? <ChatView key={chatId} chatId={chatId} /> : <Welcome />}
       </main>
       <div

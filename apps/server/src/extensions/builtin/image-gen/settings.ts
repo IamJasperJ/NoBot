@@ -21,6 +21,8 @@ const shape = z
     openaiHeaders: z.string().default(''),
     /** 出图走哪个接口：auto 按模型名判断并在报错时自动换另一个；images = /images/generations；chat = /chat/completions */
     openaiApiType: z.enum(['auto', 'images', 'chat']).default('auto'),
+    /** 按模型修正尺寸：默认关闭，原样发送设置的分辨率 */
+    openaiSnapSize: z.boolean().default(false),
     promptConnectionId: z.string().default(''),
     promptModel: z.string().default(''),
     comfyUrl: z.string().default('http://127.0.0.1:8188'),
@@ -191,7 +193,15 @@ export const settingsSchema: ExtensionSettingField[] = [
       })),
     ),
     visibleWhen: openai,
-    hint: '仅对 gpt-image-* 发送 quality',
+    hint: '选了就随请求发送 quality；「自动」时不发送',
+  },
+  {
+    ...bool(
+      'openaiSnapSize',
+      '按模型修正尺寸',
+      '默认原样发送设置的分辨率。开启后 gpt-image 贴合 1024×1024 / 1536×1024 / 1024×1536，DALL·E 贴合它支持的尺寸',
+    ),
+    visibleWhen: openai,
   },
   { ...area('openaiExtra', '额外参数（JSON）', '高级接口参数，会合并到图片请求中'), visibleWhen: openai },
   ...[

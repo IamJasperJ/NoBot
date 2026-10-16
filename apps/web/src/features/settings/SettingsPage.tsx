@@ -106,11 +106,21 @@ export function SettingsPage() {
         <Section title="背景">
           <NumberField
             label="遮罩强度（%）"
+            hint="在背景图上盖一层半透明底色让文字更清楚；0 表示不加遮罩，原样显示背景"
             min={0}
             max={90}
             step={1}
             value={a.bgDim}
             onChange={(bgDim) => a.set({ bgDim })}
+          />
+          <NumberField
+            label="侧边栏不透明度（%）"
+            hint="有背景时侧边面板和编辑页的不透明度，调低能透出更多背景，调高文字更清楚"
+            min={20}
+            max={100}
+            step={1}
+            value={a.panelOpacity}
+            onChange={(panelOpacity) => a.set({ panelOpacity })}
           />
           <NumberField
             label="背景模糊（px）"

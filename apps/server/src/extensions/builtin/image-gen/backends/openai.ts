@@ -1,6 +1,6 @@
 import { HttpError } from '../../../../errors'
 import { openaiRequestHeaders } from '../discovery'
-import { openaiSize } from '../options'
+import { fitOpenaiSize } from '../options'
 import type { Settings } from '../settings'
 import { imageFetch, jsonResponse, object } from './http'
 
@@ -9,8 +9,9 @@ export function openaiBody(settings: Settings, prompt: string, width: number, he
     model: settings.openaiModel,
     prompt,
     n: 1,
-    size: openaiSize(settings.openaiModel, width, height),
-    ...(/gpt-image-/i.test(settings.openaiModel) ? { quality: settings.openaiQuality } : {}),
+    size: fitOpenaiSize(settings, width, height),
+    // 质量选了就发（不再只对 gpt-image 发送），「自动」时不发，由接口自己决定
+    ...(settings.openaiQuality !== 'auto' ? { quality: settings.openaiQuality } : {}),
     ...extraBody(settings),
   }
 }
@@ -159,13 +160,12 @@ async function viaChat(settings: Settings, prompt: string, width: number, height
   )
 }
 
-/** 这类报错说明接口选错了（模型只在另一个接口上提供），自动模式下换另一个接口再试一次 */
+/**
+ * 自动模式下，第一个接口返回请求类错误（400、404、405、415、422）就换另一个接口再试一次——
+ * 不再依赖报错文字里有没有「not supported」。鉴权（401、403）、限流（429）和服务器错误不换，直接报出来
+ */
 const wrongEndpoint = (error: unknown) =>
-  error instanceof HttpError &&
-  /not supported on \/v1\/images|images\/generations|does not support|not a chat model|unsupported model|not supported|不支持/i.test(
-    error.message,
-  ) &&
-  /HTTP 4\d\d/.test(error.message)
+  error instanceof HttpError && /HTTP (400|404|405|415|422)\b/.test(error.message)
 
 export async function generateOpenAI(
   settings: Settings,

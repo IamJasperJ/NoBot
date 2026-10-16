@@ -70,29 +70,96 @@ body {
 }
 
 /* 仅背景生效时增强对比度，沿用现有消息结构以免干扰并行修改的消息组件。 */
-[data-has-bg] .app-root main > .flex > header,
-[data-has-bg] .app-root main > .flex > .border-t {
-  background-color: rgb(255 255 255 / 78%);
-  backdrop-filter: blur(12px);
+/*
+ * 有背景图时：背景铺满整个窗口，只有需要阅读的地方加毛玻璃遮挡——
+ * 消息文字框、输入框、侧边面板、覆盖层编辑器；导航栏用更透的玻璃；
+ * 标题栏和底部栏本身完全透明，标题和按钮各自垫一块小玻璃，保证看得清又不挡图
+ */
+[data-has-bg] {
+  --glass-strong: rgb(255 255 255 / 86%);
+  --glass-soft: rgb(255 255 255 / 55%);
+  --glass-border: rgb(255 255 255 / 60%);
 }
-[data-has-bg] .app-root main .group.flex > .min-w-0.flex-1 {
+.dark[data-has-bg] {
+  --glass-strong: rgb(24 24 27 / 84%);
+  --glass-soft: rgb(24 24 27 / 50%);
+  --glass-border: rgb(255 255 255 / 10%);
+}
+/* 导航栏：更透的玻璃，能看到背景 */
+[data-has-bg] .nav-rail {
+  background-color: var(--glass-soft);
+  backdrop-filter: blur(16px) saturate(1.2);
+  border-color: var(--glass-border);
+}
+/* 侧边面板、覆盖层编辑器：内容多，遮挡强一些 */
+[data-has-bg] .side-panel,
+[data-has-bg] #overlay-root {
+  /* 不透明度来自「设置 → 背景 → 侧边栏不透明度」 */
+  background-color: rgb(255 255 255 / var(--panel-alpha, 82%));
+  backdrop-filter: blur(20px) saturate(1.2);
+  border-color: var(--glass-border);
+}
+.dark[data-has-bg] .side-panel,
+.dark[data-has-bg] #overlay-root {
+  background-color: rgb(24 24 27 / var(--panel-alpha, 82%));
+}
+/* 面板里各页面自带的底色去掉，由外层统一控制透明度 */
+[data-has-bg] .side-panel > :not(button),
+[data-has-bg] .side-panel > * > aside,
+[data-has-bg] #overlay-root > *,
+[data-has-bg] #overlay-root header {
+  background-color: transparent;
+}
+/* 面板和编辑页里的分组卡片也跟着「侧边栏不透明度」变化（比面板本身稍透一点，层次分明） */
+[data-has-bg] .side-panel :is(details, section).rounded-xl,
+[data-has-bg] #overlay-root :is(details, section).rounded-xl {
+  background-color: rgb(255 255 255 / calc(var(--panel-alpha, 82%) * 0.75));
+}
+.dark[data-has-bg] .side-panel :is(details, section).rounded-xl,
+.dark[data-has-bg] #overlay-root :is(details, section).rounded-xl {
+  background-color: rgb(39 39 42 / calc(var(--panel-alpha, 82%) * 0.75));
+}
+/* 欢迎页的文字垫一块玻璃 */
+[data-has-bg] .welcome-card {
+  padding: 24px 32px;
+  border-radius: 20px;
+  background-color: var(--glass-strong);
+  backdrop-filter: blur(16px);
+}
+/* 标题栏、底部栏：完全透明 */
+[data-has-bg] .chat-header,
+[data-has-bg] .composer-bar {
+  background-color: transparent;
+  backdrop-filter: none;
+  border-color: transparent;
+}
+[data-has-bg] .chat-title {
+  padding: 3px 12px;
   border-radius: 12px;
-  padding: 12px;
-  background-color: rgb(255 255 255 / 86%);
+  background-color: var(--glass-strong);
   backdrop-filter: blur(12px);
 }
-[data-has-bg] .app-root main .border-t > .chat-column.rounded-2xl {
-  background-color: rgb(255 255 255 / 80%);
+[data-has-bg] .chat-header button {
+  background-color: var(--glass-strong);
+  backdrop-filter: blur(12px);
 }
-.dark[data-has-bg] .app-root main > .flex > header,
-.dark[data-has-bg] .app-root main > .flex > .border-t {
-  background-color: rgb(9 9 11 / 80%);
+/* 输入框和消息文字框：保证文字清楚 */
+[data-has-bg] .composer-box {
+  background-color: var(--glass-strong);
+  backdrop-filter: blur(16px);
+  border-color: var(--glass-border);
+  box-shadow: 0 4px 24px rgb(0 0 0 / 12%);
 }
-.dark[data-has-bg] .app-root main .group.flex > .min-w-0.flex-1 {
-  background-color: rgb(24 24 27 / 88%);
+[data-has-bg] .message-box {
+  border-radius: 14px;
+  padding: 10px 14px;
+  background-color: var(--glass-strong);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 2px 16px rgb(0 0 0 / 8%);
 }
-.dark[data-has-bg] .app-root main .border-t > .chat-column.rounded-2xl {
-  background-color: rgb(24 24 27 / 80%);
+/* 头像也垫一圈白边，在花哨的背景上更清楚 */
+[data-has-bg] .message-avatar > * {
+  box-shadow: 0 0 0 2px var(--glass-strong);
 }
 
 /* 下拉框统一的箭头（替代系统默认样式，见 components/ui.tsx 的 selectClass） */

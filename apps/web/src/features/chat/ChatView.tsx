@@ -91,7 +91,7 @@ export function ChatView({ chatId }: { chatId: string }) {
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
       <header
-        className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 pr-3 dark:border-zinc-800"
+        className="chat-header flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 pr-3 dark:border-zinc-800"
         style={{ paddingLeft: 'calc(var(--panel-offset) + 0.75rem)' }}
       >
         <IconButton label="打开侧栏" className="md:hidden" onClick={() => setSidebarOpen(true)}>
@@ -106,8 +106,10 @@ export function ChatView({ chatId }: { chatId: string }) {
           <PanelIcon />
         </IconButton>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold">{group?.name ?? character.data?.name ?? '…'}</div>
-          <div className="truncate text-xs text-zinc-500">{subtitle}</div>
+          <div className="chat-title inline-block max-w-full align-middle">
+            <div className="truncate font-semibold">{group?.name ?? character.data?.name ?? '…'}</div>
+            <div className="truncate text-xs text-zinc-500">{subtitle}</div>
+          </div>
         </div>
         <Slot name="chat.header.actions" props={{ chatId }} />
         <IconButton

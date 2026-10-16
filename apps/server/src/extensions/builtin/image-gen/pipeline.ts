@@ -11,7 +11,7 @@ import { generateOpenAI } from './backends/openai'
 import { characterPrompt, composePrompt, dimensions } from './composition'
 import { comfyHeaders, openaiHeaders, resolveImageConnection } from './discovery'
 import { cleanPrompt, type Mode, rawPrompt, replaceTemplate, templateEnding, templates } from './modes'
-import { openaiSize } from './options'
+import { fitOpenaiSize } from './options'
 import { Semaphore } from './semaphore'
 import { parseSettings, type Settings } from './settings'
 import { workflowSource } from './workflow'
@@ -95,7 +95,7 @@ async function freeze(ctx: Context, input: GenerateInput): Promise<Snapshot> {
       : undefined
   let size = dimensions(settings, orientation, input.mode)
   if (settings.source === 'openai') {
-    const [width, height] = openaiSize(settings.openaiModel, size.width, size.height).split('x').map(Number)
+    const [width, height] = fitOpenaiSize(settings, size.width, size.height).split('x').map(Number)
     size = { width: width!, height: height! }
   }
   const character = characterPrompt(input.mode, prepared.character.extensions, !!prepared.info.chat.groupId)
@@ -472,7 +472,7 @@ export async function retry(
   let size = { width: old.width ?? settings.width, height: old.height ?? settings.height }
   // 换了 OpenAI 模型时，尺寸要按新模型支持的规格重新贴合（比如 gpt-image 只接受 1024 / 1536）
   if (settings.source === 'openai') {
-    const [width, height] = openaiSize(settings.openaiModel, size.width, size.height).split('x').map(Number)
+    const [width, height] = fitOpenaiSize(settings, size.width, size.height).split('x').map(Number)
     size = { width: width!, height: height! }
   }
   let meta: ImageGenMeta = {
@@ -588,7 +588,7 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
     let size = dimensions(settings, args.orientation === 'landscape', 'tool')
     if (args.orientation === 'square') size.height = size.width
     if (settings.source === 'openai') {
-      const [width, height] = openaiSize(settings.openaiModel, size.width, size.height).split('x').map(Number)
+      const [width, height] = fitOpenaiSize(settings, size.width, size.height).split('x').map(Number)
       size = { width: width!, height: height! }
     }
     const combined = composePrompt(

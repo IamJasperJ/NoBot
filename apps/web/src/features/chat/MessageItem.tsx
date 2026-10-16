@@ -15,7 +15,7 @@ import {
   TrashIcon,
 } from '../../components/icons'
 import { Avatar, Button, cx, IconButton, inputClass } from '../../components/ui'
-import { transformMessage, useExtensionsRuntime } from '../../extensions/runtime'
+import { emitClientEvent, hasListener, transformMessage, useExtensionsRuntime } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
@@ -44,6 +44,9 @@ interface Props {
 /** 媒体独立于工具正文显示，异步任务更新元数据后直接替换占位内容。 */
 export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string }) {
   const qc = useQueryClient()
+  // 扩展热启停时重新判断「生成备选」是否可用
+  useExtensionsRuntime((s) => s.listeners)
+  const canGenerateAlternative = hasListener('image:swipe-next')
   const [saving, setSaving] = useState(false)
   const [editingPrompt, setEditingPrompt] = useState(false)
   const [expandedError, setExpandedError] = useState(false)
@@ -77,8 +80,12 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
   const switchImage = async (direction: -1 | 1) => {
     if (saving) return
     const next = imageIndex + direction
-    // 生成新的备选图用工具栏里的「重新生成」，箭头只负责切换，避免在最后一张误触生成
-    if (next >= count || next < 0) return
+    // 和文字回复的切换一样：在最后一张再往右就是「生成备选图」（保留现有图片，再生成一张）
+    if (next >= count) {
+      if (!hasTaskFrame && canGenerateAlternative) emitClientEvent({ type: 'image:swipe-next', chatId, message: msg })
+      return
+    }
+    if (next < 0) return
     setSaving(true)
     replaceMessage(qc, chatId, { ...msg, meta: { ...msg.meta, imageIndex: next } })
     try {
@@ -212,19 +219,25 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
       )}
       {/* 一行工具栏：备选切换 + 扩展按钮（重新生成、设为背景）。桌面端悬停时才完全显示 */}
       <div className="flex min-h-8 flex-wrap items-center gap-0.5 text-xs text-zinc-500 transition-opacity [@media(hover:hover)]:opacity-50 [@media(hover:hover)]:group-hover/media:opacity-100 [@media(hover:hover)]:focus-within:opacity-100">
-        {carousel && count > 1 && (
+        {carousel && (count > 1 || canGenerateAlternative) && (
           <div className="mr-1 flex items-center rounded-lg">
             <IconButton label="上一张图片" disabled={saving || imageIndex === 0} onClick={() => void switchImage(-1)}>
               <ChevronLeftIcon />
             </IconButton>
             <span className="min-w-8 text-center tabular-nums">{`${imageIndex + 1}/${count}`}</span>
-            <IconButton
-              label="下一张图片"
-              disabled={saving || imageIndex === count - 1}
-              onClick={() => void switchImage(1)}
-            >
-              <ChevronRightIcon />
-            </IconButton>
+            {(() => {
+              const atLast = imageIndex === count - 1
+              const generate = atLast && !hasTaskFrame && canGenerateAlternative
+              return (
+                <IconButton
+                  label={generate ? '生成备选图（保留现有图片，再生成一张）' : '下一张图片'}
+                  disabled={saving || (atLast && !generate)}
+                  onClick={() => void switchImage(1)}
+                >
+                  <ChevronRightIcon />
+                </IconButton>
+              )
+            })()}
           </div>
         )}
         {task && <Slot name="chat.message.media" props={{ chatId, message: msg }} />}
@@ -347,7 +360,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
       <div className="message-avatar">
         <Avatar name={who.name} url={who.avatarUrl} />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="message-box min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2 text-sm">
           <span className="font-semibold">{who.name}</span>
           {msg.status === 'aborted' && <span className="text-xs text-zinc-400">已中止</span>}

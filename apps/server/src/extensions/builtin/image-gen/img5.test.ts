@@ -47,12 +47,20 @@ test('30 个预设，基准对调、贴合、无方向继承、类型尺寸覆�
     ),
   ).toEqual({ width: 400, height: 500 })
 })
-test('OpenAI 模型尺寸和质量规则', () => {
+test('OpenAI 尺寸和质量：默认不按模型名限制，开启「按模型修正尺寸」才贴合', () => {
+  // 默认原样发送设置的尺寸；质量选了就发，不看模型名
   expect(openaiBody(parseSettings({ openaiQuality: 'high' }), 'cat', 832, 1216)).toMatchObject({
     quality: 'high',
-    size: '1024x1536',
+    size: '832x1216',
   })
-  expect(openaiBody(parseSettings({ openaiModel: 'flux-dev' }), 'cat', 832, 1216)).not.toHaveProperty('quality')
+  expect(openaiBody(parseSettings({ openaiModel: 'flux-dev', openaiQuality: 'low' }), 'cat', 832, 1216)).toMatchObject({
+    quality: 'low',
+  })
+  // 「自动」不发送 quality
+  expect(openaiBody(parseSettings({ openaiModel: 'gpt-image-2' }), 'cat', 832, 1216)).not.toHaveProperty('quality')
+  expect(
+    openaiBody(parseSettings({ openaiModel: 'gpt-image-2', openaiSnapSize: true }), 'cat', 832, 1216),
+  ).toMatchObject({ size: '1024x1536' })
   expect(openaiSize('gpt-image-1', 832, 1216)).toBe('1024x1536')
   expect(openaiSize('gpt-image-2', 1600, 900)).toBe('1536x1024')
   expect(openaiSize('gpt-image-1', 500, 500)).toBe('1024x1024')

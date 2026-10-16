@@ -138,7 +138,7 @@ export function Composer({
   const canContinue = lastMessage?.role === 'assistant' && lastMessage.parentId !== null
 
   return (
-    <div className="border-t border-zinc-200 bg-white/80 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
+    <div className="composer-bar border-t border-zinc-200 bg-white/80 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
       {images.length > 0 && (
         <div className="chat-column mb-2 flex gap-2 overflow-x-auto">
           {images.map((item, index) => (
@@ -166,7 +166,7 @@ export function Composer({
           ))}
         </div>
       )}
-      <div className="chat-column flex items-end gap-2 rounded-2xl border border-zinc-300 bg-white px-2 py-2 focus-within:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="composer-box chat-column flex items-end gap-2 rounded-2xl border border-zinc-300 bg-white px-2 py-2 focus-within:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900">
         <details ref={menuRef} className="relative shrink-0">
           <summary className={cx('list-none', busy && 'pointer-events-none opacity-40')}>
             <span className="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800">

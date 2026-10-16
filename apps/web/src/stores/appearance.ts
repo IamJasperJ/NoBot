@@ -22,6 +22,8 @@ export interface Appearance {
   sidebarWidth: number
   /** 是否显示消息头像 */
   bgDim: number
+  /** 有背景时侧边面板（以及覆盖层编辑器）的不透明度，20–100（%），越小越能看到背景 */
+  panelOpacity: number
   bgBlur: number
   bgFit: 'cover' | 'contain' | 'stretch' | 'center'
   bgAnimate: boolean
@@ -29,7 +31,8 @@ export interface Appearance {
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
-  bgDim: 35,
+  bgDim: 0,
+  panelOpacity: 82,
   bgBlur: 0,
   bgFit: 'cover',
   bgAnimate: true,
@@ -78,6 +81,7 @@ export const useAppearance = create<AppearanceState>((set, get) => ({
 function persist(state: Appearance) {
   const data: Appearance = {
     bgDim: state.bgDim,
+    panelOpacity: state.panelOpacity,
     bgBlur: state.bgBlur,
     bgFit: state.bgFit,
     bgAnimate: state.bgAnimate,
@@ -107,6 +111,7 @@ export function applyAppearance(a: Appearance) {
   root.classList.toggle('dark', dark)
   root.style.colorScheme = dark ? 'dark' : 'light'
   root.style.fontSize = `${a.uiScale}px`
+  root.style.setProperty('--panel-alpha', `${Math.min(100, Math.max(20, a.panelOpacity))}%`)
   root.style.setProperty('--msg-font-size', `${a.messageFontSize}px`)
   root.style.setProperty('--msg-line-height', String(a.messageLineHeight))
   root.style.setProperty('--chat-width', a.chatWidth > 0 ? `${a.chatWidth}px` : '100%')

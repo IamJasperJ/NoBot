@@ -1,6 +1,6 @@
 import type { ApiPresetDTO } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useEffectEvent, useId, useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useConnections } from '../../api/queries'
 import { Combobox } from '../../components/combobox'
@@ -38,7 +38,6 @@ export function ConnectionsPage() {
   const [models, setModels] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState(false)
-  const modelListId = useId()
   const baseline = original ? toDraft(original) : emptyDraft()
   const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(baseline)
   const canLeave = () => !dirty || confirm('此连接有未保存的修改，是否放弃？')

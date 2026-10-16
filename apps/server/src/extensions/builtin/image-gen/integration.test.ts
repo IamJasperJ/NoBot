@@ -167,7 +167,8 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     })
     expect(result.message.speakerId).toBe(actor.id)
     expect(result.message.meta.images?.[0]?.width).toBe(64)
-    expect(bodies[0]).toMatchObject({ n: 1, size: '1024x1536' })
+    // 默认原样发送设置的分辨率，不按模型名贴合
+    expect(bodies[0]).toMatchObject({ n: 1, size: '832x1216' })
     expect(bodies[0]).not.toHaveProperty('negative_prompt')
     async function wait(id: string, status = 'done') {
       for (let i = 0; i < 200; i++) {
@@ -322,8 +323,8 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     const recovered = await wait(wrongModel.message.id)
     expect(recovered.meta.imageGen?.status).toBe('done')
     expect(bodies.at(-1)).toMatchObject({ model: 'gpt-image-1', prompt: expect.stringContaining('a fox') })
-    // 换成 gpt-image 后尺寸按新模型的规格重新贴合
-    expect(['1024x1024', '1024x1536', '1536x1024']).toContain(String(bodies.at(-1)?.size))
+    // 默认不按模型名限制尺寸，重试沿用原画幅
+    expect(bodies.at(-1)?.size).toBe('832x1216')
     configure({ async: true })
     const dismissDone = await app.request('/api/ext/image-gen/dismiss', {
       method: 'POST',
@@ -378,9 +379,11 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       chatId: chat.id,
       vars: {},
     })
-    expect(tool.meta?.imageGen).toMatchObject({ status: 'done', mode: 'tool', width: 1024, height: 1024 })
+    expect(tool.meta?.imageGen).toMatchObject({ status: 'done', mode: 'tool' })
+    // 方图：宽高相等（不再按模型名强制成 1024×1024）
+    expect(tool.meta?.imageGen?.width).toBe(tool.meta?.imageGen?.height)
     expect(tool.meta?.images).toHaveLength(1)
-    expect(bodies.at(-1)).toMatchObject({ quality: 'high', negative_prompt: 'custom', size: '1024x1024' })
+    expect(bodies.at(-1)).toMatchObject({ quality: 'high', negative_prompt: 'custom', size: '832x832' })
     configure({ async: true })
     const asyncTool = await runTool('generate_image', '{"prompt":"cat"}', { chatId: chat.id, vars: {} })
     expect(asyncTool.meta?.imageGen?.status).toBe('pending')

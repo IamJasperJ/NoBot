@@ -59,7 +59,9 @@ beforeAll(() => {
       const url = new URL(request.url)
       const body = (await request.json()) as { model: string }
       hits.push(`${url.pathname} ${body.model}`)
+      if (body.model.includes('401')) return Response.json({ error: { message: 'bad key' } }, { status: 401 })
       if (url.pathname.endsWith('/images/generations')) {
+        if (body.model.includes('404')) return new Response('not found', { status: 404 })
         if (body.model.startsWith('gemini') || body.model.includes('chat-only'))
           return Response.json(
             { error: { message: `Model ${body.model} is not supported on /v1/images/generations` } },
@@ -83,6 +85,14 @@ test('聊天接口出图、自动模式猜错时换接口重试、没有图片�
   expect(hits).toEqual(['/v1/chat/completions gemini-3.1-flash-image'])
   // 手动指定图片接口时不自动换，直接报错
   await expect(run('gemini-3.1-flash-image', 'images')).rejects.toThrow('not supported')
+  // 自动模式不看报错文字：任何请求类错误（这里是 404）都换另一个接口
+  hits.length = 0
+  expect((await run('relay-404-painter', 'auto')).length).toBeGreaterThan(0)
+  expect(hits).toEqual(['/v1/images/generations relay-404-painter', '/v1/chat/completions relay-404-painter'])
+  // 鉴权失败不换接口
+  hits.length = 0
+  await expect(run('relay-401-painter', 'auto')).rejects.toThrow('HTTP 401')
+  expect(hits).toHaveLength(1)
   // 自动模式：模型名猜成图片接口，报「不支持」后自动换到聊天接口
   hits.length = 0
   expect((await run('relay-chat-only-painter', 'auto')).length).toBeGreaterThan(0)

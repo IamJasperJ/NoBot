@@ -101,6 +101,12 @@ export function SettingsPage() {
             checked={a.showAvatars}
             onChange={(showAvatars) => a.set({ showAvatars })}
           />
+          <SwitchField
+            label="自动隐藏左侧导航栏"
+            hint="宽屏下导航栏平时收起，鼠标移到窗口最左边时滑出；打开侧边面板时始终显示"
+            checked={a.autoHideNav}
+            onChange={(autoHideNav) => a.set({ autoHideNav })}
+          />
         </Section>
 
         <Section title="背景">

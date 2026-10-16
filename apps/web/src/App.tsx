@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { type CSSProperties, type ReactNode, useEffect, useRef } from 'react'
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
 import { useCharacters, useConnections } from './api/queries'
 import { Background } from './components/Background'
 import {
@@ -29,6 +29,7 @@ import { PersonasPage } from './features/personas/PersonasPage'
 import { PresetsPage } from './features/presets/PresetsPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { useMobile } from './hooks/useMobile'
+import { useAppearance } from './stores/appearance'
 import { useToasts } from './stores/toast'
 import { useUi, type View } from './stores/ui'
 
@@ -45,7 +46,17 @@ const NAV: { view: View; label: string; icon: ReactNode }[] = [
 ]
 
 /** 最左侧的图标导航。项目多时可以滚动；「设置」固定在最下面 */
-function NavRail() {
+function NavRail({
+  hidden = false,
+  floating = false,
+  onHover,
+  onLeave,
+}: {
+  hidden?: boolean
+  floating?: boolean
+  onHover?: () => void
+  onLeave?: () => void
+}) {
   const { view, panelOpen, toggleView } = useUi()
   const item = (n: { view: View; label: string; icon: ReactNode }) => (
     <button
@@ -65,7 +76,17 @@ function NavRail() {
     </button>
   )
   return (
-    <nav className="nav-rail flex w-16 shrink-0 flex-col items-center border-r border-zinc-200 bg-zinc-50 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+    <nav
+      onMouseEnter={onHover}
+      onMouseLeave={onLeave}
+      className={cx(
+        'nav-rail flex w-16 shrink-0 flex-col items-center border-r border-zinc-200 bg-zinc-50 py-3 dark:border-zinc-800 dark:bg-zinc-900',
+        // 宽屏：固定在左侧，自动隐藏时移出屏幕，悬停时滑回来盖在内容上（不推动聊天区）
+        'md:fixed md:inset-y-0 md:left-0 md:z-30 md:transition-transform md:duration-200',
+        hidden && 'md:-translate-x-full',
+        floating && 'md:shadow-xl',
+      )}
+    >
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">{NAV.map(item)}</div>
       <div className="mt-1 border-t border-zinc-200 pt-1 dark:border-zinc-800">
         {item({ view: 'settings', label: '设置', icon: <SettingsIcon /> })}
@@ -191,11 +212,30 @@ export function App() {
   }, [qc])
   const { view, chatId, panelOpen, sidebarOpen, setSidebarOpen } = useUi()
   const mobile = useMobile()
+  // 导航栏自动隐藏：打开侧边面板时固定显示（面板贴着它），否则鼠标移到左边缘才滑出
+  const autoHideNav = useAppearance((s) => s.autoHideNav)
+  const navPinned = !autoHideNav || panelOpen
+  const [navHover, setNavHover] = useState(false)
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const revealNav = () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current)
+    setNavHover(true)
+  }
+  const hideNav = () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current)
+    leaveTimer.current = setTimeout(() => setNavHover(false), 250)
+  }
 
   return (
     <div
       className="app-root relative isolate flex h-dvh overflow-hidden"
-      style={{ '--panel-offset': panelOpen ? 'var(--sidebar-width)' : '0px' } as CSSProperties}
+      style={
+        {
+          '--panel-offset': panelOpen ? 'var(--sidebar-width)' : '0px',
+          // 导航栏占的宽度：固定显示时 4rem，自动隐藏时 0（悬停滑出时盖在内容上，不占位置）
+          '--nav-width': navPinned ? '4rem' : '0px',
+        } as CSSProperties
+      }
     >
       {/* 背景铺满整个窗口（导航栏下面也有），在所有内容下面 */}
       <Background chatId={chatId} />
@@ -214,21 +254,31 @@ export function App() {
           !sidebarOpen && 'max-md:-translate-x-full',
         )}
       >
-        <NavRail />
+        <NavRail
+          hidden={!mobile && !navPinned && !navHover}
+          floating={!navPinned && navHover}
+          onHover={revealNav}
+          onLeave={hideNav}
+        />
         {/* 抽屉隐藏时卸载面板，手机上的详情传送门也随之关闭。 */}
         {panelOpen && (!mobile || sidebarOpen) && (
-          <aside className="side-panel relative h-full w-[min(var(--sidebar-width),calc(100vw-4rem))] min-w-0 shrink-0 border-r border-zinc-200 bg-white md:fixed md:inset-y-0 md:left-16 md:z-20 md:w-[var(--sidebar-width)] dark:border-zinc-800 dark:bg-zinc-950">
+          <aside className="side-panel relative h-full w-[min(var(--sidebar-width),calc(100vw-4rem))] min-w-0 shrink-0 border-r border-zinc-200 bg-white md:fixed md:inset-y-0 md:left-[var(--nav-width)] md:z-20 md:w-[var(--sidebar-width)] dark:border-zinc-800 dark:bg-zinc-950">
             <PanelContent view={view} />
             <ResizeHandle />
           </aside>
         )}
       </div>
+      {/* 宽屏：导航栏固定显示时在文档流里给它留出位置；自动隐藏时左边缘留一条感应区，鼠标移过来就滑出 */}
+      <div aria-hidden="true" className="hidden shrink-0 md:block" style={{ width: 'var(--nav-width)' }} />
+      {!mobile && !navPinned && (
+        <div aria-hidden="true" className="fixed inset-y-0 left-0 z-30 w-2" onMouseEnter={revealNav} />
+      )}
       <main className="relative min-w-0 flex-1">
         {chatId ? <ChatView key={chatId} chatId={chatId} /> : <Welcome />}
       </main>
       <div
         id="overlay-root"
-        className="fixed inset-0 z-40 bg-white md:left-[calc(4rem+var(--panel-offset))] md:z-30 md:border-l md:border-zinc-200 dark:bg-zinc-950 dark:md:border-zinc-800"
+        className="fixed inset-0 z-40 bg-white md:left-[calc(var(--nav-width)+var(--panel-offset))] md:z-30 md:border-l md:border-zinc-200 dark:bg-zinc-950 dark:md:border-zinc-800"
       />
       <Toasts />
     </div>

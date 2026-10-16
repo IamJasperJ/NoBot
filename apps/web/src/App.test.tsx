@@ -46,7 +46,10 @@ describe('应用外壳', () => {
   test('打开角色面板时仍然渲染当前会话和输入框', () => {
     const html = renderApp({ view: 'characters', chatId: 'chat', panelOpen: true })
     expect(html).toContain('搜索角色')
-    expect(html).toContain('aria-label="Prompt 预览"')
+    // 没有顶部标题栏了：会话设置和 Prompt 预览在输入框的「+」菜单里
+    expect(html).toContain('>会话设置</button>')
+    expect(html).toContain('>Prompt 预览</button>')
+    expect(html).not.toContain('chat-header')
     expect(html).toContain('<textarea')
     expect(html).toContain('--panel-offset:var(--sidebar-width)')
     expect(html).toContain('id="overlay-root"')
@@ -56,7 +59,10 @@ describe('应用外壳', () => {
     const html = renderApp({ view: 'characters', chatId: 'chat', panelOpen: false })
     expect(html).not.toContain('搜索角色')
     expect(html).not.toContain('aria-pressed="true"')
-    expect(html).toContain('aria-label="展开侧栏"')
+    // 面板关闭时导航栏自动隐藏（宽屏移出屏幕），左边缘留一条感应区，鼠标移过去才滑出
+    expect(html).toContain('md:-translate-x-full')
+    expect(html).toContain('fixed inset-y-0 left-0 z-30 w-2')
+    expect(html).toContain('--nav-width:0px')
     expect(html).toContain('<textarea')
     expect(html).toContain('--panel-offset:0px')
   })

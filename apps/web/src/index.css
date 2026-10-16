@@ -72,8 +72,7 @@ body {
 /* 仅背景生效时增强对比度，沿用现有消息结构以免干扰并行修改的消息组件。 */
 /*
  * 有背景图时：背景铺满整个窗口，只有需要阅读的地方加毛玻璃遮挡——
- * 消息文字框、输入框、侧边面板、覆盖层编辑器；导航栏用更透的玻璃；
- * 标题栏和底部栏本身完全透明，标题和按钮各自垫一块小玻璃，保证看得清又不挡图
+ * 消息文字框、输入框、侧边面板、覆盖层编辑器；导航栏用更透的玻璃；底部栏本身完全透明
  */
 [data-has-bg] {
   --glass-strong: rgb(255 255 255 / 86%);
@@ -126,22 +125,11 @@ body {
   background-color: var(--glass-strong);
   backdrop-filter: blur(16px);
 }
-/* 标题栏、底部栏：完全透明 */
-[data-has-bg] .chat-header,
+/* 底部栏：完全透明，只有输入框本身有底色 */
 [data-has-bg] .composer-bar {
   background-color: transparent;
   backdrop-filter: none;
   border-color: transparent;
-}
-[data-has-bg] .chat-title {
-  padding: 3px 12px;
-  border-radius: 12px;
-  background-color: var(--glass-strong);
-  backdrop-filter: blur(12px);
-}
-[data-has-bg] .chat-header button {
-  background-color: var(--glass-strong);
-  backdrop-filter: blur(12px);
 }
 /* 输入框和消息文字框：保证文字清楚 */
 [data-has-bg] .composer-box {

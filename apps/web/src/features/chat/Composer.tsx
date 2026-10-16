@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, api } from '../../api/client'
 import { PlusIcon, SendIcon, StopIcon } from '../../components/icons'
-import { cx, IconButton } from '../../components/ui'
+import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
 import { useMobile } from '../../hooks/useMobile'
@@ -104,6 +104,14 @@ export function Composer({
     }
   }
 
+  /** 打开（或再次点击时关闭）左侧面板里的会话设置 / Prompt 预览 */
+  const togglePanel = (which: 'settings' | 'preview') => {
+    const ui = useUi.getState()
+    const showing = ui.panelOpen && ui.view === 'chat' && (which === 'settings' ? ui.chatSettingsOpen : ui.previewOpen)
+    ui.setChatSettingsOpen(which === 'settings' && !showing)
+    ui.setPreviewOpen(which === 'preview' && !showing)
+    if (!showing) ui.openView('chat')
+  }
   const closeMenu = () => menuRef.current?.removeAttribute('open')
 
   const trigger = (speakerId?: string) => {
@@ -168,7 +176,7 @@ export function Composer({
       )}
       <div className="composer-box chat-column flex items-end gap-2 rounded-2xl border border-zinc-300 bg-white px-2 py-2 focus-within:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900">
         <details ref={menuRef} className="relative shrink-0">
-          <summary className={cx('list-none', busy && 'pointer-events-none opacity-40')}>
+          <summary className="list-none">
             <span className="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800">
               <PlusIcon />
             </span>
@@ -183,19 +191,47 @@ export function Composer({
               disabled={sending || images.length >= 10}
             />
             <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
-            <MenuButton onClick={() => trigger()} label={group ? '按发言顺序让角色接着说' : '让角色接着说'} />
+            <MenuButton
+              onClick={() => trigger()}
+              label={group ? '按发言顺序让角色接着说' : '让角色接着说'}
+              disabled={busy}
+            />
             {group && (
               <>
                 <div className="px-3 pt-2 pb-1 text-xs text-zinc-400">点名发言</div>
                 {group.members.map((m) => (
-                  <MenuButton key={m.characterId} onClick={() => trigger(m.characterId)} label={`让 ${m.name} 说`} />
+                  <MenuButton
+                    key={m.characterId}
+                    onClick={() => trigger(m.characterId)}
+                    label={`让 ${m.name} 说`}
+                    disabled={busy}
+                  />
                 ))}
                 <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
               </>
             )}
-            <MenuButton onClick={continueLast} label="续写最后一条回复" disabled={!canContinue} />
-            <MenuButton onClick={impersonate} label="代写（AI 替我写一条）" />
+            <MenuButton onClick={continueLast} label="续写最后一条回复" disabled={busy || !canContinue} />
+            <MenuButton onClick={impersonate} label="代写（AI 替我写一条）" disabled={busy} />
             <Slot name="chat.composer.menu" props={{ chatId, setText, close: closeMenu }} />
+            {/* 原来顶部标题栏里的按钮：会话设置、Prompt 预览、扩展加的按钮 */}
+            <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
+            <MenuButton
+              onClick={() => {
+                closeMenu()
+                togglePanel('settings')
+              }}
+              label="会话设置"
+            />
+            <MenuButton
+              onClick={() => {
+                closeMenu()
+                togglePanel('preview')
+              }}
+              label="Prompt 预览"
+            />
+            <div className="flex flex-wrap gap-1 px-2 empty:hidden">
+              <Slot name="chat.header.actions" props={{ chatId }} />
+            </div>
           </div>
         </details>
         <Slot name="chat.composer.buttons" props={{ chatId }} />

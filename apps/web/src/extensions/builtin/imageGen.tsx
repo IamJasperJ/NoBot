@@ -1,4 +1,5 @@
 import type { AttachmentDTO, CharacterDTO, CharacterSummary, ChatPage, MessageDTO } from '@ai-parter/shared'
+import { createPortal } from 'react-dom'
 import { ImagePromptDialog } from '../../features/chat/ImagePromptDialog'
 import type { ClientExtensionAPI } from '../types'
 import { SettingsFooter, StyleField, WorkflowField } from './imageGenSettings'
@@ -509,29 +510,37 @@ export default function activate(api: ClientExtensionAPI) {
         ),
       ),
       selected &&
-        h(
-          'div',
-          {
-            role: 'dialog',
-            'aria-label': '图片详情',
-            className: 'fixed inset-0 z-50 overflow-auto bg-black/80 p-6 text-white',
-          },
-          h('button', { type: 'button', className: buttonClass, onClick: () => setSelected(undefined) }, '关闭'),
-          h('img', { src: selected.image.url, alt: selected.prompt, className: 'mx-auto max-h-[70vh] max-w-full' }),
-          h('p', { className: 'my-4 break-words' }, selected.prompt),
-          h('a', { href: selected.image.url, download: `${selected.image.id}.webp`, className: buttonClass }, '下载'),
-          h('button', { type: 'button', className: buttonClass, onClick: () => background(selected) }, '设为聊天背景'),
+        // 渲染到 body：覆盖层有毛玻璃（backdrop-filter）时，里面的 fixed 元素会被限制在覆盖层范围内
+        createPortal(
           h(
-            'button',
+            'div',
             {
-              type: 'button',
-              className: buttonClass,
-              onClick: () => {
-                void api.openChat(selected.chatId).catch((error) => api.toast.error(errorText(error)))
-              },
+              role: 'dialog',
+              'aria-label': '图片详情',
+              className: 'fixed inset-0 z-50 overflow-auto bg-black/80 p-6 text-white',
             },
-            '跳到消息所在会话',
+            h('button', { type: 'button', className: buttonClass, onClick: () => setSelected(undefined) }, '关闭'),
+            h('img', { src: selected.image.url, alt: selected.prompt, className: 'mx-auto max-h-[70vh] max-w-full' }),
+            h('p', { className: 'my-4 break-words' }, selected.prompt),
+            h('a', { href: selected.image.url, download: `${selected.image.id}.webp`, className: buttonClass }, '下载'),
+            h(
+              'button',
+              { type: 'button', className: buttonClass, onClick: () => background(selected) },
+              '设为聊天背景',
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: buttonClass,
+                onClick: () => {
+                  void api.openChat(selected.chatId).catch((error) => api.toast.error(errorText(error)))
+                },
+              },
+              '跳到消息所在会话',
+            ),
           ),
+          document.body,
         ),
     )
   }

@@ -28,6 +28,8 @@ export interface Appearance {
   bgFit: 'cover' | 'contain' | 'stretch' | 'center'
   bgAnimate: boolean
   showAvatars: boolean
+  /** 宽屏下左侧导航栏自动隐藏：鼠标移到窗口最左边时滑出（打开侧边面板时始终显示） */
+  autoHideNav: boolean
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
@@ -44,6 +46,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   chatAlign: 'center',
   sidebarWidth: 288,
   showAvatars: true,
+  autoHideNav: true,
 }
 
 export const SIDEBAR_MIN = 220
@@ -93,6 +96,7 @@ function persist(state: Appearance) {
     chatAlign: state.chatAlign,
     sidebarWidth: state.sidebarWidth,
     showAvatars: state.showAvatars,
+    autoHideNav: state.autoHideNav,
   }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))

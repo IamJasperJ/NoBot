@@ -2,11 +2,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo } from 'react'
 import { ApiRequestError } from '../../api/client'
 import { flattenPages, keys, useCharacter, useChatPages, usePersonas } from '../../api/queries'
-import { EyeIcon, MenuIcon, PanelIcon, SettingsIcon } from '../../components/icons'
+import { MenuIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
-import { Slot } from '../../extensions/Slot'
-import { useMobile } from '../../hooks/useMobile'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -36,22 +34,7 @@ export function ChatView({ chatId }: { chatId: string }) {
     return () => clearInterval(timer)
   }, [pendingImage, chatId, qc])
   const streamingHere = useStreaming((s) => s.chatId === chatId)
-  const {
-    sidebarOpen,
-    setSidebarOpen,
-    setPreviewOpen,
-    previewOpen,
-    chatSettingsOpen,
-    setChatSettingsOpen,
-    panelOpen,
-    setPanelOpen,
-    openView,
-    view,
-  } = useUi()
-  const mobile = useMobile()
-  const panelVisible = panelOpen && view === 'chat' && (!mobile || sidebarOpen)
-  const settingsVisible = panelVisible && chatSettingsOpen
-  const previewVisible = panelVisible && previewOpen
+  const setSidebarOpen = useUi((s) => s.setSidebarOpen)
 
   // 会话里出场的人：群聊是全部成员，单人会话是那个角色；用户是会话绑定的人设（没有就用默认人设）
   const persona = personas.data?.find((p) => p.id === chat?.personaId) ?? personas.data?.find((p) => p.isDefault)
@@ -86,53 +69,16 @@ export function ChatView({ chatId }: { chatId: string }) {
     return <div className="p-8 text-center text-sm text-zinc-500">会话加载失败：{errorMessage(pages.error)}</div>
   }
 
-  const subtitle = group ? group.members.map((m) => m.name).join('、') : chat?.title
-
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <header
-        className="chat-header flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 pr-3 dark:border-zinc-800"
-        style={{ paddingLeft: 'calc(var(--panel-offset) + 0.75rem)' }}
+      {/* 不再有顶部标题栏：会话设置、Prompt 预览在输入框左边的「+」菜单里。手机上保留一个打开抽屉的悬浮按钮 */}
+      <IconButton
+        label="打开侧栏"
+        className="chat-float-button fixed top-3 left-3 z-20 size-9 rounded-full border border-zinc-200 bg-white/90 shadow-sm backdrop-blur md:hidden dark:border-zinc-700 dark:bg-zinc-900/90"
+        onClick={() => setSidebarOpen(true)}
       >
-        <IconButton label="打开侧栏" className="md:hidden" onClick={() => setSidebarOpen(true)}>
-          <MenuIcon />
-        </IconButton>
-        {/* 宽屏：收起 / 展开侧栏 */}
-        <IconButton
-          label={panelOpen ? '收起侧栏' : '展开侧栏'}
-          className="max-md:hidden"
-          onClick={() => setPanelOpen(!panelOpen)}
-        >
-          <PanelIcon />
-        </IconButton>
-        <div className="min-w-0 flex-1">
-          <div className="chat-title inline-block max-w-full align-middle">
-            <div className="truncate font-semibold">{group?.name ?? character.data?.name ?? '…'}</div>
-            <div className="truncate text-xs text-zinc-500">{subtitle}</div>
-          </div>
-        </div>
-        <Slot name="chat.header.actions" props={{ chatId }} />
-        <IconButton
-          label="会话设置"
-          onClick={() => {
-            setChatSettingsOpen(!settingsVisible)
-            setPreviewOpen(false)
-            if (!settingsVisible) openView('chat')
-          }}
-        >
-          <SettingsIcon />
-        </IconButton>
-        <IconButton
-          label="Prompt 预览"
-          onClick={() => {
-            setPreviewOpen(!previewVisible)
-            setChatSettingsOpen(false)
-            if (!previewVisible) openView('chat')
-          }}
-        >
-          <EyeIcon />
-        </IconButton>
-      </header>
+        <MenuIcon />
+      </IconButton>
 
       {pages.isPending ? (
         <div className="flex-1 p-8 text-center text-sm text-zinc-400">加载中…</div>

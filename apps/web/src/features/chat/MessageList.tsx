@@ -1,6 +1,7 @@
 import type { MessageDTO } from '@ai-parter/shared'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useMobile } from '../../hooks/useMobile'
 import { useStreaming } from '../../stores/streaming'
 import { type ChatCast, MessageItem } from './MessageItem'
 
@@ -25,12 +26,15 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
   const scrollRef = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
 
+  const mobile = useMobile()
   const virtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 120,
     overscan: 5,
     getItemKey: (i) => messages[i]?.id ?? i,
+    // 没有顶部标题栏了：列表顶部留出空白，手机上还要让开左上角打开抽屉的悬浮按钮
+    paddingStart: mobile ? 56 : 16,
   })
 
   // 流式输出时文本在变长：订阅长度，用来判断要不要跟着滚到底

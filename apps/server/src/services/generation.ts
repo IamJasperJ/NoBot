@@ -14,11 +14,11 @@ import { chats, messages } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { emitServerEvent, runTransform } from '../extensions/registry'
 import { buildRequestBody, chatCompletion } from '../llm/openai'
-import { runTool, toOpenAITools } from '../tools'
+import { enabledToolNames, runTool, toOpenAITools } from '../tools'
 import { getAttachment, redactImages, resolveImages } from './attachments'
 import { computeVars, loadMessage, loadPath } from './chats'
 import { assemble, type GenerationContext, loadGenerationContext } from './context'
-import { insertLog } from './logs'
+import { insertLog, logError } from './logs'
 
 /**
  * 生成任务。一次任务可能产出多条消息：
@@ -133,7 +133,7 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
   if (jobs.has(chatId)) throw new HttpError(409, 'BUSY', '这个会话正在生成中，请先等它结束或点停止')
   const ctx = loadGenerationContext(chatId, { requireConnection: true })
   const leafId = ctx.chat.activeLeafId
-  const toolsEnabled = ctx.preset.samplers.functionCalling
+  const enabledTools = enabledToolNames(chatId, ctx.preset.samplers)
   const firstMember = ctx.members[0]?.id as string
 
   let plan: Plan
@@ -191,7 +191,7 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
     type: plan.type,
     speakerId: plan.speakers[0] ?? firstMember,
     leafId: plan.continueTarget ? plan.continueTarget.id : plan.parentId,
-    toolsEnabled,
+    enabledTools,
     ...(pendingUserText !== null ? { pending: { role: 'user' as const, content: pendingUserText } } : {}),
   })
 
@@ -272,7 +272,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
             ctx.preset.samplers.disabledTools,
           )
           const toolId = newId()
-          const meta: MessageMeta = { toolCallId: call.id, toolName: call.name }
+          const meta: MessageMeta = { ...result.meta, toolCallId: call.id, toolName: call.name }
           if (result.varsPatch) meta.varsPatch = result.varsPatch
           db.insert(messages)
             .values({
@@ -289,6 +289,13 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
           parentId = toolId
           emitServerEvent({ type: 'message:saved', message: loadMessage(toolId) })
           emit(job, { type: 'message', message: loadMessage(toolId) })
+          if (result.onSaved) {
+            try {
+              await result.onSaved(toolId)
+            } catch (error) {
+              logError('扩展工具保存回调', error)
+            }
+          }
         }
         type = 'normal'
         continueTarget = null
@@ -328,7 +335,7 @@ async function generateOne(
   if (!connection) throw new HttpError(400, 'NO_API_PRESET', '还没有配置模型连接')
   const speaker = (ctx.members.find((m) => m.id === step.speakerId) ?? ctx.members[0]) as PromptCharacter
   const started = Date.now()
-  const toolsEnabled = ctx.preset.samplers.functionCalling
+  const enabledTools = enabledToolNames(job.chatId, ctx.preset.samplers)
 
   // 1. 准备消息：续写复用原消息，否则插入一条空的 streaming 消息
   let messageId: string
@@ -380,7 +387,7 @@ async function generateOne(
       type: step.type,
       speakerId: speaker.id,
       leafId: step.continueTarget ? step.continueTarget.id : step.parentId,
-      toolsEnabled,
+      enabledTools,
     })
     report = assembled.report
     const images = await resolveImages(assembled.messages, ctx.preset.samplers.imageMaxSize)
@@ -389,7 +396,9 @@ async function generateOne(
       model: connection.model,
       messages: assembled.messages,
       samplers: ctx.preset.samplers,
-      ...(toolsEnabled ? { tools: toOpenAITools(ctx.preset.samplers.disabledTools) } : {}),
+      ...(enabledTools.length
+        ? { tools: toOpenAITools([], job.chatId).filter((item) => enabledTools.includes(item.function.name)) }
+        : {}),
     })
     requestBody = redactImages(body, images)
     for await (const chunk of chatCompletion({

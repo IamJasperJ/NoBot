@@ -5,10 +5,17 @@ import { create } from 'zustand'
 import { api } from '../api/client'
 import { errorMessage, toast } from '../stores/toast'
 import { useUi, type View } from '../stores/ui'
+import { BUILTIN_CLIENTS } from './builtin'
 import type { ActivateFn, ClientEvent, ClientExtensionAPI, PageContribution, SlotName, SlotProps } from './types'
 
 type Owned<T> = T & { extensionId: string }
-type SlotEntry = Owned<{ slot: SlotName; id: string; order: number; render: (props: never) => React.ReactNode }>
+type SlotEntry = Owned<{
+  slot: SlotName
+  id: string
+  title?: string
+  order: number
+  render: (props: never) => React.ReactNode
+}>
 type Transform = Owned<{ fn: (text: string, message: MessageDTO) => string }>
 type Listener = Owned<{ type: ClientEvent['type']; handler: (event: ClientEvent) => void }>
 
@@ -44,7 +51,10 @@ function remove(id: string) {
     transforms: s.transforms.filter((x) => x.extensionId !== id),
     listeners: s.listeners.filter((x) => x.extensionId !== id),
   }))
-  if (String(useUi.getState().view).startsWith(`ext:${id}:`)) useUi.getState().openView('extensions')
+  const ui = useUi.getState()
+  if (ui.view === 'extensions' && ui.focusId === id && ui.extensionPageId !== null) {
+    useUi.setState({ extensionPageId: null })
+  }
 }
 
 function makeAPI(id: string, entry: Running, queryClient: QueryClient): ClientExtensionAPI {
@@ -60,8 +70,13 @@ function makeAPI(id: string, entry: Running, queryClient: QueryClient): ClientEx
     api,
     queryClient,
     toast,
-    openView: (view, focusId) => useUi.getState().openView(view as View, focusId),
+    openView: (view, focusId) => useUi.getState().openView(view as View | `ext:${string}:${string}`, focusId),
     getChatId: () => useUi.getState().chatId,
+    openChat: async (chatId) => {
+      const page = await api.getChatPage(chatId)
+      useUi.getState().openChat({ characterId: page.chat.characterId, groupId: page.chat.groupId }, chatId)
+      useUi.getState().openView('chat')
+    },
     getSettings: async () => (await api.listExtensions()).find((x) => x.id === id)?.settings ?? {},
     saveSettings: async (settings) => {
       await api.updateExtension(id, { settings })
@@ -115,7 +130,11 @@ async function activate(extension: ExtensionDTO, queryClient: QueryClient) {
       entry.style.href = `/api/extensions/${id}/style.css`
       document.head.append(entry.style)
     }
-    if (extension.client.script) {
+    const builtin = extension.source === 'builtin' ? BUILTIN_CLIENTS[id] : undefined
+    if (builtin) {
+      const cleanup = await builtin(makeAPI(id, entry, queryClient))
+      if (typeof cleanup === 'function') entry.cleanup = cleanup
+    } else if (extension.client.script) {
       const path = `/api/extensions/${id}/client.js`
       const module = await import(/* @vite-ignore */ path)
       if (typeof module.default !== 'function') throw new Error('前端入口必须默认导出 activate 函数')
@@ -142,7 +161,9 @@ export function loadExtensions(queryClient: QueryClient, reloadId?: string) {
           extension.enabled &&
           !extension.loadError &&
           !running.has(extension.id) &&
-          (extension.client.script || extension.client.style)
+          (extension.client.script ||
+            extension.client.style ||
+            (extension.source === 'builtin' && BUILTIN_CLIENTS[extension.id]))
         )
           await activate(extension, queryClient)
       }
@@ -178,4 +199,9 @@ export function transformMessage(text: string, message: MessageDTO, transforms: 
 /** 将泛型插槽的参数关联限制在调用侧，存储时统一擦除具体类型。 */
 export function slotProps<K extends SlotName>(props: SlotProps[K]): never {
   return props as never
+}
+
+/** 只有已启用扩展的有效订阅才允许从最后一张请求生成新图片。 */
+export function hasListener(type: ClientEvent['type']): boolean {
+  return useExtensionsRuntime.getState().listeners.some((listener) => listener.type === type)
 }

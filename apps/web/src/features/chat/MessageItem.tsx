@@ -15,13 +15,14 @@ import {
   TrashIcon,
 } from '../../components/icons'
 import { Avatar, Button, cx, IconButton, inputClass } from '../../components/ui'
-import { transformMessage, useExtensionsRuntime } from '../../extensions/runtime'
+import { emitClientEvent, hasListener, transformMessage, useExtensionsRuntime } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { displayMacros, FormattedText } from './format'
 import { runGeneration } from './generate'
+import { ImagePromptDialog } from './ImagePromptDialog'
 
 /** 会话里出场的人：角色（群聊里是全部成员）和用户人设 */
 export interface ChatCast {
@@ -40,6 +41,200 @@ interface Props {
   cast: ChatCast
 }
 
+/** 媒体独立于工具正文显示，异步任务更新元数据后直接替换占位内容。 */
+export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string }) {
+  const qc = useQueryClient()
+  // 扩展热启停时重新判断订阅，及时更新最后一张的箭头状态。
+  useExtensionsRuntime((s) => s.listeners)
+  const canRequestNext = hasListener('image:swipe-next')
+  const [saving, setSaving] = useState(false)
+  const [editingPrompt, setEditingPrompt] = useState(false)
+  const [expandedError, setExpandedError] = useState(false)
+  const task = msg.meta.imageGen
+  const images = msg.meta.images ?? []
+  const hasTaskFrame = task?.status === 'pending' || task?.status === 'error'
+  const count = images.length + (hasTaskFrame ? 1 : 0)
+  const carousel = !!task && count > 0
+  const imageIndex = Math.max(0, Math.min(msg.meta.imageIndex ?? count - 1, count - 1))
+  const showTaskFrame = hasTaskFrame && imageIndex === images.length
+  const imageAction = async (action: 'retry' | 'dismiss' | 'cancel', edited?: { prompt: string; negative: string }) => {
+    if (saving) return
+    if (action === 'dismiss' && !images.length && !confirm('放弃后将删除这条消息及后面的所有分支，确定放弃？')) return
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/ext/image-gen/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId: msg.id, ...edited }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error?.message ?? '图片操作失败')
+      if (data.message) replaceMessage(qc, chatId, data.message)
+      if (data.deleted) await resetChat(qc, chatId)
+    } catch (error) {
+      toast.error(errorMessage(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+  const switchImage = async (direction: -1 | 1) => {
+    if (saving) return
+    const next = imageIndex + direction
+    if (next >= count) {
+      if (!hasTaskFrame && hasListener('image:swipe-next'))
+        emitClientEvent({ type: 'image:swipe-next', chatId, message: msg })
+      return
+    }
+    if (next < 0) return
+    setSaving(true)
+    replaceMessage(qc, chatId, { ...msg, meta: { ...msg.meta, imageIndex: next } })
+    try {
+      replaceMessage(qc, chatId, await api.updateMessageImageIndex(msg.id, next))
+    } catch (e) {
+      replaceMessage(qc, chatId, msg)
+      toast.error(errorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+  const ratio =
+    task?.width && task.width > 0 && task.height && task.height > 0 ? `${task.width} / ${task.height}` : '1 / 1'
+  return (
+    <div className="group space-y-2">
+      {images.length > 0 && imageIndex < images.length && (
+        <div className="my-2 flex flex-wrap gap-2">
+          {images.map(
+            (image, index) =>
+              (!carousel || index === imageIndex) && (
+                <a key={image.id} href={image.url} target="_blank" rel="noreferrer">
+                  <img
+                    src={image.url}
+                    alt={`图片 ${index + 1}`}
+                    loading="lazy"
+                    className="max-h-80 max-w-full rounded-lg object-contain"
+                    style={{ maxWidth: 'min(320px, 100%)' }}
+                  />
+                </a>
+              ),
+          )}
+        </div>
+      )}
+      {showTaskFrame && task?.status === 'pending' && (
+        <div
+          role="status"
+          className="my-2 flex max-w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-lg border border-zinc-300 bg-zinc-100 p-4 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+          style={{ width: 320, aspectRatio: ratio }}
+        >
+          <span
+            aria-hidden="true"
+            className="size-6 animate-spin rounded-full border-2 border-zinc-300 border-t-violet-500"
+          />
+          <span>
+            {task.stage === 'prompt'
+              ? '正在写提示词…'
+              : task.stage === 'confirm'
+                ? '等待确认…'
+                : task.stage === 'queued'
+                  ? `排队中（第 ${task.queuePosition ?? 1} 位）`
+                  : task.stage === 'saving'
+                    ? '保存中…'
+                    : '生成中…'}
+          </span>
+          <button
+            type="button"
+            className="rounded border px-3 py-1 hover:bg-zinc-500/10"
+            disabled={saving}
+            onClick={() => void imageAction('cancel')}
+          >
+            取消
+          </button>
+          {task.prompt && <span className="line-clamp-3 break-words text-xs">{task.prompt.slice(0, 80)}</span>}
+        </div>
+      )}
+      {showTaskFrame && task?.status === 'error' && (
+        <div
+          role="alert"
+          className={cx(
+            'my-2 flex max-w-full flex-col items-center justify-center gap-2 overflow-auto rounded-lg border p-4 text-sm',
+            task.error === '已取消'
+              ? 'border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900'
+              : 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300',
+          )}
+          style={{ width: 320, aspectRatio: ratio }}
+        >
+          <strong>
+            <span aria-hidden="true">⚠ </span>
+            {task.error === '已取消' ? '已取消' : '图片生成失败'}
+          </strong>
+          {task.error !== '已取消' && (
+            <div className="w-full min-w-0 text-center">
+              <p className={cx('break-words whitespace-pre-wrap', !expandedError && 'line-clamp-3')}>
+                {task.error || '未知错误'}
+              </p>
+              {!!task.error && (
+                <button type="button" className="text-xs underline" onClick={() => setExpandedError(!expandedError)}>
+                  {expandedError ? '收起' : '详情'}
+                </button>
+              )}
+            </div>
+          )}
+          {task.prompt && <span className="line-clamp-3 break-words text-xs">{task.prompt.slice(0, 80)}</span>}
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button disabled={saving} onClick={() => void imageAction('retry')}>
+              重新生成
+            </Button>
+            <Button disabled={saving} onClick={() => setEditingPrompt(true)}>
+              改提示词…
+            </Button>
+            <Button disabled={saving} onClick={() => void imageAction('dismiss')}>
+              放弃
+            </Button>
+          </div>
+        </div>
+      )}
+      {carousel && (
+        <div className="flex w-full items-center gap-1 text-xs text-zinc-500 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-within:opacity-100">
+          <IconButton label="上一张图片" disabled={saving || imageIndex === 0} onClick={() => void switchImage(-1)}>
+            <ChevronLeftIcon />
+          </IconButton>
+          <span className="tabular-nums">{`${imageIndex + 1}/${count}`}</span>
+          {imageIndex === count - 1 && !hasTaskFrame && canRequestNext ? (
+            <Button
+              aria-label="生成新图"
+              variant="ghost"
+              className="px-2 py-1 text-xs"
+              disabled={saving || task?.status === 'pending'}
+              onClick={() => void switchImage(1)}
+            >
+              ＋ 生成新图
+            </Button>
+          ) : (
+            <IconButton
+              label="下一张图片"
+              disabled={saving || imageIndex === count - 1}
+              onClick={() => void switchImage(1)}
+            >
+              <ChevronRightIcon />
+            </IconButton>
+          )}
+        </div>
+      )}
+      {editingPrompt && task && (
+        <ImagePromptDialog
+          review={{
+            preview: { prompt: task.prompt ?? '', negative: task.negative ?? '' },
+            resolve: (edited) => {
+              setEditingPrompt(false)
+              if (edited) void imageAction('retry', edited)
+            },
+          }}
+        />
+      )}
+      <Slot name="chat.message.media" props={{ chatId, message: msg }} />
+    </div>
+  )
+}
+
 /** 工具调用的结果：显示成一张紧凑的小卡片 */
 function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: string; text: string }) {
   const label = msg.meta.toolName === 'roll_dice' ? '🎲 掷骰' : `🔧 ${msg.meta.toolName ?? '工具'}`
@@ -49,6 +244,7 @@ function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: string; t
         <span className="shrink-0 font-medium text-zinc-500">{label}</span>
         <span className="min-w-0 break-words whitespace-pre-wrap">{text}</span>
       </div>
+      <MessageMedia msg={msg} chatId={chatId} />
       <Slot name="chat.message.footer" props={{ chatId, message: msg }} />
     </div>
   )
@@ -204,20 +400,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
           </details>
         )}
 
-        {!!msg.meta.images?.length && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {msg.meta.images.map((image, index) => (
-              <a key={`${image.id}-${index}`} href={image.url} target="_blank" rel="noreferrer">
-                <img
-                  src={image.url}
-                  alt={`图片 ${index + 1}`}
-                  loading="lazy"
-                  className="max-h-40 max-w-full rounded-lg object-contain"
-                />
-              </a>
-            ))}
-          </div>
-        )}
+        <MessageMedia msg={msg} chatId={chatId} />
         {editing !== null ? (
           <div className="space-y-2">
             <textarea
@@ -234,11 +417,11 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
               <Button onClick={() => setEditing(null)}>取消</Button>
             </div>
           </div>
-        ) : (
+        ) : text || isStreaming ? (
           <div className={cx(isUser && 'text-zinc-800 dark:text-zinc-200', isStreaming && 'streaming-cursor')}>
             <FormattedText text={text} />
           </div>
-        )}
+        ) : null}
 
         <Slot name="chat.message.footer" props={{ chatId, message: { ...msg, content: liveText ?? msg.content } }} />
 

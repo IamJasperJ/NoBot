@@ -1,4 +1,5 @@
-import type { ToolInfo } from '@ai-parter/shared'
+import type { MessageMeta, ToolInfo } from '@ai-parter/shared'
+import type { ExtensionContext } from '../extensions/types'
 
 /**
  * 工具调用（function calling）。
@@ -9,12 +10,18 @@ import type { ToolInfo } from '@ai-parter/shared'
  */
 
 export interface ToolContext {
+  /** 扩展工具独有的宿主和设置，chatId 与当前调用一致。 */
+  extension?: ExtensionContext
   chatId: string
   /** 调用前的会话变量（沿激活路径累加得到） */
   vars: Record<string, unknown>
 }
 
 export interface ToolResult {
+  /** 浅合并进已保存工具消息的元数据，数组整体替换。 */
+  meta?: Partial<MessageMeta>
+  /** 入库后调用；异步任务可以用宿主更新该消息。 */
+  onSaved?: (messageId: string) => void
   /** 返回给模型的文本 */
   content: string
   /** 对会话变量的修改，会存进 tool 消息的 meta.varsPatch。值为 null 表示删除这个键 */
@@ -106,13 +113,13 @@ const setState: ToolDefinition = {
 export const BUILTIN_TOOLS: ToolDefinition[] = [rollDice, getTime, getState, setState]
 
 /** 当前可用的全部工具：内置 + 已启用扩展提供的。扩展注册表在启动时注入，避免循环依赖 */
-let extensionToolsProvider: () => { tool: ToolDefinition; source: string }[] = () => []
+let extensionToolsProvider: (chatId?: string) => { tool: ToolDefinition; source: string }[] = () => []
 export function setExtensionToolsProvider(fn: typeof extensionToolsProvider) {
   extensionToolsProvider = fn
 }
 
-export function availableTools(): { tool: ToolDefinition; source: string }[] {
-  const all = [...BUILTIN_TOOLS.map((tool) => ({ tool, source: 'builtin' })), ...extensionToolsProvider()]
+export function availableTools(chatId?: string): { tool: ToolDefinition; source: string }[] {
+  const all = [...BUILTIN_TOOLS.map((tool) => ({ tool, source: 'builtin' })), ...extensionToolsProvider(chatId)]
   // 同名工具以先注册的为准
   const seen = new Set<string>()
   return all.filter(({ tool }) => {
@@ -127,8 +134,8 @@ export function listToolInfo(): ToolInfo[] {
 }
 
 /** 转成 OpenAI 请求体里的 tools 字段。disabled 是生成预设里单独关闭的工具 */
-export function toOpenAITools(disabled: string[] = []) {
-  return availableTools()
+export function toOpenAITools(disabled: string[] = [], chatId?: string) {
+  return availableTools(chatId)
     .filter(({ tool }) => !disabled.includes(tool.name))
     .map(({ tool }) => ({
       type: 'function' as const,
@@ -144,7 +151,7 @@ export async function runTool(
 ): Promise<ToolResult> {
   // 模型偶尔会调用没提供给它的工具，关闭的工具一律拒绝执行
   if (disabled.includes(name)) return { content: `工具 ${name} 已被关闭` }
-  const found = availableTools().find(({ tool }) => tool.name === name)
+  const found = availableTools(ctx.chatId).find(({ tool }) => tool.name === name)
   if (!found) return { content: `没有名为 ${name} 的工具` }
   let args: Record<string, unknown> = {}
   try {
@@ -158,4 +165,9 @@ export async function runTool(
   } catch (e) {
     return { content: `工具执行出错：${e instanceof Error ? e.message : String(e)}` }
   }
+}
+
+/** 历史过滤和请求定义共用按会话解析后的工具列表。 */
+export function enabledToolNames(chatId: string, samplers: { functionCalling: boolean; disabledTools: string[] }) {
+  return samplers.functionCalling ? toOpenAITools(samplers.disabledTools, chatId).map((item) => item.function.name) : []
 }

@@ -9,7 +9,7 @@ export function buildCardExport(input: CardExportInput): { v2: Record<string, un
   const data = wrapped && isObject(raw.data) ? raw.data : raw
   Object.assign(data, structuredClone(input.fields))
   data.extensions = {
-    ...object(data.extensions),
+    ...(input.extensions === undefined ? object(data.extensions) : structuredClone(input.extensions)),
     talkativeness: input.extras.talkativeness,
     depth_prompt: {
       ...object(object(data.extensions).depth_prompt),

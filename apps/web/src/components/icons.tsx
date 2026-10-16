@@ -168,3 +168,11 @@ export const PanelIcon = (p: P) => (
     <path d="M9 4v16" />
   </Icon>
 )
+
+export const ImageIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="8" cy="8" r="1.5" />
+    <path d="m3 17 6-6 4 4 3-3 5 5" />
+  </Icon>
+)

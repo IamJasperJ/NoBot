@@ -82,7 +82,10 @@ export function injectHistory(history: Piece[], injections: Injection[]): Piece[
   const result: Piece[] = []
   for (let i = 0; i <= history.length; i++) {
     for (const injection of injections) {
-      if (Math.max(0, history.length - injection.depth) === i) result.push(injection.piece)
+      let position = Math.max(0, history.length - injection.depth)
+      // 深度落在工具结果中间时前移到调用前，协议要求结果紧随调用。
+      while (position > 0 && history[position]?.message.role === 'tool') position--
+      if (position === i) result.push(injection.piece)
     }
     if (i < history.length) result.push(history[i]!)
   }

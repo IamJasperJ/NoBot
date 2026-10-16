@@ -123,14 +123,20 @@ test('前端扩展：注册排序、页面、事件、变换、失败隔离与�
     expect(String(fetchMock.mock.calls.at(-1)?.[0])).toBe('http://localhost/api/ext/client-one/stats')
     await expect(extensionAPI!.fetchServer('../outside')).rejects.toThrow('路径不合法')
     extensionAPI!.openView('ext:client-one:page')
-    expect(String(useUi.getState().view)).toBe('ext:client-one:page')
+    expect(useUi.getState()).toMatchObject({
+      view: 'extensions',
+      focusId: 'client-one',
+      extensionPageId: 'page',
+      panelOpen: true,
+      sidebarOpen: true,
+    })
     extensions[0]!.enabled = false
     await runtime.loadExtensions(qc, 'client-one')
     expect(cleanups).toBe(1)
     expect(runtime.useExtensionsRuntime.getState().pages).toHaveLength(0)
     expect(runtime.useExtensionsRuntime.getState().slots).toHaveLength(0)
     expect(links.size).toBe(1)
-    expect(useUi.getState().view).toBe('extensions')
+    expect(useUi.getState()).toMatchObject({ view: 'extensions', focusId: 'client-one', extensionPageId: null })
     runtime.emitClientEvent({ type: 'generation:complete', chatId: 'chat' })
     expect(events).toBe(1)
     // 已停用的闭包晚到时也不能再次注册。

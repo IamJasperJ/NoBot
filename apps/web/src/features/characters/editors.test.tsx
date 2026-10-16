@@ -152,3 +152,44 @@ describe('E3 管理界面', () => {
     expect(moveItem(members, 2, 1)).toEqual(before)
   })
 })
+
+test('角色编辑插槽使用折叠分组，保存仅浅合并 extensions 并保留其他表单字段', async () => {
+  const { spyOn } = await import('bun:test')
+  const { api } = await import('../../api/client')
+  const { useExtensionsRuntime } = await import('../../extensions/runtime')
+  let save: ((patch: { extensions: Record<string, unknown> }) => Promise<void>) | undefined
+  const latest = { ...character, extensions: { other: true, nested: { before: true } } }
+  const get = spyOn(api, 'getCharacter').mockResolvedValue(latest)
+  const update = spyOn(api, 'updateCharacter').mockResolvedValue({
+    ...latest,
+    extensions: { other: true, nested: { after: true } },
+  })
+  const slots = [
+    {
+      slot: 'character.editor.sections' as const,
+      id: 'image-config',
+      title: '角色图片配置',
+      order: 100,
+      extensionId: 'fixture',
+      render: (props: never) => {
+        save = (props as { save: NonNullable<typeof save> }).save
+        return <span>图片生成提示词</span>
+      },
+    },
+  ]
+  useExtensionsRuntime.getInitialState().slots = slots
+  try {
+    const html = render(<CharacterEditor character={character} onBack={noop} onDirty={noop} onSelect={noop} />)
+    expect(html).toContain('角色图片配置')
+    expect(html).toContain('图片生成提示词')
+    const lastGroup = html.slice(html.lastIndexOf('<details'), html.indexOf('>', html.lastIndexOf('<details')))
+    expect(lastGroup).not.toContain('open=')
+    expect(save).toBeDefined()
+    await save?.({ extensions: { nested: { after: true } } })
+    expect(update).toHaveBeenCalledWith(character.id, { extensions: { other: true, nested: { after: true } } })
+  } finally {
+    get.mockRestore()
+    update.mockRestore()
+    useExtensionsRuntime.getInitialState().slots = []
+  }
+})

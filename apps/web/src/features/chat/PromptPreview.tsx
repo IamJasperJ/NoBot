@@ -88,6 +88,9 @@ export function PromptPreview({ chatId }: { chatId: string }) {
               共 <b className="tabular-nums">{report.totalTokens}</b> / {report.budget} token · 历史保留{' '}
               {report.historyKept} / {report.historyTotal} 条 · {preview.data?.messages.length} 条消息
             </div>
+            {report.omittedToolCalls > 0 && (
+              <div className="text-sm text-zinc-500">省略了 {report.omittedToolCalls} 条未启用工具的调用记录</div>
+            )}
             {wi.length > 0 && (
               <details className="rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
                 <summary className="cursor-pointer select-none">

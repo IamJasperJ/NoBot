@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { App } from './App'
 import { keys } from './api/queries'
 import { ManagerLayout } from './components/layout'
+import { useExtensionsRuntime } from './extensions/runtime'
 import { useUi } from './stores/ui'
 
 const initial = { ...useUi.getInitialState() }
@@ -28,6 +29,20 @@ function renderApp(state: Partial<typeof initial>) {
 }
 
 describe('应用外壳', () => {
+  test('注册的扩展页面不出现在左侧导航', () => {
+    const runtime = useExtensionsRuntime.getInitialState()
+    const pages = runtime.pages
+    runtime.pages = [{ extensionId: 'fixture', id: 'gallery', label: '测试图库', icon: '🖼', render: () => '图库正文' }]
+    try {
+      const html = renderApp({ view: 'chat', chatId: null, panelOpen: false })
+      expect(html).toContain('扩展')
+      expect(html).not.toContain('测试图库')
+      expect(html).not.toContain('图库正文')
+    } finally {
+      runtime.pages = pages
+    }
+  })
+
   test('打开角色面板时仍然渲染当前会话和输入框', () => {
     const html = renderApp({ view: 'characters', chatId: 'chat', panelOpen: true })
     expect(html).toContain('搜索角色')

@@ -26,3 +26,43 @@ assetRoutes.get('/attachments/:file', async (c) => {
     },
   })
 })
+
+assetRoutes.get('/backgrounds/:file', async (c) => {
+  const name = c.req.param('file')
+  if (!/^[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\.thumb\.webp|\.(?:webp|gif|mp4|webm))$/.test(name))
+    throw new HttpError(400, 'BAD_REQUEST', '文件名不合法')
+  const file = Bun.file(join(paths.backgrounds, name))
+  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', '背景不存在')
+  const ext = name.split('.').pop()!
+  const mime = { webp: 'image/webp', gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm' }[ext]!
+  const headers = new Headers({
+    'Content-Type': mime,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'Content-Length': String(file.size),
+  })
+  if (mime.startsWith('video/')) {
+    headers.set('Accept-Ranges', 'bytes')
+    const range = c.req.header('Range')
+    if (range) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range)
+      const start = match?.[1] ? Number(match[1]) : Math.max(0, file.size - Number(match?.[2]))
+      const end = match?.[1] && match[2] ? Math.min(Number(match[2]), file.size - 1) : file.size - 1
+      if (
+        !match ||
+        (!match[1] && !match[2]) ||
+        !Number.isSafeInteger(start) ||
+        !Number.isSafeInteger(end) ||
+        start > end ||
+        start >= file.size
+      ) {
+        headers.set('Content-Range', `bytes */${file.size}`)
+        headers.set('Content-Length', '0')
+        return new Response(null, { status: 416, headers })
+      }
+      headers.set('Content-Range', `bytes ${start}-${end}/${file.size}`)
+      headers.set('Content-Length', String(end - start + 1))
+      return new Response(file.slice(start, end + 1), { status: 206, headers })
+    }
+  }
+  return new Response(file, { headers })
+})

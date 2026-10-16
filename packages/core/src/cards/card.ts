@@ -7,6 +7,7 @@ export class CardParseError extends Error {}
 export interface ParsedCard {
   spec: 'v1' | 'v2' | 'v3'
   fields: CharacterFields
+  extensions: Record<string, unknown>
   extras: Partial<CharacterExtras>
   /** 卡里自带的世界书，原样保留，导入时再拆 */
   characterBook: unknown | null
@@ -76,6 +77,12 @@ export function parseCardJson(json: unknown): ParsedCard {
     spec,
     fields: result.data,
     extras: readCardExtras(data),
+    // 已映射的键由本应用字段维护，其余扩展数据供扩展读取并完整往返。
+    extensions: Object.fromEntries(
+      Object.entries(isObject(data.extensions) ? data.extensions : {}).filter(
+        ([key]) => !['talkativeness', 'depth_prompt'].includes(key),
+      ),
+    ),
     characterBook: isObject(book) ? book : null,
     raw: json,
   }

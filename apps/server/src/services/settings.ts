@@ -9,6 +9,7 @@ export const SETTING_KEYS = {
   defaultPromptPresetId: 'defaultPromptPresetId',
   defaultPersonaId: 'defaultPersonaId',
   worldInfo: 'worldInfo',
+  backgrounds: 'backgrounds',
   /** 扩展的启用状态：{ [扩展 id]: boolean } */
   extensionsEnabled: 'extensionsEnabled',
   /** 单个扩展的设置：ext:<扩展 id> */

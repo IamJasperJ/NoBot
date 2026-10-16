@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react'
+import { Section } from '../components/form'
 import { slotProps, useExtensionsRuntime } from './runtime'
 import type { SlotName, SlotProps } from './types'
 
@@ -24,11 +25,21 @@ function Render({ render }: { render: () => ReactNode }) {
 export function Slot<K extends SlotName>({ name, props }: { name: K; props: SlotProps[K] }) {
   const slots = useExtensionsRuntime((s) => s.slots)
   return slots
-    .filter((entry) => entry.slot === name)
+    .filter(
+      (entry) =>
+        entry.slot === name &&
+        (name !== 'extensions.settings.footer' || ('extensionId' in props && entry.extensionId === props.extensionId)),
+    )
     .sort((a, b) => a.order - b.order)
     .map((entry) => (
       <ExtensionBoundary key={`${entry.extensionId}:${entry.id}`} id={entry.extensionId}>
-        <Render render={() => entry.render(slotProps(props))} />
+        {name === 'character.editor.sections' ? (
+          <Section title={entry.title ?? entry.id} defaultOpen={false}>
+            <Render render={() => entry.render(slotProps(props))} />
+          </Section>
+        ) : (
+          <Render render={() => entry.render(slotProps(props))} />
+        )}
       </ExtensionBoundary>
     ))
 }
@@ -38,9 +49,6 @@ export function ExtensionPage({ view }: { view: string }) {
   const page = pages.find((p) => `ext:${p.extensionId}:${p.id}` === view)
   return page ? (
     <div className="flex h-full min-w-0 flex-col">
-      <header className="flex h-14 shrink-0 items-center px-3">
-        <h1 className="truncate font-semibold">{page.label}</h1>
-      </header>
       <div className="min-h-0 min-w-0 flex-1 overflow-auto p-3">
         <ExtensionBoundary key={view} id={page.extensionId}>
           <Render render={page.render} />

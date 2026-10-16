@@ -8,6 +8,20 @@
       "when": 1792085223516,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792123386072,
+      "tag": "0001_confused_captain_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792125796347,
+      "tag": "0002_hesitant_mister_fear",
+      "breakpoints": true
     }
   ]
 }

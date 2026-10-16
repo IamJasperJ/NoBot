@@ -32,6 +32,7 @@ import {
 } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { collectMacros, runAfterPrompt, runBeforePrompt } from '../extensions/registry'
+import { enabledToolNames } from '../tools'
 import { getChatRow, loadGroupDTO, loadPath } from './chats'
 import { resolveApiPreset } from './connections'
 import { getWorldInfoSettings, SETTING_KEYS } from './settings'
@@ -222,11 +223,27 @@ export function loadGenerationContext(chatId: string, opts: { requireConnection:
 export function toHistory(ctx: GenerationContext, leafId: string | null): HistoryMessage[] {
   const names = new Map(ctx.members.map((m) => [m.id, m.name]))
   return loadPath(leafId)
-    .filter((m) => m.status !== 'error')
+    .filter(
+      (m) =>
+        m.status !== 'error' &&
+        !(m.role !== 'user' && m.role !== 'tool' && m.meta.imageGen?.hidden === true) &&
+        // tool 消息必须保留：它和上一条的 tool_calls 成对出现，丢掉会让模型以为工具没执行而反复调用
+        !(
+          m.role !== 'user' &&
+          m.role !== 'tool' &&
+          !m.meta.images?.length &&
+          (m.meta.imageGen?.status === 'pending' || m.meta.imageGen?.status === 'error')
+        ),
+    )
     .map((m) => ({
       id: m.id,
       role: m.role,
-      content: m.content,
+      content:
+        !m.content && m.meta.imageGen?.caption
+          ? m.meta.imageGen.caption
+          : !m.content && m.role !== 'user' && m.role !== 'tool' && (m.meta.imageGen || m.meta.images?.length)
+            ? `（发送了一张图片${m.meta.imageGen?.prompt ? `：${m.meta.imageGen.prompt}` : ''}）`
+            : m.content,
       name:
         m.role === 'user'
           ? ctx.persona.name
@@ -234,7 +251,7 @@ export function toHistory(ctx: GenerationContext, leafId: string | null): Histor
             ? (m.meta.toolName ?? '工具')
             : ((m.speakerId && names.get(m.speakerId)) ?? m.meta.name ?? ctx.members[0]?.name ?? ''),
       speakerId: m.speakerId,
-      ...(m.meta.images?.length ? { images: m.meta.images.map((image) => image.id) } : {}),
+      ...(m.role === 'user' && m.meta.images?.length ? { images: m.meta.images.map((image) => image.id) } : {}),
       ...(m.meta.toolCalls ? { toolCalls: m.meta.toolCalls } : {}),
       ...(m.meta.toolCallId ? { toolCallId: m.meta.toolCallId } : {}),
     }))
@@ -247,7 +264,9 @@ export interface AssembleOptions {
   leafId: string | null
   /** 还没入库的用户消息（预览时用） */
   pending?: { role: MessageRole; content: string }
-  toolsEnabled: boolean
+  /** 兼容无工具的静默生成；实际启用名单在此按会话统一解析。 */
+  toolsEnabled?: boolean
+  enabledTools?: string[]
 }
 
 /** 组装一次 Prompt：扩展前置钩子 → buildPrompt → 扩展后置钩子 */
@@ -287,7 +306,11 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
       authorNoteDepth: ctx.chat.authorNoteDepth,
       authorNoteRole: ctx.chat.authorNoteRole,
     },
-    toolsEnabled: opts.toolsEnabled,
+    enabledTools:
+      opts.enabledTools ??
+      (opts.toolsEnabled === false || opts.type === 'impersonate'
+        ? []
+        : enabledToolNames(ctx.chat.id, ctx.preset.samplers)),
     now: new Date(),
     macros: collectMacros(ctx.chat.id),
   }

@@ -1,0 +1,92 @@
+import { HttpError } from '../errors'
+import type { ExtensionHost } from '../extensions/types'
+import { buildRequestBody, chatCompletion } from '../llm/openai'
+import { redactImages, resolveImages } from './attachments'
+import { getApiPresetRow } from './connections'
+import { assemble, loadGenerationContext } from './context'
+import { insertLog } from './logs'
+
+/** 与扩展宿主共用静默生成，保持上下文、图片处理和日志行为一致。 */
+export async function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>[0]): Promise<string> {
+  const started = Date.now()
+  let model: string | null = null
+  let request: unknown
+  try {
+    const ctx = loadGenerationContext(opts.chatId, { requireConnection: !opts.connectionId })
+    const connection = opts.connectionId ? getApiPresetRow(opts.connectionId) : ctx.connection
+    if (!connection) throw new HttpError(400, 'NO_CONNECTION', '没有可用的模型连接')
+    model = opts.model || connection.model
+    const prompt = assemble(ctx, {
+      type: 'normal',
+      speakerId: opts.speakerId ?? ctx.members[0]?.id ?? '',
+      leafId: opts.includeHistory === false ? null : ctx.chat.activeLeafId,
+      toolsEnabled: false,
+    }).messages
+    prompt.push({ role: opts.role ?? 'system', content: opts.instruction })
+    const images = await resolveImages(prompt, ctx.preset.samplers.imageMaxSize)
+    const body = buildRequestBody({
+      model,
+      messages: prompt,
+      images,
+      samplers: {
+        ...ctx.preset.samplers,
+        stream: false,
+        ...(opts.maxTokens === undefined ? {} : { maxTokens: opts.maxTokens }),
+      },
+    })
+    if (opts.avatar) {
+      // 头像仅用于本次外貌提炼，不保存为聊天附件，日志也不写入图片数据。
+      const sharp = (await import('sharp')).default
+      const png = await sharp(opts.avatar).png().toBuffer()
+      const messages = body.messages as Record<string, unknown>[]
+      messages[messages.length - 1] = {
+        role: 'user',
+        content: [
+          { type: 'text', text: opts.instruction },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${png.toString('base64')}` } },
+        ],
+      }
+    }
+    // 额外请求参数也不能让静默请求变成工具调用或覆盖调用方的输出上限。
+    body.stream = false
+    delete body.stream_options
+    delete body.tools
+    delete body.tool_choice
+    if (opts.maxTokens !== undefined) body.max_tokens = opts.maxTokens
+    request = opts.avatar
+      ? { ...redactImages(body, images), messages: '[头像外貌提炼，图片数据已隐藏]' }
+      : redactImages(body, images)
+    let text = ''
+    for await (const chunk of chatCompletion({
+      baseUrl: connection.baseUrl,
+      apiKey: connection.apiKey,
+      body,
+      signal: opts.signal ?? new AbortController().signal,
+    }))
+      text += chunk.text ?? ''
+    text = text.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '').trim()
+    insertLog({
+      chatId: opts.chatId,
+      kind: 'extension',
+      status: 'ok',
+      model,
+      durationMs: Date.now() - started,
+      summary: opts.instruction.slice(0, 60),
+      request,
+      response: { content: text },
+    })
+    return text
+  } catch (error) {
+    insertLog({
+      chatId: opts.chatId,
+      kind: 'extension',
+      status: 'error',
+      model,
+      durationMs: Date.now() - started,
+      summary: opts.instruction.slice(0, 60),
+      request,
+      response: { error: error instanceof Error ? error.message : String(error) },
+    })
+    throw error
+  }
+}

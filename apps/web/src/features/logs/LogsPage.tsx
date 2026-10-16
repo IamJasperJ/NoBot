@@ -12,6 +12,8 @@ import { CollapsibleContent, isRecord, JsonBlock, ReportSection, roleLabel } fro
 
 const kindLabels: Record<GenerationLogSummary['kind'], string> = {
   generation: '生成',
+  extension: '扩展请求',
+  image: '图片生成',
   impersonate: '代写',
   test: '测试',
   error: '服务器错误',

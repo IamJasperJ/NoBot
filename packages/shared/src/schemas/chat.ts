@@ -24,6 +24,8 @@ export interface ChatDTO extends ChatSummary {
   authorNoteRole: 'system' | 'user' | 'assistant'
   /** 挂在这个会话上的世界书 */
   lorebookIds: string[]
+  /** 聊天背景（背景库里的 id），为空则用全局背景 */
+  backgroundId: string | null
   createdAt: number
 }
 
@@ -61,6 +63,7 @@ export const updateChatInput = z.object({
   authorNoteDepth: z.number().int().min(0).optional(),
   authorNoteRole: z.enum(['system', 'user', 'assistant']).optional(),
   lorebookIds: z.array(z.string()).optional(),
+  backgroundId: z.string().nullable().optional(),
 })
 export type UpdateChatInput = z.infer<typeof updateChatInput>
 

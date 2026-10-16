@@ -4,6 +4,7 @@ import { HttpError } from './errors'
 import { forwardExtension } from './extensions/registry'
 import { assetRoutes } from './routes/assets'
 import { attachmentRoutes } from './routes/attachments'
+import { backgroundRoutes } from './routes/backgrounds'
 import { characterRoutes } from './routes/characters'
 import { chatRoutes } from './routes/chats'
 import { connectionRoutes } from './routes/connections'
@@ -48,6 +49,7 @@ app.onError((err, c) => {
 
 app.get('/health', (c) => c.json({ ok: true }))
 
+app.route('/backgrounds', backgroundRoutes)
 app.route('/connections', connectionRoutes)
 app.route('/presets', presetRoutes)
 app.route('/personas', personaRoutes)

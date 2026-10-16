@@ -1,6 +1,7 @@
 import { NumberField, Section, SelectField, SwitchField } from '../../components/form'
 import { Button } from '../../components/ui'
 import { SIDEBAR_MAX, SIDEBAR_MIN, useAppearance } from '../../stores/appearance'
+import { useUi } from '../../stores/ui'
 
 /**
  * 设置页：外观和布局。改动立即生效，自动保存在这台设备的浏览器里。
@@ -100,6 +101,38 @@ export function SettingsPage() {
             checked={a.showAvatars}
             onChange={(showAvatars) => a.set({ showAvatars })}
           />
+        </Section>
+
+        <Section title="背景">
+          <NumberField
+            label="遮罩强度（%）"
+            min={0}
+            max={90}
+            step={1}
+            value={a.bgDim}
+            onChange={(bgDim) => a.set({ bgDim })}
+          />
+          <NumberField
+            label="背景模糊（px）"
+            min={0}
+            max={20}
+            step={1}
+            value={a.bgBlur}
+            onChange={(bgBlur) => a.set({ bgBlur })}
+          />
+          <SelectField
+            label="填充方式"
+            value={a.bgFit}
+            onChange={(bgFit) => a.set({ bgFit })}
+            options={[
+              { value: 'cover', label: '铺满裁剪' },
+              { value: 'contain', label: '完整显示' },
+              { value: 'stretch', label: '拉伸' },
+              { value: 'center', label: '居中原尺寸' },
+            ]}
+          />
+          <SwitchField label="播放动态背景" checked={a.bgAnimate} onChange={(bgAnimate) => a.set({ bgAnimate })} />
+          <Button onClick={() => useUi.getState().openView('backgrounds')}>管理背景…</Button>
         </Section>
 
         <Section title="侧栏">

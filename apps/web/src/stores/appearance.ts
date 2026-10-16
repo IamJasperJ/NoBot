@@ -21,10 +21,18 @@ export interface Appearance {
   /** 聊天侧栏宽度（px） */
   sidebarWidth: number
   /** 是否显示消息头像 */
+  bgDim: number
+  bgBlur: number
+  bgFit: 'cover' | 'contain' | 'stretch' | 'center'
+  bgAnimate: boolean
   showAvatars: boolean
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
+  bgDim: 35,
+  bgBlur: 0,
+  bgFit: 'cover',
+  bgAnimate: true,
   theme: 'system',
   uiScale: 16,
   messageFontSize: 15,
@@ -69,6 +77,10 @@ export const useAppearance = create<AppearanceState>((set, get) => ({
 
 function persist(state: Appearance) {
   const data: Appearance = {
+    bgDim: state.bgDim,
+    bgBlur: state.bgBlur,
+    bgFit: state.bgFit,
+    bgAnimate: state.bgAnimate,
     theme: state.theme,
     uiScale: state.uiScale,
     messageFontSize: state.messageFontSize,

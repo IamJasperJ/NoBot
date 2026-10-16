@@ -91,8 +91,8 @@ export interface BuildInput {
     authorNoteDepth: number
     authorNoteRole: PromptRole
   }
-  /** 本次请求是否携带工具定义。为 false 时历史里的工具调用要转成普通文本 */
-  toolsEnabled: boolean
+  /** 当前实际提供给模型的工具名；空集时完全省略工具历史。 */
+  enabledTools: string[]
   /** 从外部传入，保证结果可复现 */
   now: Date
   /** 扩展提供的宏：名字（小写）→ 处理函数，参数是 {{名字::参数}} 里 :: 之后的部分（没有则为空串） */
@@ -171,9 +171,8 @@ export interface BuildInput {
  *  - completion：放到 name 字段，名字只保留 [A-Za-z0-9_-]，截到 64 字符；清理后为空则退回 content 方式
  *  - none：不处理
  *
- * 【8. 工具】toolsEnabled 为 false 时：带 toolCalls 的 assistant 消息去掉 tool_calls，内容后面追加
- *  「[调用工具 名字(参数)]」；tool 消息改成 system 消息「[工具结果 名字] 内容」。
- *  toolsEnabled 为 true 时按 OpenAI 格式输出 tool_calls / tool_call_id。
+ * 【8. 工具】只保留 enabledTools 内的调用及按 tool_call_id 配对的结果。
+ *  缺少结果的调用、孤立结果和过滤后无正文的空 assistant 消息不发；空集时完全省略工具记录，不转成文字。
  *
  * 【9. 后处理】（tool、tool_calls 和带图片的消息不参与相邻合并；single_user 保留图片边界）
  *  - squashSystem：合并相邻的 system 消息（示例对话的 system 除外）
@@ -189,13 +188,15 @@ export interface BuildInput {
 export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; report: BuildReport } {
   // 【0】所有外部状态都从参数取得；预算按发送正文和每条消息的固定开销计算。
   const { preset, speaker, group } = input
+  const filtered = filterToolHistory(input.history, input.enabledTools)
+  const promptHistory = filtered.history
   const { behavior, utility } = preset
   const budget = Math.floor((preset.samplers.contextSize - preset.samplers.maxTokens) * 0.95)
   const context: MacroContext = {
     char: speaker.name,
     user: input.persona.name,
     group: group ? group.members.map((member) => member.name).join('、') : speaker.name,
-    lastChatMessage: input.history.at(-1)?.content ?? '',
+    lastChatMessage: promptHistory.at(-1)?.content ?? '',
     seed: `${input.chat.id}|${input.chat.leafId ?? ''}`,
     now: input.now,
     extra: input.macros,
@@ -237,7 +238,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   const scanned = scanWorldInfo({
     entries: input.lore.entries,
     settings: input.lore.settings,
-    history: input.history.filter((message) => message.role === 'user' || message.role === 'assistant'),
+    history: promptHistory.filter((message) => message.role === 'user' || message.role === 'assistant'),
     type: input.type,
     characterName: speaker.name,
     sources: {
@@ -424,7 +425,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   // 按图片出现位置计数，同一消息内也只保留靠后的图片，重复 id 仍分别计入限制。
   let remainingImages = preset.samplers.inlineImages ? preset.samplers.imageLimit || Number.POSITIVE_INFINITY : 0
   const imageCounts = new Map<HistoryMessage, number>()
-  for (const message of [...input.history].reverse()) {
+  for (const message of [...promptHistory].reverse()) {
     const count = Math.min(message.images?.length ?? 0, remainingImages)
     imageCounts.set(message, count)
     remainingImages -= count
@@ -439,25 +440,13 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
           char: message.role === 'assistant' && message.name ? message.name : context.char,
         })
     let output: ChatMessage = { role: message.role, content }
-    if (input.toolsEnabled) {
-      if (message.toolCalls?.length)
-        output.tool_calls = message.toolCalls.map((call) => ({
-          id: call.id,
-          type: 'function',
-          function: { name: call.name, arguments: call.arguments },
-        }))
-      if (message.toolCallId !== undefined) output.tool_call_id = message.toolCallId
-    } else {
-      if (message.toolCalls?.length) {
-        output.content = [
-          output.content,
-          ...message.toolCalls.map((call) => `[调用工具 ${call.name}(${call.arguments})]`),
-        ]
-          .filter(Boolean)
-          .join('\n')
-      }
-      if (message.role === 'tool') output = { role: 'system', content: `[工具结果 ${message.name}] ${message.content}` }
-    }
+    if (message.toolCalls?.length)
+      output.tool_calls = message.toolCalls.map((call) => ({
+        id: call.id,
+        type: 'function',
+        function: { name: call.name, arguments: call.arguments },
+      }))
+    if (message.toolCallId !== undefined) output.tool_call_id = message.toolCallId
     const images = message.images ?? []
     const kept = imageCounts.get(message) ?? 0
     if (kept) output.images = images.slice(images.length - kept)
@@ -480,7 +469,15 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     if (content) ending.push(piece(source, label, role, content))
   }
   if (group && input.type !== 'impersonate') appendEnding('nudge', '群聊提示', 'system', utility.groupNudge)
-  const continuation = input.type === 'continue' && behavior.continuePrefill ? input.history.at(-1) : undefined
+  const last = promptHistory.at(-1)
+  const continuation =
+    input.type === 'continue' &&
+    behavior.continuePrefill &&
+    last?.id === input.history.at(-1)?.id &&
+    last?.role === 'assistant' &&
+    !last.toolCalls?.length
+      ? last
+      : undefined
   if (input.type === 'continue') {
     if (continuation) {
       const tail = historyPiece(continuation, true)
@@ -495,7 +492,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
 
   // 【4】工具调用与紧随的对应结果组成不可拆分单元，从最新单元开始连续保留。
   const hasHistory = slots.some((slot) => slot.kind === 'history')
-  const rawHistory = hasHistory ? (continuation ? input.history.slice(0, -1) : input.history) : []
+  const rawHistory = hasHistory ? (continuation ? promptHistory.slice(0, -1) : promptHistory) : []
   const units: Piece[][] = []
   for (let i = 0; i < rawHistory.length; i++) {
     const message = rawHistory[i]!
@@ -553,6 +550,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
       totalTokens: messages.reduce((total, message) => total + cost(message), 0),
       budget,
       historyTotal: input.history.length,
+      omittedToolCalls: filtered.omittedToolCalls,
       historyKept: keptHistory.length + (continuation ? 1 : 0),
       worldInfo: scanned.report,
     },
@@ -565,4 +563,35 @@ export function splitExamples(mesExample: string): string[] {
     .split(/<START>/i)
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
+}
+
+/** 仅保留启用且在紧随结果区间内恰好配对的调用，避免分支残缺历史破坏接口协议。 */
+export function filterToolHistory(history: HistoryMessage[], enabledTools: string[]) {
+  const enabled = new Set(enabledTools)
+  const result: HistoryMessage[] = []
+  let omittedToolCalls = 0
+  for (let i = 0; i < history.length; i++) {
+    const message = history[i]!
+    if (message.role === 'tool') continue
+    if (message.role !== 'assistant' || !message.toolCalls?.length) {
+      result.push(message)
+      continue
+    }
+    const results: HistoryMessage[] = []
+    while (history[i + 1]?.role === 'tool') results.push(history[++i]!)
+    const seen = new Set<string>()
+    const calls = message.toolCalls.filter((call) => {
+      if (!enabled.has(call.name)) omittedToolCalls++
+      if (!enabled.has(call.name) || seen.has(call.id)) return false
+      seen.add(call.id)
+      return results.some((item) => item.toolCallId === call.id)
+    })
+    if (message.content.trim() || message.images?.length || calls.length) {
+      const { toolCalls: _calls, toolCallId: _id, ...rest } = message
+      result.push({ ...rest, ...(calls.length ? { toolCalls: calls } : {}) })
+    }
+    // 按调用顺序输出且每个 id 只保留一个结果，重复结果也不能成为孤立消息。
+    for (const call of calls) result.push(results.find((item) => item.toolCallId === call.id)!)
+  }
+  return { history: result, omittedToolCalls }
 }

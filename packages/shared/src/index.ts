@@ -1,4 +1,5 @@
 export * from './schemas/apiPreset'
+export * from './schemas/background'
 export * from './schemas/character'
 export * from './schemas/chat'
 export * from './schemas/group'

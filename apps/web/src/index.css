@@ -68,3 +68,29 @@ body {
     opacity: 0;
   }
 }
+
+/* 仅背景生效时增强对比度，沿用现有消息结构以免干扰并行修改的消息组件。 */
+[data-has-bg] .app-root main > .flex > header,
+[data-has-bg] .app-root main > .flex > .border-t {
+  background-color: rgb(255 255 255 / 78%);
+  backdrop-filter: blur(12px);
+}
+[data-has-bg] .app-root main .group.flex > .min-w-0.flex-1 {
+  border-radius: 12px;
+  padding: 12px;
+  background-color: rgb(255 255 255 / 86%);
+  backdrop-filter: blur(12px);
+}
+[data-has-bg] .app-root main .border-t > .chat-column.rounded-2xl {
+  background-color: rgb(255 255 255 / 80%);
+}
+.dark[data-has-bg] .app-root main > .flex > header,
+.dark[data-has-bg] .app-root main > .flex > .border-t {
+  background-color: rgb(9 9 11 / 80%);
+}
+.dark[data-has-bg] .app-root main .group.flex > .min-w-0.flex-1 {
+  background-color: rgb(24 24 27 / 88%);
+}
+.dark[data-has-bg] .app-root main .border-t > .chat-column.rounded-2xl {
+  background-color: rgb(24 24 27 / 80%);
+}

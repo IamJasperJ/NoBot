@@ -107,6 +107,7 @@ export function toCharacterBook(name: string, entries: LorebookEntryData[]): Rec
 export interface CardExportInput {
   fields: CharacterFields
   extras: CharacterExtras
+  extensions?: Record<string, unknown>
   /** 导入时保存的原始卡（可能为 null）。导出时以它的 data 为底，未知字段原样保留 */
   raw: Record<string, unknown> | null
   /** 要嵌入的世界书（主世界书），没有则不写 character_book */

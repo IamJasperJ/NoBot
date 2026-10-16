@@ -1,4 +1,5 @@
 import type {
+  GenerationLogSummary,
   GroupActivation,
   GroupGenerationMode,
   LorebookEntryData,
@@ -49,6 +50,8 @@ export const characters = sqliteTable('characters', {
   defaultPersonaId: text('default_persona_id'),
   /** 头像文件名（不含目录），没有头像时为空 */
   avatarFile: text('avatar_file'),
+  /** 角色卡 data.extensions 里本应用不认识的字段 + 扩展存的角色级数据，导出时写回 */
+  extensions: text('extensions', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
   /** 导入时的整张卡，原样保存，导出时不丢字段 */
   raw: text('raw', { mode: 'json' }).$type<Record<string, unknown>>(),
   ...timestamps,
@@ -135,6 +138,17 @@ export const groupMembers = sqliteTable(
   (t) => [primaryKey({ columns: [t.groupId, t.characterId] })],
 )
 
+export const backgrounds = sqliteTable('backgrounds', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  width: integer('width').notNull(),
+  height: integer('height').notNull(),
+  source: text('source').$type<'upload' | 'generated'>().notNull(),
+  /** 文件类型，见 BackgroundDTO.mime */
+  mime: text('mime').notNull().default('image/webp'),
+  createdAt: integer('created_at').notNull(),
+})
+
 export const chats = sqliteTable(
   'chats',
   {
@@ -143,6 +157,7 @@ export const chats = sqliteTable(
     characterId: text('character_id').references(() => characters.id, { onDelete: 'cascade' }),
     /** 群聊的群组；单人会话为空 */
     groupId: text('group_id').references(() => groups.id, { onDelete: 'cascade' }),
+    backgroundId: text('background_id').references(() => backgrounds.id, { onDelete: 'set null' }),
     personaId: text('persona_id').references(() => personas.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     /** 当前分支的叶子节点。不加外键：删除消息时由业务代码负责更新它 */
@@ -214,7 +229,7 @@ export const generationLogs = sqliteTable(
     id: text('id').primaryKey(),
     chatId: text('chat_id'),
     messageId: text('message_id'),
-    kind: text('kind').$type<'generation' | 'impersonate' | 'test' | 'error'>().notNull(),
+    kind: text('kind').$type<GenerationLogSummary['kind']>().notNull(),
     status: text('status').$type<'ok' | 'error' | 'aborted'>().notNull(),
     model: text('model'),
     durationMs: integer('duration_ms'),

@@ -1,9 +1,18 @@
 import type { ChatPage, MessageDTO } from '@ai-parter/shared'
-import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import {
+  type InfiniteData,
+  type QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { api } from './client'
 
 /** 所有缓存的 key 集中在这里，避免拼错。改了数据后用 invalidateQueries 刷新对应的 key */
 export const keys = {
+  backgrounds: ['backgrounds'] as const,
+  backgroundSettings: ['backgroundSettings'] as const,
   connections: ['connections'] as const,
   presets: ['presets'] as const,
   personas: ['personas'] as const,
@@ -21,6 +30,21 @@ export const keys = {
   extensions: ['extensions'] as const,
   tools: ['tools'] as const,
 }
+
+/** 自动选择后刷新聊天缓存，让背景和设置面板立即同步。 */
+export function useAutoBackground() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: api.autoBackground,
+    onSuccess: async (_result, chatId) => {
+      await qc.invalidateQueries({ queryKey: keys.chat(chatId) })
+    },
+  })
+}
+
+export const useBackgrounds = () => useQuery({ queryKey: keys.backgrounds, queryFn: api.listBackgrounds })
+export const useBackgroundSettings = () =>
+  useQuery({ queryKey: keys.backgroundSettings, queryFn: api.getBackgroundSettings })
 
 export const useConnections = () => useQuery({ queryKey: keys.connections, queryFn: api.listConnections })
 export const usePresets = () => useQuery({ queryKey: keys.presets, queryFn: api.listPresets })

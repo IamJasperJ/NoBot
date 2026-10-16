@@ -12,6 +12,7 @@ export type View =
   | 'lorebooks'
   | 'presets'
   | 'connections'
+  | 'backgrounds'
   | 'personas'
   | 'extensions'
   | 'logs'
@@ -31,12 +32,14 @@ interface UiState extends Selection {
   /** 侧栏面板当前显示哪一项（聊天主区始终是对话，不随它切换） */
   view: View
   focusId: string | null
+  /** 扩展详情当前页面；null 表示「设置」标签，focusId 保存扩展 ID */
+  extensionPageId: string | null
   previewOpen: boolean
   chatSettingsOpen: boolean
   /** 手机上的抽屉（导航 + 侧栏面板）是否打开 */
   sidebarOpen: boolean
   /** 打开某个面板；focusId 指定要打开的对象（比如从消息菜单「查看请求」跳到日志） */
-  openView: (view: View, focusId?: string | null) => void
+  openView: (view: View | `ext:${string}:${string}`, focusId?: string | null) => void
   /** 点击左侧导航：点当前已打开的那一项就关闭面板，否则切换过去并打开 */
   toggleView: (view: View) => void
   setPanelOpen: (open: boolean) => void
@@ -81,18 +84,30 @@ export const useUi = create<UiState>((set, get) => ({
   ...load(),
   view: 'chat' as View,
   focusId: null,
+  extensionPageId: null,
   previewOpen: false,
   chatSettingsOpen: false,
   sidebarOpen: false,
   openView: (view, focusId = null) => {
     save({ ...pick(get()), panelOpen: true })
-    set({ view, focusId, panelOpen: true, sidebarOpen: true })
+    if (view.startsWith('ext:')) {
+      const [, extensionId, ...pageId] = view.split(':')
+      set({
+        view: 'extensions',
+        focusId: extensionId || null,
+        extensionPageId: pageId.join(':') || null,
+        panelOpen: true,
+        sidebarOpen: true,
+      })
+    } else {
+      set({ view: view as View, focusId, extensionPageId: null, panelOpen: true, sidebarOpen: true })
+    }
   },
   toggleView: (view) => {
     const s = get()
     const panelOpen = !(s.view === view && s.panelOpen)
     save({ ...pick(s), panelOpen })
-    set({ view, focusId: null, panelOpen })
+    set({ view, focusId: null, extensionPageId: null, panelOpen })
   },
   setPanelOpen: (panelOpen) => {
     save({ ...pick(get()), panelOpen })

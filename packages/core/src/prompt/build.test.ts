@@ -9,7 +9,14 @@ import {
 } from '@ai-parter/shared'
 import { countTokens, MESSAGE_OVERHEAD_TOKENS } from '../tokenizer'
 import type { ScanEntry } from '../worldinfo'
-import { type BuildInput, buildPrompt, type HistoryMessage, PromptBudgetError, splitExamples } from './build'
+import {
+  type BuildInput,
+  buildPrompt,
+  filterToolHistory,
+  type HistoryMessage,
+  PromptBudgetError,
+  splitExamples,
+} from './build'
 
 function input(): BuildInput {
   return {
@@ -26,7 +33,7 @@ function input(): BuildInput {
     history: [history('u', 'user', '你好'), history('a', 'assistant', '您好')],
     lore: { entries: [], settings: worldInfoSettingsSchema.parse({}) },
     chat: { id: 'chat', leafId: 'a', authorNote: '', authorNoteDepth: 4, authorNoteRole: 'system' },
-    toolsEnabled: false,
+    enabledTools: [],
     now: new Date('2026-01-02T03:04:00Z'),
   }
 }
@@ -255,7 +262,7 @@ describe('预算和工具单元', () => {
   for (const toolsEnabled of [true, false]) {
     test(`工具输出及成对保留/丢弃：toolsEnabled=${toolsEnabled}`, () => {
       const value = minimal()
-      value.toolsEnabled = toolsEnabled
+      value.enabledTools = toolsEnabled ? ['search', 'next'] : []
       const call = history('调用', 'assistant', '查询')
       call.toolCalls = [
         { id: 'call', name: 'search', arguments: '{"q":1}' },
@@ -280,9 +287,10 @@ describe('预算和工具单元', () => {
         expect(built.messages[2]!.tool_call_id).toBe('call')
         expect(built.messages[2]!.role).toBe('tool')
       } else {
-        expect(built.messages[1]!.content).toBe('查询\n[调用工具 search({"q":1})]\n[调用工具 next({})]')
-        expect(built.messages[1]!.tool_calls).toBeUndefined()
-        expect(built.messages[2]).toEqual({ role: 'system', content: '[工具结果 search] 答案' })
+        expect(built.messages.map((message) => message.content)).toEqual(['很长'.repeat(100), '查询', '结束'])
+        expect(built.messages.every((message) => !message.tool_calls && message.role !== 'tool')).toBe(true)
+        expect(built.report.omittedToolCalls).toBe(2)
+        return
       }
       const unitBudget = built.messages.slice(1).reduce((sum, m) => sum + tokenCost(m.content), 0)
       setBudget(value, unitBudget)
@@ -294,7 +302,7 @@ describe('预算和工具单元', () => {
   test('工具调用和结果不被后处理合并', () => {
     const value = minimal()
     value.preset.behavior.postProcessing = 'merge'
-    value.toolsEnabled = true
+    value.enabledTools = ['f']
     value.history = [
       history('a', 'assistant', '前'),
       { ...history('b', 'assistant', ''), toolCalls: [{ id: 't', name: 'f', arguments: '{}' }] },
@@ -462,7 +470,7 @@ describe('后处理与报告', () => {
   })
   test('single_user 丢弃所有名字与工具字段', () => {
     const value = minimal()
-    value.toolsEnabled = true
+    value.enabledTools = ['f']
     value.preset.behavior.namesBehavior = 'completion'
     value.preset.behavior.postProcessing = 'single_user'
     value.history = [
@@ -576,7 +584,7 @@ describe('边界回归', () => {
     value.preset.behavior.namesBehavior = 'completion'
     expect(buildPrompt(value).messages.map((message) => message.name)).toEqual(['User', 'Char', 'PastUser', 'PastChar'])
   })
-  test('历史中 tool 文本化不被 squashSystem 合并，semi_strict 能转换后置 system', () => {
+  test('省略孤立工具结果后 semi_strict 合并普通正文', () => {
     const value = minimal()
     value.preset.behavior.squashSystem = true
     value.preset.behavior.postProcessing = 'semi_strict'
@@ -585,11 +593,7 @@ describe('边界回归', () => {
       { ...history('t', 'tool', '结果'), name: 'f', toolCallId: 'f' },
       history('s', 'system', '提示'),
     ]
-    expect(buildPrompt(value).messages).toEqual([
-      { role: 'user', content: '问' },
-      { role: 'user', content: '[工具结果 f] 结果' },
-      { role: 'user', content: '提示' },
-    ])
+    expect(buildPrompt(value).messages).toEqual([{ role: 'user', content: '问\n\n提示' }])
   })
 })
 
@@ -673,4 +677,58 @@ describe('历史消息的宏', () => {
     value.history = [{ ...history('a', 'assistant', '我是{{char}}'), name: '莱恩', speakerId: 'lyon' }]
     expect(buildPrompt(value).messages[0]?.content).toBe('我是莱恩')
   })
+})
+
+describe('启用工具历史过滤', () => {
+  const calls = [
+    { id: 'a', name: 'search', arguments: '{}' },
+    { id: 'b', name: 'generate_image', arguments: '{}' },
+  ]
+  const records: HistoryMessage[] = [
+    { ...history('调用', 'assistant', ''), toolCalls: calls },
+    { ...history('结果甲', 'tool', '检索结果'), toolCallId: 'a' },
+    { ...history('结果乙', 'tool', '图片结果'), toolCallId: 'b' },
+  ]
+  test('同条消息内按工具名筛选配对，且不修改原历史', () => {
+    const value = minimal()
+    value.enabledTools = ['search']
+    value.history = structuredClone(records)
+    const before = structuredClone(value.history)
+    const built = buildPrompt(value)
+    expect(built.messages[0]?.tool_calls?.map((call) => call.function.name)).toEqual(['search'])
+    expect(built.messages[1]).toMatchObject({ role: 'tool', tool_call_id: 'a', content: '检索结果' })
+    expect(built.messages).toHaveLength(2)
+    expect(built.report.omittedToolCalls).toBe(1)
+    expect(value.history).toEqual(before)
+  })
+  test('空集删除无正文的调用消息及所有结果，宏也看不到被省略的结果', () => {
+    const value = minimal()
+    value.history = records
+    expect(buildPrompt(value).messages).toEqual([])
+    expect(buildPrompt(value).report.omittedToolCalls).toBe(2)
+  })
+  test('纯函数丢弃未完成调用、孤立结果和重复结果', () => {
+    const value = [
+      { ...history('孤立', 'tool', '孤立结果'), toolCallId: 'other' },
+      ...records.slice(0, 2),
+      { ...history('重复', 'tool', '重复结果'), toolCallId: 'a' },
+    ]
+    const result = filterToolHistory(value, ['search', 'generate_image'])
+    expect(result.history).toHaveLength(2)
+    expect(result.history[0]?.toolCalls).toEqual([calls[0]!])
+    expect(result.history[1]?.content).toBe('检索结果')
+    expect(result.omittedToolCalls).toBe(0)
+  })
+})
+
+test('深度注入不拆开工具调用与结果', () => {
+  const value = minimal()
+  value.enabledTools = ['search']
+  value.chat.authorNote = '注入'
+  value.chat.authorNoteDepth = 1
+  value.history = [
+    { ...history('调用', 'assistant', ''), toolCalls: [{ id: 'a', name: 'search', arguments: '{}' }] },
+    { ...history('结果', 'tool', '结果'), toolCallId: 'a' },
+  ]
+  expect(buildPrompt(value).messages.map((m) => m.role)).toEqual(['system', 'assistant', 'tool'])
 })

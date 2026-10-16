@@ -45,6 +45,11 @@ export type CharacterExtras = z.infer<typeof characterExtrasSchema>
 export const characterInput = characterFieldsSchema.extend(characterExtrasSchema.shape).extend({
   /** 挂在这个角色上的世界书，第一本是导出时嵌入角色卡的「主世界书」 */
   lorebookIds: z.array(z.string()).default([]),
+  /**
+   * 角色卡 data.extensions 里本应用不认识的字段，原样保留、导出时写回（酒馆和各种扩展把自己的数据放在这里）。
+   * 扩展也可以往这里存角色级数据，比如图片生成扩展的 sd_character_prompt（和酒馆同名同格式，互相兼容）
+   */
+  extensions: z.record(z.string(), z.unknown()).default({}),
 })
 export type CharacterInput = z.input<typeof characterInput>
 
@@ -56,6 +61,8 @@ export interface CharacterDTO extends CharacterFields, CharacterExtras {
   id: string
   avatarUrl: string | null
   lorebookIds: string[]
+  /** 见 characterInput.extensions */
+  extensions: Record<string, unknown>
   createdAt: number
   updatedAt: number
 }

@@ -138,3 +138,28 @@ describe('角色卡导出和额外字段', () => {
     )
   })
 })
+
+test('扩展字段在各版本卡中透传，导出本应用字段优先且不恢复已删除的扩展键', () => {
+  const data = {
+    name: '测试',
+    description: '',
+    extensions: {
+      talkativeness: 0.3,
+      depth_prompt: { prompt: '备注' },
+      sd_character_prompt: '银龙',
+      other: { enabled: true },
+    },
+  }
+  for (const raw of [data, { spec: 'chara_card_v2', data }, { spec: 'chara_card_v3', data }]) {
+    expect(parseCardJson(raw).extensions).toEqual({ sd_character_prompt: '银龙', other: { enabled: true } })
+    const extensions = { sd_character_prompt: '更新后的银龙', talkativeness: 0, depth_prompt: { prompt: '不应覆盖' } }
+    const before = structuredClone(extensions)
+    const result = buildCardExport({ fields, extras, extensions, raw, book: null })
+    for (const card of [result.v2, result.v3]) {
+      const parsed = parseCardJson(card)
+      expect(parsed.extensions).toEqual({ sd_character_prompt: '更新后的银龙' })
+      expect(parsed.extras).toMatchObject({ talkativeness: extras.talkativeness, characterNote: extras.characterNote })
+    }
+    expect(extensions).toEqual(before)
+  }
+})

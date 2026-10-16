@@ -1,0 +1,660 @@
+import type { AttachmentDTO, CharacterDTO, CharacterSummary, ChatPage, MessageDTO } from '@ai-parter/shared'
+import { ImagePromptDialog } from '../../features/chat/ImagePromptDialog'
+import type { ClientExtensionAPI } from '../types'
+
+export const imageModes = [
+  ['character', '角色（全身）'],
+  ['face', '角色（脸部特写）'],
+  ['user', '用户（人设）'],
+  ['scene', '当前场景'],
+  ['last', '最后一条消息'],
+  ['message', '指定消息'],
+  ['raw_last', '最后一条消息原文'],
+  ['background', '背景'],
+  ['free', '自由描述…'],
+] as const
+const buttonClass = 'rounded px-3 py-1.5 text-left text-sm hover:bg-zinc-500/10 disabled:opacity-50'
+interface Preview {
+  snapshotId: string
+  prompt: string
+  negative: string
+  width: number
+  height: number
+  source: string
+  model: string
+  workflow: string
+}
+interface GalleryImage {
+  chatId: string
+  messageId: string
+  image: AttachmentDTO
+  prompt: string
+  createdAt: number
+}
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+export default function activate(api: ClientExtensionAPI) {
+  const R = api.React
+  const h = R.createElement
+  async function request(path: string, body?: unknown) {
+    const response = await api.fetchServer(
+      path,
+      body === undefined
+        ? undefined
+        : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    )
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error?.message ?? `图片接口 HTTP ${response.status}`)
+    return data as {
+      message?: MessageDTO
+      background?: unknown
+      image?: AttachmentDTO
+      durationMs?: number
+      options?: { value: string; label: string }[]
+      images?: GalleryImage[]
+      total?: number
+      error?: string
+      placeholders?: { name: string; used: boolean }[]
+      messageText?: string
+    }
+  }
+  async function refresh(chatId: string, backgrounds = false) {
+    await Promise.all([
+      api.queryClient.invalidateQueries({ queryKey: ['chat', chatId] }),
+      ...(backgrounds ? [api.queryClient.invalidateQueries({ queryKey: ['backgrounds'] })] : []),
+    ])
+  }
+  const reviews = new Map<
+    string,
+    { chatId: string; preview: Preview; resolve: (value: { prompt: string; negative: string } | null) => void }
+  >()
+  const active = new Map<string, number>()
+  const listeners = new Set<() => void>()
+  function countRequest(chatId: string, delta: number) {
+    active.set(chatId, (active.get(chatId) ?? 0) + delta)
+    for (const listener of listeners) listener()
+  }
+  async function generate(chatId: string, mode: string, extra: Record<string, unknown> = {}) {
+    const name = imageModes.find(([key]) => key === mode)?.[1] ?? mode
+    countRequest(chatId, 1)
+    try {
+      const settings = await api.getSettings()
+      if (settings.async === false || mode === 'background') api.toast.info(`正在生成：${name}…`)
+      let confirmed: Record<string, unknown> = {}
+      if (settings.editBeforeGenerate === true) {
+        const response = await api.fetchServer('prompt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chatId, mode, ...extra }),
+        })
+        const preview = (await response.json()) as Preview & { error?: { message: string } }
+        if (!response.ok) throw new Error(preview.error?.message ?? '提示词预览失败')
+        const id = preview.snapshotId
+        const edited = await new Promise<{ prompt: string; negative: string } | null>((resolve) => {
+          reviews.set(id, { chatId, preview, resolve })
+          for (const listener of listeners) listener()
+        })
+        reviews.delete(id)
+        for (const listener of listeners) listener()
+        if (!edited) return
+        confirmed = { ...edited, snapshotId: id }
+      }
+      const data = await request('generate', { chatId, mode, ...extra, ...confirmed })
+      if (data.background) api.toast.info('已生成背景并设为聊天背景')
+      await refresh(chatId, !!data.background)
+    } catch (error) {
+      api.toast.error(`${name}生成失败：${errorText(error)}`)
+    } finally {
+      countRequest(chatId, -1)
+    }
+  }
+  function Composer({ chatId }: { chatId: string }) {
+    const [open, setOpen] = R.useState(false)
+    const [free, setFree] = R.useState(false)
+    const [input, setInput] = R.useState('')
+    const [negative, setNegative] = R.useState('')
+    const review = R.useSyncExternalStore(
+      (notify) => {
+        listeners.add(notify)
+        return () => {
+          listeners.delete(notify)
+        }
+      },
+      () => [...reviews.values()].find((item) => item.chatId === chatId),
+      () => [...reviews.values()].find((item) => item.chatId === chatId),
+    )
+    const root = R.useRef<HTMLDivElement>(null)
+    const cache = R.useSyncExternalStore(
+      (notify) => api.queryClient.getQueryCache().subscribe(notify),
+      () => api.queryClient.getQueryData<{ pages: ChatPage[] }>(['chat', chatId]),
+      () => api.queryClient.getQueryData<{ pages: ChatPage[] }>(['chat', chatId]),
+    )
+    const requests = R.useSyncExternalStore(
+      (notify) => {
+        listeners.add(notify)
+        return () => {
+          listeners.delete(notify)
+        }
+      },
+      () => active.get(chatId) ?? 0,
+      () => active.get(chatId) ?? 0,
+    )
+    const pending = new Set(
+      cache?.pages.flatMap((page) =>
+        page.messages.filter((m) => m.meta.imageGen?.status === 'pending').map((m) => m.id),
+      ),
+    ).size
+    const count = requests + pending
+    const members = cache?.pages[0]?.group?.members ?? []
+    R.useEffect(() => {
+      if (!open && !free) return
+      const outside = (event: PointerEvent) => {
+        if (event.target instanceof Node && !root.current?.contains(event.target)) {
+          setOpen(false)
+          setFree(false)
+        }
+      }
+      const onEscape = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          setOpen(false)
+          setFree(false)
+        }
+      }
+      document.addEventListener('pointerdown', outside)
+      document.addEventListener('keydown', onEscape)
+      return () => {
+        document.removeEventListener('pointerdown', outside)
+        document.removeEventListener('keydown', onEscape)
+      }
+    }, [open, free])
+    function submit() {
+      if (!input.trim()) return
+      setFree(false)
+      void generate(chatId, 'free', { input, negative })
+    }
+    const menuClass =
+      'absolute bottom-10 left-0 z-20 max-h-[70vh] w-52 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-800 dark:bg-zinc-900'
+    const itemClass = 'block w-full px-3 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800'
+    return h(
+      'div',
+      { ref: root, className: 'relative shrink-0' },
+      review && h(ImagePromptDialog, { key: review.preview.snapshotId, review, react: R }),
+      h(
+        'button',
+        {
+          type: 'button',
+          title: '生成图片',
+          'aria-label': '生成图片',
+          'aria-expanded': open,
+          className:
+            'relative inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800',
+          onClick: () => {
+            setOpen(!open)
+            setFree(false)
+          },
+        },
+        h(
+          'svg',
+          {
+            width: 20,
+            height: 20,
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            stroke: 'currentColor',
+            strokeWidth: 1.7,
+            'aria-hidden': true,
+          },
+          h('rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }),
+          h('circle', { cx: 8, cy: 8, r: 1.5 }),
+          h('path', { d: 'M3 17l5-5 4 4 4-6 5 7' }),
+        ),
+        count > 0 &&
+          h(
+            'span',
+            {
+              className:
+                'absolute -top-1 -right-1 flex min-w-4 h-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] text-white',
+              'aria-label': `进行中的图片任务：${count}`,
+            },
+            count,
+          ),
+      ),
+      open &&
+        h(
+          'div',
+          { className: menuClass },
+          h('div', { className: 'px-3 py-1 text-xs text-zinc-500' }, '生成图片'),
+          ...imageModes
+            .filter(([key]) => key !== 'message')
+            .flatMap(([key, name]) => {
+              if ((key === 'character' || key === 'face') && members.length)
+                return members.map((member) =>
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      key: `${key}:${member.characterId}`,
+                      className: itemClass,
+                      onClick: () => {
+                        setOpen(false)
+                        void generate(chatId, key, { characterId: member.characterId })
+                      },
+                    },
+                    `画 ${member.name}${key === 'face' ? '（脸部特写）' : '（全身）'}`,
+                  ),
+                )
+              return [
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    key,
+                    className: itemClass,
+                    onClick: () => {
+                      setOpen(false)
+                      if (key === 'free') setFree(true)
+                      else void generate(chatId, key)
+                    },
+                  },
+                  name,
+                ),
+              ]
+            }),
+        ),
+      free &&
+        h(
+          'div',
+          { className: `${menuClass} flex flex-col gap-2 p-2`, role: 'dialog', 'aria-label': '自由描述' },
+          h('input', {
+            autoFocus: true,
+            className: 'rounded border border-zinc-500/30 bg-transparent px-2 py-1 text-sm',
+            placeholder: '以 ! 开头则直接作为提示词',
+            value: input,
+            onChange: (event: { target: { value: string } }) => setInput(event.target.value),
+            onKeyDown: (event: { key: string; nativeEvent: { isComposing: boolean }; preventDefault: () => void }) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                submit()
+              }
+            },
+          }),
+          h('textarea', {
+            'aria-label': '本次负面提示词',
+            placeholder: '负面提示词（可选）',
+            value: negative,
+            onChange: (event: { target: { value: string } }) => setNegative(event.target.value),
+            className: 'rounded border bg-transparent p-2',
+          }),
+          h('span', { className: 'text-xs text-zinc-500' }, '以 ! 开头则直接作为提示词'),
+          h('button', { type: 'button', className: buttonClass, disabled: !input.trim(), onClick: submit }, '生成'),
+        ),
+    )
+  }
+  function Media({ chatId, message }: { chatId: string; message: MessageDTO }) {
+    const pending = message.meta.imageGen?.status === 'pending'
+    // 占位框的刷新由聊天页统一负责（有 pending 图片时每 2 秒刷新会话），这里不再单独轮询
+    if (!message.meta.imageGen) return null
+    const retry = async () => {
+      try {
+        await request('retry', { messageId: message.id })
+        await refresh(chatId)
+      } catch (error) {
+        api.toast.error(errorText(error))
+      }
+    }
+    const background = async () => {
+      try {
+        await request('to-background', {
+          messageId: message.id,
+          index: message.meta.imageIndex ?? (message.meta.images?.length ?? 1) - 1,
+        })
+        api.toast.info('已生成背景并设为聊天背景')
+        await refresh(chatId, true)
+      } catch (error) {
+        api.toast.error(errorText(error))
+      }
+    }
+    return h(
+      'div',
+      { className: 'flex flex-wrap gap-1 text-zinc-500' },
+      !!message.meta.images?.length &&
+        (message.meta.imageIndex ?? message.meta.images.length - 1) < message.meta.images.length &&
+        h(
+          R.Fragment,
+          null,
+          h('button', { type: 'button', className: buttonClass, disabled: pending, onClick: retry }, '↻ 重新生成'),
+          h(
+            'button',
+            { type: 'button', className: buttonClass, disabled: pending, onClick: background },
+            '▧ 设为聊天背景',
+          ),
+        ),
+    )
+  }
+  function SettingsFooter({
+    settings,
+  }: {
+    settings: Record<string, unknown>
+    onSettingsChange?: (settings: Record<string, unknown>) => void
+  }) {
+    const [busy, setBusy] = R.useState(false)
+    const [error, setError] = R.useState('')
+    const [image, setImage] = R.useState<AttachmentDTO>()
+    const [duration, setDuration] = R.useState<number>()
+    const [connection, setConnection] = R.useState('')
+    const [inspection, setInspection] = R.useState<{
+      error?: string
+      placeholders?: { name: string; used: boolean }[]
+    }>({})
+    const draft = JSON.stringify(settings)
+    R.useEffect(() => {
+      if (settings.source !== 'comfy') return
+      let stale = false
+      const timer = setTimeout(() => {
+        void request(`comfy/workflow-inspection?settings=${encodeURIComponent(draft)}`)
+          .then((data) => {
+            if (!stale) setInspection(data)
+          })
+          .catch((error) => {
+            if (!stale) setError(errorText(error))
+          })
+      }, 200)
+      return () => {
+        stale = true
+        clearTimeout(timer)
+      }
+    }, [draft, settings.source])
+    async function connect() {
+      setBusy(true)
+      setError('')
+      setConnection('')
+      try {
+        await request('test-connection', { settings })
+        setConnection('连接成功')
+      } catch (error) {
+        setError(errorText(error))
+      } finally {
+        setBusy(false)
+      }
+    }
+    async function test() {
+      setBusy(true)
+      setError('')
+      try {
+        const data = await request('test', { settings })
+        setImage(data.image)
+        setDuration(data.durationMs)
+      } catch (error) {
+        setError(errorText(error))
+      } finally {
+        setBusy(false)
+      }
+    }
+    return h(
+      'div',
+      { className: 'flex flex-col gap-2 border-t border-zinc-500/20 pt-3' },
+      h(
+        'div',
+        { className: 'flex gap-2' },
+        h(
+          'button',
+          { type: 'button', className: buttonClass, disabled: busy, onClick: test },
+          busy ? '正在请求…' : '测试生成',
+        ),
+        h('button', { type: 'button', className: buttonClass, disabled: busy, onClick: connect }, '测试连接'),
+      ),
+      connection && h('p', { role: 'status', className: 'text-green-600' }, connection),
+      settings.source === 'comfy' &&
+        h(
+          'div',
+          { className: 'text-sm' },
+          h('strong', null, '当前工作流参数生效检查'),
+          inspection.error && h('p', { role: 'alert', className: 'text-red-500' }, inspection.error),
+          ...(inspection.placeholders?.map((item) =>
+            h(
+              'p',
+              { key: item.name },
+              `${item.used ? '✅ 已使用' : '— 未使用'} %${item.name}%${item.used ? '' : `；当前工作流没有使用 %${item.name}%，对应设置不会生效`}`,
+            ),
+          ) ?? []),
+        ),
+      error && h('p', { className: 'text-sm text-red-500' }, error),
+      image &&
+        h(
+          'div',
+          { className: 'text-sm text-zinc-500' },
+          `生成耗时：${((duration ?? 0) / 1000).toFixed(2)} 秒`,
+          h('img', { src: image.url, alt: '测试生成的图片', className: 'mt-2 max-h-64 max-w-full rounded' }),
+        ),
+    )
+  }
+  function CharacterSection({
+    character,
+    save,
+  }: {
+    character: CharacterDTO
+    save: (patch: { extensions: Record<string, unknown> }) => Promise<void>
+  }) {
+    const original = character.extensions.sd_character_prompt as { positive?: string; negative?: string } | undefined
+    const [positive, setPositive] = R.useState(original?.positive ?? '')
+    const [negative, setNegative] = R.useState(original?.negative ?? '')
+    const [busy, setBusy] = R.useState(false)
+    async function submit() {
+      setBusy(true)
+      try {
+        await save({ extensions: { ...character.extensions, sd_character_prompt: { positive, negative } } })
+        api.toast.info('已保存角色图片提示词')
+      } catch (error) {
+        api.toast.error(errorText(error))
+      } finally {
+        setBusy(false)
+      }
+    }
+    return h(
+      'div',
+      { className: 'flex flex-col gap-3' },
+      h(
+        'label',
+        null,
+        '角色外貌提示词（英文关键词，会加在生成提示词前面，可以写 LoRA 如 <lora:xxx:0.8>）',
+        h('textarea', {
+          'aria-label': '角色外貌提示词',
+          className: 'mt-1 w-full rounded border bg-transparent p-2',
+          rows: 4,
+          value: positive,
+          onChange: (event: { target: { value: string } }) => setPositive(event.target.value),
+        }),
+      ),
+      h(
+        'label',
+        null,
+        '角色负面提示词',
+        h('textarea', {
+          'aria-label': '角色负面提示词',
+          className: 'mt-1 w-full rounded border bg-transparent p-2',
+          rows: 3,
+          value: negative,
+          onChange: (event: { target: { value: string } }) => setNegative(event.target.value),
+        }),
+      ),
+      h('button', { type: 'button', className: buttonClass, disabled: busy, onClick: submit }, '保存图片提示词'),
+    )
+  }
+  function Gallery() {
+    const [characters, setCharacters] = R.useState<CharacterSummary[]>([])
+    const [characterId, setCharacterId] = R.useState('')
+    const [images, setImages] = R.useState<GalleryImage[]>([])
+    const [offset, setOffset] = R.useState(0)
+    const [total, setTotal] = R.useState(0)
+    const [selected, setSelected] = R.useState<GalleryImage>()
+    const [error, setError] = R.useState('')
+    R.useEffect(() => {
+      let stale = false
+      void (async () => {
+        const list = await api.api.listCharacters()
+        const current = api.getChatId()
+        const chat = current ? await api.api.getChatPage(current) : undefined
+        if (!stale) {
+          setCharacters(list)
+          setCharacterId(chat?.chat.characterId ?? chat?.group?.members[0]?.characterId ?? list[0]?.id ?? '')
+        }
+      })().catch((error) => {
+        if (!stale) setError(errorText(error))
+      })
+      return () => {
+        stale = true
+      }
+    }, [])
+    R.useEffect(() => {
+      if (!characterId) return
+      let stale = false
+      void request(`gallery?characterId=${encodeURIComponent(characterId)}&limit=40&offset=${offset}`)
+        .then((data) => {
+          if (!stale) {
+            setImages(data.images ?? [])
+            setTotal(data.total ?? 0)
+            setError('')
+          }
+        })
+        .catch((error) => {
+          if (!stale) setError(errorText(error))
+        })
+      return () => {
+        stale = true
+      }
+    }, [characterId, offset])
+    async function background(item: GalleryImage) {
+      try {
+        const current = api.getChatId()
+        if (!current) throw new Error('请先打开要设置背景的会话')
+        await request('gallery-background', { chatId: current, messageId: item.messageId, imageId: item.image.id })
+        await refresh(current, true)
+        api.toast.info('已设为当前聊天背景')
+      } catch (error) {
+        api.toast.error(errorText(error))
+      }
+    }
+    return h(
+      'div',
+      { className: 'space-y-4 p-4' },
+      h('h2', { className: 'text-lg font-semibold' }, '图库'),
+      h(
+        'select',
+        {
+          'aria-label': '图库角色',
+          value: characterId,
+          className: 'rounded border bg-transparent p-2',
+          onChange: (event: { target: { value: string } }) => {
+            setCharacterId(event.target.value)
+            setOffset(0)
+            setSelected(undefined)
+          },
+        },
+        ...characters.map((character) => h('option', { key: character.id, value: character.id }, character.name)),
+      ),
+      error && h('p', { role: 'alert', className: 'text-red-500' }, error),
+      h(
+        'div',
+        { className: 'grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4' },
+        ...images.map((item) =>
+          h(
+            'button',
+            {
+              key: `${item.messageId}:${item.image.id}`,
+              type: 'button',
+              onClick: () => setSelected(item),
+              className: 'overflow-hidden rounded-lg border',
+            },
+            h('img', { src: item.image.url, alt: item.prompt, loading: 'lazy', className: 'h-40 w-full object-cover' }),
+          ),
+        ),
+      ),
+      h(
+        'div',
+        { className: 'flex gap-3' },
+        h(
+          'button',
+          {
+            type: 'button',
+            disabled: offset === 0,
+            className: buttonClass,
+            onClick: () => setOffset(Math.max(0, offset - 40)),
+          },
+          '上一页',
+        ),
+        h('span', null, `共 ${total} 张`),
+        h(
+          'button',
+          {
+            type: 'button',
+            disabled: offset + 40 >= total,
+            className: buttonClass,
+            onClick: () => setOffset(offset + 40),
+          },
+          '下一页',
+        ),
+      ),
+      selected &&
+        h(
+          'div',
+          {
+            role: 'dialog',
+            'aria-label': '图片详情',
+            className: 'fixed inset-0 z-50 overflow-auto bg-black/80 p-6 text-white',
+          },
+          h('button', { type: 'button', className: buttonClass, onClick: () => setSelected(undefined) }, '关闭'),
+          h('img', { src: selected.image.url, alt: selected.prompt, className: 'mx-auto max-h-[70vh] max-w-full' }),
+          h('p', { className: 'my-4 break-words' }, selected.prompt),
+          h('a', { href: selected.image.url, download: `${selected.image.id}.webp`, className: buttonClass }, '下载'),
+          h('button', { type: 'button', className: buttonClass, onClick: () => background(selected) }, '设为聊天背景'),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: buttonClass,
+              onClick: () => {
+                void api.openChat(selected.chatId).catch((error) => api.toast.error(errorText(error)))
+              },
+            },
+            '跳到消息所在会话',
+          ),
+        ),
+    )
+  }
+  api.registerPage({ id: 'gallery', label: '图库', icon: '🖼', render: () => h(Gallery) })
+  api.registerSlot('character.editor.sections', {
+    id: 'image-prompts',
+    title: '图片生成',
+    render: (props) => h(CharacterSection, { ...props, key: props.character.id }),
+  })
+  const unsubscribe = api.on('image:swipe-next', (event) => {
+    if (event.message.meta.imageGen?.status === 'pending') return
+    void request('retry', { messageId: event.message.id, append: true })
+      .then(() => refresh(event.chatId))
+      .catch((error) => api.toast.error(errorText(error)))
+  })
+  api.registerSlot('chat.composer.buttons', { id: 'generate', render: (props) => h(Composer, props) })
+  api.registerSlot('chat.message.actions', {
+    id: 'generate-message',
+    render: ({ chatId, message }) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          className: buttonClass,
+          onClick: () => generate(chatId, 'message', { messageId: message.id }),
+        },
+        '为这条消息生成图片',
+      ),
+  })
+  api.registerSlot('chat.message.media', { id: 'media', render: (props) => h(Media, props) })
+  api.registerSlot('extensions.settings.footer', {
+    id: 'settings',
+    render: ({ settings, onSettingsChange }) => h(SettingsFooter, { settings, onSettingsChange }),
+  })
+  return () => {
+    unsubscribe()
+    for (const review of reviews.values()) review.resolve(null)
+    reviews.clear()
+  }
+}

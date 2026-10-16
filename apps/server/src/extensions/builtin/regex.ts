@@ -54,6 +54,7 @@ export default defineExtension({
   settingsSchema: [
     {
       key: 'scripts',
+      titleKey: 'name',
       label: '规则',
       type: 'list',
       hint: '按顺序执行。查找写成 /正则/标志 按正则匹配，否则按普通文本全部替换；替换里可用 $1 引用分组。',

@@ -1,6 +1,16 @@
 import type { BuildInput } from '@ai-parter/core'
-import type { ChatMessage, ExtensionSettingField, MessageDTO } from '@ai-parter/shared'
-import type { Hono } from 'hono'
+import type {
+  AttachmentDTO,
+  BackgroundDTO,
+  CharacterDTO,
+  ChatDTO,
+  ChatMessage,
+  ExtensionSettingField,
+  MessageDTO,
+  MessageMeta,
+  MessageRole,
+} from '@ai-parter/shared'
+import type { Context, Hono } from 'hono'
 import type { ToolDefinition } from '../tools'
 
 /**
@@ -39,7 +49,73 @@ export interface ExtensionStorage {
   delete(key: string): void
 }
 
+/** 扩展通过宿主复用当前会话的生成、附件和消息能力。 */
+export interface ExtensionHost {
+  listGeneratedImages(
+    characterId: string,
+  ): { chatId: string; messageId: string; image: AttachmentDTO; prompt: string; createdAt: number }[]
+  getCharacter(id: string): CharacterDTO
+  /** 浅合并角色扩展数据，保留其他扩展的键。 */
+  updateCharacterExtensions(id: string, patch: Record<string, unknown>): CharacterDTO
+  readAvatar(kind: 'character' | 'persona', id: string): Promise<Uint8Array | null>
+  /** 静默组装当前会话并生成纯文本，不保存消息；includeHistory 默认启用。 */
+  quietPrompt(opts: {
+    chatId: string
+    instruction: string
+    speakerId?: string
+    role?: 'system' | 'user'
+    includeHistory?: boolean
+    maxTokens?: number
+    connectionId?: string
+    model?: string
+    avatar?: Uint8Array
+    signal?: AbortSignal
+  }): Promise<string>
+  saveImage(bytes: Uint8Array): Promise<AttachmentDTO>
+  saveBackground(bytes: Uint8Array, opts: { name: string; source: 'upload' | 'generated' }): Promise<BackgroundDTO>
+  setChatBackground(chatId: string, backgroundId: string | null): void
+  /** 追加消息并切换叶子；生成期间拒绝追加。 */
+  appendMessage(
+    chatId: string,
+    message: { role: MessageRole; content: string; speakerId?: string | null; meta?: MessageMeta },
+  ): MessageDTO
+  /** 浅合并元数据，数组整体替换，并发出 message:updated。 */
+  updateMessageMeta(messageId: string, patch: Partial<MessageMeta>): MessageDTO
+  getChatInfo(
+    chatId: string,
+    limit?: number,
+  ): {
+    chat: ChatDTO
+    characters: {
+      id: string
+      name: string
+      description: string
+      personality: string
+      scenario: string
+      muted: boolean
+      extensions: Record<string, unknown>
+      avatarUrl: string | null
+    }[]
+    persona: { id?: string; name: string; description: string; avatarUrl: string | null }
+    messages: MessageDTO[]
+  }
+  /** 每 300ms 检查文本生成状态，空闲后返回；超过 timeoutMs 毫秒抛出超时错误。 */
+  waitIdle(chatId: string, timeoutMs: number): Promise<void>
+  isGenerating(chatId: string): boolean
+  log(entry: {
+    chatId?: string | null
+    kind: 'extension' | 'image'
+    status: 'ok' | 'error'
+    model?: string | null
+    durationMs?: number
+    summary: string
+    request?: unknown
+    response?: unknown
+  }): void
+}
+
 export interface ExtensionContext {
+  host: ExtensionHost
   /** 这个扩展当前的设置（已合并默认值） */
   settings: Record<string, unknown>
   /** 当前会话 id；在非会话场景（自定义接口、全局事件）里为空字符串 */
@@ -50,6 +126,7 @@ export interface ExtensionContext {
 /** 后端事件：扩展可以订阅，做记录、统计、同步等事情。事件处理出错不影响主流程 */
 export type ServerEvent =
   | { type: 'message:saved'; message: MessageDTO }
+  | { type: 'message:updated'; message: MessageDTO }
   | { type: 'generation:complete'; chatId: string }
   | { type: 'chat:created'; chatId: string }
 
@@ -77,16 +154,29 @@ export interface Extension {
   defaultSettings?: Record<string, unknown>
   /** 宏：名字（小写）→ 处理函数，参数是 {{名字::参数}} 里 :: 之后的部分 */
   macros?: Record<string, (arg: string, ctx: ExtensionContext) => string>
-  tools?: ToolDefinition[]
+  tools?: ToolDefinition[] | ((ctx: ExtensionContext) => ToolDefinition[])
   hooks?: ExtensionHooks
   /**
    * 自定义后端接口：在传入的 Hono 子应用上注册路由，挂载在 /api/ext/<扩展 id>/ 下。
    * 例如 app.get('/ping', (c) => c.json({ ok: true })) → GET /api/ext/<id>/ping。
    * 扩展被停用时这些接口返回 404。
+   * 设置项 optionsSource 对应 GET /api/ext/<id>/<optionsSource>?settings=<编码后的 JSON>，
+   * 返回 { options: { value: string, label: string }[] }；失败返回错误 JSON。
+   * settings 是当前未保存的表单草稿，可用 parseSettingsQuery(c, ctx.settings) 和保存值合并。
    */
   routes?: (app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) => void
 }
 
 export function defineExtension(extension: Extension): Extension {
   return extension
+}
+
+/** 查询草稿只接受 JSON 对象；格式错误时沿用已保存设置。 */
+export function parseSettingsQuery(c: Context, saved: Record<string, unknown>): Record<string, unknown> {
+  try {
+    const draft: unknown = JSON.parse(c.req.query('settings') ?? 'null')
+    return typeof draft === 'object' && draft !== null && !Array.isArray(draft) ? { ...saved, ...draft } : { ...saved }
+  } catch {
+    return { ...saved }
+  }
 }

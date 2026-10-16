@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo } from 'react'
 import { ApiRequestError } from '../../api/client'
-import { flattenPages, useCharacter, useChatPages, usePersonas } from '../../api/queries'
+import { flattenPages, keys, useCharacter, useChatPages, usePersonas } from '../../api/queries'
 import { EyeIcon, MenuIcon, PanelIcon, SettingsIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
@@ -27,6 +27,14 @@ export function ChatView({ chatId }: { chatId: string }) {
   const character = useCharacter(chat?.characterId ?? null)
   const personas = usePersonas()
   const messages = useMemo(() => flattenPages(pages.data), [pages.data])
+  const pendingImage = messages.some((message) => message.meta.imageGen?.status === 'pending')
+  useEffect(() => {
+    if (!pendingImage) return
+    const timer = setInterval(() => {
+      void qc.invalidateQueries({ queryKey: keys.chat(chatId) })
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [pendingImage, chatId, qc])
   const streamingHere = useStreaming((s) => s.chatId === chatId)
   const {
     sidebarOpen,

@@ -11,7 +11,9 @@ import { env } from '../env'
 import { notFound } from '../errors'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
+import imageGen from './builtin/image-gen'
 import regex from './builtin/regex'
+import { createExtensionHost } from './host'
 import type { Extension, ExtensionContext, ExtensionManifest, ServerEvent } from './types'
 
 /**
@@ -29,7 +31,34 @@ interface Loaded {
   loadError?: string
 }
 
-const loaded: Loaded[] = [{ extension: regex, source: 'builtin' }]
+const host = createExtensionHost(emitServerEvent)
+const loaded: Loaded[] = []
+
+function createApp(extension: Extension): Hono | undefined {
+  if (!extension.routes) return undefined
+  const app = new Hono()
+  app.onError((error) => {
+    throw error
+  })
+  app.notFound((c) => c.json({ error: { code: 'NOT_FOUND', message: '扩展接口不存在' } }, 404))
+  extension.routes(app, {
+    get settings() {
+      return settingsOf(extension)
+    },
+    storage: storageOf(extension.id),
+    host,
+  })
+  return app
+}
+
+/** 内置扩展与本地扩展共用路由和上下文，重复标识在注册时立即报错。 */
+export function registerBuiltinExtension(extension: Extension) {
+  if (loaded.some((entry) => entry.extension.id === extension.id)) throw new Error(`扩展 id「${extension.id}」重复`)
+  loaded.push({ extension, source: 'builtin', app: createApp(extension) })
+}
+
+registerBuiltinExtension(regex)
+registerBuiltinExtension(imageGen)
 
 const manifestSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
@@ -64,7 +93,9 @@ export async function loadLocalExtensions() {
   } catch {
     return
   }
-  loaded.splice(1)
+  for (let i = loaded.length - 1; i >= 0; i--) {
+    if (loaded[i]?.source === 'local') loaded.splice(i, 1)
+  }
   for (const name of names) {
     const directory = join(dir, name)
     try {
@@ -95,20 +126,7 @@ export async function loadLocalExtensions() {
       if (manifest?.client) await localFile(directory, manifest.client)
       if (manifest?.style) await localFile(directory, manifest.style)
       const entry: Loaded = { extension, source: 'local', manifest, directory }
-      if (extension.routes) {
-        entry.app = new Hono()
-        // 交回主应用处理异常，保持自定义接口的错误格式一致。
-        entry.app.onError((error) => {
-          throw error
-        })
-        entry.app.notFound((c) => c.json({ error: { code: 'NOT_FOUND', message: '扩展接口不存在' } }, 404))
-        extension.routes(entry.app, {
-          get settings() {
-            return settingsOf(extension)
-          },
-          storage: storageOf(extension.id),
-        })
-      }
+      entry.app = createApp(extension)
       loaded.push(entry)
       console.log(`已加载扩展：${extension.name}（${extension.id}）`)
     } catch (e) {
@@ -194,7 +212,7 @@ function toDTO(l: Loaded): ExtensionDTO {
     enabled: isEnabled(l),
     provides: {
       macros: Object.keys(e.macros ?? {}),
-      tools: (e.tools ?? []).map((t) => t.name),
+      tools: toolsOf(e, '').map((t) => t.name),
       hooks: Object.keys(e.hooks ?? {}),
     },
     settingsSchema: e.settingsSchema ?? [],
@@ -217,7 +235,7 @@ export function updateExtension(id: string, patch: { enabled?: boolean; settings
 function active(chatId: string): { ext: Extension; ctx: ExtensionContext }[] {
   return loaded.filter(isEnabled).map((l) => ({
     ext: l.extension,
-    ctx: { settings: settingsOf(l.extension), chatId, storage: storageOf(l.extension.id) },
+    ctx: contextOf(l.extension, chatId),
   }))
 }
 
@@ -266,9 +284,25 @@ export function runTransform(kind: 'transformInput' | 'transformOutput', text: s
   }, text)
 }
 
-// 把扩展提供的工具接入工具注册表
-setExtensionToolsProvider(() =>
-  loaded
-    .filter(isEnabled)
-    .flatMap((l) => (l.extension.tools ?? []).map((tool) => ({ tool, source: l.extension.name }))),
+function contextOf(ext: Extension, chatId: string): ExtensionContext {
+  return { settings: settingsOf(ext), chatId, storage: storageOf(ext.id), host }
+}
+
+function toolsOf(ext: Extension, chatId: string) {
+  return safely(
+    ext,
+    'tools',
+    () => (typeof ext.tools === 'function' ? ext.tools(contextOf(ext, chatId)) : (ext.tools ?? [])),
+    [],
+  )
+}
+
+// 执行时重新读取设置，并使用工具调用所属的会话上下文。
+setExtensionToolsProvider((chatId = '') =>
+  loaded.filter(isEnabled).flatMap(({ extension: ext }) =>
+    toolsOf(ext, chatId).map((tool) => ({
+      source: ext.name,
+      tool: { ...tool, run: (args, ctx) => tool.run(args, { ...ctx, extension: contextOf(ext, ctx.chatId) }) },
+    })),
+  ),
 )

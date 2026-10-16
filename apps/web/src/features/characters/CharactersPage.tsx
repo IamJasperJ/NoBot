@@ -7,6 +7,7 @@ import { NumberField, Section, SelectField } from '../../components/form'
 import { ChevronLeftIcon, ChevronRightIcon } from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Avatar, Button, IconButton } from '../../components/ui'
+import { Slot } from '../../extensions/Slot'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { AvatarUpload, CountedArea, CountedText, moveItem, useAction } from './editor'
@@ -450,6 +451,22 @@ export function CharacterEditor({
             />
           )}
         </Section>
+        <Slot
+          name="character.editor.sections"
+          props={{
+            character,
+            save: async (patch) => {
+              // 读取最新扩展数据，防止多个分组依次保存时覆盖彼此；普通表单草稿仍保留。
+              const latest = await api.getCharacter(character.id)
+              const result = await api.updateCharacter(character.id, {
+                extensions: { ...latest.extensions, ...patch.extensions },
+              })
+              setDraft((d) => ({ ...d, extensions: result.extensions }))
+              setOriginal((d) => ({ ...d, extensions: result.extensions }))
+              await refresh()
+            },
+          }}
+        />
       </fieldset>
     </>
   )

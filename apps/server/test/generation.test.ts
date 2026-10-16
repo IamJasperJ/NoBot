@@ -279,7 +279,7 @@ test('工具分片拼接执行回传且状态随消息路径累加和回退', as
   expect((await page(chat)).vars).toEqual({})
 })
 
-test('关闭工具调用后历史工具信息转为文字且不发送工具字段', async () => {
+test('关闭工具调用后完全省略历史工具调用和结果', async () => {
   const { chat } = await setup()
   await updatePreset((data) => ({ ...data, samplers: { ...data.samplers, functionCalling: true } }))
   await toolRound(chat)
@@ -291,8 +291,8 @@ test('关闭工具调用后历史工具信息转为文字且不发送工具字�
   expect(body).not.toHaveProperty('tools')
   expect(body.messages.some((m) => m.role === 'tool' || m.tool_calls !== undefined)).toBe(false)
   const history = body.messages.map((m) => m.content).join('\n')
-  expect(history).toContain('roll_dice')
-  expect(history).toContain(tool.content)
+  expect(history).not.toContain('roll_dice')
+  expect(history).not.toContain(tool.content)
 })
 
 test('群聊依次发言支持指定成员且手动模式仅保存用户消息', async () => {
@@ -495,3 +495,70 @@ test('图片上传与生成全链路及发送限制', async () => {
   ).toBe(400)
   expect((await page(chat)).messages.length).toBe(before)
 })
+
+test('取消勾选工具同时过滤真实请求和预览并报告数量', async () => {
+  const { chat } = await setup()
+  await updatePreset((data) => ({ ...data, samplers: { ...data.samplers, functionCalling: true } }))
+  await toolRound(chat, 'get_current_time', '{}')
+  await toolRound(chat, 'roll_dice')
+  await updatePreset((data) => ({ ...data, samplers: { ...data.samplers, disabledTools: ['get_current_time'] } }))
+  const preview = await json<PromptPreview>(`/chats/${chat.id}/prompt-preview`, 'POST', {})
+  expect(preview.report.omittedToolCalls).toBe(1)
+  expect(JSON.stringify(preview.messages)).not.toContain('get_current_time')
+  expect(preview.messages.some((m) => m.tool_calls?.some((c) => c.function.name === 'roll_dice'))).toBe(true)
+  model.setScript(() => ({ text: '继续' }))
+  await generate(chat)
+  expect(model.requests.at(-1)?.messages).toEqual(preview.messages.concat({ role: 'user', content: '你好' }))
+  expect((await page(chat)).messages.some((m) => m.meta.toolName === 'get_current_time')).toBe(true)
+})
+
+for (const change of ['停用扩展', '关闭图片工具'] as const) {
+  test(`${change}后省略图片工具历史且保留聊天记录`, async () => {
+    const { chat } = await setup()
+    const { db } = await import('../src/db/client')
+    const { chats, messages } = await import('../src/db/schema')
+    const { eq } = await import('drizzle-orm')
+    const callId = '历史图片调用'
+    const resultId = '历史图片结果'
+    db.insert(messages)
+      .values({
+        id: callId,
+        chatId: chat.id,
+        parentId: chat.activeLeafId,
+        role: 'assistant',
+        content: '',
+        meta: { toolCalls: [{ id: 'image-call', name: 'generate_image', arguments: '{}' }] },
+        createdAt: 1,
+      })
+      .run()
+    db.insert(messages)
+      .values({
+        id: resultId,
+        chatId: chat.id,
+        parentId: callId,
+        role: 'tool',
+        content: '历史图片工具结果',
+        meta: { toolCallId: 'image-call', toolName: 'generate_image' },
+        createdAt: 2,
+      })
+      .run()
+    db.update(chats).set({ activeLeafId: resultId }).where(eq(chats.id, chat.id)).run()
+    await updatePreset((data) => ({ ...data, samplers: { ...data.samplers, functionCalling: true } }))
+    await json('/extensions/image-gen', 'PATCH', { enabled: true, settings: { toolEnabled: true } })
+    const before = await json<PromptPreview>(`/chats/${chat.id}/prompt-preview`, 'POST', {})
+    expect(before.messages.some((m) => m.tool_calls?.some((c) => c.function.name === 'generate_image'))).toBe(true)
+    await json(
+      '/extensions/image-gen',
+      'PATCH',
+      change === '停用扩展' ? { enabled: false } : { settings: { toolEnabled: false } },
+    )
+    const after = await json<PromptPreview>(`/chats/${chat.id}/prompt-preview`, 'POST', {})
+    expect(after.report.omittedToolCalls).toBe(1)
+    expect(JSON.stringify(after.messages)).not.toContain('generate_image')
+    expect(JSON.stringify(after.messages)).not.toContain('历史图片工具结果')
+    model.setScript(() => ({ text: '继续' }))
+    await generate(chat)
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).not.toContain('历史图片工具结果')
+    expect((await page(chat)).messages.some((m) => m.id === resultId)).toBe(true)
+  })
+}

@@ -103,7 +103,6 @@ export const chatRoutes = new Hono()
         type: type ?? 'normal',
         speakerId: speakerId ?? (ctx.members.find((m) => !m.muted) ?? ctx.members[0])?.id ?? '',
         leafId: ctx.chat.activeLeafId,
-        toolsEnabled: ctx.preset.samplers.functionCalling,
         ...(text ? { pending: { role: 'user' as const, content: text } } : {}),
       })
       return c.json({ messages, report })

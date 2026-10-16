@@ -186,6 +186,7 @@ describe('后端 CRUD 接口', () => {
         alternate_greetings: ['欢迎'],
         extensions: {
           unknown: '保留',
+          sd_character_prompt: '白龙，银色鳞片',
           talkativeness: 0.8,
           depth_prompt: { prompt: '角色备注', depth: 3, role: 'assistant' },
         },
@@ -194,6 +195,7 @@ describe('后端 CRUD 接口', () => {
     }
     const cardPng = writePngTextChunks(png, { ccv3: Buffer.from(JSON.stringify(raw)).toString('base64') })
     const imported = await uploadJson<CharacterDTO>('/characters/import?lorebook=link', cardPng, '龙.png')
+    expect(imported.extensions).toEqual({ unknown: '保留', sd_character_prompt: '白龙，银色鳞片' })
     expect(imported.lorebookIds).toHaveLength(1)
     expect(imported.talkativeness).toBe(0.8)
     expect(imported.characterNote).toBe('角色备注')
@@ -207,6 +209,7 @@ describe('后端 CRUD 接口', () => {
     ).toEqual(new Uint8Array(cardPng))
     const copy = await json<CharacterDTO>(`/characters/${imported.id}/duplicate`, 'POST')
     expect(copy.name).toBe('白龙 副本')
+    expect(copy.extensions).toEqual(imported.extensions)
     expect(copy.lorebookIds).toEqual(imported.lorebookIds)
     expect(copy.avatarUrl).toContain(copy.id)
     const updated = await json<CharacterDTO>(`/characters/${imported.id}`, 'PATCH', { scenario: '森林' })
@@ -229,9 +232,11 @@ describe('后端 CRUD 接口', () => {
       characterNoteDepth: _depth,
       characterNoteRole: _role,
       defaultPersonaId: _persona,
+      extensions: _extensions,
       ...fields
     } = updated
     expect(parsed.fields).toEqual(fields)
+    expect(parsed.extensions).toEqual(imported.extensions)
     expect(parsed.extras).toMatchObject({
       talkativeness: 0.8,
       characterNote: '角色备注',
@@ -241,6 +246,16 @@ describe('后端 CRUD 接口', () => {
     expect(parsed.characterBook).toMatchObject({ name: '龙的世界' })
     const jsonExport = await request(`/characters/${imported.id}/export?format=json`)
     expect(parseCardFile(new Uint8Array(await jsonExport.arrayBuffer())).fields).toEqual(fields)
+    const replaced = await json<CharacterDTO>(`/characters/${imported.id}`, 'PATCH', { extensions: { custom: true } })
+    expect(replaced.extensions).toEqual({ custom: true })
+    const replacedExport = await request(`/characters/${imported.id}/export?format=json`)
+    expect(parseCardFile(new Uint8Array(await replacedExport.arrayBuffer())).extensions).toEqual({ custom: true })
+    const createdWithExtensions = await json<CharacterDTO>('/characters', 'POST', {
+      name: '扩展角色',
+      extensions: { sd_character_prompt: '森林' },
+    })
+    expect(createdWithExtensions.extensions).toEqual({ sd_character_prompt: '森林' })
+    await json(`/characters/${createdWithExtensions.id}`, 'DELETE')
     const blank = await json<CharacterDTO>('/characters', 'POST', { name: '空白角色' })
     const placeholder = await request(`/characters/${blank.id}/export?format=png`)
     const metadata = await sharp(Buffer.from(await placeholder.arrayBuffer())).metadata()

@@ -87,6 +87,7 @@ export function getCharacter(id: string): CharacterDTO {
     ...toFields(row),
     id,
     avatarUrl: avatarUrl(row.avatarFile, row.updatedAt),
+    extensions: row.extensions,
     talkativeness: row.talkativeness,
     characterNote: row.characterNote,
     characterNoteDepth: row.characterNoteDepth,
@@ -125,6 +126,7 @@ export function createCharacter(input: CharacterInput): CharacterDTO {
     characterNoteDepth,
     characterNoteRole,
     defaultPersonaId,
+    extensions,
     ...fields
   } = characterInput.parse(input)
   checkRelations(lorebookIds, defaultPersonaId)
@@ -139,6 +141,7 @@ export function createCharacter(input: CharacterInput): CharacterDTO {
         characterNoteDepth,
         characterNoteRole,
         defaultPersonaId,
+        extensions,
         id,
         createdAt: now,
         updatedAt: now,
@@ -163,6 +166,7 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
     characterNoteDepth,
     characterNoteRole,
     defaultPersonaId,
+    extensions,
     ...fields
   } = merged
   checkRelations(lorebookIds, defaultPersonaId)
@@ -175,6 +179,7 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
         characterNoteDepth,
         characterNoteRole,
         defaultPersonaId,
+        extensions,
         updatedAt: Date.now(),
       })
       .where(eq(characters.id, id))
@@ -226,7 +231,7 @@ export async function importCharacter(
         })
         if (lorebook === 'link') lorebookIds.push(created.id)
       }
-      const data = characterInput.parse({ ...card.fields, ...card.extras, lorebookIds })
+      const data = characterInput.parse({ ...card.fields, ...card.extras, extensions: card.extensions, lorebookIds })
       const {
         lorebookIds: ids,
         talkativeness,
@@ -234,6 +239,7 @@ export async function importCharacter(
         characterNoteDepth,
         characterNoteRole,
         defaultPersonaId,
+        extensions,
         ...fields
       } = data
       const now = Date.now()
@@ -245,6 +251,7 @@ export async function importCharacter(
           characterNoteDepth,
           characterNoteRole,
           defaultPersonaId,
+          extensions,
           id,
           avatarFile,
           raw: card.raw,
@@ -296,6 +303,7 @@ export async function exportCharacter(id: string, format: 'png' | 'json') {
   const { v2, v3 } = buildCardExport({
     fields: toFields(row),
     extras: character,
+    extensions: character.extensions,
     raw: row.raw,
     book: book
       ? { name: book.lorebook.name, entries: book.entries.map((entry) => lorebookEntryDataSchema.parse(entry)) }

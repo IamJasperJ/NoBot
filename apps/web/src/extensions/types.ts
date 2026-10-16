@@ -1,4 +1,4 @@
-import type { MessageDTO } from '@ai-parter/shared'
+import type { CharacterDTO, MessageDTO } from '@ai-parter/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import type * as ReactNS from 'react'
 import type { ReactNode } from 'react'
@@ -20,8 +20,23 @@ import type { View } from '../stores/ui'
 
 /** 界面上的扩展插槽，以及每个插槽渲染时收到的参数 */
 export interface SlotProps {
+  'character.editor.sections': {
+    character: CharacterDTO
+    save: (patch: { extensions: Record<string, unknown> }) => Promise<void>
+  }
+  /** 图片区域下方，所有角色（包括工具）均可注册媒体操作。 */
+  'chat.message.media': { chatId: string; message: MessageDTO }
+  /** 设置表单下方，仅渲染 extensionId 对应扩展自己的贡献；settings 是当前草稿。 */
+  'extensions.settings.footer': {
+    extensionId: string
+    settings: Record<string, unknown>
+    /** 扩展保存候选值时同步表单草稿，防止后续保存覆盖它。 */
+    onSettingsChange?: (settings: Record<string, unknown>) => void
+  }
   /** 聊天页标题栏右侧（会话设置、预览按钮旁边） */
   'chat.header.actions': { chatId: string }
+  /** 输入框左侧、+ 按钮右边的按钮区 */
+  'chat.composer.buttons': { chatId: string }
   /** 输入框左边「+」菜单里的条目 */
   'chat.composer.menu': { chatId: string; setText: (text: string) => void; close: () => void }
   /** 每条消息的「⋯」菜单里的条目 */
@@ -36,23 +51,26 @@ export type SlotName = keyof SlotProps
 export interface SlotContribution<K extends SlotName> {
   /** 在同一个插槽里唯一 */
   id: string
+  /** 可折叠分组的标题，未提供时使用 id。 */
+  title?: string
   render: (props: SlotProps[K]) => ReactNode
   /** 越小越靠前，默认 100 */
   order?: number
 }
 
-/** 扩展注册的独立页面：出现在左侧导航里 */
+/** 扩展注册的页面：显示在扩展页里该扩展详情的标签中 */
 export interface PageContribution {
   /** 在扩展内唯一；页面的 view 名是 ext:<扩展 id>:<id> */
   id: string
   label: string
-  /** 导航里显示的图标：一个 emoji 或一两个字 */
+  /** 标签和列表快捷按钮显示的图标：一个 emoji 或一两个字 */
   icon: string
   render: () => ReactNode
 }
 
 /** 前端事件：扩展可以订阅 */
 export type ClientEvent =
+  | { type: 'image:swipe-next'; chatId: string; message: MessageDTO }
   | { type: 'chat:open'; chatId: string | null }
   | { type: 'generation:start'; chatId: string }
   | { type: 'generation:complete'; chatId: string }
@@ -72,6 +90,7 @@ export interface ClientExtensionAPI {
   openView: (view: View | `ext:${string}`, focusId?: string | null) => void
   /** 当前打开的会话 id */
   getChatId: () => string | null
+  openChat: (chatId: string) => Promise<void>
   /** 这个扩展的设置（和扩展页里编辑的是同一份） */
   getSettings: () => Promise<Record<string, unknown>>
   saveSettings: (settings: Record<string, unknown>) => Promise<void>

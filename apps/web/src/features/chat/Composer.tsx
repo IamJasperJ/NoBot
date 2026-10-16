@@ -165,7 +165,7 @@ export function Composer({
         </div>
       )}
       <div className="chat-column flex items-end gap-2 rounded-2xl border border-zinc-300 bg-white px-2 py-2 focus-within:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900">
-        <details ref={menuRef} className="relative">
+        <details ref={menuRef} className="relative shrink-0">
           <summary className={cx('list-none', busy && 'pointer-events-none opacity-40')}>
             <span className="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800">
               <PlusIcon />
@@ -196,6 +196,7 @@ export function Composer({
             <Slot name="chat.composer.menu" props={{ chatId, setText, close: closeMenu }} />
           </div>
         </details>
+        <Slot name="chat.composer.buttons" props={{ chatId }} />
         <input
           ref={fileRef}
           type="file"
@@ -226,7 +227,7 @@ export function Composer({
             }
           }}
           placeholder={stopImpersonate ? '代写中…' : '说点什么…（Shift+Enter 换行）'}
-          className="max-h-[200px] flex-1 resize-none bg-transparent py-1 text-[15px] outline-none placeholder:text-zinc-400"
+          className="max-h-[200px] min-w-0 flex-1 resize-none bg-transparent py-1 text-[15px] outline-none placeholder:text-zinc-400"
         />
         {busy ? (
           <IconButton

@@ -2,7 +2,16 @@ import type { ChatPage, UpdateChatInput } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, useChatPages, useConnections, useLorebooks, usePersonas, usePresets } from '../../api/queries'
+import {
+  keys,
+  useAutoBackground,
+  useBackgrounds,
+  useChatPages,
+  useConnections,
+  useLorebooks,
+  usePersonas,
+  usePresets,
+} from '../../api/queries'
 import { NumberField, Section, SelectField, TextAreaField, TextField, Toggle } from '../../components/form'
 import { XIcon } from '../../components/icons'
 import { Avatar, Button, IconButton } from '../../components/ui'
@@ -12,7 +21,7 @@ import { useUi } from '../../stores/ui'
 import { GroupDialog } from '../groups/GroupDialog'
 import { runGeneration } from './generate'
 
-type Draft = Required<Omit<UpdateChatInput, 'title'>> & { title: string }
+type Draft = Required<Omit<UpdateChatInput, 'title' | 'backgroundId'>> & { title: string }
 
 function toDraft(page: ChatPage): Draft {
   const c = page.chat
@@ -46,6 +55,9 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
   const presets = usePresets()
   const connections = useConnections()
   const lorebooks = useLorebooks()
+  const auto = useAutoBackground()
+  const backgrounds = useBackgrounds()
+  const background = backgrounds.data?.find((b) => b.id === page.chat.backgroundId)
   const [draft, setDraft] = useState<Draft>(() => toDraft(page))
   const [groupDialog, setGroupDialog] = useState(false)
   const chatId = page.chat.id
@@ -100,6 +112,45 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
             }}
           />
         )}
+
+        <Section title="聊天背景">
+          <div className="flex items-center gap-2 text-sm">
+            {background &&
+              (background.mime.startsWith('video/') ? (
+                <video src={background.thumbUrl} muted preload="metadata" className="h-10 w-16 rounded object-cover" />
+              ) : (
+                <img src={background.thumbUrl} alt="" className="h-10 w-16 rounded object-cover" />
+              ))}
+            <span className="min-w-0 truncate">{background?.name ?? '跟随全局'}</span>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={() => useUi.getState().openView('backgrounds')}>选择…</Button>
+            <Button
+              disabled={auto.isPending}
+              onClick={() =>
+                auto.mutate(chatId, {
+                  onSuccess: ({ background }) => toast.info(`已选择：${background.name}`),
+                  onError: (error) => toast.error(errorMessage(error)),
+                })
+              }
+            >
+              {auto.isPending ? '选择中…' : '自动选择'}
+            </Button>
+            <Button
+              disabled={!page.chat.backgroundId}
+              onClick={async () => {
+                try {
+                  await api.updateChat(chatId, { backgroundId: null })
+                  await qc.invalidateQueries({ queryKey: keys.chat(chatId) })
+                } catch (e) {
+                  toast.error(errorMessage(e))
+                }
+              }}
+            >
+              清除
+            </Button>
+          </div>
+        </Section>
 
         <TextField label="会话名称" value={draft.title} onChange={(v) => set('title', v)} />
 

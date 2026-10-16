@@ -2,6 +2,8 @@ import type {
   ApiPresetDTO,
   ApiPresetInput,
   AttachmentDTO,
+  BackgroundDTO,
+  BackgroundSettings,
   CharacterDTO,
   CharacterImportLorebook,
   CharacterImportPreview,
@@ -90,6 +92,22 @@ type Ok = { ok: true }
 
 /** 所有后端接口。路径和 apps/server/API.md 一一对应 */
 export const api = {
+  importBackgroundUrl: (input: { url: string; name?: string }) =>
+    request<BackgroundDTO>('POST', '/backgrounds/import-url', input),
+  autoBackground: (chatId: string) =>
+    request<{ background: BackgroundDTO; reply: string }>('POST', '/backgrounds/auto', { chatId }),
+  listBackgrounds: () => request<BackgroundDTO[]>('GET', '/backgrounds'),
+  uploadBackground: (file: File, name?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (name !== undefined) form.append('name', name)
+    return request<BackgroundDTO>('POST', '/backgrounds', form)
+  },
+  renameBackground: (id: string, name: string) => request<BackgroundDTO>('PATCH', `/backgrounds/${enc(id)}`, { name }),
+  deleteBackground: (id: string) => request<Ok>('DELETE', `/backgrounds/${enc(id)}`),
+  getBackgroundSettings: () => request<BackgroundSettings>('GET', '/backgrounds/settings'),
+  setBackgroundSettings: (input: BackgroundSettings) =>
+    request<BackgroundSettings>('PUT', '/backgrounds/settings', input),
   uploadAttachment: (file: File) => upload<AttachmentDTO>('/attachments', file),
   // ---- 连接 ----
   listConnections: () => request<ApiPresetDTO[]>('GET', '/connections'),
@@ -180,6 +198,8 @@ export const api = {
     request<PromptPreview>('POST', `/chats/${chatId}/prompt-preview`, opts),
 
   // ---- 消息 ----
+  updateMessageImageIndex: (id: string, imageIndex: number) =>
+    request<MessageDTO>('PATCH', `/messages/${enc(id)}/meta`, { imageIndex }),
   editMessage: (id: string, content: string) => request<MessageDTO>('PATCH', `/messages/${id}`, { content }),
   deleteMessage: (id: string) => request<Ok>('DELETE', `/messages/${id}`),
 

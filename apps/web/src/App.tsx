@@ -1,9 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { type CSSProperties, type ReactNode, useEffect, useRef } from 'react'
 import { useCharacters, useConnections } from './api/queries'
+import { Background } from './components/Background'
 import {
   BookIcon,
   ChatIcon,
+  ImageIcon,
   LogIcon,
   MenuIcon,
   PlugIcon,
@@ -14,8 +16,8 @@ import {
   UsersIcon,
 } from './components/icons'
 import { Button, cx, IconButton } from './components/ui'
-import { loadExtensions, useExtensionsRuntime } from './extensions/runtime'
-import { ExtensionPage } from './extensions/Slot'
+import { loadExtensions } from './extensions/runtime'
+import { BackgroundsPage } from './features/backgrounds/BackgroundsPage'
 import { CharactersPage } from './features/characters/CharactersPage'
 import { ChatPanelContent, ResizeHandle } from './features/chat/ChatPanelContent'
 import { ChatView } from './features/chat/ChatView'
@@ -37,6 +39,7 @@ const NAV: { view: View; label: string; icon: ReactNode }[] = [
   { view: 'presets', label: '生成预设', icon: <SlidersIcon /> },
   { view: 'connections', label: '连接', icon: <PlugIcon /> },
   { view: 'personas', label: '人设', icon: <UserIcon /> },
+  { view: 'backgrounds', label: '背景', icon: <ImageIcon /> },
   { view: 'extensions', label: '扩展', icon: <PuzzleIcon /> },
   { view: 'logs', label: '日志', icon: <LogIcon /> },
 ]
@@ -44,7 +47,6 @@ const NAV: { view: View; label: string; icon: ReactNode }[] = [
 /** 最左侧的图标导航。项目多时可以滚动；「设置」固定在最下面 */
 function NavRail() {
   const { view, panelOpen, toggleView } = useUi()
-  const pages = useExtensionsRuntime((s) => s.pages)
   const item = (n: { view: View; label: string; icon: ReactNode }) => (
     <button
       key={n.view}
@@ -64,12 +66,7 @@ function NavRail() {
   )
   return (
     <nav className="flex w-16 shrink-0 flex-col items-center border-r border-zinc-200 bg-zinc-50 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
-        {[
-          ...NAV,
-          ...pages.map((p) => ({ view: `ext:${p.extensionId}:${p.id}` as View, label: p.label, icon: p.icon })),
-        ].map(item)}
-      </div>
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">{NAV.map(item)}</div>
       <div className="mt-1 border-t border-zinc-200 pt-1 dark:border-zinc-800">
         {item({ view: 'settings', label: '设置', icon: <SettingsIcon /> })}
       </div>
@@ -159,7 +156,6 @@ function Toasts() {
 }
 
 function PanelContent({ view }: { view: View }) {
-  if (String(view).startsWith('ext:')) return <ExtensionPage view={view} />
   switch (view) {
     case 'chat':
       return <ChatPanelContent />
@@ -171,6 +167,8 @@ function PanelContent({ view }: { view: View }) {
       return <PresetsPage />
     case 'connections':
       return <ConnectionsPage />
+    case 'backgrounds':
+      return <BackgroundsPage />
     case 'personas':
       return <PersonasPage />
     case 'extensions':
@@ -221,7 +219,8 @@ export function App() {
           </aside>
         )}
       </div>
-      <main className="relative min-w-0 flex-1">
+      <main className="relative isolate min-w-0 flex-1">
+        <Background chatId={chatId} />
         {chatId ? <ChatView key={chatId} chatId={chatId} /> : <Welcome />}
       </main>
       <div

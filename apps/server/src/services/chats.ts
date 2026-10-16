@@ -18,6 +18,7 @@ import { type ChatRow, characters, chatLorebooks, chats, groupMembers, groups, m
 import { HttpError, notFound } from '../errors'
 import { emitServerEvent } from '../extensions/registry'
 import { avatarUrl } from '../lib/files'
+import { requireBackground } from './backgrounds'
 import { SETTING_KEYS } from './settings'
 
 // ---------------------------------------------------------------------------
@@ -123,6 +124,7 @@ function chatLorebookIds(chatId: string): string[] {
 function toDTO(row: ChatRow): ChatDTO {
   return {
     ...toSummary(row),
+    backgroundId: row.backgroundId,
     personaId: row.personaId,
     activeLeafId: row.activeLeafId,
     apiPresetId: row.apiPresetId,
@@ -312,6 +314,7 @@ export function getChatPage(chatId: string, opts: { before?: string; limit?: num
 
 export function updateChat(chatId: string, input: UpdateChatInput): ChatDTO {
   getChatRow(chatId)
+  if (input.backgroundId != null) requireBackground(input.backgroundId)
   const { lorebookIds, ...rest } = input
   db.transaction((tx) => {
     tx.update(chats)
@@ -439,4 +442,21 @@ export function deleteMessage(messageId: string) {
       tx.update(chats).set({ activeLeafId: leaf, updatedAt: Date.now() }).where(eq(chats.id, row.chatId)).run()
     }
   })
+}
+
+/** 图片任务未完成时多留一格，通用接口仍只能修改图片序号。 */
+export function updateMessageImageIndex(messageId: string, imageIndex: number): MessageDTO {
+  db.transaction(() => {
+    const message = loadMessage(messageId)
+    const extra = ['pending', 'error'].includes(message.meta.imageGen?.status ?? '') ? 1 : 0
+    if (!Number.isInteger(imageIndex) || imageIndex < 0 || imageIndex >= (message.meta.images?.length ?? 0) + extra)
+      throw new HttpError(400, 'VALIDATION', '图片序号超出范围')
+    db.update(messages)
+      .set({ meta: { ...message.meta, imageIndex } })
+      .where(eq(messages.id, messageId))
+      .run()
+  })
+  const saved = loadMessage(messageId)
+  emitServerEvent({ type: 'message:updated', message: saved })
+  return saved
 }

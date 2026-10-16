@@ -53,8 +53,8 @@ export function SettingsEditor({
           <SaveActions dirty={dirty} pending={pending} save={save} reset={() => setDraft(structuredClone(base))} />
         }
       />
-      <fieldset disabled={pending} className="mx-auto min-w-0 max-w-4xl space-y-4 p-4">
-        <Section title="扫描与预算">
+      <fieldset disabled={pending} className="mx-auto min-w-0 max-w-6xl space-y-2 p-3">
+        <Section dense title="扫描与预算">
           <NumberField
             label="扫描深度"
             hint="扫描最近多少条聊天消息，0 表示不扫描聊天记录。"
@@ -87,7 +87,7 @@ export function SettingsEditor({
             onChange={(v) => set('includeNames', v)}
           />
         </Section>
-        <Section title="匹配与递归">
+        <Section dense title="匹配与递归">
           <SwitchField
             label="区分大小写"
             hint="开启后，英文关键词的大小写必须与文本一致。"
@@ -115,7 +115,7 @@ export function SettingsEditor({
             max={10}
           />
         </Section>
-        <Section title="插入策略">
+        <Section dense title="插入策略">
           <SelectField
             label="多个来源的排序方式"
             hint="决定角色世界书和全局世界书的条目在提示词中如何排列。"

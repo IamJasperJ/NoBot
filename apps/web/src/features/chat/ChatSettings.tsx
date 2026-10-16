@@ -98,7 +98,7 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
           <XIcon />
         </IconButton>
       </header>
-      <div className="flex-1 space-y-3 overflow-y-auto p-3">
+      <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {page.group && <GroupMembers page={page} onEdit={() => setGroupDialog(true)} />}
         {page.group && (
           <GroupDialog
@@ -115,7 +115,7 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
 
         <TextField label="会话名称" value={draft.title} onChange={(v) => set('title', v)} />
 
-        <Section title="人设与预设">
+        <Section dense title="人设与预设">
           <SelectField
             label="用户人设"
             hint="你在这个会话里扮演谁，{{user}} 会替换成人设的名字"
@@ -224,7 +224,7 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
           ))}
         </Section>
 
-        <Section title="作者注释" description="按深度插进聊天记录，适合临时引导剧情走向">
+        <Section dense title="作者注释" description="按深度插进聊天记录，适合临时引导剧情走向">
           <TextAreaField
             label="内容"
             hint="可以用 {{char}}、{{user}} 等宏；留空则不发送"

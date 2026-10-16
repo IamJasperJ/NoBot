@@ -2,7 +2,16 @@ import type { ExtensionSettingField } from '@ai-parter/shared'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Combobox, type Option } from '../../components/combobox'
-import { NumberField, SelectField, SwitchField, TextAreaField, TextField } from '../../components/form'
+import {
+  DenseGrid,
+  DenseRow,
+  denseControlClass,
+  denseSelectClass,
+  HintButton,
+  NumberField,
+  SwitchField,
+  TextAreaField,
+} from '../../components/form'
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -111,27 +120,32 @@ function SettingsForm({ fields, values, onChange, disabled, extensionId, setting
   const allCollapsed = groups.every(
     ({ heading }) => !heading || (collapsed[heading.key] ?? heading.defaultCollapsed ?? false),
   )
-  const renderField = (field: ExtensionSettingField): ReactNode => (
-    <SettingControl
-      key={field.key}
-      onSettingsChange={onChange}
-      field={field}
-      value={values[field.key]}
-      onChange={(next) => onChange({ ...values, [field.key]: next })}
-      disabled={disabled}
-      extensionId={extensionId}
-      settings={settings}
-      attachments={fields
-        .filter((candidate) => candidate.attachTo === field.key && isVisible(candidate))
-        .map((attached) => (
-          <AttachedField key={attached.key} field={attached} value={values[attached.key]} disabled={disabled}>
-            {renderField(attached)}
-          </AttachedField>
-        ))}
-    />
-  )
+  const renderField = (field: ExtensionSettingField): ReactNode => {
+    const attached = fields.filter((candidate) => candidate.attachTo === field.key && isVisible(candidate))
+    return (
+      <SettingControl
+        key={field.key}
+        onSettingsChange={onChange}
+        field={field}
+        value={values[field.key]}
+        onChange={(next) => onChange({ ...values, [field.key]: next })}
+        disabled={disabled}
+        extensionId={extensionId}
+        settings={settings}
+        attachments={
+          attached.length > 0
+            ? attached.map((item) => (
+                <AttachedField key={item.key} field={item} value={values[item.key]} disabled={disabled}>
+                  {renderField(item)}
+                </AttachedField>
+              ))
+            : null
+        }
+      />
+    )
+  }
   return (
-    <div className="min-w-0 space-y-3">
+    <div className="min-w-0 space-y-2">
       {headingCount >= 3 && (
         <div className="flex justify-end">
           <Button
@@ -153,16 +167,8 @@ function SettingsForm({ fields, values, onChange, disabled, extensionId, setting
       {groups.map(({ heading, fields: members }, index) => {
         const shown = members.filter((field) => isVisible(field))
         if (!shown.length || (heading && !visible(heading, values))) return null
-        const body = layoutRows(
-          shown.filter((field) => !field.attachTo),
-          renderField,
-        )
-        if (!heading)
-          return (
-            <div key={index} className="min-w-0 space-y-5">
-              {body}
-            </div>
-          )
+        const body = shown.filter((field) => !field.attachTo).map(renderField)
+        if (!heading) return <DenseGrid key={index}>{body}</DenseGrid>
         const closed = collapsed[heading.key] ?? heading.defaultCollapsed ?? false
         return (
           <section
@@ -173,7 +179,7 @@ function SettingsForm({ fields, values, onChange, disabled, extensionId, setting
               type="button"
               aria-expanded={!closed}
               className={cx(
-                'flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40',
+                'flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40',
                 closed ? 'rounded-xl' : 'rounded-t-xl',
               )}
               onClick={() => changeCollapsed({ ...collapsed, [heading.key]: !closed })}
@@ -188,7 +194,7 @@ function SettingsForm({ fields, values, onChange, disabled, extensionId, setting
               />
             </button>
             {!closed && (
-              <div className="min-w-0 space-y-5 border-t border-zinc-100 px-4 py-4 dark:border-zinc-800">{body}</div>
+              <DenseGrid className="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">{body}</DenseGrid>
             )}
           </section>
         )
@@ -224,7 +230,7 @@ function CustomField({
     ),
   )
   return (
-    <div className="min-w-0 space-y-1.5">
+    <div className="col-span-full min-w-0">
       {registered ? (
         <Slot
           name="extensions.settings.field"
@@ -232,6 +238,7 @@ function CustomField({
             extensionId,
             fieldKey: field.key,
             label: field.label,
+            hint,
             value,
             onChange,
             settings,
@@ -242,33 +249,8 @@ function CustomField({
       ) : (
         <p className="text-xs text-zinc-400">「{field.label}」需要扩展的前端部分来显示（扩展前端未加载）</p>
       )}
-      {hint && <p className="text-xs leading-relaxed text-zinc-500">{hint}</p>}
     </div>
   )
-}
-
-/** 连续的半宽字段两两并排（窄屏一列），其余字段各占一行 */
-function layoutRows(fields: ExtensionSettingField[], render: (field: ExtensionSettingField) => ReactNode): ReactNode[] {
-  const rows: ReactNode[] = []
-  let halves: ExtensionSettingField[] = []
-  const flush = () => {
-    if (!halves.length) return
-    rows.push(
-      <div key={`row:${halves[0]?.key}`} className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">
-        {halves.map(render)}
-      </div>,
-    )
-    halves = []
-  }
-  for (const field of fields) {
-    if (field.width === 'half') halves.push(field)
-    else {
-      flush()
-      rows.push(render(field))
-    }
-  }
-  flush()
-  return rows
 }
 
 /** 附着字段：在目标输入框右侧显示一个和输入框同高的按钮，点开弹出小窗编辑 */
@@ -340,7 +322,7 @@ function AttachedField({
         aria-haspopup="dialog"
         disabled={disabled}
         className={cx(
-          'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap shadow-xs transition-colors disabled:opacity-50',
+          'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-medium whitespace-nowrap shadow-xs transition-colors disabled:opacity-50',
           filled
             ? 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300'
             : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300',
@@ -368,15 +350,19 @@ function AttachedField({
   )
 }
 
-/** 控件右侧的按钮组（附着按钮、显示密码、拉取），和 36px 的输入框底边对齐 */
+/** 控件右侧的按钮组（附着按钮、显示密码、拉取），和 32px 的紧凑输入框同高 */
 function Trailing({ children }: { children: ReactNode }) {
-  return <div className="flex shrink-0 items-center gap-2">{children}</div>
+  return <div className="flex shrink-0 items-center gap-1.5">{children}</div>
 }
+
+/** 紧凑排版里的描边图标按钮：32px，和紧凑输入框同高 */
+const denseIconClass = 'size-8'
 
 function SecretToggle({ shown, onToggle, disabled }: { shown: boolean; onToggle: () => void; disabled: boolean }) {
   return (
     <IconButton
       variant="outline"
+      className={denseIconClass}
       label={shown ? '隐藏' : '显示'}
       aria-pressed={shown}
       disabled={disabled}
@@ -407,6 +393,7 @@ function SettingControl({
   onSettingsChange: (settings: Record<string, unknown>) => void
 }) {
   const [shown, setShown] = useState(false)
+  const id = useId()
   const hint = hintOf(field, extensionId)
   if (field.type === 'custom') {
     return (
@@ -437,45 +424,47 @@ function SettingControl({
     )
   }
   if (field.type === 'string' || field.type === 'select') {
+    // 带右侧按钮（显示密码、附着字段）的输入框独占一行，免得输入框被挤得太窄
     const hasTrailing = !!attachments || (field.type === 'string' && field.secret)
     return (
-      <div className="min-w-0 space-y-1.5">
-        <div className="flex items-end gap-2">
-          <div className="min-w-0 flex-1">
-            {field.type === 'string' ? (
-              <TextField
-                label={field.label}
-                disabled={disabled}
-                type={field.secret && !shown ? 'password' : 'text'}
-                {...(field.placeholder === undefined ? {} : { placeholder: field.placeholder })}
-                value={typeof value === 'string' ? value : ''}
-                onChange={setValue}
-              />
-            ) : (
-              <SelectField
-                label={field.label}
-                disabled={disabled}
-                value={typeof value === 'string' ? value : ''}
-                options={
-                  field.options.some((option) => option.value === '')
-                    ? field.options
-                    : [{ value: '', label: '请选择' }, ...field.options]
-                }
-                onChange={setValue}
-              />
+      <DenseRow id={id} label={field.label} hint={hint} disabled={disabled} wide={hasTrailing}>
+        {field.type === 'string' ? (
+          <input
+            id={id}
+            className={cx(denseControlClass, 'min-w-0 flex-1')}
+            type={field.secret && !shown ? 'password' : 'text'}
+            placeholder={field.placeholder}
+            disabled={disabled}
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => setValue(e.target.value)}
+          />
+        ) : (
+          <select
+            id={id}
+            className={cx(denseSelectClass, 'min-w-0 flex-1')}
+            disabled={disabled}
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => setValue(e.target.value)}
+          >
+            {(field.options.some((option) => option.value === '')
+              ? field.options
+              : [{ value: '', label: '请选择' }, ...field.options]
+            ).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        )}
+        {hasTrailing && (
+          <Trailing>
+            {field.type === 'string' && field.secret && (
+              <SecretToggle shown={shown} disabled={disabled} onToggle={() => setShown(!shown)} />
             )}
-          </div>
-          {hasTrailing && (
-            <Trailing>
-              {field.type === 'string' && field.secret && (
-                <SecretToggle shown={shown} disabled={disabled} onToggle={() => setShown(!shown)} />
-              )}
-              {attachments}
-            </Trailing>
-          )}
-        </div>
-        {hint && <p className="text-xs leading-relaxed text-zinc-500">{hint}</p>}
-      </div>
+            {attachments}
+          </Trailing>
+        )}
+      </DenseRow>
     )
   }
   const control = (() => {
@@ -533,11 +522,11 @@ function SettingControl({
         return null
     }
   })()
-  if (!attachments) return <div className="min-w-0">{control}</div>
+  if (!attachments) return control
   return (
-    <div className="flex min-w-0 items-start gap-2">
+    <div className="col-span-full flex min-w-0 items-start gap-2">
       <div className="min-w-0 flex-1">{control}</div>
-      <div className={cx('shrink-0', field.type === 'textarea' && 'mt-[26px]')}>
+      <div className={cx('shrink-0 pt-0.5', field.type === 'textarea' && 'pt-8')}>
         <Trailing>{attachments}</Trailing>
       </div>
     </div>
@@ -563,6 +552,7 @@ function SettingsList({
 }) {
   const items: unknown[] = Array.isArray(value) ? value : []
   const [expanded, setExpanded] = useState<boolean[]>([])
+  const [showHint, setShowHint] = useState(false)
   const focusIndex = useRef<number | null>(null)
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -594,9 +584,10 @@ function SettingsList({
     onChange([...items, defaults(field.itemFields)])
   }
   return (
-    <div ref={root} className="min-w-0 space-y-1.5">
-      <div className="flex items-center gap-2">
-        <span className="text-[13px] font-medium text-zinc-800 dark:text-zinc-200">{field.label}</span>
+    <div ref={root} className="col-span-full min-w-0 space-y-1.5 py-1">
+      <div className="flex min-h-6 items-center gap-2">
+        <span className="text-[13px] text-zinc-700 dark:text-zinc-300">{field.label}</span>
+        {hint && <HintButton hint={hint} open={showHint} onToggle={() => setShowHint(!showHint)} />}
         {items.length > 0 && <span className="text-xs text-zinc-400 tabular-nums">{items.length}</span>}
         {items.length >= 2 && (
           <Button
@@ -610,7 +601,7 @@ function SettingsList({
           </Button>
         )}
       </div>
-      {hint && <p className="text-xs leading-relaxed text-zinc-500">{hint}</p>}
+      {hint && showHint && <p className="text-xs leading-relaxed text-zinc-500">{hint}</p>}
       <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
         {items.map((item, index) => {
           const rawTitle = titleField ? recordOf(item)[titleField.key] : ''
@@ -628,7 +619,7 @@ function SettingsList({
             >
               <div
                 className={cx(
-                  'group flex h-10 items-center gap-1 pr-1.5 pl-2',
+                  'group flex h-9 items-center gap-1 pr-1 pl-2',
                   open ? 'bg-zinc-50 dark:bg-zinc-800/40' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30',
                 )}
               >
@@ -677,7 +668,7 @@ function SettingsList({
                 </div>
               </div>
               {open && (
-                <div className="border-t border-zinc-100 px-4 py-4 dark:border-zinc-800">
+                <div className="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
                   <SettingsEditor
                     fields={field.itemFields}
                     values={recordOf(item)}
@@ -697,7 +688,7 @@ function SettingsList({
           aria-label="添加一项"
           onClick={add}
           className={cx(
-            'flex h-10 w-full items-center gap-2 px-3 text-sm text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-violet-600 disabled:opacity-50 dark:hover:bg-zinc-800/40',
+            'flex h-9 w-full items-center gap-2 px-3 text-[13px] text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-violet-600 disabled:opacity-50 dark:hover:bg-zinc-800/40',
             items.length > 0 && 'border-t border-zinc-100 dark:border-zinc-800',
           )}
         >
@@ -805,38 +796,40 @@ function RemoteOptionsField({
   ]
   if (field.type === 'select' && value && !choices.some((option) => option.value === value))
     choices.push({ value, label: `${value}（自定义）` })
-  const labelId = useId()
+  const id = useId()
   return (
-    <div className="min-w-0 space-y-1.5">
-      {field.type === 'string' && (
-        <span id={labelId} className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">
-          {field.label}
-        </span>
-      )}
-      <div className="flex items-end gap-2">
-        <div className="min-w-0 flex-1">
-          {field.type === 'select' ? (
-            <SelectField
-              label={field.label}
-              value={value}
-              disabled={disabled}
-              onChange={onChange}
-              options={
-                choices.some((option) => option.value === '') ? choices : [{ value: '', label: '请选择' }, ...choices]
-              }
-            />
-          ) : (
-            <Combobox
-              label={field.label}
-              value={value}
-              onChange={onChange}
-              options={choices}
-              disabled={disabled}
-              placeholder={field.placeholder ?? (choices.length ? '选择或直接输入' : '直接输入，或点右侧按钮拉取')}
-              secret={!!field.secret && !shown}
-            />
-          )}
-        </div>
+    <div className={cx('min-w-0', (!!attachments || (field.type === 'string' && !!field.secret)) && 'col-span-full')}>
+      <DenseRow id={id} label={field.label} hint={error ? undefined : hint} disabled={disabled}>
+        {field.type === 'select' ? (
+          <select
+            id={id}
+            className={cx(denseSelectClass, 'min-w-0 flex-1')}
+            value={value}
+            disabled={disabled}
+            onChange={(e) => onChange(e.target.value)}
+          >
+            {(choices.some((option) => option.value === '')
+              ? choices
+              : [{ value: '', label: '请选择' }, ...choices]
+            ).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Combobox
+            id={id}
+            className="min-w-0 flex-1"
+            label={field.label}
+            value={value}
+            onChange={onChange}
+            options={choices}
+            disabled={disabled}
+            placeholder={field.placeholder ?? (choices.length ? '选择或直接输入' : '直接输入，或点右侧按钮拉取')}
+            secret={!!field.secret && !shown}
+          />
+        )}
         <Trailing>
           {field.type === 'string' && field.secret && (
             <SecretToggle shown={shown} disabled={disabled} onToggle={() => setShown(!shown)} />
@@ -844,6 +837,7 @@ function RemoteOptionsField({
           {attachments}
           <IconButton
             variant="outline"
+            className={denseIconClass}
             disabled={disabled || loading}
             onClick={() => void load(true)}
             label={`拉取${field.label}`}
@@ -851,14 +845,12 @@ function RemoteOptionsField({
             <RefreshIcon className={loading ? 'animate-spin' : ''} />
           </IconButton>
         </Trailing>
-      </div>
-      {error ? (
+      </DenseRow>
+      {error && (
         // 自动拉取失败时多个字段会同时报同一个错，这里只给一行简短提示，完整原因悬停可见（手动拉取会弹出完整错误）
-        <p className="truncate text-xs text-amber-600 dark:text-amber-400" title={error}>
+        <p className="truncate pb-1 pl-38 text-xs text-amber-600 dark:text-amber-400" title={error}>
           未能拉取候选，可直接手填或点右侧按钮重试
         </p>
-      ) : (
-        hint && <p className="text-xs leading-relaxed text-zinc-500">{hint}</p>
       )}
     </div>
   )

@@ -1,8 +1,8 @@
 import type { AttachmentDTO } from '@ai-parter/shared'
-import { useMemo, useState } from 'react'
-import { TextAreaField } from '../../components/form'
+import { useId, useMemo, useState } from 'react'
+import { DenseRow, denseSelectClass, TextAreaField } from '../../components/form'
 import { EditIcon, PlusIcon, TrashIcon } from '../../components/icons'
-import { Button, cx, Dialog, IconButton, inputClass, selectClass } from '../../components/ui'
+import { Button, cx, Dialog, IconButton, inputClass } from '../../components/ui'
 import type { ClientExtensionAPI } from '../types'
 
 /**
@@ -231,11 +231,14 @@ export function WorkflowField({
   settings,
   onSettingsChange,
   disabled,
+  hint,
 }: {
   settings: Settings
   onSettingsChange: (settings: Settings) => void
   disabled: boolean
+  hint?: string | undefined
 }) {
+  const id = useId()
   const workflows = listOf<Workflow>(settings.comfyWorkflows)
   const placeholders = listOf<Placeholder>(settings.comfyCustomPlaceholders)
   const current = typeof settings.comfyWorkflowName === 'string' ? settings.comfyWorkflowName : ''
@@ -254,12 +257,11 @@ export function WorkflowField({
   }
   const inspection = custom ? inspectWorkflow(custom.json, placeholders) : null
   return (
-    <div className="space-y-1.5">
-      <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">工作流</span>
-      <div className="flex items-center gap-1.5">
+    <div>
+      <DenseRow id={id} label="工作流" hint={hint} disabled={disabled}>
         <select
-          aria-label="工作流"
-          className={cx(selectClass, 'min-w-0 flex-1')}
+          id={id}
+          className={cx(denseSelectClass, 'min-w-0 flex-1')}
           value={current}
           disabled={disabled}
           onChange={(e) => update({ comfyWorkflowName: e.target.value })}
@@ -282,6 +284,7 @@ export function WorkflowField({
         </select>
         <IconButton
           variant="outline"
+          className="size-8"
           label={builtin ? '内置工作流不能编辑，可以新建一个自定义工作流' : '编辑工作流'}
           disabled={disabled || !custom}
           onClick={() => custom && setEditing(custom)}
@@ -290,6 +293,7 @@ export function WorkflowField({
         </IconButton>
         <IconButton
           variant="outline"
+          className="size-8"
           label="新建工作流"
           disabled={disabled}
           onClick={() => {
@@ -304,6 +308,7 @@ export function WorkflowField({
         </IconButton>
         <IconButton
           variant="outline"
+          className="size-8"
           label="重命名工作流"
           disabled={disabled || !custom}
           onClick={() => {
@@ -320,6 +325,7 @@ export function WorkflowField({
         </IconButton>
         <IconButton
           variant="outline"
+          className="size-8"
           label="删除工作流"
           disabled={disabled || !custom}
           onClick={() => {
@@ -329,9 +335,9 @@ export function WorkflowField({
         >
           <TrashIcon />
         </IconButton>
-      </div>
+      </DenseRow>
       {inspection && (
-        <p className="text-xs text-zinc-500">
+        <p className="pb-1 pl-38 text-xs text-zinc-500">
           {inspection.error ? (
             <span className="text-red-600">{inspection.error}</span>
           ) : custom?.json.trim() ? (
@@ -374,11 +380,14 @@ export function StyleField({
   settings,
   onSettingsChange,
   disabled,
+  hint,
 }: {
   settings: Settings
   onSettingsChange: (settings: Settings) => void
   disabled: boolean
+  hint?: string | undefined
 }) {
+  const id = useId()
   const styles = listOf<Style>(settings.styles)
   const active = typeof settings.activeStyle === 'string' ? settings.activeStyle : ''
   const index = Math.max(
@@ -399,68 +408,68 @@ export function StyleField({
     return name
   }
   return (
-    <div className="space-y-4">
-      <div className="space-y-1.5">
-        <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">风格</span>
-        <div className="flex items-center gap-1.5">
-          <select
-            aria-label="当前风格"
-            className={cx(selectClass, 'min-w-0 flex-1')}
-            value={style?.name ?? ''}
-            disabled={disabled || !styles.length}
-            onChange={(e) => update({ activeStyle: e.target.value })}
-          >
-            {styles.map((s) => (
-              <option key={s.name} value={s.name}>
-                {s.name}
-              </option>
-            ))}
-            {!styles.length && <option value="">（还没有风格）</option>}
-          </select>
-          <IconButton
-            variant="outline"
-            label="以当前内容新建风格"
-            disabled={disabled}
-            onClick={() => {
-              const name = askName(style ? `${style.name} 副本` : '新风格')
-              if (!name) return
-              const created: Style = {
-                name,
-                promptPrefix: style?.promptPrefix ?? '',
-                promptSuffix: style?.promptSuffix ?? '',
-                negativePrompt: style?.negativePrompt ?? '',
-              }
-              update({ styles: [...styles, created], activeStyle: name })
-            }}
-          >
-            <PlusIcon />
-          </IconButton>
-          <IconButton
-            variant="outline"
-            label="重命名风格"
-            disabled={disabled || !style}
-            onClick={() => {
-              if (!style) return
-              const name = askName(style.name)
-              if (name) update({ styles: styles.map((s, i) => (i === index ? { ...s, name } : s)), activeStyle: name })
-            }}
-          >
-            <EditIcon />
-          </IconButton>
-          <IconButton
-            variant="outline"
-            label="删除风格"
-            disabled={disabled || !style || styles.length <= 1}
-            onClick={() => {
-              if (!style || !confirm(`删除风格「${style.name}」？`)) return
-              const rest = styles.filter((_, i) => i !== index)
-              update({ styles: rest, activeStyle: rest[0]?.name ?? '' })
-            }}
-          >
-            <TrashIcon />
-          </IconButton>
-        </div>
-      </div>
+    <div className="space-y-1">
+      <DenseRow id={id} label="风格" hint={hint} disabled={disabled}>
+        <select
+          id={id}
+          className={cx(denseSelectClass, 'min-w-0 flex-1')}
+          value={style?.name ?? ''}
+          disabled={disabled || !styles.length}
+          onChange={(e) => update({ activeStyle: e.target.value })}
+        >
+          {styles.map((s) => (
+            <option key={s.name} value={s.name}>
+              {s.name}
+            </option>
+          ))}
+          {!styles.length && <option value="">（还没有风格）</option>}
+        </select>
+        <IconButton
+          variant="outline"
+          className="size-8"
+          label="以当前内容新建风格"
+          disabled={disabled}
+          onClick={() => {
+            const name = askName(style ? `${style.name} 副本` : '新风格')
+            if (!name) return
+            const created: Style = {
+              name,
+              promptPrefix: style?.promptPrefix ?? '',
+              promptSuffix: style?.promptSuffix ?? '',
+              negativePrompt: style?.negativePrompt ?? '',
+            }
+            update({ styles: [...styles, created], activeStyle: name })
+          }}
+        >
+          <PlusIcon />
+        </IconButton>
+        <IconButton
+          variant="outline"
+          className="size-8"
+          label="重命名风格"
+          disabled={disabled || !style}
+          onClick={() => {
+            if (!style) return
+            const name = askName(style.name)
+            if (name) update({ styles: styles.map((s, i) => (i === index ? { ...s, name } : s)), activeStyle: name })
+          }}
+        >
+          <EditIcon />
+        </IconButton>
+        <IconButton
+          variant="outline"
+          className="size-8"
+          label="删除风格"
+          disabled={disabled || !style || styles.length <= 1}
+          onClick={() => {
+            if (!style || !confirm(`删除风格「${style.name}」？`)) return
+            const rest = styles.filter((_, i) => i !== index)
+            update({ styles: rest, activeStyle: rest[0]?.name ?? '' })
+          }}
+        >
+          <TrashIcon />
+        </IconButton>
+      </DenseRow>
       {style && (
         <>
           <TextAreaField

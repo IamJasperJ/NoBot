@@ -4,8 +4,8 @@ import { Section, SelectField, SwitchField, TextAreaField } from '../../componen
 export function BehaviorEditor({ value, onChange }: { value: PresetBehavior; onChange: (v: PresetBehavior) => void }) {
   const set = <K extends keyof PresetBehavior>(key: K, v: PresetBehavior[K]) => onChange({ ...value, [key]: v })
   return (
-    <div className="space-y-4">
-      <Section title="消息格式">
+    <div className="space-y-2">
+      <Section dense title="消息格式">
         <SelectField
           label="角色名发送方式"
           hint="控制名字放在哪里；name 字段只支持英文数字，不合法的名字会退回文字前缀。"
@@ -52,7 +52,7 @@ export function BehaviorEditor({ value, onChange }: { value: PresetBehavior; onC
           onChange={(v) => set('useSystemPrompt', v)}
         />
       </Section>
-      <Section title="续写与预填充">
+      <Section dense title="续写与预填充">
         <SwitchField
           label="续写使用预填充"
           hint="把原消息作为 assistant 预填充发送，替代辅助提示词里的续写提示。"
@@ -84,7 +84,7 @@ export function BehaviorEditor({ value, onChange }: { value: PresetBehavior; onC
           onChange={(v) => set('assistantImpersonationPrefill', v)}
         />
       </Section>
-      <Section title="角色卡与示例">
+      <Section dense title="角色卡与示例">
         <SwitchField
           label="优先使用角色卡主提示词"
           hint="角色卡含 system_prompt 时优先使用；角色卡可用 {{original}} 引用预设原文。"

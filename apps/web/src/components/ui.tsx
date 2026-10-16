@@ -24,6 +24,7 @@ const conflictGroups: [string, RegExp][] = [
   ['pb', /^pb-/],
   ['text-size', /^text-(xs|sm|base|lg|xl|2xl|3xl|\[[\d.]+(px|rem)\])$/],
   ['rounded', /^rounded(-(none|sm|md|lg|xl|2xl|full))?$/],
+  ['flex', /^flex-(none|initial|auto|1)$/],
 ]
 
 function groupOf(token: string): string | null {

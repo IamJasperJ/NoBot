@@ -151,6 +151,8 @@ function editorHarness(initial: React.ComponentProps<typeof SettingsEditor>) {
       return refs.get(key)
     }) as typeof React.useRef),
     spyOn(React, 'useId').mockImplementation(() => `${owner}:${slot++}`),
+    // 测试只渲染扩展设置表单，它总在紧凑排版里
+    spyOn(React, 'useContext').mockImplementation((() => true) as typeof React.useContext),
     spyOn(React, 'useEffect').mockImplementation((callback) => {
       effects.push(callback)
     }),
@@ -393,12 +395,15 @@ test('附着字段同行排序、高亮、草稿编辑、外部点击和 Esc 关
     expect(harness.nodes.find((node) => node.props['aria-label'] === '附着开关')?.props.className).toContain(
       'border-zinc-200 bg-white',
     )
-    const row = harness.nodes.find((node) => node.type === 'div' && node.props.className === 'flex items-end gap-2')
-    // 标题在输入行上方；行内依次是输入框、附着按钮（头、开），最后是只有图标的「拉取」按钮
-    expect(row?.text).toBe('头开')
+    const row = harness.nodes.find(
+      (node) => node.type === 'div' && String(node.props.className).startsWith('flex min-h-9'),
+    )
+    // 紧凑排版一行：标签、输入框、附着按钮（头、开），最后是只有图标的「拉取」按钮
+    expect(row?.text).toBe('地址头开')
     harness.click('请求头')
     expect(harness.nodes.find((node) => node.props.role === 'dialog')?.props['aria-label']).toBe('请求头')
-    expect(harness.nodes.some((node) => node.text === 'JSON 说明')).toBe(true)
+    // 紧凑排版里说明收在标签旁的 ⓘ 里（悬停可见、点开展开）
+    expect(harness.nodes.some((node) => node.props.title === 'JSON 说明')).toBe(true)
     const textarea = harness.nodes.find((node) => node.type === 'textarea')
     if (!textarea) throw new Error('浮层没有渲染编辑控件')
     ;(textarea.props.onChange as (event: unknown) => void)({ target: { value: '{"Authorization":"token"}' } })

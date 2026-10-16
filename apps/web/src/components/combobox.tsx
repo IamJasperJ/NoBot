@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { denseControlClass, useDense } from './form'
 import { ChevronDownIcon } from './icons'
 import { controlClass, cx } from './ui'
 
@@ -17,6 +18,8 @@ export function Combobox({
   placeholder,
   label,
   secret,
+  id,
+  className,
 }: {
   value: string
   onChange: (value: string) => void
@@ -25,7 +28,11 @@ export function Combobox({
   placeholder?: string | undefined
   label: string
   secret?: boolean
+  id?: string
+  /** 外层容器的 class（紧凑排版里用 flex-1 占满剩余宽度） */
+  className?: string
 }) {
+  const dense = useDense()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState<string | null>(null)
   const [active, setActive] = useState(0)
@@ -52,9 +59,10 @@ export function Combobox({
     setQuery(null)
   }
   return (
-    <div ref={root} className="relative">
+    <div ref={root} className={cx('relative', className)}>
       <input
-        className={cx(controlClass, 'pr-9')}
+        id={id}
+        className={cx(dense ? denseControlClass : controlClass, 'pr-9')}
         type={secret ? 'password' : 'text'}
         role="combobox"
         aria-label={label}

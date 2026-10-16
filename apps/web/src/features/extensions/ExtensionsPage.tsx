@@ -128,18 +128,18 @@ export function ExtensionDetail({
       >
         {activePage && <ExtensionPage view={`ext:${extension.id}:${activePage.id}`} />}
         {/* 保留设置草稿，切换标签不会丢失尚未保存的修改。 */}
-        <div hidden={!!activePage} className="mx-auto w-full max-w-3xl space-y-5 p-4 sm:p-6">
+        <div hidden={!!activePage} className="mx-auto w-full max-w-6xl space-y-3 p-3 sm:p-4">
           {/* 扩展概要：名字、说明、元信息、启用开关放在一张卡片里，不再上下重复 */}
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/40">
             <div className="flex items-start gap-4">
-              <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <h2 className="mr-1 break-words text-base font-semibold">{extension.name}</h2>
                   <span className={badgeClass}>v{extension.version}</span>
                   <span className={badgeClass}>{extension.source === 'builtin' ? '内置' : '本地'}</span>
                   {extension.author && <span className={badgeClass}>{extension.author}</span>}
                 </div>
-                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-500">
+                <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-zinc-500">
                   {extension.description || '暂无描述。'}
                 </p>
               </div>
@@ -165,7 +165,7 @@ export function ExtensionDetail({
               ]
               return (
                 provided.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+                  <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
                     {provided.map((item) => (
                       <span key={`${item.kind}:${item.name}`} className={cx(badgeClass, 'gap-1 font-normal')}>
                         <span className="text-zinc-400">{item.kind}</span>

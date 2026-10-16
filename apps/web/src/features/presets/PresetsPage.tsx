@@ -236,7 +236,7 @@ export function PresetsPage() {
                 </div>
               }
             />
-            <fieldset disabled={busy} className="mx-auto w-full max-w-3xl min-w-0 space-y-5 p-4 sm:p-6">
+            <fieldset disabled={busy} className="mx-auto w-full max-w-6xl min-w-0 space-y-3 p-3 sm:p-4">
               <div className="overflow-x-auto">
                 <Tabs
                   value={tab}

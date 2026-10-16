@@ -35,6 +35,8 @@ export interface SlotProps {
     extensionId: string
     fieldKey: string
     label: string
+    /** 设置项说明。控件自己决定怎么显示，推荐用 components/form 的 DenseRow（标签旁的 ⓘ） */
+    hint?: string | undefined
     value: unknown
     onChange: (value: unknown) => void
     settings: Record<string, unknown>

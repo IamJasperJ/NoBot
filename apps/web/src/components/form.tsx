@@ -1,18 +1,123 @@
-import type { ReactNode } from 'react'
-import { ChevronRightIcon } from './icons'
+import { createContext, type ReactNode, useContext, useId, useState } from 'react'
+import { ChevronRightIcon, InfoIcon } from './icons'
 import { controlClass, cx, inputClass, selectClass } from './ui'
 
 /**
  * 表单控件。所有设置页面（生成预设、世界书条目、角色编辑……）统一用这些组件，保证外观和交互一致。
  * 规则：
- * - 每个控件都有 label，hint 写一句话说明作用（显示在下方的小字）
+ * - 每个控件都有 label，hint 写一句话说明作用
  * - notImplemented 为 true 时显示「未实现」标记，控件照样可以编辑和保存，只是暂时不生效
+ *
+ * 两种排版：
+ * - 普通：标签在上、控件在下、说明常驻在下方。用在设置项少的页面（连接、角色编辑……）
+ * - 紧凑（放在 DenseGrid 或 <Section dense> 里时自动生效）：一行一项，标签在左、控件在右，
+ *   说明收进标签旁的 ⓘ，点开才显示；宽屏自动分多列。设置项多的页面用它，一屏能看到大部分配置
  */
+
+const DenseContext = createContext(false)
+
+/** 当前是否处在紧凑排版里（扩展的自定义控件也可以用它决定怎么排） */
+export const useDense = () => useContext(DenseContext)
+
+/** 紧凑网格：每列至少 16rem，放得下几列就分几列；col-span-full 的子元素独占一行 */
+export const denseGridClass =
+  'grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] items-start gap-x-6 gap-y-1'
+
+export function DenseGrid({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <DenseContext.Provider value={true}>
+      <div className={cx(denseGridClass, className)}>{children}</div>
+    </DenseContext.Provider>
+  )
+}
+
+/**
+ * 紧凑排版的标签列：所有行同宽，控件左边对齐成一条线。
+ * 每行是一个容器（@container）：行宽不到 20rem（比如窄侧栏）时标签占 40%，给滑块留出位置
+ */
+export const denseLabelClass = 'w-[40%] flex-none @xs:w-36'
+
+/** 紧凑排版下单行控件的尺寸：32px 高、13px 字 */
+export const denseControlClass = cx(controlClass, 'h-8 px-2.5 text-[13px]')
+export const denseSelectClass = cx(selectClass, 'h-8 pl-2.5 text-[13px]')
+
+/** 说明按钮：紧凑排版下说明默认收起，点 ⓘ 展开（悬停也能看到） */
+export function HintButton({ hint, open, onToggle }: { hint: string; open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      title={hint}
+      aria-label="说明"
+      aria-expanded={open}
+      onClick={onToggle}
+      className={cx(
+        'inline-flex size-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 [&_svg]:size-3.5',
+        open && 'text-violet-600 dark:text-violet-400',
+      )}
+    >
+      <InfoIcon />
+    </button>
+  )
+}
+
+/**
+ * 紧凑排版的一行：左边标签（+ⓘ），右边控件。
+ * wide 表示独占整行（多行文本、带附加按钮的输入框……）；stack 表示标签在上、控件在下（多行文本）。
+ */
+export function DenseRow({
+  id,
+  label,
+  hint,
+  notImplemented,
+  disabled,
+  wide,
+  stack,
+  labelClassName,
+  children,
+}: {
+  id?: string | undefined
+  label: string
+  hint?: string | undefined
+  notImplemented?: boolean | undefined
+  disabled?: boolean | undefined
+  wide?: boolean | undefined
+  stack?: boolean | undefined
+  /** 改标签列的样式（默认所有行同宽，控件从同一条竖线开始） */
+  labelClassName?: string | undefined
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const title = (
+    <span className={cx('flex min-w-0 items-center gap-0.5', !stack && denseLabelClass, labelClassName)}>
+      <label htmlFor={id} title={label} className="min-w-0 truncate text-[13px] text-zinc-700 dark:text-zinc-300">
+        {label}
+      </label>
+      {notImplemented && <NotImplemented />}
+      {hint && <HintButton hint={hint} open={open} onToggle={() => setOpen(!open)} />}
+    </span>
+  )
+  return (
+    <div className={cx('@container min-w-0', (wide || stack) && 'col-span-full', disabled && 'opacity-60')}>
+      {stack ? (
+        <div className="space-y-1 py-1">
+          <div className="flex min-h-6 items-center">{title}</div>
+          {children}
+        </div>
+      ) : (
+        <div className="flex min-h-9 min-w-0 items-center gap-2">
+          {title}
+          {children}
+        </div>
+      )}
+      {open && hint && <p className="pb-1.5 text-xs leading-relaxed text-zinc-500">{hint}</p>}
+    </div>
+  )
+}
 
 /** 「未实现」标记 */
 export function NotImplemented() {
   return (
-    <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+    <span className="ml-1.5 shrink-0 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
       未实现
     </span>
   )
@@ -47,6 +152,22 @@ export function SwitchField({
   checked,
   onChange,
 }: BaseProps & { checked: boolean; onChange: (v: boolean) => void }) {
+  const dense = useDense()
+  const id = useId()
+  if (dense)
+    return (
+      // 开关的标签可以比标签列更长（开关很窄，不怕把它往右推），这样长标签也不会被截断
+      <DenseRow
+        id={id}
+        label={label}
+        hint={hint}
+        notImplemented={notImplemented}
+        disabled={disabled}
+        labelClassName="w-auto min-w-[40%] flex-initial @xs:w-auto @xs:min-w-36"
+      >
+        <Toggle id={id} checked={checked} onChange={onChange} label={label} {...(disabled ? { disabled } : {})} />
+      </DenseRow>
+    )
   return (
     // biome-ignore lint/a11y/noLabelWithoutControl: 开关按钮在 label 内部，点文字也能切换
     <label className={cx('flex cursor-pointer items-start justify-between gap-4', disabled && 'opacity-50')}>
@@ -64,11 +185,13 @@ export function SwitchField({
  * label 只给读屏软件和鼠标悬停提示用。
  */
 export function Toggle({
+  id,
   checked,
   onChange,
   label,
   disabled,
 }: {
+  id?: string
   checked: boolean
   onChange: (v: boolean) => void
   label: string
@@ -77,6 +200,7 @@ export function Toggle({
   return (
     <button
       type="button"
+      id={id}
       role="switch"
       aria-checked={checked}
       aria-label={label}
@@ -118,6 +242,22 @@ export function TextField({
   placeholder?: string
   type?: 'text' | 'password' | 'url'
 }) {
+  const dense = useDense()
+  const id = useId()
+  if (dense)
+    return (
+      <DenseRow id={id} label={label} hint={hint} notImplemented={notImplemented} disabled={disabled}>
+        <input
+          id={id}
+          className={cx(denseControlClass, 'min-w-0 flex-1')}
+          type={type}
+          value={value}
+          placeholder={placeholder}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </DenseRow>
+    )
   return (
     <label className="block space-y-1.5">
       <Label label={label} notImplemented={notImplemented} />
@@ -153,6 +293,22 @@ export function TextAreaField({
   /** 等宽字体（JSON、正则等） */
   mono?: boolean
 }) {
+  const dense = useDense()
+  const id = useId()
+  if (dense)
+    return (
+      <DenseRow id={id} label={label} hint={hint} notImplemented={notImplemented} disabled={disabled} stack>
+        <textarea
+          id={id}
+          className={cx(inputClass, 'resize-y px-2.5 py-1.5 text-[13px] leading-relaxed', mono && 'font-mono text-xs')}
+          rows={rows}
+          value={value}
+          placeholder={placeholder}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </DenseRow>
+    )
   return (
     <label className="block space-y-1.5">
       <Label label={label} notImplemented={notImplemented} />
@@ -179,6 +335,26 @@ export function SelectField<T extends string>({
   onChange,
   options,
 }: BaseProps & { value: T; onChange: (v: T) => void; options: { value: T; label: string }[] }) {
+  const dense = useDense()
+  const id = useId()
+  if (dense)
+    return (
+      <DenseRow id={id} label={label} hint={hint} notImplemented={notImplemented} disabled={disabled}>
+        <select
+          id={id}
+          className={cx(denseSelectClass, 'min-w-0 flex-1')}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value as T)}
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </DenseRow>
+    )
   return (
     <label className="block space-y-1.5">
       <Label label={label} notImplemented={notImplemented} />
@@ -218,6 +394,44 @@ export function NumberField({
   slider?: boolean
 }) {
   const clamp = (v: number) => Math.min(max, Math.max(min, v))
+  const dense = useDense()
+  const id = useId()
+  if (dense) {
+    const box = (
+      <input
+        id={id}
+        type="number"
+        className={cx(denseControlClass, 'shrink-0 px-1.5 text-right tabular-nums', slider ? 'w-16' : 'w-28')}
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = Number(e.target.value)
+          if (e.target.value !== '' && Number.isFinite(v)) onChange(clamp(v))
+        }}
+      />
+    )
+    return (
+      <DenseRow id={id} label={label} hint={hint} notImplemented={notImplemented} disabled={disabled}>
+        {slider && (
+          <input
+            type="range"
+            className="block min-w-0 flex-1 accent-violet-600"
+            value={value}
+            min={min}
+            max={max}
+            step={step}
+            disabled={disabled}
+            aria-label={`${label}滑块`}
+            onChange={(e) => onChange(Number(e.target.value))}
+          />
+        )}
+        {box}
+      </DenseRow>
+    )
+  }
   const input = (
     <input
       type="number"
@@ -297,25 +511,37 @@ export function Section({
   description,
   children,
   defaultOpen = true,
+  dense = false,
 }: {
   title: string
   description?: string
   children: ReactNode
   defaultOpen?: boolean
+  /** 紧凑排版：内容用 DenseGrid，一行一项、宽屏多列 */
+  dense?: boolean
 }) {
   return (
     <details
       open={defaultOpen}
       className="group rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40"
     >
-      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-xl px-4 py-3 select-none hover:bg-zinc-50 dark:hover:bg-zinc-800/40 [&::-webkit-details-marker]:hidden">
+      <summary
+        className={cx(
+          'flex cursor-pointer list-none items-center gap-3 rounded-xl select-none hover:bg-zinc-50 dark:hover:bg-zinc-800/40 [&::-webkit-details-marker]:hidden',
+          dense ? 'px-3 py-2.5' : 'px-4 py-3',
+        )}
+      >
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">{title}</div>
           {description && <div className="mt-0.5 text-xs text-zinc-500">{description}</div>}
         </div>
         <ChevronRightIcon className="size-4 shrink-0 text-zinc-400 transition-transform group-open:rotate-90" />
       </summary>
-      <div className="space-y-5 border-t border-zinc-100 px-4 py-4 dark:border-zinc-800">{children}</div>
+      {dense ? (
+        <DenseGrid className="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">{children}</DenseGrid>
+      ) : (
+        <div className="space-y-5 border-t border-zinc-100 px-4 py-4 dark:border-zinc-800">{children}</div>
+      )}
     </details>
   )
 }

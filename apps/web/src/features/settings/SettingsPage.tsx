@@ -23,10 +23,10 @@ export function SettingsPage() {
         </Button>
       </header>
 
-      <div className="space-y-4 p-3">
-        <p className="text-sm text-zinc-500">外观设置只保存在当前浏览器里，手机和电脑可以分别设置。改动立即生效。</p>
+      <div className="mx-auto max-w-6xl space-y-2 p-3">
+        <p className="text-xs text-zinc-500">外观设置只保存在当前浏览器里，手机和电脑可以分别设置。改动立即生效。</p>
 
-        <Section title="外观">
+        <Section dense title="外观">
           <SelectField
             label="主题"
             value={a.theme}
@@ -48,7 +48,7 @@ export function SettingsPage() {
           />
         </Section>
 
-        <Section title="对话区">
+        <Section dense title="对话区">
           <NumberField
             label="消息字号"
             hint="聊天消息正文的字号（像素），默认 15"
@@ -109,7 +109,7 @@ export function SettingsPage() {
           />
         </Section>
 
-        <Section title="背景">
+        <Section dense title="背景">
           <NumberField
             label="遮罩强度（%）"
             hint="在背景图上盖一层半透明底色让文字更清楚；0 表示不加遮罩，原样显示背景"
@@ -148,10 +148,14 @@ export function SettingsPage() {
             ]}
           />
           <SwitchField label="播放动态背景" checked={a.bgAnimate} onChange={(bgAnimate) => a.set({ bgAnimate })} />
-          <Button onClick={() => useUi.getState().openView('backgrounds')}>管理背景…</Button>
+          <div className="flex min-h-9 items-center">
+            <Button size="sm" onClick={() => useUi.getState().openView('backgrounds')}>
+              管理背景…
+            </Button>
+          </div>
         </Section>
 
-        <Section title="侧栏">
+        <Section dense title="侧栏">
           <NumberField
             label="侧栏宽度"
             hint={`左侧面板的宽度（像素），${SIDEBAR_MIN}–${SIDEBAR_MAX}。也可以直接拖动侧栏右边缘调整，双击边缘恢复默认`}

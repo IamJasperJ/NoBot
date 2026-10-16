@@ -1,5 +1,5 @@
 import type { UtilityPrompts } from '@ai-parter/shared'
-import { TextAreaField } from '../../components/form'
+import { DenseGrid, TextAreaField } from '../../components/form'
 
 const fields: { key: keyof UtilityPrompts; label: string; hint: string }[] = [
   {
@@ -44,8 +44,8 @@ const fields: { key: keyof UtilityPrompts; label: string; hint: string }[] = [
 
 export function UtilityEditor({ value, onChange }: { value: UtilityPrompts; onChange: (v: UtilityPrompts) => void }) {
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-zinc-500">
+    <DenseGrid>
+      <p className="col-span-full pb-1 text-xs leading-relaxed text-zinc-500">
         {
           '格式占位符：{0}（世界书正文）、{{scenario}}（场景）、{{personality}}（性格）。通用宏：{{char}}（角色）、{{user}}（用户）、{{group}}（群成员）、{{lastChatMessage}}（最后一条消息）。'
         }
@@ -59,6 +59,6 @@ export function UtilityEditor({ value, onChange }: { value: UtilityPrompts; onCh
           onChange={(v) => onChange({ ...value, [key]: v })}
         />
       ))}
-    </div>
+    </DenseGrid>
   )
 }

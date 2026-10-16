@@ -228,3 +228,9 @@ export const CheckIcon = (p: P) => (
     <path d="m5 12 5 5L20 7" />
   </Icon>
 )
+export const InfoIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 8h.01" />
+  </Icon>
+)

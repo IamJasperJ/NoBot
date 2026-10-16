@@ -10,6 +10,7 @@ import {
   TextAreaField,
   Toggle,
 } from '../../components/form'
+import { cx } from '../../components/ui'
 import { errorMessage } from '../../stores/toast'
 import { isExtraBodyValid } from './presetEditor'
 
@@ -95,8 +96,8 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
   const tools = useTools()
   const set = <K extends keyof SamplerSettings>(key: K, v: SamplerSettings[K]) => onChange({ ...value, [key]: v })
   return (
-    <div className="space-y-4">
-      <Section title="上下文">
+    <div className="space-y-2">
+      <Section dense title="上下文">
         <NumberField
           label="上下文长度"
           hint="上下文长度（token）。超过后最旧的聊天记录会被截掉"
@@ -131,17 +132,15 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
           max={8}
         />
       </Section>
-      <Section title="采样">
-        <div className="grid gap-4 sm:grid-cols-2">
-          {sampling.map(({ key, ...props }) => (
-            <NumberField
-              key={key}
-              {...props}
-              value={value[key]}
-              onChange={(v) => set(key, key === 'topK' ? Math.round(v) : v)}
-            />
-          ))}
-        </div>
+      <Section dense title="采样">
+        {sampling.map(({ key, ...props }) => (
+          <NumberField
+            key={key}
+            {...props}
+            value={value[key]}
+            onChange={(v) => set(key, key === 'topK' ? Math.round(v) : v)}
+          />
+        ))}
         <NumberField
           label="随机种子"
           hint="-1 表示随机；固定为同一整数可尝试复现结果，是否生效取决于接口。"
@@ -152,7 +151,7 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
           slider={false}
         />
       </Section>
-      <Section title="推理与工具">
+      <Section dense title="推理与工具">
         <SelectField
           label="推理强度"
           hint="控制支持推理的模型投入多少思考；自动表示不发送该参数。"
@@ -179,12 +178,17 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
           onChange={(v) => set('functionCalling', v)}
         />
         {/* 每个工具单独的开关；总开关关闭时整组变灰 */}
-        <div className={value.functionCalling ? 'space-y-1 pl-12' : 'pointer-events-none space-y-1 pl-12 opacity-50'}>
+        <div
+          className={cx(
+            'col-span-full space-y-0.5 pb-1 pl-38',
+            !value.functionCalling && 'pointer-events-none opacity-50',
+          )}
+        >
           {tools.isPending && <p className="text-xs text-zinc-500">工具列表加载中…</p>}
           {tools.isError && <p className="text-xs text-red-500">获取工具列表失败：{errorMessage(tools.error)}</p>}
           {tools.data?.length === 0 && <p className="text-xs text-zinc-500">暂无可用工具</p>}
           {tools.data?.map((t) => (
-            <div key={t.name} className="flex items-start gap-3 py-1">
+            <div key={t.name} className="flex min-h-7 items-center gap-2.5" title={t.description}>
               <Toggle
                 label={`启用工具 ${t.name}`}
                 checked={!value.disabledTools.includes(t.name)}
@@ -195,11 +199,9 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
                   )
                 }
               />
-              <div className="min-w-0 text-sm">
-                <span className="font-mono font-medium">{t.name}</span>
-                <span className="ml-2 text-xs text-zinc-400">{t.source === 'builtin' ? '内置' : t.source}</span>
-                <p className="text-xs text-zinc-500">{t.description}</p>
-              </div>
+              <span className="shrink-0 font-mono text-[13px]">{t.name}</span>
+              <span className="shrink-0 text-xs text-zinc-400">{t.source === 'builtin' ? '内置' : t.source}</span>
+              <span className="min-w-0 truncate text-xs text-zinc-500">{t.description}</span>
             </div>
           ))}
         </div>
@@ -246,17 +248,19 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
           ]}
         />
       </Section>
-      <Section title="高级">
+      <Section dense title="高级">
         <ListField
           label="停止序列"
           hint="模型遇到这些文字就停止生成，最多 4 个；清空表示不设置。"
           value={value.stop}
           onChange={(v) => set('stop', v.slice(0, 4))}
         />
-        <div className="text-sm">
+        <div
+          className="flex min-h-9 items-center text-[13px] text-zinc-700 dark:text-zinc-300"
+          title="需要按模型的分词器把文字转换为 token id，暂不提供编辑器。"
+        >
           词元偏置（Logit Bias）
           <NotImplemented />
-          <p className="mt-1 text-xs text-zinc-500">需要按模型的分词器把文字转换为 token id，暂不提供编辑器。</p>
         </div>
         <TextAreaField
           label="额外请求参数"
@@ -266,7 +270,7 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
           onChange={(v) => set('extraBody', v)}
         />
         {!isExtraBodyValid(value.extraBody) && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="col-span-full text-[13px] text-red-600">
             请输入合法的 JSON 对象；数组、字符串和 null 都不能作为请求参数。
           </p>
         )}

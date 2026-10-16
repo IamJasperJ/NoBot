@@ -6,7 +6,10 @@ import {
   WI_POSITION_LABELS,
   type WIPosition,
 } from '@ai-parter/shared'
+import { useId } from 'react'
 import {
+  DenseRow,
+  denseControlClass,
   ListField,
   NumberField,
   Section,
@@ -15,7 +18,7 @@ import {
   TextAreaField,
   TextField,
 } from '../../components/form'
-import { Button, controlClass, Field } from '../../components/ui'
+import { Button, cx } from '../../components/ui'
 import { SaveActions } from './editor'
 
 const sources: Record<MatchSource, string> = {
@@ -41,11 +44,10 @@ function Checks<T extends string>({
   onChange: (value: T[]) => void
 }) {
   return (
-    <fieldset className="space-y-2">
-      <legend className="text-sm font-medium">{label}</legend>
-      <div className="flex flex-wrap gap-3">
+    <DenseRow label={label} hint={hint} wide>
+      <fieldset aria-label={label} className="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-1 py-1.5">
         {(Object.keys(labels) as T[]).map((key) => (
-          <label key={key} className="flex items-center gap-2 text-sm">
+          <label key={key} className="flex items-center gap-1.5 text-[13px]">
             <input
               type="checkbox"
               className="accent-violet-600"
@@ -55,9 +57,8 @@ function Checks<T extends string>({
             {labels[key]}
           </label>
         ))}
-      </div>
-      <p className="text-xs text-zinc-500">{hint}</p>
-    </fieldset>
+      </fieldset>
+    </DenseRow>
   )
 }
 
@@ -99,6 +100,7 @@ export function EntryEditor({
       notImplemented={notImplemented}
     />
   )
+  const scanDepthId = useId()
   const toggle = (
     key: keyof { [K in keyof LorebookEntryData as LorebookEntryData[K] extends boolean ? K : never]: boolean },
     label: string,
@@ -114,14 +116,14 @@ export function EntryEditor({
     />
   )
   return (
-    <fieldset disabled={pending} className="min-w-0 space-y-4 border-t border-zinc-200 p-3 sm:p-4 dark:border-zinc-800">
+    <fieldset disabled={pending} className="min-w-0 space-y-2 border-t border-zinc-200 p-3 dark:border-zinc-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <SaveActions dirty={dirty} pending={pending} save={save} reset={reset} />
         <Button variant="danger" disabled={pending} onClick={remove}>
           删除条目
         </Button>
       </div>
-      <Section title="基本">
+      <Section dense title="基本">
         <TextField
           label="备注"
           hint="仅用于辨认条目，不会发送给模型。"
@@ -141,9 +143,11 @@ export function EntryEditor({
           value={draft.content}
           onChange={(v) => set('content', v)}
         />
-        <p className="text-xs text-zinc-500">字数：{Array.from(draft.content).length}</p>
+        <p className="col-span-full -mt-0.5 text-right text-xs text-zinc-400">
+          字数：{Array.from(draft.content).length}
+        </p>
       </Section>
-      <Section title="触发">
+      <Section dense title="触发">
         {toggle('constant', '常驻条目', '开启后无需命中关键词也会参与激活，仍受概率、过滤和预算等限制。')}
         <ListField
           label="可选过滤关键词"
@@ -186,7 +190,7 @@ export function EntryEditor({
           onChange={(v) => set('characterFilter', { ...draft.characterFilter, exclude: v })}
         />
       </Section>
-      <Section title="插入">
+      <Section dense title="插入">
         <SelectField<WIPosition>
           label="插入位置"
           hint="决定内容放在提示词的哪个位置；宏引用需要在 Prompt 中手动引用。"
@@ -223,7 +227,7 @@ export function EntryEditor({
         )}
         {number('order', '插入顺序', '数字大的更靠后、离生成位置更近，预算不够时也优先保留', Number.MIN_SAFE_INTEGER)}
       </Section>
-      <Section title="匹配">
+      <Section dense title="匹配">
         {(['caseSensitive', 'matchWholeWords'] as const).map((key) => (
           <SelectField
             key={key}
@@ -242,9 +246,10 @@ export function EntryEditor({
             ]}
           />
         ))}
-        <Field label="扫描深度" hint="扫描最近多少条消息（0–1000）；留空表示跟随全局。">
+        <DenseRow id={scanDepthId} label="扫描深度" hint="扫描最近多少条消息（0–1000）；留空表示跟随全局。">
           <input
-            className={controlClass}
+            id={scanDepthId}
+            className={cx(denseControlClass, 'w-28 shrink-0 px-1.5 text-right tabular-nums')}
             type="number"
             min={0}
             max={1000}
@@ -253,7 +258,7 @@ export function EntryEditor({
             value={draft.scanDepth ?? ''}
             onChange={(e) => set('scanDepth', e.target.value === '' ? null : Number(e.target.value))}
           />
-        </Field>
+        </DenseRow>
         <Checks<MatchSource>
           label="额外匹配来源"
           hint="除聊天消息外，也扫描勾选的角色与人设资料来匹配关键词。"
@@ -262,12 +267,12 @@ export function EntryEditor({
           onChange={(v) => set('matchSources', v)}
         />
       </Section>
-      <Section title="递归">
+      <Section dense title="递归">
         {toggle('excludeRecursion', '排除递归触发', '不会被其他条目的内容触发，仍可通过聊天记录触发。')}
         {toggle('preventRecursion', '阻止后续递归', '本条目触发后，其内容不会再触发其他条目。')}
         {toggle('delayUntilRecursion', '仅在递归时触发', '只参与递归扫描，不参与最初的聊天记录扫描。')}
       </Section>
-      <Section title="包含组">
+      <Section dense title="包含组">
         <TextField
           label="包含组"
           hint="逗号分隔可属于多个组；同组多个条目同时触发时只保留一个"
@@ -278,7 +283,12 @@ export function EntryEditor({
         {number('groupWeight', '组内权重', '按权重随机选择时，数字越大，被保留的机会越高。', 1)}
         {toggle('groupScoring', '组内计分', '组内使用匹配分数选择条目；目前只保存，暂不生效。', true)}
       </Section>
-      <Section title="暂未实现" description="这些字段可以保存和导入导出，但当前扫描时不会生效。" defaultOpen={false}>
+      <Section
+        dense
+        title="暂未实现"
+        description="这些字段可以保存和导入导出，但当前扫描时不会生效。"
+        defaultOpen={false}
+      >
         {number('sticky', '粘滞消息数', '触发后持续生效多少条消息，0 表示不持续。', 0, Number.MAX_SAFE_INTEGER, true)}
         {number(
           'cooldown',

@@ -2,30 +2,52 @@ import type { ChatPage, MessageDTO } from '@ai-parter/shared'
 import { type InfiniteData, type QueryClient, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { api } from './client'
 
-/** 所有缓存的 key 集中在这里，避免拼错 */
+/** 所有缓存的 key 集中在这里，避免拼错。改了数据后用 invalidateQueries 刷新对应的 key */
 export const keys = {
+  connections: ['connections'] as const,
+  presets: ['presets'] as const,
+  personas: ['personas'] as const,
   characters: ['characters'] as const,
   character: (id: string) => ['character', id] as const,
-  chats: (characterId: string) => ['chats', characterId] as const,
+  lorebooks: ['lorebooks'] as const,
+  lorebook: (id: string) => ['lorebook', id] as const,
+  worldInfoSettings: ['worldInfoSettings'] as const,
+  groups: ['groups'] as const,
+  group: (id: string) => ['group', id] as const,
+  chats: (owner: { characterId?: string; groupId?: string }) => ['chats', owner.characterId ?? owner.groupId] as const,
   chat: (chatId: string) => ['chat', chatId] as const,
-  apiPresets: ['apiPresets'] as const,
-  personas: ['personas'] as const,
+  logs: (chatId?: string) => ['logs', chatId ?? 'all'] as const,
+  log: (id: string) => ['log', id] as const,
+  extensions: ['extensions'] as const,
+  tools: ['tools'] as const,
 }
 
+export const useConnections = () => useQuery({ queryKey: keys.connections, queryFn: api.listConnections })
+export const usePresets = () => useQuery({ queryKey: keys.presets, queryFn: api.listPresets })
+export const usePersonas = () => useQuery({ queryKey: keys.personas, queryFn: api.listPersonas })
 export const useCharacters = () => useQuery({ queryKey: keys.characters, queryFn: api.listCharacters })
-
 export const useCharacter = (id: string | null) =>
   useQuery({ queryKey: keys.character(id ?? ''), queryFn: () => api.getCharacter(id as string), enabled: !!id })
+export const useLorebooks = () => useQuery({ queryKey: keys.lorebooks, queryFn: api.listLorebooks })
+export const useLorebook = (id: string | null) =>
+  useQuery({ queryKey: keys.lorebook(id ?? ''), queryFn: () => api.getLorebook(id as string), enabled: !!id })
+export const useWorldInfoSettings = () =>
+  useQuery({ queryKey: keys.worldInfoSettings, queryFn: api.getWorldInfoSettings })
+export const useGroups = () => useQuery({ queryKey: keys.groups, queryFn: api.listGroups })
+export const useExtensions = () => useQuery({ queryKey: keys.extensions, queryFn: api.listExtensions })
+export const useTools = () => useQuery({ queryKey: keys.tools, queryFn: api.listTools })
+export const useLogs = (chatId?: string) =>
+  useQuery({ queryKey: keys.logs(chatId), queryFn: () => api.listLogs(chatId ? { chatId } : {}) })
+export const useLog = (id: string | null) =>
+  useQuery({ queryKey: keys.log(id ?? ''), queryFn: () => api.getLog(id as string), enabled: !!id })
 
-export const useChats = (characterId: string | null) =>
+/** 某个角色或群组的会话列表 */
+export const useChats = (owner: { characterId?: string; groupId?: string } | null) =>
   useQuery({
-    queryKey: keys.chats(characterId ?? ''),
-    queryFn: () => api.listChats(characterId as string),
-    enabled: !!characterId,
+    queryKey: keys.chats(owner ?? {}),
+    queryFn: () => api.listChats(owner ?? {}),
+    enabled: !!(owner?.characterId || owner?.groupId),
   })
-
-export const useApiPresets = () => useQuery({ queryKey: keys.apiPresets, queryFn: api.listApiPresets })
-export const usePersonas = () => useQuery({ queryKey: keys.personas, queryFn: api.listPersonas })
 
 /**
  * 会话消息分页加载。pages[0] 是最新的一页，往后是越来越旧的页。

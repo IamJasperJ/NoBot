@@ -2,7 +2,7 @@ import type { MessageDTO } from '@ai-parter/shared'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useStreaming } from '../../stores/streaming'
-import { MessageItem } from './MessageItem'
+import { type ChatCast, MessageItem } from './MessageItem'
 
 interface Props {
   chatId: string
@@ -11,9 +11,7 @@ interface Props {
   hasMore: boolean
   loadingMore: boolean
   loadMore: () => void
-  charName: string
-  charAvatar: string | null
-  userName: string
+  cast: ChatCast
 }
 
 /** 距离底部多少像素以内算「停在底部」 */
@@ -23,7 +21,7 @@ const BOTTOM_THRESHOLD = 80
  * 消息列表，用虚拟列表实现：只渲染视口内的消息加上下各几条，
  * 几千条消息的会话也只有十几个 DOM 节点。
  */
-export function MessageList({ chatId, messages, busy, hasMore, loadingMore, loadMore, ...names }: Props) {
+export function MessageList({ chatId, messages, busy, hasMore, loadingMore, loadMore, cast }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
 
@@ -96,7 +94,7 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
                   chatId={chatId}
                   isLast={item.index === messages.length - 1}
                   busy={busy}
-                  {...names}
+                  cast={cast}
                 />
               </div>
             )

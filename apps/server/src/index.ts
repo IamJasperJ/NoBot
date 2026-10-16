@@ -2,10 +2,10 @@ import { join } from 'node:path'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { app as api } from './app'
-import { initDatabase } from './db/client'
+import { bootstrap } from './bootstrap'
 import { env } from './env'
 
-initDatabase()
+await bootstrap()
 
 const server = new Hono()
 server.route('/', api)

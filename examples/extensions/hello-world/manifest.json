@@ -1,0 +1,10 @@
+{
+  "id": "hello-world",
+  "name": "你好，扩展世界",
+  "version": "1.0.0",
+  "description": "演示宏、工具、接口、存储、事件和前端界面扩展",
+  "author": "AI-Parter 示例",
+  "server": "server.ts",
+  "client": "client.js",
+  "style": "style.css"
+}

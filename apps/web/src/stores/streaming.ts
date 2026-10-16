@@ -9,7 +9,8 @@ interface StreamingState {
   messageId: string | null
   text: string
   reasoning: string
-  begin: (chatId: string, messageId: string) => void
+  /** initial：续写时原有的内容，新文本接在后面 */
+  begin: (chatId: string, messageId: string, initial?: string) => void
   append: (text: string, reasoning: string) => void
   end: () => void
 }
@@ -19,7 +20,7 @@ export const useStreaming = create<StreamingState>((set) => ({
   messageId: null,
   text: '',
   reasoning: '',
-  begin: (chatId, messageId) => set({ chatId, messageId, text: '', reasoning: '' }),
+  begin: (chatId, messageId, initial = '') => set({ chatId, messageId, text: initial, reasoning: '' }),
   append: (text, reasoning) => set((s) => ({ text: s.text + text, reasoning: s.reasoning + reasoning })),
   end: () => set({ chatId: null, messageId: null, text: '', reasoning: '' }),
 }))

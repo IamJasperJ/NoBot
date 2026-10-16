@@ -89,3 +89,76 @@ export const XIcon = (p: P) => (
     <path d="M6 6l12 12M18 6L6 18" />
   </Icon>
 )
+
+// ---- 导航用图标 ----
+export const ChatIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 5h16v11H9l-5 4V5z" />
+  </Icon>
+)
+export const UsersIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.9.7 3.1 2.5 3.5 5.2" />
+  </Icon>
+)
+export const BookIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4zM5 17a3 3 0 0 1 3-3h11" />
+  </Icon>
+)
+export const SlidersIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" />
+    <circle cx="16" cy="6" r="2" />
+    <circle cx="10" cy="12" r="2" />
+    <circle cx="18" cy="18" r="2" />
+  </Icon>
+)
+export const PlugIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0V8zM12 17v4" />
+  </Icon>
+)
+export const UserIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21c1-4 4-6 8-6s7 2 8 6" />
+  </Icon>
+)
+export const PuzzleIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M10 4a2 2 0 1 1 4 0v2h4v4h-2a2 2 0 1 0 0 4h2v4h-4v-2a2 2 0 1 0-4 0v2H6v-4h2a2 2 0 1 0 0-4H6V6h4V4z" />
+  </Icon>
+)
+export const LogIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M6 3h9l4 4v14H6V3zM14 3v5h5M9 12h7M9 16h7" />
+  </Icon>
+)
+export const DownloadIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 4v12M7 11l5 5 5-5M4 20h16" />
+  </Icon>
+)
+export const CopyIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="8" y="8" width="12" height="12" rx="2" />
+    <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" />
+  </Icon>
+)
+export const BranchIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="6" cy="5" r="2" />
+    <circle cx="6" cy="19" r="2" />
+    <circle cx="18" cy="8" r="2" />
+    <path d="M6 7v10M18 10c0 4-6 3-11.5 7" />
+  </Icon>
+)
+export const DotsIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="5" cy="12" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="19" cy="12" r="1" />
+  </Icon>
+)

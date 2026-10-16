@@ -8,7 +8,8 @@ const cx = (...classes: (string | false | null | undefined)[]) => classes.filter
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 
 const variants: Record<Variant, string> = {
-  primary: 'bg-violet-600 text-white hover:bg-violet-500 disabled:bg-violet-600/50',
+  primary:
+    'bg-violet-600 text-white hover:bg-violet-500 disabled:bg-zinc-300 disabled:text-zinc-500 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500',
   secondary: 'bg-zinc-200 text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700',
   ghost: 'text-zinc-600 hover:bg-zinc-200 dark:text-zinc-300 dark:hover:bg-zinc-800',
   danger: 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950',

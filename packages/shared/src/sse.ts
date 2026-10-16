@@ -1,17 +1,31 @@
 import type { MessageDTO } from './schemas/message'
 
-/** 生成接口通过 SSE 推送的事件 */
+/**
+ * 生成接口通过 SSE 推送的事件。一次生成任务可能产出多条消息
+ * （群聊多个角色轮流说、工具调用后接着写），所以：
+ * - 每条新的助手消息：start → delta… → done
+ * - 工具结果等直接完成的消息：message
+ * - 整个任务结束：complete
+ */
 export type GenerateEvent =
   | {
       type: 'start'
       /** send 模式下新插入的用户消息 */
       userMessage?: MessageDTO
-      /** 刚插入的、状态为 streaming 的空助手消息 */
+      /** 正在生成的助手消息。续写时 content 是原有内容，后续 delta 接在后面 */
       assistantMessage: MessageDTO
     }
   | { type: 'delta'; text: string; reasoning?: string }
   | { type: 'done'; message: MessageDTO }
+  | { type: 'message'; message: MessageDTO }
   | { type: 'error'; code: string; message: string }
+  | { type: 'complete' }
+
+/** 代写接口的事件：只推文本，不入库 */
+export type ImpersonateEvent =
+  | { type: 'delta'; text: string }
+  | { type: 'error'; code: string; message: string }
+  | { type: 'complete' }
 
 export interface SSEMessage {
   event: string

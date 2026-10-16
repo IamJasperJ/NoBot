@@ -1,9 +1,13 @@
 export * from './schemas/apiPreset'
 export * from './schemas/character'
 export * from './schemas/chat'
+export * from './schemas/group'
+export * from './schemas/lorebook'
 export * from './schemas/message'
 export * from './schemas/persona'
+export * from './schemas/preset'
 export * from './schemas/prompt'
+export * from './schemas/system'
 export * from './sse'
 
 /** 统一的接口错误格式 */

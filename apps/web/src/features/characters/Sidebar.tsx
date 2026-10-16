@@ -1,35 +1,39 @@
-import type { CharacterSummary } from '@ai-parter/shared'
+import type { ChatSummary } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ChangeEvent, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, useCharacters, useChats } from '../../api/queries'
-import { PlusIcon, SettingsIcon, TrashIcon, UploadIcon } from '../../components/icons'
+import { keys, useCharacters, useChats, useGroups } from '../../api/queries'
+import { PlusIcon, TrashIcon, UploadIcon, UsersIcon } from '../../components/icons'
 import { Avatar, Button, cx, IconButton } from '../../components/ui'
+import { Slot } from '../../extensions/Slot'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { GroupDialog } from '../groups/GroupDialog'
 
-/** 某个角色下的会话列表 */
-function ChatList({ character }: { character: CharacterSummary }) {
+type Owner = { characterId: string } | { groupId: string }
+
+/** 某个角色或群组下的会话列表 */
+function ChatList({ owner }: { owner: Owner }) {
   const qc = useQueryClient()
-  const chats = useChats(character.id)
-  const { chatId, selectChat } = useUi()
+  const chats = useChats(owner)
+  const { chatId, openChat } = useUi()
 
   const create = async () => {
     try {
-      const chat = await api.createChat({ characterId: character.id })
-      await qc.invalidateQueries({ queryKey: keys.chats(character.id) })
-      selectChat(character.id, chat.id)
+      const chat = await api.createChat(owner)
+      await qc.invalidateQueries({ queryKey: keys.chats(owner) })
+      openChat(owner, chat.id)
     } catch (e) {
       toast.error(errorMessage(e))
     }
   }
 
-  const remove = async (id: string) => {
-    if (!confirm('删除这个会话？所有消息都会被删除。')) return
+  const remove = async (c: ChatSummary) => {
+    if (!confirm(`删除会话「${c.title}」？所有消息都会被删除。`)) return
     try {
-      await api.deleteChat(id)
-      if (id === chatId) selectChat(character.id, null)
-      await qc.invalidateQueries({ queryKey: keys.chats(character.id) })
+      await api.deleteChat(c.id)
+      if (c.id === chatId) openChat(owner, null)
+      await qc.invalidateQueries({ queryKey: keys.chats(owner) })
     } catch (e) {
       toast.error(errorMessage(e))
     }
@@ -48,14 +52,14 @@ function ChatList({ character }: { character: CharacterSummary }) {
           <button
             type="button"
             className="min-w-0 flex-1 truncate px-2 py-1.5 text-left"
-            onClick={() => selectChat(character.id, c.id)}
+            onClick={() => openChat(owner, c.id)}
           >
             {c.title}
           </button>
           <IconButton
             label="删除会话"
-            className="size-7 opacity-0 group-hover:opacity-100"
-            onClick={() => remove(c.id)}
+            className="size-7 opacity-0 group-hover:opacity-100 max-md:opacity-100"
+            onClick={() => remove(c)}
           >
             <TrashIcon width={15} height={15} />
           </IconButton>
@@ -72,12 +76,15 @@ function ChatList({ character }: { character: CharacterSummary }) {
   )
 }
 
+/** 聊天页的侧栏：角色和群聊，展开后是各自的会话列表 */
 export function Sidebar() {
   const qc = useQueryClient()
   const characters = useCharacters()
-  const { characterId, selectCharacter, setSettingsOpen, sidebarOpen, setSidebarOpen } = useUi()
+  const groups = useGroups()
+  const { characterId, groupId, selectCharacter, selectGroup } = useUi()
   const fileRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
+  const [groupDialog, setGroupDialog] = useState(false)
 
   const onImport = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = [...(e.target.files ?? [])]
@@ -95,88 +102,91 @@ export function Sidebar() {
     }
     setImporting(false)
     await qc.invalidateQueries({ queryKey: keys.characters })
-  }
-
-  const removeCharacter = async (c: CharacterSummary) => {
-    if (!confirm(`删除角色「${c.name}」？它的所有会话也会一起删除。`)) return
-    try {
-      await api.deleteCharacter(c.id)
-      if (c.id === characterId) selectCharacter(null)
-      await qc.invalidateQueries({ queryKey: keys.characters })
-    } catch (e) {
-      toast.error(errorMessage(e))
-    }
+    await qc.invalidateQueries({ queryKey: keys.lorebooks })
   }
 
   return (
-    <>
-      {/* 手机上侧栏是抽屉，点遮罩关闭 */}
-      {sidebarOpen && (
-        <button
-          type="button"
-          aria-label="关闭侧栏"
-          className="fixed inset-0 z-20 bg-black/40 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-      <aside
-        className={cx(
-          'fixed inset-y-0 left-0 z-30 flex w-72 flex-col border-r border-zinc-200 bg-zinc-100 max-md:transition-transform md:static md:translate-x-0 dark:border-zinc-800 dark:bg-zinc-900',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
-        )}
-      >
-        <header className="flex h-14 shrink-0 items-center gap-2 px-4">
-          <div className="flex-1 font-semibold tracking-tight">AI-Parter</div>
-          <IconButton label="设置" onClick={() => setSettingsOpen(true)}>
-            <SettingsIcon />
-          </IconButton>
-        </header>
+    <aside className="flex h-full w-72 flex-col border-r border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
+      <header className="flex h-14 shrink-0 items-center px-4 font-semibold tracking-tight">聊天</header>
 
-        <div className="px-3 pb-2">
-          <Button className="w-full" onClick={() => fileRef.current?.click()} disabled={importing}>
-            <UploadIcon width={16} height={16} />
-            {importing ? '导入中…' : '导入角色卡'}
-          </Button>
-          <input ref={fileRef} type="file" accept=".png,.json" multiple hidden onChange={onImport} />
-        </div>
+      <div className="flex gap-2 px-3 pb-2">
+        <Button className="flex-1" onClick={() => fileRef.current?.click()} disabled={importing}>
+          <UploadIcon width={16} height={16} />
+          {importing ? '导入中…' : '导入角色卡'}
+        </Button>
+        <Button onClick={() => setGroupDialog(true)} title="新建群聊">
+          <UsersIcon width={16} height={16} />
+          群聊
+        </Button>
+        <input ref={fileRef} type="file" accept=".png,.json" multiple hidden onChange={onImport} />
+      </div>
 
-        <nav className="flex-1 overflow-y-auto px-2 pb-4">
-          {characters.data?.length === 0 && (
-            <p className="px-2 py-6 text-center text-sm text-zinc-500">
-              还没有角色，导入一张酒馆角色卡（PNG 或 JSON）试试
-            </p>
-          )}
-          {characters.data?.map((c) => (
-            <div key={c.id}>
-              <div
-                className={cx(
-                  'group flex items-center gap-2 rounded-lg px-2 py-1.5',
-                  c.id === characterId
-                    ? 'bg-zinc-200 dark:bg-zinc-800'
-                    : 'hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60',
-                )}
-              >
+      <nav className="flex-1 overflow-y-auto px-2 pb-4">
+        {groups.data && groups.data.length > 0 && (
+          <>
+            <div className="px-2 pt-2 pb-1 text-xs font-medium text-zinc-500">群聊</div>
+            {groups.data.map((g) => (
+              <div key={g.id}>
                 <button
                   type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                  onClick={() => selectCharacter(c.id === characterId ? null : c.id)}
+                  onClick={() => selectGroup(g.id === groupId ? null : g.id)}
+                  className={cx(
+                    'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left',
+                    g.id === groupId
+                      ? 'bg-zinc-200 dark:bg-zinc-800'
+                      : 'hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60',
+                  )}
                 >
-                  <Avatar name={c.name} url={c.avatarUrl} size={32} />
-                  <span className="truncate text-sm font-medium">{c.name}</span>
+                  <div className="flex -space-x-2">
+                    {g.members.slice(0, 3).map((m) => (
+                      <Avatar key={m.characterId} name={m.name} url={m.avatarUrl} size={24} />
+                    ))}
+                  </div>
+                  <span className="truncate text-sm font-medium">{g.name}</span>
                 </button>
-                <IconButton
-                  label="删除角色"
-                  className="size-7 opacity-0 group-hover:opacity-100"
-                  onClick={() => removeCharacter(c)}
-                >
-                  <TrashIcon width={15} height={15} />
-                </IconButton>
+                {g.id === groupId && <ChatList owner={{ groupId: g.id }} />}
               </div>
-              {c.id === characterId && <ChatList character={c} />}
-            </div>
-          ))}
-        </nav>
-      </aside>
-    </>
+            ))}
+            <div className="px-2 pt-3 pb-1 text-xs font-medium text-zinc-500">角色</div>
+          </>
+        )}
+
+        {characters.data?.length === 0 && (
+          <p className="px-2 py-6 text-center text-sm text-zinc-500">
+            还没有角色，导入一张酒馆角色卡（PNG 或 JSON）试试
+          </p>
+        )}
+        {characters.data?.map((c) => (
+          <div key={c.id}>
+            <button
+              type="button"
+              onClick={() => selectCharacter(c.id === characterId ? null : c.id)}
+              className={cx(
+                'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left',
+                c.id === characterId
+                  ? 'bg-zinc-200 dark:bg-zinc-800'
+                  : 'hover:bg-zinc-200/60 dark:hover:bg-zinc-800/60',
+              )}
+            >
+              <Avatar name={c.name} url={c.avatarUrl} size={32} />
+              <span className="truncate text-sm font-medium">{c.name}</span>
+            </button>
+            {c.id === characterId && <ChatList owner={{ characterId: c.id }} />}
+          </div>
+        ))}
+      </nav>
+
+      <Slot name="sidebar.footer" props={{}} />
+      <GroupDialog
+        open={groupDialog}
+        groupId={null}
+        onClose={() => setGroupDialog(false)}
+        onSaved={(g) => {
+          setGroupDialog(false)
+          void qc.invalidateQueries({ queryKey: keys.groups })
+          selectGroup(g.id)
+        }}
+      />
+    </aside>
   )
 }

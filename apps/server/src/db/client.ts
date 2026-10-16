@@ -19,20 +19,11 @@ export const db = drizzle(sqlite, { schema })
 /** 单调递增的 ULID：同一毫秒内生成的 id 也保证有序，兄弟节点排序靠它 */
 export const newId = monotonicFactory()
 
-/** 启动时执行：跑迁移、清理上次崩溃留下的状态、写入默认数据 */
+/** 启动时执行：跑迁移、清理上次崩溃留下的状态。默认数据的写入在 bootstrap.ts */
 export function initDatabase() {
   migrate(db, { migrationsFolder: env.migrationsDir })
-
   // 上次进程退出时还在生成的消息，标记为中止，避免界面上一直转圈
   sqlite.exec(`UPDATE messages SET status = 'aborted' WHERE status = 'streaming'`)
-
-  // 第一次启动时创建默认人设
-  if (!getSetting<string>('defaultPersonaId')) {
-    const id = newId()
-    const now = Date.now()
-    db.insert(schema.personas).values({ id, name: '旅人', description: '', createdAt: now, updatedAt: now }).run()
-    setSetting('defaultPersonaId', id)
-  }
 }
 
 export function getSetting<T>(key: string): T | undefined {

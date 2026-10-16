@@ -1,4 +1,5 @@
-import { type CharacterFields, characterFieldsSchema } from '@ai-parter/shared'
+import { type CharacterExtras, type CharacterFields, characterFieldsSchema } from '@ai-parter/shared'
+import { readCardExtras } from '../st'
 import { isPng, readPngTextChunks } from './png'
 
 export class CardParseError extends Error {}
@@ -6,6 +7,7 @@ export class CardParseError extends Error {}
 export interface ParsedCard {
   spec: 'v1' | 'v2' | 'v3'
   fields: CharacterFields
+  extras: Partial<CharacterExtras>
   /** 卡里自带的世界书，原样保留，导入时再拆 */
   characterBook: unknown | null
   /** 导入时的整张卡，原样保存，保证导出不丢字段 */
@@ -32,6 +34,9 @@ function pickStringArray(obj: Record<string, unknown>, key: string): string[] | 
  * - V2 / V3：字段在 data 里，spec 为 chara_card_v2 / chara_card_v3
  * - V1：字段直接在顶层
  */
+/** V1 角色卡（没有 spec 字段）至少要有其中一个字段 */
+const V1_FIELDS = ['description', 'personality', 'scenario', 'first_mes', 'mes_example'] as const
+
 export function parseCardJson(json: unknown): ParsedCard {
   if (!isObject(json)) throw new CardParseError('角色卡内容不是 JSON 对象')
 
@@ -41,6 +46,9 @@ export function parseCardJson(json: unknown): ParsedCard {
     if (!isObject(json.data)) throw new CardParseError('角色卡缺少 data 字段')
     spec = json.spec === 'chara_card_v3' ? 'v3' : 'v2'
     data = json.data
+  } else if (!V1_FIELDS.some((key) => typeof json[key] === 'string')) {
+    // V1 卡没有 spec 标记，只能靠字段判断。只有 name 的 JSON（比如 package.json）不是角色卡
+    throw new CardParseError('这个 JSON 不是角色卡（没有 description、first_mes 等角色字段）')
   }
 
   const name = pickString(data, 'name') ?? pickString(json, 'name')
@@ -57,6 +65,8 @@ export function parseCardJson(json: unknown): ParsedCard {
     system_prompt: pickString(data, 'system_prompt'),
     post_history_instructions: pickString(data, 'post_history_instructions'),
     creator_notes: pickString(data, 'creator_notes'),
+    creator: pickString(data, 'creator'),
+    character_version: pickString(data, 'character_version'),
     tags: pickStringArray(data, 'tags'),
   })
   if (!result.success) throw new CardParseError(`角色卡字段不合法：${result.error.message}`)
@@ -65,6 +75,7 @@ export function parseCardJson(json: unknown): ParsedCard {
   return {
     spec,
     fields: result.data,
+    extras: readCardExtras(data),
     characterBook: isObject(book) ? book : null,
     raw: json,
   }

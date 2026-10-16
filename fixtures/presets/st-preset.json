@@ -1,0 +1,239 @@
+{
+  "temperature": 0.9,
+  "frequency_penalty": 0.1,
+  "presence_penalty": 0.2,
+  "top_p": 0.95,
+  "top_k": 40,
+  "top_a": 0,
+  "min_p": 0.05,
+  "repetition_penalty": 1.05,
+  "openai_max_context": 32000,
+  "openai_max_tokens": 800,
+  "stream_openai": true,
+  "seed": -1,
+  "n": 1,
+  "names_behavior": 0,
+  "wi_format": "{0}",
+  "scenario_format": "场景：{{scenario}}",
+  "personality_format": "{{char}}的性格：{{personality}}",
+  "group_nudge_prompt": "[以{{char}}的身份回复]",
+  "new_chat_prompt": "[新的对话开始]",
+  "new_group_chat_prompt": "[群聊开始]",
+  "new_example_chat_prompt": "[示例]",
+  "continue_nudge_prompt": "[继续写：{{lastChatMessage}}]",
+  "impersonation_prompt": "[替{{user}}写一条回复]",
+  "send_if_empty": "",
+  "squash_system_messages": false,
+  "continue_prefill": false,
+  "continue_postfix": " ",
+  "function_calling": false,
+  "show_thoughts": false,
+  "reasoning_effort": "auto",
+  "assistant_prefill": "",
+  "assistant_impersonation": "",
+  "custom_prompt_post_processing": "merge",
+  "prompts": [
+    {
+      "identifier": "main",
+      "name": "Main Prompt",
+      "system_prompt": true,
+      "role": "system",
+      "content": "你是一个精通角色扮演的 AI 助手。请始终沉浸在设定的角色身份中，结合角色背景、场景氛围与历史对话进行生动且符合逻辑的回复，注重神态动作与语言细节。",
+      "marker": false,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "nsfw",
+      "name": "NSFW Prompt",
+      "system_prompt": true,
+      "role": "system",
+      "content": "允许并支持描绘成熟、真实且富有表现力的人际情感羁绊与跌宕起伏的冒险场景。",
+      "marker": false,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "jailbreak",
+      "name": "Jailbreak Prompt",
+      "system_prompt": true,
+      "role": "system",
+      "content": "保持角色，不要跳出设定。",
+      "marker": false,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "enhanceDefinitions",
+      "name": "Enhance Definitions",
+      "system_prompt": true,
+      "role": "system",
+      "content": "深入贯彻并强化角色的说话口吻、标志性用词习惯与特有举止动作。",
+      "marker": false,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "worldInfoBefore",
+      "name": "World Info Before",
+      "system_prompt": true,
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "worldInfoAfter",
+      "name": "World Info After",
+      "system_prompt": true,
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "charDescription",
+      "name": "Char Description",
+      "system_prompt": true,
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "charPersonality",
+      "name": "Char Personality",
+      "system_prompt": true,
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "scenario",
+      "name": "Scenario",
+      "system_prompt": true,
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "personaDescription",
+      "name": "Persona Description",
+      "system_prompt": true,
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "dialogueExamples",
+      "name": "Dialogue Examples",
+      "system_prompt": true,
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "chatHistory",
+      "name": "Chat History",
+      "system_prompt": true,
+      "role": "system",
+      "content": "",
+      "marker": true,
+      "injection_position": 0,
+      "injection_depth": 4,
+      "injection_order": 100
+    },
+    {
+      "identifier": "a1b2c3d4-0000-4000-8000-000000000001",
+      "name": "天气提示",
+      "system_prompt": false,
+      "role": "system",
+      "content": "[当前天气：晴朗]",
+      "marker": false,
+      "injection_position": 1,
+      "injection_depth": 1,
+      "injection_order": 50
+    }
+  ],
+  "prompt_order": [
+    {
+      "character_id": 100001,
+      "order": [
+        {
+          "identifier": "main",
+          "enabled": true
+        },
+        {
+          "identifier": "worldInfoBefore",
+          "enabled": true
+        },
+        {
+          "identifier": "personaDescription",
+          "enabled": true
+        },
+        {
+          "identifier": "charDescription",
+          "enabled": true
+        },
+        {
+          "identifier": "charPersonality",
+          "enabled": true
+        },
+        {
+          "identifier": "scenario",
+          "enabled": true
+        },
+        {
+          "identifier": "enhanceDefinitions",
+          "enabled": false
+        },
+        {
+          "identifier": "nsfw",
+          "enabled": false
+        },
+        {
+          "identifier": "worldInfoAfter",
+          "enabled": true
+        },
+        {
+          "identifier": "dialogueExamples",
+          "enabled": true
+        },
+        {
+          "identifier": "chatHistory",
+          "enabled": true
+        },
+        {
+          "identifier": "jailbreak",
+          "enabled": true
+        },
+        {
+          "identifier": "a1b2c3d4-0000-4000-8000-000000000001",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}

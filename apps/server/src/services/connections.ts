@@ -10,6 +10,7 @@ import { db, getSetting, newId, setSetting } from '../db/client'
 import { type ApiPresetRow, apiPresets } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { listModels } from '../llm/openai'
+import { SETTING_KEYS } from './settings'
 
 /** Key 打码：只露出最后 4 位 */
 function maskKey(key: string) {
@@ -23,15 +24,13 @@ function toDTO(row: ApiPresetRow, defaultId: string | undefined): ApiPresetDTO {
     name: row.name,
     baseUrl: row.baseUrl,
     model: row.model,
-    contextSize: row.contextSize,
-    params: row.params,
     apiKeyMasked: maskKey(row.apiKey),
     isDefault: row.id === defaultId,
   }
 }
 
 export function listApiPresets(): ApiPresetDTO[] {
-  const defaultId = getSetting<string>('defaultApiPresetId')
+  const defaultId = getSetting<string>(SETTING_KEYS.defaultApiPresetId)
   return db
     .select()
     .from(apiPresets)
@@ -42,14 +41,14 @@ export function listApiPresets(): ApiPresetDTO[] {
 
 export function getApiPresetRow(id: string): ApiPresetRow {
   const row = db.select().from(apiPresets).where(eq(apiPresets.id, id)).get()
-  if (!row) throw notFound('API 预设')
+  if (!row) throw notFound('连接配置')
   return row
 }
 
 /** 会话没指定预设时用全局默认；默认也没有就报错，提示用户去配置 */
 export function resolveApiPreset(presetId: string | null): ApiPresetRow {
-  const id = presetId ?? getSetting<string>('defaultApiPresetId')
-  if (!id) throw new HttpError(400, 'NO_API_PRESET', '还没有配置模型接口，请先在设置里添加一个 API 预设')
+  const id = presetId ?? getSetting<string>(SETTING_KEYS.defaultApiPresetId)
+  if (!id) throw new HttpError(400, 'NO_API_PRESET', '还没有配置模型连接，请先在「连接」页添加一个')
   return getApiPresetRow(id)
 }
 
@@ -61,8 +60,8 @@ export function createApiPreset(input: ApiPresetInput): ApiPresetDTO {
     .values({ ...data, apiKey: data.apiKey ?? '', id, createdAt: now, updatedAt: now })
     .run()
   // 第一个预设自动设为默认
-  if (!getSetting<string>('defaultApiPresetId')) setSetting('defaultApiPresetId', id)
-  return toDTO(getApiPresetRow(id), getSetting<string>('defaultApiPresetId'))
+  if (!getSetting<string>(SETTING_KEYS.defaultApiPresetId)) setSetting(SETTING_KEYS.defaultApiPresetId, id)
+  return toDTO(getApiPresetRow(id), getSetting<string>(SETTING_KEYS.defaultApiPresetId))
 }
 
 export function updateApiPreset(id: string, input: ApiPresetInput): ApiPresetDTO {
@@ -72,19 +71,19 @@ export function updateApiPreset(id: string, input: ApiPresetInput): ApiPresetDTO
     .set({ ...data, ...(apiKey !== undefined ? { apiKey } : {}), updatedAt: Date.now() })
     .where(eq(apiPresets.id, id))
     .run()
-  return toDTO(getApiPresetRow(id), getSetting<string>('defaultApiPresetId'))
+  return toDTO(getApiPresetRow(id), getSetting<string>(SETTING_KEYS.defaultApiPresetId))
 }
 
 export function deleteApiPreset(id: string) {
   db.delete(apiPresets).where(eq(apiPresets.id, id)).run()
-  if (getSetting<string>('defaultApiPresetId') === id) {
-    setSetting('defaultApiPresetId', listApiPresets()[0]?.id ?? null)
+  if (getSetting<string>(SETTING_KEYS.defaultApiPresetId) === id) {
+    setSetting(SETTING_KEYS.defaultApiPresetId, listApiPresets()[0]?.id ?? null)
   }
 }
 
 export function setDefaultApiPreset(id: string) {
   getApiPresetRow(id)
-  setSetting('defaultApiPresetId', id)
+  setSetting(SETTING_KEYS.defaultApiPresetId, id)
 }
 
 /** 测试连接：可以测已保存的预设，也可以测表单里还没保存的地址和 Key */

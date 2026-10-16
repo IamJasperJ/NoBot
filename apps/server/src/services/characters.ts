@@ -1,27 +1,39 @@
-import { rm } from 'node:fs/promises'
-import { join } from 'node:path'
-import { CardParseError, isPng, parseCardFile } from '@ai-parter/core'
-import type { CharacterDTO, CharacterFields, CharacterSummary, CharacterUpdateInput } from '@ai-parter/shared'
-import { desc, eq } from 'drizzle-orm'
+import {
+  buildCardExport,
+  CardParseError,
+  importSTWorldInfo,
+  isPng,
+  parseCardFile,
+  STFormatError,
+  writePngTextChunks,
+} from '@ai-parter/core'
+import {
+  type CharacterDTO,
+  type CharacterFields,
+  type CharacterInput,
+  type CharacterSummary,
+  type CharacterUpdateInput,
+  characterInput,
+  characterUpdateInput,
+  lorebookEntryDataSchema,
+} from '@ai-parter/shared'
+import { asc, desc, eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, newId } from '../db/client'
-import { type CharacterRow, characters } from '../db/schema'
-import { paths } from '../env'
+import { type CharacterRow, characterLorebooks, characters, lorebooks, personas } from '../db/schema'
 import { HttpError, notFound } from '../errors'
-
-/**
- * 头像存两份：原图 {id}.png（导出角色卡时要用），
- * 和 256px 的 WebP 缩略图 {id}.webp（列表和聊天界面用，体积小很多）。
- */
-const thumbFile = (avatarFile: string) => avatarFile.replace(/\.png$/, '.webp')
-const avatarUrl = (row: CharacterRow) =>
-  row.avatarFile ? `/api/assets/avatars/${thumbFile(row.avatarFile)}?v=${row.updatedAt}` : null
+import { avatarUrl, deleteAvatar, readAvatar, saveAvatar } from '../lib/files'
+import { createEntry, createLorebook, getLorebookWithEntries } from './lorebooks'
 
 export function toSummary(row: CharacterRow): CharacterSummary {
-  return { id: row.id, name: row.name, avatarUrl: avatarUrl(row), tags: row.tags, updatedAt: row.updatedAt }
+  return {
+    id: row.id,
+    name: row.name,
+    avatarUrl: avatarUrl(row.avatarFile, row.updatedAt),
+    tags: row.tags,
+    updatedAt: row.updatedAt,
+  }
 }
-
-/** 数据库行 → 角色卡字段（驼峰转回酒馆的下划线命名） */
 export function toFields(row: CharacterRow): CharacterFields {
   return {
     name: row.name,
@@ -34,95 +46,252 @@ export function toFields(row: CharacterRow): CharacterFields {
     system_prompt: row.systemPrompt,
     post_history_instructions: row.postHistoryInstructions,
     creator_notes: row.creatorNotes,
+    creator: row.creator,
+    character_version: row.characterVersion,
     tags: row.tags,
   }
 }
-
-function fromFields(f: CharacterFields) {
+function fromFields(fields: CharacterFields) {
+  const {
+    first_mes,
+    alternate_greetings,
+    mes_example,
+    system_prompt,
+    post_history_instructions,
+    creator_notes,
+    character_version,
+    ...rest
+  } = fields
   return {
-    name: f.name,
-    description: f.description,
-    personality: f.personality,
-    scenario: f.scenario,
-    firstMes: f.first_mes,
-    alternateGreetings: f.alternate_greetings,
-    mesExample: f.mes_example,
-    systemPrompt: f.system_prompt,
-    postHistoryInstructions: f.post_history_instructions,
-    creatorNotes: f.creator_notes,
-    tags: f.tags,
+    ...rest,
+    firstMes: first_mes,
+    alternateGreetings: alternate_greetings,
+    mesExample: mes_example,
+    systemPrompt: system_prompt,
+    postHistoryInstructions: post_history_instructions,
+    creatorNotes: creator_notes,
+    characterVersion: character_version,
   }
 }
-
-function toDTO(row: CharacterRow): CharacterDTO {
-  return { ...toFields(row), id: row.id, avatarUrl: avatarUrl(row), createdAt: row.createdAt, updatedAt: row.updatedAt }
-}
-
-export function listCharacters(): CharacterSummary[] {
-  return db.select().from(characters).orderBy(desc(characters.updatedAt)).all().map(toSummary)
-}
-
 export function getCharacterRow(id: string): CharacterRow {
   const row = db.select().from(characters).where(eq(characters.id, id)).get()
   if (!row) throw notFound('角色')
   return row
 }
-
-export const getCharacter = (id: string) => toDTO(getCharacterRow(id))
-
-/** 导入角色卡（PNG 或 JSON） */
+export function getCharacter(id: string): CharacterDTO {
+  const row = getCharacterRow(id)
+  return {
+    ...toFields(row),
+    id,
+    avatarUrl: avatarUrl(row.avatarFile, row.updatedAt),
+    talkativeness: row.talkativeness,
+    characterNote: row.characterNote,
+    characterNoteDepth: row.characterNoteDepth,
+    characterNoteRole: row.characterNoteRole,
+    defaultPersonaId: row.defaultPersonaId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    lorebookIds: db
+      .select()
+      .from(characterLorebooks)
+      .where(eq(characterLorebooks.characterId, id))
+      .orderBy(asc(characterLorebooks.position))
+      .all()
+      .map((row) => row.lorebookId),
+  }
+}
+export function listCharacters(): CharacterSummary[] {
+  return db.select().from(characters).orderBy(desc(characters.updatedAt), desc(characters.id)).all().map(toSummary)
+}
+function checkRelations(bookIds: string[], personaId: string | null) {
+  if (new Set(bookIds).size !== bookIds.length) throw new HttpError(400, 'VALIDATION', '关联世界书不能重复')
+  for (const id of bookIds) if (!db.select().from(lorebooks).where(eq(lorebooks.id, id)).get()) throw notFound('世界书')
+  if (personaId !== null && !db.select().from(personas).where(eq(personas.id, personaId)).get()) throw notFound('人设')
+}
+function replaceBooks(id: string, ids: string[]) {
+  db.delete(characterLorebooks).where(eq(characterLorebooks.characterId, id)).run()
+  ids.forEach((lorebookId, position) => {
+    db.insert(characterLorebooks).values({ characterId: id, lorebookId, position }).run()
+  })
+}
+export function createCharacter(input: CharacterInput): CharacterDTO {
+  const {
+    lorebookIds,
+    talkativeness,
+    characterNote,
+    characterNoteDepth,
+    characterNoteRole,
+    defaultPersonaId,
+    ...fields
+  } = characterInput.parse(input)
+  checkRelations(lorebookIds, defaultPersonaId)
+  return db.transaction(() => {
+    const id = newId()
+    const now = Date.now()
+    db.insert(characters)
+      .values({
+        ...fromFields(fields),
+        talkativeness,
+        characterNote,
+        characterNoteDepth,
+        characterNoteRole,
+        defaultPersonaId,
+        id,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run()
+    replaceBooks(id, lorebookIds)
+    return getCharacter(id)
+  })
+}
+export function updateCharacter(id: string, input: CharacterUpdateInput): CharacterDTO {
+  const old = getCharacter(id)
+  const data = characterUpdateInput.parse(input)
+  // Zod 4 的 partial 仍可能填默认值；PATCH 只保留客户端实际传入的字段。
+  for (const key of Object.keys(data) as (keyof typeof data)[]) {
+    if (!Object.hasOwn(input, key)) delete data[key]
+  }
+  const merged = characterInput.parse({ ...old, ...data })
+  const {
+    lorebookIds,
+    talkativeness,
+    characterNote,
+    characterNoteDepth,
+    characterNoteRole,
+    defaultPersonaId,
+    ...fields
+  } = merged
+  checkRelations(lorebookIds, defaultPersonaId)
+  return db.transaction(() => {
+    db.update(characters)
+      .set({
+        ...fromFields(fields),
+        talkativeness,
+        characterNote,
+        characterNoteDepth,
+        characterNoteRole,
+        defaultPersonaId,
+        updatedAt: Date.now(),
+      })
+      .where(eq(characters.id, id))
+      .run()
+    if (input.lorebookIds !== undefined) replaceBooks(id, lorebookIds)
+    return getCharacter(id)
+  })
+}
 export async function importCharacter(bytes: Uint8Array): Promise<CharacterDTO> {
   let card: ReturnType<typeof parseCardFile>
+  let book: ReturnType<typeof importSTWorldInfo> | null
   try {
     card = parseCardFile(bytes)
-  } catch (e) {
-    if (e instanceof CardParseError) throw new HttpError(400, 'BAD_CARD', e.message)
-    throw e
+    book = card.characterBook ? importSTWorldInfo(card.characterBook) : null
+  } catch (error) {
+    if (error instanceof CardParseError || error instanceof STFormatError)
+      throw new HttpError(400, 'BAD_CARD', `角色卡无法导入：${error.message}`)
+    throw error
   }
-
   const id = newId()
-  let avatarFile: string | null = null
-  if (isPng(bytes)) {
-    avatarFile = `${id}.png`
-    await Bun.write(join(paths.avatars, avatarFile), bytes)
-    await sharp(bytes)
-      .resize(256, 256, { fit: 'cover', position: 'top' })
-      .webp({ quality: 82 })
-      .toFile(join(paths.avatars, thumbFile(avatarFile)))
-  }
-
-  // 卡里自带的世界书（character_book）原样留在 raw 里，里程碑 5 再拆成独立世界书
-  const now = Date.now()
-  db.insert(characters)
-    .values({
-      ...fromFields(card.fields),
-      id,
-      avatarFile,
-      raw: card.raw,
-      createdAt: now,
-      updatedAt: now,
+  const avatarFile = isPng(bytes) ? await saveAvatar(id, bytes) : null
+  try {
+    return db.transaction(() => {
+      const lorebookIds: string[] = []
+      if (book) {
+        const created = createLorebook({ name: book.name?.trim() || `${card.fields.name} 的世界书` })
+        book.entries.forEach((entry) => {
+          createEntry(created.id, entry)
+        })
+        lorebookIds.push(created.id)
+      }
+      const data = characterInput.parse({ ...card.fields, ...card.extras, lorebookIds })
+      const {
+        lorebookIds: ids,
+        talkativeness,
+        characterNote,
+        characterNoteDepth,
+        characterNoteRole,
+        defaultPersonaId,
+        ...fields
+      } = data
+      const now = Date.now()
+      db.insert(characters)
+        .values({
+          ...fromFields(fields),
+          talkativeness,
+          characterNote,
+          characterNoteDepth,
+          characterNoteRole,
+          defaultPersonaId,
+          id,
+          avatarFile,
+          raw: card.raw,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run()
+      replaceBooks(id, ids)
+      return getCharacter(id)
     })
-    .run()
-  return getCharacter(id)
+  } catch (error) {
+    await deleteAvatar(avatarFile)
+    throw error
+  }
 }
-
-export function updateCharacter(id: string, input: CharacterUpdateInput): CharacterDTO {
+export async function deleteCharacter(id: string) {
   const row = getCharacterRow(id)
-  // 没传的字段沿用原值
-  const merged = { ...toFields(row), ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) }
+  db.delete(characters).where(eq(characters.id, id)).run()
+  await deleteAvatar(row.avatarFile)
+}
+export async function setCharacterAvatar(id: string, bytes: Uint8Array): Promise<CharacterDTO> {
+  const row = getCharacterRow(id)
+  const avatarFile = await saveAvatar(id, bytes)
   db.update(characters)
-    .set({ ...fromFields(merged), updatedAt: Date.now() })
+    .set({ avatarFile, updatedAt: Math.max(Date.now(), row.updatedAt + 1) })
     .where(eq(characters.id, id))
     .run()
   return getCharacter(id)
 }
-
-/** 删除角色。会话和消息靠外键级联删除，头像文件手动删 */
-export async function deleteCharacter(id: string) {
+export async function duplicateCharacter(id: string): Promise<CharacterDTO> {
   const row = getCharacterRow(id)
-  db.delete(characters).where(eq(characters.id, id)).run()
-  if (row.avatarFile) {
-    await rm(join(paths.avatars, row.avatarFile), { force: true })
-    await rm(join(paths.avatars, thumbFile(row.avatarFile)), { force: true })
+  const source = getCharacter(id)
+  const copy = createCharacter({ ...source, name: `${source.name} 副本` })
+  try {
+    if (row.avatarFile)
+      await setCharacterAvatar(copy.id, new Uint8Array(await readAvatar(row.avatarFile).arrayBuffer()))
+    db.update(characters).set({ raw: row.raw }).where(eq(characters.id, copy.id)).run()
+    return getCharacter(copy.id)
+  } catch (error) {
+    await deleteCharacter(copy.id)
+    throw error
   }
+}
+export async function exportCharacter(id: string, format: 'png' | 'json') {
+  const row = getCharacterRow(id)
+  const character = getCharacter(id)
+  const primary = character.lorebookIds[0]
+  const book = primary ? getLorebookWithEntries(primary) : null
+  const { v2, v3 } = buildCardExport({
+    fields: toFields(row),
+    extras: character,
+    raw: row.raw,
+    book: book
+      ? { name: book.lorebook.name, entries: book.entries.map((entry) => lorebookEntryDataSchema.parse(entry)) }
+      : null,
+  })
+  if (format === 'json')
+    return {
+      bytes: new TextEncoder().encode(JSON.stringify(v3, null, 2)),
+      fileName: `${row.name}.json`,
+      contentType: 'application/json',
+    }
+  const png = row.avatarFile
+    ? new Uint8Array(await readAvatar(row.avatarFile).arrayBuffer())
+    : await sharp({ create: { width: 400, height: 600, channels: 3, background: '#e5e7eb' } })
+        .png()
+        .toBuffer()
+  const bytes = writePngTextChunks(png, {
+    chara: Buffer.from(JSON.stringify(v2)).toString('base64'),
+    ccv3: Buffer.from(JSON.stringify(v3)).toString('base64'),
+  })
+  return { bytes, fileName: `${row.name}.png`, contentType: 'image/png' }
 }

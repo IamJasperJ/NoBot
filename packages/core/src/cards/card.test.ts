@@ -41,6 +41,10 @@ describe('parseCardJson', () => {
     expect(card.raw).toBe(raw)
   })
 
+  test('只有 name 的普通 JSON（比如 package.json）不当成角色卡', () => {
+    expect(() => parseCardJson({ name: 'ai-parter', version: '1.0.0' })).toThrow(CardParseError)
+  })
+
   test('没有名字时报错', () => {
     expect(() => parseCardJson({ spec: 'chara_card_v2', data: {} })).toThrow(CardParseError)
   })
@@ -64,8 +68,8 @@ describe('PNG 角色卡', () => {
   })
 
   test('重复写入会替换旧的同名块', () => {
-    const once = writePngTextChunks(TINY_PNG, { chara: toBase64({ name: 'a' }) })
-    const twice = writePngTextChunks(once, { chara: toBase64({ name: 'b' }) })
+    const once = writePngTextChunks(TINY_PNG, { chara: toBase64({ name: 'a', description: '' }) })
+    const twice = writePngTextChunks(once, { chara: toBase64({ name: 'b', description: '' }) })
     expect(readPngTextChunks(twice).size).toBe(1)
     expect(parseCardFile(twice).fields.name).toBe('b')
   })
@@ -75,7 +79,55 @@ describe('PNG 角色卡', () => {
   })
 
   test('JSON 文件也能导入', () => {
-    const bytes = new TextEncoder().encode(JSON.stringify({ name: 'JSON 角色' }))
+    const bytes = new TextEncoder().encode(JSON.stringify({ name: 'JSON 角色', first_mes: '你好' }))
     expect(parseCardFile(bytes).fields.name).toBe('JSON 角色')
+  })
+})
+
+describe('角色卡作者和额外设置', () => {
+  test('V1、V2、V3 都读取 creator、character_version 和 extras', () => {
+    const data = {
+      name: '测试角色',
+      description: '',
+      creator: '作者',
+      character_version: '2.1',
+      extensions: {
+        talkativeness: '0.7',
+        depth_prompt: { prompt: '角色备注', depth: 6, role: 'user' },
+      },
+    }
+    for (const raw of [data, { spec: 'chara_card_v2', data }, { spec: 'chara_card_v3', data }]) {
+      const parsed = parseCardJson(raw)
+      expect(parsed.fields.creator).toBe('作者')
+      expect(parsed.fields.character_version).toBe('2.1')
+      expect(parsed.extras).toEqual({
+        talkativeness: 0.7,
+        characterNote: '角色备注',
+        characterNoteDepth: 6,
+        characterNoteRole: 'user',
+      })
+      expect(parsed.raw).toBe(raw)
+    }
+  })
+
+  test('缺失或错误类型的作者信息用默认值，非法 extras 忽略', () => {
+    for (const data of [
+      { name: '测试', description: '' },
+      {
+        name: '测试',
+        description: '',
+        creator: 123,
+        character_version: false,
+        extensions: {
+          talkativeness: '无效',
+          depth_prompt: { depth: -1, role: '未知' },
+        },
+      },
+    ]) {
+      const parsed = parseCardJson(data)
+      expect(parsed.fields.creator).toBe('')
+      expect(parsed.fields.character_version).toBe('')
+      expect(parsed.extras).toEqual({})
+    }
   })
 })

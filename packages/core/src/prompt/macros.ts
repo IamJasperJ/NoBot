@@ -6,6 +6,10 @@
  *   {{time}} {{date}} {{weekday}}
  *   {{random::a::b::c}}      随机选一个（也兼容 {{random:a,b,c}}）
  *   {{roll:1d20}}            掷骰，支持 2d6+3 这种写法
+ *   {{group}} {{lastChatMessage}} 群成员 / 最后一条聊天内容
+ *   {{original}}             角色卡覆盖时的预设原文
+ *   {{outlet::名字}}          世界书插槽
+ *   {{名字::参数}}             扩展宏（内置宏优先）
  *   {{newline}}              换行
  *   {{// 注释}}               删除
  */
@@ -14,6 +18,11 @@ export interface MacroContext {
   char: string
   user: string
   now: Date
+  group?: string
+  lastChatMessage?: string
+  original?: string
+  outlets?: Record<string, string>
+  extra?: Record<string, (arg: string) => string>
   /** 随机数种子。同一个种子得到同样的结果，保证预览和真实发送一致 */
   seed: string
 }
@@ -67,6 +76,13 @@ export function applyMacros(text: string, ctx: MacroContext): string {
 
       if (lower === 'char') return ctx.char
       if (lower === 'user') return ctx.user
+      if (lower === 'group') return ctx.group ?? ''
+      if (lower === 'lastchatmessage') return ctx.lastChatMessage ?? ''
+      if (lower === 'original') return ctx.original ?? whole
+      if (lower.startsWith('outlet::')) {
+        const outletName = name.slice(8).trim()
+        return ctx.outlets && Object.hasOwn(ctx.outlets, outletName) ? ctx.outlets[outletName]! : ''
+      }
       if (lower === 'newline') return '\n'
       if (lower === 'time') {
         return ctx.now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
@@ -81,14 +97,20 @@ export function applyMacros(text: string, ctx: MacroContext): string {
         let options: string[] = []
         if (rest.startsWith('::')) options = rest.slice(2).split('::')
         else if (rest.startsWith(':')) options = rest.slice(1).split(',')
-        if (options.length === 0) return whole
-        return options[Math.floor(random() * options.length)]?.trim() ?? ''
+        if (options.length > 0) return options[Math.floor(random() * options.length)]?.trim() ?? ''
+        if (lower === 'random' || lower.startsWith('random:')) return whole
       }
 
       if (lower.startsWith('roll')) {
         const result = rollDice(name.slice(4).replace(/^[:\s]+/, ''), random)
-        return result === null ? whole : String(result)
+        if (result !== null) return String(result)
+        if (lower === 'roll' || lower.startsWith('roll:')) return whole
       }
+
+      const separator = name.indexOf('::')
+      const extraName = (separator < 0 ? name : name.slice(0, separator)).trim().toLowerCase()
+      const handler = ctx.extra && Object.hasOwn(ctx.extra, extraName) ? ctx.extra[extraName] : undefined
+      if (handler) return handler(separator < 0 ? '' : name.slice(separator + 2))
 
       // 不认识的宏原样保留，方便用户发现写错了
       return whole

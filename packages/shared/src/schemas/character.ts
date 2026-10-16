@@ -59,3 +59,21 @@ export interface CharacterDTO extends CharacterFields, CharacterExtras {
   createdAt: number
   updatedAt: number
 }
+
+/** 导入角色卡前的预读结果：前端据此询问用户要不要导入卡里的世界书 */
+export interface CharacterImportPreview {
+  name: string
+  spec: 'v1' | 'v2' | 'v3'
+  hasAvatar: boolean
+  /** 卡里内嵌的世界书，没有则为 null */
+  lorebook: { name: string; entryCount: number } | null
+}
+
+/**
+ * 卡里世界书的处理方式：
+ * - link：导入成一本新世界书，并作为主世界书关联到这个角色
+ * - import：导入成新世界书，但不关联
+ * - skip：不导入（原始数据仍保留在角色卡里，导出时不会丢）
+ */
+export const characterImportLorebookSchema = z.enum(['link', 'import', 'skip'])
+export type CharacterImportLorebook = z.infer<typeof characterImportLorebookSchema>

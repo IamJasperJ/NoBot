@@ -83,7 +83,7 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
   return (
     <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       {loadingMore && <div className="py-2 text-center text-xs text-zinc-400">加载更早的消息…</div>}
-      <div className="relative mx-auto w-full max-w-3xl" style={{ height: virtualizer.getTotalSize() }}>
+      <div className="chat-column relative w-full" style={{ height: virtualizer.getTotalSize() }}>
         <div className="absolute inset-x-0 top-0" style={{ transform: `translateY(${items[0]?.start ?? 0}px)` }}>
           {items.map((item) => {
             const msg = messages[item.index] as MessageDTO

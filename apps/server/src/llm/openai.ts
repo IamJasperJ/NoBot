@@ -43,12 +43,26 @@ export function buildRequestBody(opts: {
   model: string
   messages: ChatMessage[]
   samplers: SamplerSettings
+  images?: Map<string, string>
   tools?: unknown[]
 }): Record<string, unknown> {
   const s = opts.samplers
   const body: Record<string, unknown> = {
     model: opts.model,
-    messages: opts.messages,
+    messages: opts.messages.map(({ images, ...message }) => {
+      if (!images?.length) return message
+      return {
+        ...message,
+        content: [
+          { type: 'text', text: message.content },
+          ...images.map((id) => {
+            const url = opts.images?.get(id)
+            if (!url) throw new LlmError('BAD_ATTACHMENT', '图片附件尚未解析')
+            return { type: 'image_url', image_url: { url, detail: s.imageDetail } }
+          }),
+        ],
+      }
+    }),
     stream: s.stream,
     max_tokens: s.maxTokens,
     temperature: s.temperature,

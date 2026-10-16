@@ -162,3 +162,9 @@ export const DotsIcon = (p: P) => (
     <circle cx="19" cy="12" r="1" />
   </Icon>
 )
+export const PanelIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M9 4v16" />
+  </Icon>
+)

@@ -2,13 +2,15 @@ import type { ChatPage, UpdateChatInput } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, useConnections, useLorebooks, usePersonas, usePresets } from '../../api/queries'
-import { NumberField, Section, SelectField, TextAreaField, TextField } from '../../components/form'
+import { keys, useChatPages, useConnections, useLorebooks, usePersonas, usePresets } from '../../api/queries'
+import { NumberField, Section, SelectField, TextAreaField, TextField, Toggle } from '../../components/form'
 import { XIcon } from '../../components/icons'
 import { Avatar, Button, IconButton } from '../../components/ui'
+import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { GroupDialog } from '../groups/GroupDialog'
+import { runGeneration } from './generate'
 
 type Draft = Required<Omit<UpdateChatInput, 'title'>> & { title: string }
 
@@ -29,8 +31,15 @@ function toDraft(page: ChatPage): Draft {
 /** 下拉框里的「空值」：用全局默认 */
 const DEFAULT = '__default__'
 
-/** 右侧面板：当前会话的设置 */
-export function ChatSettings({ page }: { page: ChatPage }) {
+/** 侧栏位置的面板：当前会话的设置。会话数据从已加载的缓存里取 */
+export function ChatSettings({ chatId }: { chatId: string }) {
+  const pages = useChatPages(chatId)
+  const page = pages.data?.pages[0]
+  if (!page) return <div className="p-4 text-sm text-zinc-400">加载中…</div>
+  return <ChatSettingsForm page={page} />
+}
+
+function ChatSettingsForm({ page }: { page: ChatPage }) {
   const qc = useQueryClient()
   const setOpen = useUi((s) => s.setChatSettingsOpen)
   const personas = usePersonas()
@@ -67,17 +76,31 @@ export function ChatSettings({ page }: { page: ChatPage }) {
     `全局默认（${list?.find((x) => x.isDefault)?.name ?? '未设置'}）`
 
   return (
-    <aside className="fixed inset-0 z-30 flex flex-col bg-white lg:static lg:w-96 lg:shrink-0 lg:border-l lg:border-zinc-200 dark:bg-zinc-950 lg:dark:border-zinc-800">
+    <aside className="flex h-full w-full flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 dark:border-zinc-800">
-        <div className="flex-1 font-semibold">会话设置</div>
+        <div className="flex-1 truncate font-semibold">会话设置</div>
         <Button variant="primary" disabled={!dirty} onClick={save}>
           保存
         </Button>
-        <IconButton label="关闭" onClick={() => setOpen(false)}>
+        <IconButton label="返回会话列表" onClick={() => setOpen(false)}>
           <XIcon />
         </IconButton>
       </header>
       <div className="flex-1 space-y-3 overflow-y-auto p-3">
+        {page.group && <GroupMembers page={page} onEdit={() => setGroupDialog(true)} />}
+        {page.group && (
+          <GroupDialog
+            open={groupDialog}
+            groupId={page.group.id}
+            onClose={() => setGroupDialog(false)}
+            onSaved={() => {
+              setGroupDialog(false)
+              void qc.invalidateQueries({ queryKey: keys.chat(chatId) })
+              void qc.invalidateQueries({ queryKey: keys.groups })
+            }}
+          />
+        )}
+
         <TextField label="会话名称" value={draft.title} onChange={(v) => set('title', v)} />
 
         <Section title="人设与预设">
@@ -168,31 +191,6 @@ export function ChatSettings({ page }: { page: ChatPage }) {
           />
         </Section>
 
-        {page.group && (
-          <Section title="群聊成员">
-            <div className="space-y-1.5">
-              {page.group.members.map((m) => (
-                <div key={m.characterId} className="flex items-center gap-2 text-sm">
-                  <Avatar name={m.name} url={m.avatarUrl} size={24} />
-                  <span className="flex-1">{m.name}</span>
-                  {m.muted && <span className="text-xs text-zinc-400">已静音</span>}
-                </div>
-              ))}
-            </div>
-            <Button onClick={() => setGroupDialog(true)}>编辑群组</Button>
-            <GroupDialog
-              open={groupDialog}
-              groupId={page.group.id}
-              onClose={() => setGroupDialog(false)}
-              onSaved={() => {
-                setGroupDialog(false)
-                void qc.invalidateQueries({ queryKey: keys.chat(chatId) })
-                void qc.invalidateQueries({ queryKey: keys.groups })
-              }}
-            />
-          </Section>
-        )}
-
         <Section title="跑团状态" description="由工具调用（set_chat_state）记录，随分支和重新生成自动回退">
           {Object.keys(page.vars).length === 0 ? (
             <p className="text-sm text-zinc-500">
@@ -215,5 +213,59 @@ export function ChatSettings({ page }: { page: ChatPage }) {
         </Section>
       </div>
     </aside>
+  )
+}
+
+/**
+ * 群聊成员的快捷操作：禁言开关（立即保存到群组）、「让 TA 说」（马上让这个角色发言，即使被禁言也会说）。
+ */
+function GroupMembers({ page, onEdit }: { page: ChatPage; onEdit: () => void }) {
+  const qc = useQueryClient()
+  const group = page.group as NonNullable<ChatPage['group']>
+  const chatId = page.chat.id
+  const generating = useStreaming((s) => s.chatId === chatId) || page.generating
+
+  const setMuted = async (characterId: string, muted: boolean) => {
+    try {
+      await api.updateGroup(group.id, {
+        members: group.members.map((m) => ({
+          characterId: m.characterId,
+          muted: m.characterId === characterId ? muted : m.muted,
+        })),
+      })
+      await qc.invalidateQueries({ queryKey: keys.chat(chatId) })
+      await qc.invalidateQueries({ queryKey: keys.groups })
+    } catch (e) {
+      toast.error(errorMessage(e))
+    }
+  }
+
+  const talk = (characterId: string) =>
+    runGeneration(qc, chatId, { mode: 'trigger', speakerId: characterId }).catch((e) => toast.error(errorMessage(e)))
+
+  return (
+    <Section title="群聊成员" description="开关控制是否自动发言；「让 TA 说」立刻让这个角色回复">
+      <div className="space-y-1">
+        {group.members.map((m) => (
+          <div key={m.characterId} className="flex items-center gap-2 text-sm">
+            <Toggle
+              label={m.muted ? `取消 ${m.name} 的禁言` : `禁言 ${m.name}`}
+              checked={!m.muted}
+              onChange={(on) => setMuted(m.characterId, !on)}
+            />
+            <Avatar name={m.name} url={m.avatarUrl} size={24} />
+            <span
+              className={m.muted ? 'min-w-0 flex-1 truncate text-zinc-400 line-through' : 'min-w-0 flex-1 truncate'}
+            >
+              {m.name}
+            </span>
+            <Button className="shrink-0 px-2 py-1 text-xs" disabled={generating} onClick={() => talk(m.characterId)}>
+              让 TA 说
+            </Button>
+          </div>
+        ))}
+      </div>
+      <Button onClick={onEdit}>编辑群组</Button>
+    </Section>
   )
 }

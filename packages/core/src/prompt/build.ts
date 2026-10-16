@@ -30,6 +30,9 @@ import { applyMacros, type MacroContext } from './macros'
  * 预览和真实发送调用的是同一个函数。
  */
 
+/** 图片预算采用统一估算，避免 core 依赖实际文件或模型的视觉分词规则。 */
+export const IMAGE_TOKENS = 300
+
 export class PromptBudgetError extends Error {}
 
 export interface PromptCharacter {
@@ -54,6 +57,8 @@ export interface HistoryMessage {
   toolCalls?: ToolCall[]
   /** tool 消息对应的调用 */
   toolCallId?: string
+  /** 附件 id，由调用方解析成实际图片 */
+  images?: string[]
 }
 
 export interface BuildInput {
@@ -170,7 +175,7 @@ export interface BuildInput {
  *  「[调用工具 名字(参数)]」；tool 消息改成 system 消息「[工具结果 名字] 内容」。
  *  toolsEnabled 为 true 时按 OpenAI 格式输出 tool_calls / tool_call_id。
  *
- * 【9. 后处理】（tool 消息和带 tool_calls 的消息永远不参与合并）
+ * 【9. 后处理】（tool、tool_calls 和带图片的消息不参与相邻合并；single_user 保留图片边界）
  *  - squashSystem：合并相邻的 system 消息（示例对话的 system 除外）
  *  - postProcessing：none 不处理；merge 合并相邻同角色消息（"\n\n" 连接）；
  *    semi_strict 在 merge 基础上，第一条非 system 消息之后出现的 system 改成 user 再合并；
@@ -201,7 +206,8 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
       ...context,
       original: original === undefined ? undefined : applyMacros(original, context),
     }).trim()
-  const cost = (message: ChatMessage) => countTokens(message.content) + MESSAGE_OVERHEAD_TOKENS
+  const cost = (message: ChatMessage) =>
+    countTokens(message.content) + MESSAGE_OVERHEAD_TOKENS + (message.images?.length ?? 0) * IMAGE_TOKENS
   const sum = (pieces: Piece[]) => pieces.reduce((total, piece) => total + cost(piece.message), 0)
   const piece = (source: string, label: string, role: ChatMessage['role'], content: string): Piece => ({
     source,
@@ -415,6 +421,14 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   const groupedInjections = groupInjections(injections)
 
   // 【7】【8】历史的名字和工具先转换，预算才包含真正发送的文本。
+  // 按图片出现位置计数，同一消息内也只保留靠后的图片，重复 id 仍分别计入限制。
+  let remainingImages = preset.samplers.inlineImages ? preset.samplers.imageLimit || Number.POSITIVE_INFINITY : 0
+  const imageCounts = new Map<HistoryMessage, number>()
+  for (const message of [...input.history].reverse()) {
+    const count = Math.min(message.images?.length ?? 0, remainingImages)
+    imageCounts.set(message, count)
+    remainingImages -= count
+  }
   const historyPiece = (message: HistoryMessage, continuation = false): Piece => {
     let output: ChatMessage = { role: message.role, content: message.content }
     if (input.toolsEnabled) {
@@ -436,13 +450,18 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
       }
       if (message.role === 'tool') output = { role: 'system', content: `[工具结果 ${message.name}] ${message.content}` }
     }
+    const images = message.images ?? []
+    const kept = imageCounts.get(message) ?? 0
+    if (kept) output.images = images.slice(images.length - kept)
+    output.content = [output.content, ...Array<string>(images.length - kept).fill('[图片]')].filter(Boolean).join('\n')
     if (!continuation) output = applyName(output, message.name, behavior, group !== null)
     return {
       source: 'history',
       label: '历史消息',
       messageId: message.id,
       message: output,
-      protected: message.role === 'tool' || Boolean(message.toolCalls?.length),
+      imageBoundary: Boolean(message.images?.length),
+      protected: message.role === 'tool' || Boolean(message.toolCalls?.length) || Boolean(message.images?.length),
     }
   }
 
@@ -456,7 +475,8 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   const continuation = input.type === 'continue' && behavior.continuePrefill ? input.history.at(-1) : undefined
   if (input.type === 'continue') {
     if (continuation) {
-      const tail = historyPiece({ ...continuation, role: 'assistant' }, true)
+      const tail = historyPiece(continuation, true)
+      tail.message.role = 'assistant'
       tail.label = '续写预填充'
       ending.push(tail)
     } else if (!behavior.continuePrefill) appendEnding('nudge', '续写提示', 'system', utility.continueNudge)

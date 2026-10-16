@@ -234,6 +234,7 @@ export function toHistory(ctx: GenerationContext, leafId: string | null): Histor
             ? (m.meta.toolName ?? '工具')
             : ((m.speakerId && names.get(m.speakerId)) ?? m.meta.name ?? ctx.members[0]?.name ?? ''),
       speakerId: m.speakerId,
+      ...(m.meta.images?.length ? { images: m.meta.images.map((image) => image.id) } : {}),
       ...(m.meta.toolCalls ? { toolCalls: m.meta.toolCalls } : {}),
       ...(m.meta.toolCallId ? { toolCallId: m.meta.toolCallId } : {}),
     }))

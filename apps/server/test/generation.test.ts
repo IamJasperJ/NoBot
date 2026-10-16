@@ -436,3 +436,62 @@ test('预设采样参数和额外请求体正确透传且非流式响应正常�
   expect(text(events)).toBe('非流式回复')
   expect(events.at(-1)?.type).toBe('complete')
 })
+
+test('图片上传与生成全链路及发送限制', async () => {
+  const { chat } = await setup()
+  const sharp = (await import('sharp')).default
+  const form = new FormData()
+  form.append(
+    'file',
+    new File(
+      [
+        await sharp({ create: { width: 3000, height: 1200, channels: 3, background: 'red' } })
+          .png()
+          .toBuffer(),
+      ],
+      '图片.png',
+      { type: 'image/png' },
+    ),
+  )
+  const response = await app.request('/api/attachments', { method: 'POST', body: form })
+  expect(response.status).toBe(200)
+  const image = (await response.json()) as import('@ai-parter/shared').AttachmentDTO
+  expect(image).toMatchObject({ width: 3000, height: 1200 })
+  const asset = await app.request(image.url)
+  expect(asset.status).toBe(200)
+  expect(asset.headers.get('cache-control')).toContain('immutable')
+  expect((await sharp(await asset.arrayBuffer()).metadata()).width).toBe(2048)
+  await updatePreset((data) => ({
+    ...data,
+    samplers: { ...data.samplers, inlineImages: true, imageMaxSize: 512, imageDetail: 'low', imageLimit: 1 },
+  }))
+  const events = await generate(chat, { mode: 'send', text: '', images: [image.id] })
+  expect(events[0]).toMatchObject({ type: 'start', userMessage: { content: '', meta: { images: [image] } } })
+  const sent = model.requests.at(-1)!
+  const parts = sent.messages.find((message) => Array.isArray(message.content))?.content as unknown as {
+    type: string
+    image_url?: { url: string; detail: string }
+  }[]
+  expect(parts[1]?.type).toBe('image_url')
+  expect(parts[1]?.image_url?.detail).toBe('low')
+  const url = parts[1]!.image_url!.url
+  expect(url).toStartWith('data:image/webp;base64,')
+  expect((await sharp(Buffer.from(url.split(',')[1]!, 'base64')).metadata()).width).toBe(512)
+  const log = await json<GenerationLogDTO>(`/logs/${(await logs(chat))[0]!.id}`)
+  expect(JSON.stringify(log)).toContain(`[图片 ${image.id}]`)
+  expect(JSON.stringify(log)).not.toContain('data:image/webp;base64,')
+  await generate(chat, { mode: 'send', text: '新图', images: [image.id] })
+  const limited = model.requests.at(-1)!.messages
+  expect(limited.filter((message) => Array.isArray(message.content))).toHaveLength(1)
+  expect(limited.some((message) => typeof message.content === 'string' && message.content.includes('[图片]'))).toBe(
+    true,
+  )
+  await updatePreset((data) => ({ ...data, samplers: { ...data.samplers, inlineImages: false } }))
+  await generate(chat, { mode: 'send', text: '', images: [image.id] })
+  expect(model.requests.at(-1)!.messages.every((message) => typeof message.content === 'string')).toBe(true)
+  const before = (await page(chat)).messages.length
+  expect(
+    (await request(`/chats/${chat.id}/generate`, 'POST', { mode: 'send', text: '', images: ['不存在'] })).status,
+  ).toBe(400)
+  expect((await page(chat)).messages.length).toBe(before)
+})

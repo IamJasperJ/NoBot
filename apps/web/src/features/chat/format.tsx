@@ -36,7 +36,7 @@ const Paragraph = memo(function Paragraph({ text }: { text: string }) {
 export function FormattedText({ text }: { text: string }) {
   const paragraphs = text.split('\n')
   return (
-    <div className="space-y-1.5 leading-relaxed">
+    <div className="message-text space-y-1.5">
       {paragraphs.map((p, i) => (
         // 段落只会在末尾增加，用下标做 key 是安全的
         <Paragraph key={i} text={p} />

@@ -1,6 +1,6 @@
 import type { ChatSummary } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { type ChangeEvent, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useCharacters, useChats, useGroups } from '../../api/queries'
 import { PlusIcon, TrashIcon, UploadIcon, UsersIcon } from '../../components/icons'
@@ -9,6 +9,7 @@ import { Slot } from '../../extensions/Slot'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { GroupDialog } from '../groups/GroupDialog'
+import { useCharacterImport } from './useCharacterImport'
 
 type Owner = { characterId: string } | { groupId: string }
 
@@ -83,30 +84,11 @@ export function Sidebar() {
   const groups = useGroups()
   const { characterId, groupId, selectCharacter, selectGroup } = useUi()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [importing, setImporting] = useState(false)
+  const { importing, importFiles, importDialog } = useCharacterImport((c) => selectCharacter(c.id))
   const [groupDialog, setGroupDialog] = useState(false)
 
-  const onImport = async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = [...(e.target.files ?? [])]
-    e.target.value = '' // 允许重复选择同一个文件
-    if (files.length === 0) return
-    setImporting(true)
-    for (const file of files) {
-      try {
-        const c = await api.importCharacter(file)
-        toast.info(`已导入「${c.name}」`)
-        selectCharacter(c.id)
-      } catch (err) {
-        toast.error(`${file.name}：${errorMessage(err)}`)
-      }
-    }
-    setImporting(false)
-    await qc.invalidateQueries({ queryKey: keys.characters })
-    await qc.invalidateQueries({ queryKey: keys.lorebooks })
-  }
-
   return (
-    <aside className="flex h-full w-72 flex-col border-r border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
+    <aside className="flex h-full w-full flex-col border-r border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
       <header className="flex h-14 shrink-0 items-center px-4 font-semibold tracking-tight">聊天</header>
 
       <div className="flex gap-2 px-3 pb-2">
@@ -118,7 +100,18 @@ export function Sidebar() {
           <UsersIcon width={16} height={16} />
           群聊
         </Button>
-        <input ref={fileRef} type="file" accept=".png,.json" multiple hidden onChange={onImport} />
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".png,.json"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])]
+            e.target.value = '' // 允许重复选择同一个文件
+            void importFiles(files)
+          }}
+        />
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-4">
@@ -176,6 +169,7 @@ export function Sidebar() {
         ))}
       </nav>
 
+      {importDialog}
       <Slot name="sidebar.footer" props={{}} />
       <GroupDialog
         open={groupDialog}

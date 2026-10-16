@@ -9,6 +9,8 @@ export interface Piece {
   depth?: number
   example?: boolean
   protected?: boolean
+  /** 即使图片已退化成占位文字，仍保留原消息边界。 */
+  imageBoundary?: boolean
 }
 
 export interface Injection {
@@ -121,7 +123,16 @@ export function postprocess(pieces: Piece[], behavior: PresetBehavior): ChatMess
   if (behavior.squashSystem) merge(true)
   const mode = behavior.postProcessing
   if (mode === 'single_user') {
-    return work.length ? [{ role: 'user', content: work.map((piece) => piece.message.content).join('\n\n') }] : []
+    const result: ChatMessage[] = []
+    let previousImage = false
+    for (const piece of work) {
+      const previous = result.at(-1)
+      if (piece.imageBoundary) result.push(piece.message)
+      else if (previous && !previousImage) previous.content += `\n\n${piece.message.content}`
+      else result.push({ role: 'user', content: piece.message.content })
+      previousImage = Boolean(piece.imageBoundary)
+    }
+    return result
   }
   if (mode === 'semi_strict' || mode === 'strict') {
     let started = false

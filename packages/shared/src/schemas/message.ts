@@ -41,6 +41,17 @@ export interface MessageMeta {
   toolName?: string
   /** tool 消息：这次调用对会话变量的修改，沿激活路径累加就是当前的跑团状态 */
   varsPatch?: Record<string, unknown>
+  /** 用户消息附带的图片（附件 id 和原图尺寸），文件在 data/assets/attachments/ */
+  images?: AttachmentDTO[]
+}
+
+/** 上传的图片附件 */
+export interface AttachmentDTO {
+  id: string
+  /** 显示用的地址 */
+  url: string
+  width: number
+  height: number
 }
 
 /** 前端拿到的消息。swipe 信息由后端根据兄弟节点算好 */

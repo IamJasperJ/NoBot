@@ -6,7 +6,16 @@ import { create } from 'zustand'
  * - 聊天页的选择（角色 / 群组 / 会话）记在 localStorage 里，刷新后还能回到原处
  * - focusId：从别的页面跳过来时要打开的对象（比如从聊天页点「编辑角色」）
  */
-export type View = 'chat' | 'characters' | 'lorebooks' | 'presets' | 'connections' | 'personas' | 'extensions' | 'logs'
+export type View =
+  | 'chat'
+  | 'characters'
+  | 'lorebooks'
+  | 'presets'
+  | 'connections'
+  | 'personas'
+  | 'extensions'
+  | 'logs'
+  | 'settings'
 
 interface Selection {
   /** 侧栏展开的角色 */

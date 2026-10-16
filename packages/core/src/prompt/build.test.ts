@@ -592,3 +592,64 @@ describe('边界回归', () => {
     ])
   })
 })
+
+describe('图片组装', () => {
+  test('关闭图片时每张转为文字，占位图片消息保持边界', () => {
+    const value = minimal()
+    value.history = [{ ...history('u', 'user', '看这里'), images: ['a', 'b'] }, history('v', 'user', '下一条')]
+    value.preset.behavior.postProcessing = 'merge'
+    const result = buildPrompt(value)
+    expect(result.messages).toEqual([
+      { role: 'user', content: '看这里\n[图片]\n[图片]' },
+      { role: 'user', content: '下一条' },
+    ])
+  })
+  test('从最新往前限制图片，同条消息保留靠后的图片，0 不限', () => {
+    const value = minimal()
+    value.preset.samplers.inlineImages = true
+    value.preset.samplers.imageLimit = 2
+    value.history = [
+      { ...history('u', 'user', '旧图'), images: ['a', 'b'] },
+      { ...history('v', 'user', ''), images: ['c'] },
+    ]
+    expect(buildPrompt(value).messages).toEqual([
+      { role: 'user', content: '旧图\n[图片]', images: ['b'] },
+      { role: 'user', content: '', images: ['c'] },
+    ])
+    value.preset.samplers.imageLimit = 0
+    expect(buildPrompt(value).messages.flatMap((message) => message.images ?? [])).toEqual(['a', 'b', 'c'])
+  })
+  test('每张保留图片按 300 token 计入报告和历史截断', () => {
+    const value = minimal()
+    value.preset.samplers.inlineImages = true
+    value.history = [{ ...history('u', 'user', ''), images: ['a'] }]
+    const result = buildPrompt(value)
+    expect(result.report.totalTokens).toBe(300 + tokenCost(''))
+    expect(result.report.segments[0]?.tokens).toBe(300 + tokenCost(''))
+    setBudget(value, 299)
+    expect(buildPrompt(value).report.historyKept).toBe(0)
+  })
+  test('所有后处理模式都保留图片字段与消息边界，续写图片也参与限制', () => {
+    for (const mode of ['none', 'merge', 'semi_strict', 'strict', 'single_user'] as const) {
+      const value = minimal()
+      value.preset.behavior.postProcessing = mode
+      value.preset.samplers.inlineImages = true
+      value.history = [
+        history('a', 'user', '前'),
+        { ...history('u', 'user', ''), images: ['a'] },
+        history('v', 'user', '后'),
+      ]
+      expect(buildPrompt(value).messages.find((message) => message.images?.length)).toEqual({
+        role: 'user',
+        content: '',
+        images: ['a'],
+      })
+    }
+    const value = minimal()
+    value.type = 'continue'
+    value.preset.behavior.continuePrefill = true
+    value.preset.samplers.inlineImages = true
+    value.history = [{ ...history('a', 'assistant', '续写'), images: ['a'] }]
+    expect(buildPrompt(value).messages.at(-1)?.images).toEqual(['a'])
+  })
+})

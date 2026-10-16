@@ -212,10 +212,38 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
         />
         <SwitchField
           label="发送图片"
-          hint="向多模态模型发送图片，暂时不生效。"
-          notImplemented
+          hint="向模型发送附加图片，需要模型支持看图。"
           checked={value.inlineImages}
           onChange={(v) => set('inlineImages', v)}
+        />
+        <NumberField
+          label="图片数量限制"
+          hint="从最新消息往前保留的图片总数，0 表示不限；更早的图片用 [图片] 代替。"
+          value={value.imageLimit}
+          onChange={(v) => set('imageLimit', Math.round(v))}
+          min={0}
+          max={50}
+          slider={false}
+        />
+        <NumberField
+          label="图片最大边长"
+          hint="发送前缩小图片，单位像素；不会放大小图。上传存储的最大边为 2048 像素。"
+          value={value.imageMaxSize}
+          onChange={(v) => set('imageMaxSize', Math.round(v))}
+          min={256}
+          max={4096}
+          slider={false}
+        />
+        <SelectField
+          label="图片细节"
+          hint="自动由模型决定；低细节更节省用量，高细节更适合识别小字和细节。"
+          value={value.imageDetail}
+          onChange={(v) => set('imageDetail', v)}
+          options={[
+            { value: 'auto', label: '自动（auto）' },
+            { value: 'low', label: '低细节（low）' },
+            { value: 'high', label: '高细节（high）' },
+          ]}
         />
       </Section>
       <Section title="高级">

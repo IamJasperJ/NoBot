@@ -1,7 +1,10 @@
 import type {
   ApiPresetDTO,
   ApiPresetInput,
+  AttachmentDTO,
   CharacterDTO,
+  CharacterImportLorebook,
+  CharacterImportPreview,
   CharacterInput,
   CharacterSummary,
   CharacterUpdateInput,
@@ -87,6 +90,7 @@ type Ok = { ok: true }
 
 /** 所有后端接口。路径和 apps/server/API.md 一一对应 */
 export const api = {
+  uploadAttachment: (file: File) => upload<AttachmentDTO>('/attachments', file),
   // ---- 连接 ----
   listConnections: () => request<ApiPresetDTO[]>('GET', '/connections'),
   createConnection: (input: ApiPresetInput) => request<ApiPresetDTO>('POST', '/connections', input),
@@ -120,7 +124,9 @@ export const api = {
   listCharacters: () => request<CharacterSummary[]>('GET', '/characters'),
   getCharacter: (id: string) => request<CharacterDTO>('GET', `/characters/${id}`),
   createCharacter: (input: CharacterInput) => request<CharacterDTO>('POST', '/characters', input),
-  importCharacter: (file: File) => upload<CharacterDTO>('/characters/import', file),
+  previewCharacterImport: (file: File) => upload<CharacterImportPreview>('/characters/import/preview', file),
+  importCharacter: (file: File, lorebook?: CharacterImportLorebook) =>
+    upload<CharacterDTO>(`/characters/import${lorebook ? `?lorebook=${lorebook}` : ''}`, file),
   updateCharacter: (id: string, input: CharacterUpdateInput) =>
     request<CharacterDTO>('PATCH', `/characters/${id}`, input),
   deleteCharacter: (id: string) => request<Ok>('DELETE', `/characters/${id}`),

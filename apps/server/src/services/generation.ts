@@ -1,4 +1,4 @@
-import { type PromptCharacter, selectSpeakers } from '@ai-parter/core'
+import { buildPrompt, PromptBudgetError, type PromptCharacter, selectSpeakers } from '@ai-parter/core'
 import type {
   GenerateEvent,
   GenerateInput,
@@ -15,6 +15,7 @@ import { HttpError, notFound } from '../errors'
 import { emitServerEvent, runTransform } from '../extensions/registry'
 import { buildRequestBody, chatCompletion } from '../llm/openai'
 import { runTool, toOpenAITools } from '../tools'
+import { getAttachment, redactImages, resolveImages } from './attachments'
 import { computeVars, loadMessage, loadPath } from './chats'
 import { assemble, type GenerationContext, loadGenerationContext } from './context'
 import { insertLog } from './logs'
@@ -136,10 +137,12 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
   const firstMember = ctx.members[0]?.id as string
 
   let plan: Plan
+  const attachments = input.mode === 'send' ? input.images.map(getAttachment) : []
   let pendingUserText: string | null = null
   switch (input.mode) {
     case 'send': {
-      pendingUserText = input.text.trim() ? input.text : ctx.preset.utility.sendIfEmpty || input.text
+      pendingUserText =
+        input.text.trim() || attachments.length ? input.text : ctx.preset.utility.sendIfEmpty || input.text
       plan = { type: 'normal', parentId: leafId, speakers: ctx.group ? [] : [firstMember], continueTarget: null }
       break
     }
@@ -184,13 +187,24 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
   }
 
   // 先组装一遍第一位发言者的 Prompt：超长、缺连接等问题在这里就报错，不写入任何东西
-  assemble(ctx, {
+  const preflight = assemble(ctx, {
     type: plan.type,
     speakerId: plan.speakers[0] ?? firstMember,
     leafId: plan.continueTarget ? plan.continueTarget.id : plan.parentId,
     toolsEnabled,
     ...(pendingUserText !== null ? { pending: { role: 'user' as const, content: pendingUserText } } : {}),
   })
+
+  if (attachments.length) {
+    const pending = preflight.input.history.find((message) => message.id === 'pending')
+    if (pending) pending.images = attachments.map((image) => image.id)
+    try {
+      buildPrompt(preflight.input)
+    } catch (error) {
+      if (error instanceof PromptBudgetError) throw new HttpError(400, 'PROMPT_TOO_LONG', error.message)
+      throw error
+    }
+  }
 
   if (pendingUserText !== null) {
     const userId = newId()
@@ -201,7 +215,7 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
         parentId: leafId,
         role: 'user',
         content: runTransform('transformInput', pendingUserText, chatId),
-        meta: { name: ctx.persona.name },
+        meta: { name: ctx.persona.name, ...(attachments.length ? { images: attachments } : {}) },
         createdAt: Date.now(),
       })
       .run()
@@ -369,16 +383,19 @@ async function generateOne(
       toolsEnabled,
     })
     report = assembled.report
-    requestBody = buildRequestBody({
+    const images = await resolveImages(assembled.messages, ctx.preset.samplers.imageMaxSize)
+    const body = buildRequestBody({
+      images,
       model: connection.model,
       messages: assembled.messages,
       samplers: ctx.preset.samplers,
       ...(toolsEnabled ? { tools: toOpenAITools(ctx.preset.samplers.disabledTools) } : {}),
     })
+    requestBody = redactImages(body, images)
     for await (const chunk of chatCompletion({
       baseUrl: connection.baseUrl,
       apiKey: connection.apiKey,
-      body: requestBody,
+      body,
       signal: job.controller.signal,
     })) {
       if (chunk.text) current.content += chunk.text
@@ -462,7 +479,8 @@ export async function* impersonate(chatId: string, signal: AbortSignal): AsyncGe
     leafId: ctx.chat.activeLeafId,
     toolsEnabled: false,
   })
-  const body = buildRequestBody({ model: connection.model, messages: prompt, samplers: ctx.preset.samplers })
+  const images = await resolveImages(prompt, ctx.preset.samplers.imageMaxSize)
+  const body = buildRequestBody({ model: connection.model, messages: prompt, samplers: ctx.preset.samplers, images })
   const started = Date.now()
   let text = ''
   let status: 'ok' | 'error' | 'aborted' = 'ok'
@@ -494,7 +512,7 @@ export async function* impersonate(chatId: string, signal: AbortSignal): AsyncGe
       model: connection.model,
       durationMs: Date.now() - started,
       summary: status === 'error' ? error : `代写：${text.slice(0, 60)}`,
-      request: body,
+      request: redactImages(body, images),
       response: { content: text },
       report,
     })

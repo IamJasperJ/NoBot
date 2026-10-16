@@ -1,4 +1,4 @@
-import { characterInput, characterUpdateInput } from '@ai-parter/shared'
+import { characterImportLorebookSchema, characterInput, characterUpdateInput } from '@ai-parter/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { readUpload } from '../lib/files'
@@ -8,7 +8,15 @@ import * as service from '../services/characters'
 export const characterRoutes = new Hono()
   .get('/', (c) => c.json(service.listCharacters()))
   .post('/', validate('json', characterInput), (c) => c.json(service.createCharacter(c.req.valid('json'))))
-  .post('/import', async (c) => c.json(await service.importCharacter(await readUpload(await c.req.parseBody()))))
+  .post('/import/preview', async (c) =>
+    c.json(service.previewCharacterImport(await readUpload(await c.req.parseBody()))),
+  )
+  .post(
+    '/import',
+    validate('query', z.object({ lorebook: characterImportLorebookSchema.default('skip') })),
+    async (c) =>
+      c.json(await service.importCharacter(await readUpload(await c.req.parseBody()), c.req.valid('query').lorebook)),
+  )
   .get('/:id/export', validate('query', z.object({ format: z.enum(['png', 'json']).default('png') })), async (c) => {
     const file = await service.exportCharacter(c.req.param('id'), c.req.valid('query').format)
     c.header('Content-Type', file.contentType)

@@ -10,6 +10,7 @@ import { Avatar, Button, IconButton } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { AvatarUpload, CountedArea, CountedText, moveItem, useAction } from './editor'
+import { useCharacterImport } from './useCharacterImport'
 
 export function CharactersPage() {
   const characters = useCharacters()
@@ -19,11 +20,12 @@ export function CharactersPage() {
   const dirty = useRef(false)
   const editorBusy = useRef(false)
   const importInput = useRef<HTMLInputElement>(null)
+  const { importing, importFiles, importDialog } = useCharacterImport()
   const qc = useQueryClient()
   const { busy, run } = useAction()
   const select = (id: string | null) => {
     if (id === selected) return
-    if (busy || editorBusy.current || (dirty.current && !confirm('有未保存的修改，是否放弃？'))) return
+    if (busy || importing || editorBusy.current || (dirty.current && !confirm('有未保存的修改，是否放弃？'))) return
     dirty.current = false
     setSelected(id)
   }
@@ -46,12 +48,13 @@ export function CharactersPage() {
       showDetailOnMobile={selected !== null}
       actions={
         <>
-          <Button disabled={busy} onClick={create}>
+          <Button disabled={busy || importing} onClick={create}>
             新建
           </Button>
-          <Button disabled={busy} onClick={() => importInput.current?.click()}>
-            导入
+          <Button disabled={busy || importing} onClick={() => importInput.current?.click()}>
+            {importing ? '导入中…' : '导入'}
           </Button>
+          {importDialog}
           <input
             ref={importInput}
             hidden
@@ -61,25 +64,7 @@ export function CharactersPage() {
             onChange={(e) => {
               const files = Array.from(e.target.files ?? [])
               e.target.value = ''
-              void run(async () => {
-                let count = 0
-                try {
-                  for (const file of files) {
-                    try {
-                      await api.importCharacter(file)
-                      count++
-                    } catch (error) {
-                      toast.error(`${file.name}：${errorMessage(error)}`)
-                    }
-                  }
-                } finally {
-                  await Promise.all([
-                    qc.invalidateQueries({ queryKey: keys.characters }),
-                    qc.invalidateQueries({ queryKey: keys.lorebooks }),
-                  ])
-                }
-                if (count) toast.info(`已导入 ${count} 个角色`)
-              })
+              void importFiles(files)
             }}
           />
         </>

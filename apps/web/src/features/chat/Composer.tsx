@@ -1,4 +1,4 @@
-import type { GroupDTO, MessageDTO } from '@ai-parter/shared'
+import type { AttachmentDTO, GroupDTO, MessageDTO } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, api } from '../../api/client'
@@ -27,6 +27,32 @@ export function Composer({
 }) {
   const qc = useQueryClient()
   const [text, setText] = useState('')
+  const [images, setImages] = useState<{ key: string; attachment?: AttachmentDTO }[]>([])
+  const imagesRef = useRef(images)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [sending, setSending] = useState(false)
+  const updateImages = (next: typeof images) => {
+    imagesRef.current = next
+    setImages(next)
+  }
+  const addImages = (files: File[]) => {
+    if (busy || sending) return
+    const available = 10 - imagesRef.current.length
+    if (files.length > available) toast.info('每次最多附加 10 张图片')
+    for (const file of files.slice(0, available)) {
+      const key = crypto.randomUUID()
+      updateImages([...imagesRef.current, { key }])
+      void api
+        .uploadAttachment(file)
+        .then((attachment) => {
+          updateImages(imagesRef.current.map((item) => (item.key === key ? { key, attachment } : item)))
+        })
+        .catch((error: unknown) => {
+          updateImages(imagesRef.current.filter((item) => item.key !== key))
+          toast.error(errorMessage(error))
+        })
+    }
+  }
   const [stopImpersonate, setStopImpersonate] = useState<(() => void) | null>(null)
   const ref = useRef<HTMLTextAreaElement>(null)
   const menuRef = useRef<HTMLDetailsElement>(null)
@@ -51,18 +77,28 @@ export function Composer({
   }
 
   const send = async () => {
-    if (busy) return
+    if (busy || sending || images.some((image) => !image.attachment)) return
     const content = text
     // 输入框为空：不发用户消息，直接让角色接着说
-    if (!content.trim()) return trigger()
+    if (!content.trim() && !images.length) return trigger()
     emitClientEvent({ type: 'message:sent', chatId, text: content })
+    const sentImages = images
+    setSending(true)
     setText('')
     try {
-      await runGeneration(qc, chatId, { mode: 'send', text: content })
+      await runGeneration(qc, chatId, {
+        mode: 'send',
+        text: content,
+        images: sentImages.flatMap((item) => (item.attachment ? [item.attachment.id] : [])),
+      })
+      updateImages([])
     } catch (e) {
       // 发起失败时什么都没写入，把文字还给用户
       setText(content)
+      updateImages(sentImages)
       fail(e)
+    } finally {
+      setSending(false)
     }
   }
 
@@ -101,7 +137,34 @@ export function Composer({
 
   return (
     <div className="border-t border-zinc-200 bg-white/80 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
-      <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-zinc-300 bg-white px-2 py-2 focus-within:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900">
+      {images.length > 0 && (
+        <div className="chat-column mb-2 flex gap-2 overflow-x-auto">
+          {images.map((item, index) => (
+            <div key={item.key} className="relative shrink-0 rounded-lg border border-zinc-300 p-1">
+              {item.attachment ? (
+                <img
+                  src={item.attachment.url}
+                  alt={`待发送图片 ${index + 1}`}
+                  className="h-20 max-w-32 rounded object-contain"
+                />
+              ) : (
+                <span role="status" className="block p-4 text-sm">
+                  上传中…
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label={`移除图片 ${index + 1}`}
+                onClick={() => updateImages(imagesRef.current.filter((image) => image.key !== item.key))}
+                className="absolute top-0 right-0 rounded bg-zinc-900 px-1 text-white"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="chat-column flex items-end gap-2 rounded-2xl border border-zinc-300 bg-white px-2 py-2 focus-within:border-violet-500 dark:border-zinc-700 dark:bg-zinc-900">
         <details ref={menuRef} className="relative">
           <summary className={cx('list-none', busy && 'pointer-events-none opacity-40')}>
             <span className="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800">
@@ -124,12 +187,42 @@ export function Composer({
             <Slot name="chat.composer.menu" props={{ chatId, setText, close: closeMenu }} />
           </div>
         </details>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(event) => {
+            addImages(Array.from(event.target.files ?? []))
+            event.target.value = ''
+          }}
+        />
+        <IconButton
+          label="附加图片"
+          disabled={busy || sending || images.length >= 10}
+          onClick={() => fileRef.current?.click()}
+        >
+          <span aria-hidden="true">▧</span>
+        </IconButton>
         <textarea
           ref={ref}
           rows={1}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.items)
+              .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+              .flatMap((item) => {
+                const file = item.getAsFile()
+                return file ? [file] : []
+              })
+            if (files.length) {
+              event.preventDefault()
+              addImages(files)
+            }
+          }}
           placeholder={stopImpersonate ? '代写中…' : '说点什么…（Shift+Enter 换行）'}
           className="max-h-[200px] flex-1 resize-none bg-transparent py-1 text-[15px] outline-none placeholder:text-zinc-400"
         />
@@ -146,6 +239,7 @@ export function Composer({
         ) : (
           <IconButton
             label="发送"
+            disabled={sending || images.some((item) => !item.attachment)}
             onClick={send}
             className="bg-violet-600 text-white hover:bg-violet-500 hover:text-white dark:text-white"
           >

@@ -1,7 +1,33 @@
 @import "tailwindcss";
 
+/* 深色模式由 <html class="dark"> 控制（外观设置里可选跟随系统 / 浅色 / 深色），而不是直接跟随系统 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  color-scheme: light dark;
+  /* 外观设置写入的变量（见 stores/appearance.ts），这里是默认值 */
+  --msg-font-size: 15px;
+  --msg-line-height: 1.7;
+  --chat-width: 768px;
+  --chat-margin: auto;
+  --sidebar-width: 288px;
+}
+
+/* 对话区宽度和位置 */
+.chat-column {
+  max-width: var(--chat-width);
+  margin-left: var(--chat-margin);
+  margin-right: auto;
+}
+
+/* 消息正文字号和行距 */
+.message-text {
+  font-size: var(--msg-font-size);
+  line-height: var(--msg-line-height);
+}
+
+/* 外观设置里关闭头像时隐藏 */
+[data-hide-avatars] .message-avatar {
+  display: none;
 }
 
 body {

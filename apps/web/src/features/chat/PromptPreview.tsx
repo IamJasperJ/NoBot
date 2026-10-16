@@ -56,7 +56,7 @@ export function PromptPreview({ chatId }: { chatId: string }) {
   const wi = report?.worldInfo ?? []
 
   return (
-    <aside className="fixed inset-0 z-30 flex flex-col bg-white lg:static lg:w-96 lg:shrink-0 lg:border-l lg:border-zinc-200 dark:bg-zinc-950 lg:dark:border-zinc-800">
+    <aside className="flex h-full w-full flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 dark:border-zinc-800">
         <div className="flex-1 font-semibold">Prompt 预览</div>
         <select
@@ -73,7 +73,7 @@ export function PromptPreview({ chatId }: { chatId: string }) {
         <IconButton label="刷新" onClick={() => void preview.refetch()}>
           <RefreshIcon />
         </IconButton>
-        <IconButton label="关闭" onClick={() => setPreviewOpen(false)}>
+        <IconButton label="返回会话列表" onClick={() => setPreviewOpen(false)}>
           <XIcon />
         </IconButton>
       </header>

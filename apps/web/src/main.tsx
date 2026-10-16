@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import './index.css'
+import { initAppearance } from './stores/appearance'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -13,6 +14,9 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+// 先应用外观设置（主题、字号），避免首屏闪一下默认样式
+initAppearance()
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>

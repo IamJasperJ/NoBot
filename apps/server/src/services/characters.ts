@@ -4,12 +4,15 @@ import {
   importSTWorldInfo,
   isPng,
   parseCardFile,
+  parseCardJson,
   STFormatError,
   writePngTextChunks,
 } from '@ai-parter/core'
 import {
   type CharacterDTO,
   type CharacterFields,
+  type CharacterImportLorebook,
+  type CharacterImportPreview,
   type CharacterInput,
   type CharacterSummary,
   type CharacterUpdateInput,
@@ -180,17 +183,37 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
     return getCharacter(id)
   })
 }
-export async function importCharacter(bytes: Uint8Array): Promise<CharacterDTO> {
+function parseImport(bytes: Uint8Array, includeBook = true) {
   let card: ReturnType<typeof parseCardFile>
   let book: ReturnType<typeof importSTWorldInfo> | null
   try {
     card = parseCardFile(bytes)
-    book = card.characterBook ? importSTWorldInfo(card.characterBook) : null
+    book = includeBook && card.characterBook ? importSTWorldInfo(card.characterBook) : null
   } catch (error) {
     if (error instanceof CardParseError || error instanceof STFormatError)
       throw new HttpError(400, 'BAD_CARD', `角色卡无法导入：${error.message}`)
     throw error
   }
+  return { card, book }
+}
+
+export function previewCharacterImport(bytes: Uint8Array): CharacterImportPreview {
+  const { card, book } = parseImport(bytes)
+  return {
+    name: card.fields.name,
+    spec: card.spec,
+    hasAvatar: isPng(bytes),
+    lorebook: book
+      ? { name: book.name?.trim() || `${card.fields.name} 的世界书`, entryCount: book.entries.length }
+      : null,
+  }
+}
+
+export async function importCharacter(
+  bytes: Uint8Array,
+  lorebook: CharacterImportLorebook = 'skip',
+): Promise<CharacterDTO> {
+  const { card, book } = parseImport(bytes, lorebook !== 'skip')
   const id = newId()
   const avatarFile = isPng(bytes) ? await saveAvatar(id, bytes) : null
   try {
@@ -201,7 +224,7 @@ export async function importCharacter(bytes: Uint8Array): Promise<CharacterDTO> 
         book.entries.forEach((entry) => {
           createEntry(created.id, entry)
         })
-        lorebookIds.push(created.id)
+        if (lorebook === 'link') lorebookIds.push(created.id)
       }
       const data = characterInput.parse({ ...card.fields, ...card.extras, lorebookIds })
       const {
@@ -278,6 +301,16 @@ export async function exportCharacter(id: string, format: 'png' | 'json') {
       ? { name: book.lorebook.name, entries: book.entries.map((entry) => lorebookEntryDataSchema.parse(entry)) }
       : null,
   })
+  // 未关联世界书时仍保留原卡内嵌数据，避免选择跳过导入后再导出丢失内容。
+  if (!book && row.raw) {
+    const originalBook = parseCardJson(row.raw).characterBook
+    if (originalBook) {
+      for (const card of [v2, v3]) {
+        const data = card.data as Record<string, unknown>
+        data.character_book = structuredClone(originalBook)
+      }
+    }
+  }
   if (format === 'json')
     return {
       bytes: new TextEncoder().encode(JSON.stringify(v3, null, 2)),

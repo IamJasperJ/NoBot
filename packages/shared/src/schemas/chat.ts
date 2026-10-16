@@ -72,7 +72,12 @@ export type UpdateChatInput = z.infer<typeof updateChatInput>
  * - trigger：不发用户消息，直接让角色发言；群聊里可以指定 speakerId（强制发言）
  */
 export const generateInput = z.discriminatedUnion('mode', [
-  z.object({ mode: z.literal('send'), text: z.string() }),
+  z.object({
+    mode: z.literal('send'),
+    text: z.string(),
+    /** 附带的图片：先通过 POST /api/attachments 上传拿到 id */
+    images: z.array(z.string()).max(10).default([]),
+  }),
   z.object({ mode: z.literal('regenerate'), targetId: z.string() }),
   z.object({ mode: z.literal('continue'), targetId: z.string() }),
   z.object({ mode: z.literal('trigger'), speakerId: z.string().optional() }),

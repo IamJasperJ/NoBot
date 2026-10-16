@@ -60,16 +60,21 @@
 | GET | `/characters` | — | `CharacterSummary[]` |
 | GET | `/characters/:id` | — | `CharacterDTO` |
 | POST | `/characters` | `CharacterInput`（新建空白角色） | `CharacterDTO` |
-| POST | `/characters/import` | multipart `file`（PNG / JSON 角色卡） | `CharacterDTO` |
+| POST | `/characters/import/preview` | multipart `file`（PNG / JSON 角色卡） | `CharacterImportPreview`（只解析，不保存角色、世界书或头像） |
+| POST | `/characters/import?lorebook=link\|import\|skip` | multipart `file`（PNG / JSON 角色卡），query 缺省 `skip` | `CharacterDTO` |
 | PATCH | `/characters/:id` | `CharacterUpdateInput` | `CharacterDTO` |
 | DELETE | `/characters/:id` | — | ok（同时删头像文件；会话靠外键级联删除） |
 | POST | `/characters/:id/duplicate` | — | `CharacterDTO`（名字加「 副本」，复制头像和世界书关联） |
 | POST | `/characters/:id/avatar` | multipart `file`（任意图片） | `CharacterDTO` |
 | GET | `/characters/:id/export?format=png\|json` | — | 文件下载 |
 
-- 导入：卡里有 `character_book` 时，用 core 的 `importSTWorldInfo` 转成一本新世界书
-  （名字取 book.name，没有则「角色名 的世界书」），并作为第一本关联到这个角色；
-  extras（talkativeness、角色备注）用 `ParsedCard.extras`
+- 预读返回 `{ name, spec: 'v1' | 'v2' | 'v3', hasAvatar, lorebook: { name, entryCount } | null }`。
+  内嵌世界书用 core 的 `importSTWorldInfo` 解析并统计条目，名字取 book.name，没有则「<角色名> 的世界书」。
+  角色卡或内嵌世界书解析失败返回 400 `BAD_CARD`。
+- 导入的 `lorebook` 用 `characterImportLorebookSchema` 校验，非法值返回 400 `VALIDATION`：
+  `link` 导入内嵌世界书并作为第一本关联；`import` 只导入世界书，不关联；`skip` 不导入世界书（缺省行为）。
+  没有内嵌世界书时三种选项都只导入角色。extras（talkativeness、角色备注）用 `ParsedCard.extras`。
+- 原始 `character_book` 保存在 raw；导出时优先嵌入当前关联的主世界书，没有关联时回退到原始内嵌数据，确保不丢内容。
 - `lorebookIds` 的顺序存在 `character_lorebooks.position`，第一本是导出时嵌入的主世界书
 - 导出 PNG：没有头像时用一张 400×600 的纯色占位图（sharp 生成）；用 core 的 `buildCardExport`
   得到 v2 / v3，分别 base64 后写进 `chara`、`ccv3` 文本块（`writePngTextChunks`）；导出 JSON 用 v3
@@ -157,3 +162,24 @@ routes 在加载扩展时注册一次，ctx.settings 每次读取返回当前合
 生成流程异步广播 `message:saved`（用户插入、助手最终保存、工具插入）和 `generation:complete`（任务 finally）；
 创建会话后广播 `chat:created`。只有启用扩展接收事件，处理异常只记录日志。
 详细契约、插槽、前端事件及安装示例见 [扩展开发文档](../../docs/extensions.md)。
+
+## 图片附件 `/attachments`
+
+| 方法 | 路径 | 请求 | 返回 |
+| --- | --- | --- | --- |
+| POST | `/attachments` | multipart `file`，常见位图格式，单文件最多 10MB | `AttachmentDTO`（id、url、原始 width / height） |
+| GET | `/assets/attachments/:file` | 文件名必须为 `ULID.webp` | WebP 图片，长期缓存 |
+
+上传时转为 WebP，等比缩到最大边 2048 像素，不放大小图，保存到 `data/assets/attachments/<id>.webp`。
+原始宽高持久化在同目录 `<id>.json`；附件 id 不随尺寸变化。
+文件缺失或无法解码返回中文错误；超过大小上限返回 400 `TOO_LARGE`，无法识别的图片返回 400 `BAD_IMAGE`。
+
+`POST /chats/:id/generate` 的 send 模式支持 `{ mode: 'send', text: '', images: ['附件id'] }`，
+最多附加 10 张，允许只有图片。所有 id 必须存在，否则返回 400 `BAD_ATTACHMENT` 且不保存用户消息。
+用户消息 `meta.images` 保存完整的 `AttachmentDTO[]`，刷新或分支后仍可显示。
+
+生成预设 `samplers.inlineImages` 开启后，从最新消息往前保留 `imageLimit` 张图片（0 不限），
+更早的图片及关闭发送图片时的全部图片逐张转换为 `[图片]`。每张实际发送图片按 300 token 估算预算，
+带图片的历史消息保留后处理边界。发送前按 `imageMaxSize` 等比缩小，按「id + 尺寸」缓存最近 50 项；
+转换为 OpenAI `content: [text, image_url, ...]`，`image_url.detail` 使用 `imageDetail`（auto / low / high）。
+请求日志保留多模态结构，但 data URL 替换为 `[图片 <id>]`。

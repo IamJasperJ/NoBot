@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { parseCardFile, readPngTextChunks, writePngTextChunks } from '@ai-parter/core'
 import type {
   CharacterDTO,
+  CharacterImportPreview,
   GroupDTO,
   LorebookDTO,
   LorebookEntryDTO,
@@ -172,7 +173,7 @@ describe('后端 CRUD 接口', () => {
     for (const id of [book.id, imported.id, embedded.id]) await json(`/lorebooks/${id}`, 'DELETE')
   })
 
-  test('PNG 卡导入自动关联世界书，角色复制、更新和双格式导出', async () => {
+  test('PNG 卡显式选择 link 关联世界书，角色复制、更新和双格式导出', async () => {
     const raw = {
       spec: 'chara_card_v3',
       data: {
@@ -192,7 +193,7 @@ describe('后端 CRUD 接口', () => {
       },
     }
     const cardPng = writePngTextChunks(png, { ccv3: Buffer.from(JSON.stringify(raw)).toString('base64') })
-    const imported = await uploadJson<CharacterDTO>('/characters/import', cardPng, '龙.png')
+    const imported = await uploadJson<CharacterDTO>('/characters/import?lorebook=link', cardPng, '龙.png')
     expect(imported.lorebookIds).toHaveLength(1)
     expect(imported.talkativeness).toBe(0.8)
     expect(imported.characterNote).toBe('角色备注')
@@ -246,7 +247,7 @@ describe('后端 CRUD 接口', () => {
     expect([metadata.width, metadata.height]).toEqual([400, 600])
     expect((await uploadJson<CharacterDTO>(`/characters/${blank.id}/avatar`, png, '新头像.png')).avatarUrl).toBeString()
     const jsonCard = await uploadJson<CharacterDTO>(
-      '/characters/import',
+      '/characters/import?lorebook=link',
       encode({ name: 'JSON 角色', description: '', character_book: { entries: [] } }),
       '角色.json',
     )
@@ -257,12 +258,105 @@ describe('后端 CRUD 接口', () => {
     expect((await json<CharacterDTO>(`/characters/${blank.id}`)).name).toBe('空白角色')
     await json(`/characters/${imported.id}`, 'PATCH', { lorebookIds: [] })
     const withoutBook = await request(`/characters/${imported.id}/export?format=json`)
-    expect(parseCardFile(new Uint8Array(await withoutBook.arrayBuffer())).characterBook).toBeNull()
+    expect(parseCardFile(new Uint8Array(await withoutBook.arrayBuffer())).characterBook).toEqual(
+      raw.data.character_book,
+    )
     for (const id of [imported.id, copy.id, blank.id, jsonCard.id]) await json(`/characters/${id}`, 'DELETE')
     expect(await Bun.file(join(directory, 'assets/avatars', `${imported.id}.png`)).exists()).toBe(false)
     expect(await Bun.file(join(directory, 'assets/avatars', `${copy.id}.webp`)).exists()).toBe(false)
     await json(`/lorebooks/${book.lorebook.id}`, 'DELETE')
     await json(`/lorebooks/${jsonCard.lorebookIds[0]}`, 'DELETE')
+  })
+
+  test('预读 PNG 和各版本 JSON 不入库，返回世界书统计、缺省名和无世界书信息', async () => {
+    const beforeCharacters = await json<CharacterDTO[]>('/characters')
+    const beforeBooks = await json<LorebookDTO[]>('/lorebooks')
+    const data = { name: '预读角色', description: '', character_book: { entries: [{ keys: ['城'], content: '城市' }] } }
+    for (const [spec, raw] of [
+      ['v1', data],
+      ['v2', { spec: 'chara_card_v2', data }],
+      ['v3', { spec: 'chara_card_v3', data }],
+    ] as const) {
+      expect(await uploadJson<CharacterImportPreview>('/characters/import/preview', encode(raw), '卡.json')).toEqual({
+        name: '预读角色',
+        spec,
+        hasAvatar: false,
+        lorebook: { name: '预读角色 的世界书', entryCount: 1 },
+      })
+    }
+    const cardPng = writePngTextChunks(png, {
+      chara: Buffer.from(
+        JSON.stringify({
+          spec: 'chara_card_v2',
+          data: { ...data, character_book: { name: '命名世界书', entries: [] } },
+        }),
+      ).toString('base64'),
+    })
+    expect(await uploadJson<CharacterImportPreview>('/characters/import/preview', cardPng, '卡.png')).toEqual({
+      name: '预读角色',
+      spec: 'v2',
+      hasAvatar: true,
+      lorebook: { name: '命名世界书', entryCount: 0 },
+    })
+    expect(
+      await uploadJson<CharacterImportPreview>(
+        '/characters/import/preview',
+        encode({ name: '无世界书', description: '' }),
+        '卡.json',
+      ),
+    ).toEqual({
+      name: '无世界书',
+      spec: 'v1',
+      hasAvatar: false,
+      lorebook: null,
+    })
+    for (const bytes of [
+      encode({ name: '普通 JSON' }),
+      png,
+      encode({ ...data, character_book: { entries: '错误' } }),
+    ]) {
+      const response = await upload('/characters/import/preview', bytes, '坏卡.json')
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ error: { code: 'BAD_CARD' } })
+    }
+    expect(await json<CharacterDTO[]>('/characters')).toEqual(beforeCharacters)
+    expect(await json<LorebookDTO[]>('/lorebooks')).toEqual(beforeBooks)
+  })
+
+  test('只导入世界书不关联，显式与缺省 skip 不入库世界书，导出保留内嵌原始数据', async () => {
+    const raw = {
+      spec: 'chara_card_v3',
+      data: {
+        name: '选择导入',
+        character_book: { name: '原始世界书', custom: '保留', entries: [{ keys: ['龙'], content: '内容' }] },
+      },
+    }
+    for (const mode of ['import', 'skip', undefined] as const) {
+      const beforeBooks = await json<LorebookDTO[]>('/lorebooks')
+      const imported = await uploadJson<CharacterDTO>(
+        `/characters/import${mode ? `?lorebook=${mode}` : ''}`,
+        encode(raw),
+        '卡.json',
+      )
+      expect(imported.lorebookIds).toEqual([])
+      const books = await json<LorebookDTO[]>('/lorebooks')
+      expect(books).toHaveLength(beforeBooks.length + (mode === 'import' ? 1 : 0))
+      const created = books.find((book) => !beforeBooks.some((before) => before.id === book.id))
+      if (mode === 'import') {
+        expect(created).toMatchObject({ name: '原始世界书', entryCount: 1 })
+        const detail = await json<{ entries: LorebookEntryDTO[] }>(`/lorebooks/${created!.id}`)
+        expect(detail.entries[0]?.content).toBe('内容')
+      }
+      for (const format of ['json', 'png']) {
+        const exported = await request(`/characters/${imported.id}/export?format=${format}`)
+        expect(parseCardFile(new Uint8Array(await exported.arrayBuffer())).characterBook).toEqual(
+          raw.data.character_book,
+        )
+      }
+      await json(`/characters/${imported.id}`, 'DELETE')
+      if (created) await json(`/lorebooks/${created.id}`, 'DELETE')
+    }
+    await error('/characters/import?lorebook=invalid', 'POST', 400, 'VALIDATION')
   })
 
   test('群组成员按顺序整体替换，非法关联回滚，删除角色清理成员', async () => {

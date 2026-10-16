@@ -57,8 +57,14 @@ export const samplerSchema = z.object({
   disabledTools: z.array(z.string()).default([]),
   /** 接口自带的联网搜索。未实现 */
   webSearch: z.boolean().default(false),
-  /** 发送图片给多模态模型。未实现 */
+  /** 发送图片给多模态模型（用户消息里附带的图片），模型本身要支持看图 */
   inlineImages: z.boolean().default(false),
+  /** 最多发送最近的多少张图片，更早的图片换成「[图片]」文字；0 表示不限制 */
+  imageLimit: z.number().int().min(0).max(50).default(4),
+  /** 发送前把图片缩小到这个最大边长（像素），越小越省 token */
+  imageMaxSize: z.number().int().min(256).max(4096).default(1024),
+  /** 图片精度：auto 由模型决定；low 省 token；high 看得清楚 */
+  imageDetail: z.enum(['auto', 'low', 'high']).default('auto'),
   /** 额外的请求体参数（JSON 文本），原样合并进请求体，用来传各家的私有参数 */
   extraBody: z.string().default(''),
 })

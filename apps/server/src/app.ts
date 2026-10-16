@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { HttpError } from './errors'
 import { forwardExtension } from './extensions/registry'
 import { assetRoutes } from './routes/assets'
+import { attachmentRoutes } from './routes/attachments'
 import { characterRoutes } from './routes/characters'
 import { chatRoutes } from './routes/chats'
 import { connectionRoutes } from './routes/connections'
@@ -57,6 +58,6 @@ app.route('/chats', chatRoutes)
 app.route('/messages', messageRoutes)
 app.route('/logs', logRoutes)
 app.route('/extensions', extensionRoutes)
-app.route('/assets', assetRoutes)
+app.route('/assets', assetRoutes).route('/attachments', attachmentRoutes)
 
 app.all('/ext/:id/*', (c) => forwardExtension(c.req.param('id'), c.req.raw))

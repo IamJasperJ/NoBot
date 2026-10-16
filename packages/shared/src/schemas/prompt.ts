@@ -9,6 +9,11 @@ export interface ChatMessage {
   name?: string
   tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
   tool_call_id?: string
+  /**
+   * 附带的图片（附件 id）。content 仍然只放文字；后端发请求前把 content + images
+   * 转成 OpenAI 的多模态格式（content 数组：text + image_url）。
+   */
+  images?: string[]
 }
 
 /** 组装报告里的一个片段：说明这段内容从哪来、占多少 token */

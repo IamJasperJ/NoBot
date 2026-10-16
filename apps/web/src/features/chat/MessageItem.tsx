@@ -130,7 +130,9 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
 
   return (
     <div className="group flex gap-3 px-4 py-3">
-      <Avatar name={who.name} url={who.avatarUrl} />
+      <div className="message-avatar">
+        <Avatar name={who.name} url={who.avatarUrl} />
+      </div>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2 text-sm">
           <span className="font-semibold">{who.name}</span>
@@ -196,6 +198,20 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
           </details>
         )}
 
+        {!!msg.meta.images?.length && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {msg.meta.images.map((image, index) => (
+              <a key={`${image.id}-${index}`} href={image.url} target="_blank" rel="noreferrer">
+                <img
+                  src={image.url}
+                  alt={`图片 ${index + 1}`}
+                  loading="lazy"
+                  className="max-h-40 max-w-full rounded-lg object-contain"
+                />
+              </a>
+            ))}
+          </div>
+        )}
         {editing !== null ? (
           <div className="space-y-2">
             <textarea

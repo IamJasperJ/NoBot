@@ -8,6 +8,7 @@ import {
   MenuIcon,
   PlugIcon,
   PuzzleIcon,
+  SettingsIcon,
   SlidersIcon,
   UserIcon,
   UsersIcon,
@@ -16,15 +17,16 @@ import { Button, cx, IconButton } from './components/ui'
 import { loadExtensions, useExtensionsRuntime } from './extensions/runtime'
 import { ExtensionPage } from './extensions/Slot'
 import { CharactersPage } from './features/characters/CharactersPage'
-import { Sidebar } from './features/characters/Sidebar'
 import { ChatView } from './features/chat/ChatView'
-import { PromptPreview } from './features/chat/PromptPreview'
+import { SidePanel } from './features/chat/SidePanel'
 import { ConnectionsPage } from './features/connections/ConnectionsPage'
 import { ExtensionsPage } from './features/extensions/ExtensionsPage'
 import { LogsPage } from './features/logs/LogsPage'
 import { LorebooksPage } from './features/lorebooks/LorebooksPage'
 import { PersonasPage } from './features/personas/PersonasPage'
 import { PresetsPage } from './features/presets/PresetsPage'
+import { SettingsPage } from './features/settings/SettingsPage'
+import { useAppearance } from './stores/appearance'
 import { useToasts } from './stores/toast'
 import { useUi, type View } from './stores/ui'
 
@@ -39,31 +41,37 @@ const NAV: { view: View; label: string; icon: ReactNode }[] = [
   { view: 'logs', label: '日志', icon: <LogIcon /> },
 ]
 
-/** 最左侧的图标导航 */
+/** 最左侧的图标导航。项目多时可以滚动；「设置」固定在最下面 */
 function NavRail() {
   const { view, openView } = useUi()
   const pages = useExtensionsRuntime((s) => s.pages)
+  const item = (n: { view: View; label: string; icon: ReactNode }) => (
+    <button
+      key={n.view}
+      type="button"
+      onClick={() => openView(n.view)}
+      className={cx(
+        'flex w-14 shrink-0 flex-col items-center gap-0.5 rounded-lg py-1.5 text-[11px]',
+        view === n.view
+          ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
+          : 'text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800',
+      )}
+    >
+      {n.icon}
+      <span className="max-w-full truncate px-0.5">{n.label}</span>
+    </button>
+  )
   return (
-    <nav className="flex w-16 shrink-0 flex-col items-center gap-1 border-r border-zinc-200 bg-zinc-50 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-      {[
-        ...NAV,
-        ...pages.map((p) => ({ view: `ext:${p.extensionId}:${p.id}` as View, label: p.label, icon: p.icon })),
-      ].map((n) => (
-        <button
-          key={n.view}
-          type="button"
-          onClick={() => openView(n.view)}
-          className={cx(
-            'flex w-14 flex-col items-center gap-0.5 rounded-lg py-1.5 text-[11px]',
-            view === n.view
-              ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
-              : 'text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800',
-          )}
-        >
-          {n.icon}
-          {n.label}
-        </button>
-      ))}
+    <nav className="flex w-16 shrink-0 flex-col items-center border-r border-zinc-200 bg-zinc-50 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
+        {[
+          ...NAV,
+          ...pages.map((p) => ({ view: `ext:${p.extensionId}:${p.id}` as View, label: p.label, icon: p.icon })),
+        ].map(item)}
+      </div>
+      <div className="mt-1 border-t border-zinc-200 pt-1 dark:border-zinc-800">
+        {item({ view: 'settings', label: '设置', icon: <SettingsIcon /> })}
+      </div>
     </nav>
   )
 }
@@ -163,6 +171,8 @@ function Page({ view }: { view: View }) {
       return <ExtensionsPage />
     case 'logs':
       return <LogsPage />
+    case 'settings':
+      return <SettingsPage />
     default:
       return null
   }
@@ -173,8 +183,10 @@ export function App() {
   useEffect(() => {
     void loadExtensions(qc)
   }, [qc])
-  const { view, chatId, previewOpen, sidebarOpen, setSidebarOpen } = useUi()
+  const { view, chatId, previewOpen, chatSettingsOpen, sidebarOpen, setSidebarOpen } = useUi()
   const isChat = view === 'chat'
+  // 宽屏下收起侧栏；打开了会话设置 / 预览时总是显示（它们就在侧栏的位置）
+  const collapsed = useAppearance((s) => s.sidebarCollapsed) && !chatSettingsOpen && !previewOpen
 
   return (
     <div className="flex h-dvh overflow-hidden">
@@ -194,18 +206,15 @@ export function App() {
         )}
       >
         <NavRail />
-        {isChat && <Sidebar />}
+        {isChat && (
+          <div className={cx('h-full', collapsed && 'md:hidden')}>
+            <SidePanel />
+          </div>
+        )}
       </div>
 
       <main className="flex min-w-0 flex-1">
-        {isChat ? (
-          <>
-            {chatId ? <ChatView key={chatId} chatId={chatId} /> : <Welcome />}
-            {chatId && previewOpen && <PromptPreview chatId={chatId} />}
-          </>
-        ) : (
-          <Page view={view} />
-        )}
+        {!isChat ? <Page view={view} /> : chatId ? <ChatView key={chatId} chatId={chatId} /> : <Welcome />}
       </main>
       <Toasts />
     </div>

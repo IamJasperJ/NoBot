@@ -30,7 +30,7 @@ test('图片模型识别不区分大小写，图片优先并可关闭筛选', ()
     { value: 'flux-dev', label: 'flux-dev（图片）' },
     { value: 'gpt-4.1', label: 'gpt-4.1' },
   ])
-  expect(imageModelOptions(['gpt-4.1', 'flux-dev'], true)).toHaveLength(1)
+  expect(imageModelOptions(['gpt-4.1', 'flux-dev'])).toHaveLength(2)
 })
 test('30 个预设，基准对调、贴合、无方向继承、类型尺寸覆盖', () => {
   expect(resolutionOptions).toHaveLength(30)

@@ -27,17 +27,24 @@ test('候选自动拉取使用表单草稿，自动失败静默，手动刷新�
   const effect = spyOn(React, 'useEffect').mockImplementation((callback) => {
     effects.push(callback)
   })
-  const original = ui.Button
+  // 「拉取」现在是和输入框同高的图标按钮
+  const original = ui.IconButton
   let refresh: (() => void) | undefined
-  const button = spyOn(ui, 'Button').mockImplementation((props) => {
-    if (props['aria-label'] === '拉取模型') refresh = () => props.onClick?.({} as never)
+  const button = spyOn(ui, 'IconButton').mockImplementation((props) => {
+    if (props.label === '拉取模型') refresh = () => props.onClick?.({} as never)
     return original(props)
   })
   const errors = spyOn(toast, 'error').mockImplementation(() => {})
   const urls: URL[] = []
+  const bodies: { settings?: unknown; chatId?: string }[] = []
   let response = Response.json({ error: { message: '接口未就绪' } }, { status: 503 })
-  const fetch = spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request) => {
+  const fetch = spyOn(globalThis, 'fetch').mockImplementation((async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
     urls.push(new URL(String(input)))
+    // 草稿设置放在 POST 请求体里（网址放不下整份工作流）
+    bodies.push(JSON.parse(String(init?.body ?? '{}')))
     return response.clone()
   }) as typeof globalThis.fetch)
   const render = (settings: Record<string, unknown>) =>
@@ -57,14 +64,14 @@ test('候选自动拉取使用表单草稿，自动失败静默，手动刷新�
     const cleanup = effects[0]?.()
     await settle()
     expect(urls[0]?.pathname).toBe('/api/ext/fixture/models')
-    expect(urls[0]?.searchParams.get('chatId')).toBe('current-chat')
-    expect(JSON.parse(urls[0]?.searchParams.get('settings') ?? '{}')).toEqual({ backend: 'first', token: 'unsaved' })
+    expect(bodies[0]?.chatId).toBe('current-chat')
+    expect(bodies[0]?.settings).toEqual({ backend: 'first', token: 'unsaved' })
     expect(states).toContain('接口未就绪')
     expect(errors).not.toHaveBeenCalled()
     render({ backend: 'second' })
     refresh?.()
     await settle()
-    expect(JSON.parse(urls[1]?.searchParams.get('settings') ?? '{}')).toEqual({ backend: 'second' })
+    expect(bodies[1]?.settings).toEqual({ backend: 'second' })
     expect(errors).toHaveBeenCalledWith('接口未就绪')
     response = Response.json({ options: [{ value: 'remote', label: '远程模型' }] })
     refresh?.()
@@ -382,12 +389,13 @@ test('附着字段同行排序、高亮、草稿编辑、外部点击和 Esc 关
     expect(harness.nodes.some((node) => node.type === 'textarea')).toBe(false)
     const header = harness.nodes.find((node) => node.props['aria-label'] === '请求头')
     expect(header?.props.title).toBe('请求头')
-    expect(header?.props.className).toContain('bg-violet-600')
+    expect(header?.props.className).toContain('bg-violet-50')
     expect(harness.nodes.find((node) => node.props['aria-label'] === '附着开关')?.props.className).toContain(
-      'bg-zinc-100',
+      'border-zinc-200 bg-white',
     )
     const row = harness.nodes.find((node) => node.type === 'div' && node.props.className === 'flex items-end gap-2')
-    expect(row?.text).toBe('地址头开拉取')
+    // 标题在输入行上方；行内依次是输入框、附着按钮（头、开），最后是只有图标的「拉取」按钮
+    expect(row?.text).toBe('头开')
     harness.click('请求头')
     expect(harness.nodes.find((node) => node.props.role === 'dialog')?.props['aria-label']).toBe('请求头')
     expect(harness.nodes.some((node) => node.text === 'JSON 说明')).toBe(true)
@@ -396,14 +404,14 @@ test('附着字段同行排序、高亮、草稿编辑、外部点击和 Esc 关
     ;(textarea.props.onChange as (event: unknown) => void)({ target: { value: '{"Authorization":"token"}' } })
     expect(draft.headers).toBe('{"Authorization":"token"}')
     harness.update({ values: draft })
-    // 第一个 effect 属于远程候选，第二个属于请求头浮层。
-    const cleanup = harness.flushEffect(1)
+    // effect 顺序：远程候选拉取、可输入下拉框、请求头浮层。
+    const cleanup = harness.flushEffect(2)
     handlers.get('keydown')?.({ key: 'Escape', stopPropagation: () => {} })
     harness.render()
     expect(harness.nodes.some((node) => node.props.role === 'dialog')).toBe(false)
     if (typeof cleanup === 'function') cleanup()
     harness.click('请求头')
-    const outsideCleanup = harness.flushEffect(1)
+    const outsideCleanup = harness.flushEffect(2)
     handlers.get('pointerdown')?.({ target: new FakeNode() })
     harness.render()
     expect(harness.nodes.some((node) => node.type === 'textarea')).toBe(false)
@@ -482,7 +490,7 @@ test('附着字段自己的条件独立生效，非空字符串、数组和 true
           ]}
         />,
       )
-    expect(render(true).includes('bg-violet-600 text-white')).toBe(filled)
+    expect(render(true).includes('border-violet-300 bg-violet-50')).toBe(filled)
     expect(render(false)).not.toContain('aria-label="附着内容"')
   }
 })

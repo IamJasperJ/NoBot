@@ -60,6 +60,7 @@ export async function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>
     for await (const chunk of chatCompletion({
       baseUrl: connection.baseUrl,
       apiKey: connection.apiKey,
+      headers: connection.headers,
       body,
       signal: opts.signal ?? new AbortController().signal,
     }))

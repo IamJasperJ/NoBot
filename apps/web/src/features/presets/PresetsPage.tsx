@@ -4,8 +4,10 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, usePresets } from '../../api/queries'
 import { Tabs } from '../../components/form'
+import { CheckIcon, CopyIcon, DownloadIcon, TrashIcon } from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
-import { Button, inputClass } from '../../components/ui'
+import { Menu, MenuDivider, MenuEntry } from '../../components/menu'
+import { Button, controlClass } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { BehaviorEditor } from './BehaviorEditor'
@@ -139,7 +141,7 @@ export function PresetsPage() {
                 <input
                   aria-label="预设名称"
                   title="预设名称：用于在列表中辨认这组生成设置"
-                  className={`${inputClass} min-w-0`}
+                  className={`${controlClass} h-8 max-w-md min-w-0 font-semibold`}
                   value={draft.name}
                   disabled={busy}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
@@ -148,78 +150,93 @@ export function PresetsPage() {
               onBack={() => {
                 if (!busy && canLeave()) pick(null)
               }}
-            />
-            <fieldset disabled={busy} className="min-w-0 space-y-5 p-4 sm:p-6">
-              <p className="text-xs text-zinc-500">预设名称用于在列表中辨认这组生成设置。</p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="primary"
-                  disabled={busy || !dirty || !draft.name.trim() || !isExtraBodyValid(draft.data.samplers.extraBody)}
-                  onClick={() =>
-                    void run(async () => {
-                      const parsed = presetDataSchema.safeParse(draft.data)
-                      if (!parsed.success) {
-                        toast.error('预设参数无效，请检查数字范围和 Prompt 设置')
-                        return
-                      }
-                      const saved = await api.updatePreset(original.id, { name: draft.name.trim(), data: parsed.data })
-                      pick(saved)
-                      await refresh()
-                      toast.info('已保存')
-                    })
-                  }
-                >
-                  保存
-                </Button>
-                <Button disabled={busy || !dirty} onClick={() => setDraft(toDraft(original))}>
-                  撤销修改
-                </Button>
-                {!current?.isDefault && (
+              actions={
+                <div className="flex items-center gap-1.5">
                   <Button
-                    disabled={busy}
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy || !dirty}
+                    onClick={() => setDraft(toDraft(original))}
+                  >
+                    撤销修改
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={busy || !dirty || !draft.name.trim() || !isExtraBodyValid(draft.data.samplers.extraBody)}
                     onClick={() =>
                       void run(async () => {
-                        await api.setDefaultPreset(original.id)
+                        const parsed = presetDataSchema.safeParse(draft.data)
+                        if (!parsed.success) {
+                          toast.error('预设参数无效，请检查数字范围和 Prompt 设置')
+                          return
+                        }
+                        const saved = await api.updatePreset(original.id, {
+                          name: draft.name.trim(),
+                          data: parsed.data,
+                        })
+                        pick(saved)
                         await refresh()
-                        toast.info('已设为默认预设')
+                        toast.info('已保存')
                       })
                     }
                   >
-                    设为默认
+                    保存
                   </Button>
-                )}
-                <Button
-                  disabled={busy}
-                  title="复制已保存的预设"
-                  onClick={() => {
-                    if (canLeave())
-                      void run(async () => {
-                        const saved = await api.duplicatePreset(original.id)
-                        pick(saved)
-                        await refresh()
-                      })
-                  }}
-                >
-                  复制
-                </Button>
-                <Button disabled={busy} title="导出已保存的预设" onClick={() => api.exportPreset(original.id)}>
-                  导出
-                </Button>
-                <Button
-                  disabled={busy}
-                  variant="danger"
-                  onClick={() => {
-                    if (confirm(`删除预设「${original.name}」？该预设及未保存的修改都会被删除。`))
-                      void run(async () => {
-                        await api.deletePreset(original.id)
-                        pick(null)
-                        await refresh()
-                      })
-                  }}
-                >
-                  删除
-                </Button>
-              </div>
+                  <Menu>
+                    {!current?.isDefault && (
+                      <MenuEntry
+                        icon={<CheckIcon />}
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await api.setDefaultPreset(original.id)
+                            await refresh()
+                            toast.info('已设为默认预设')
+                          })
+                        }
+                      >
+                        设为默认
+                      </MenuEntry>
+                    )}
+                    <MenuEntry
+                      icon={<CopyIcon />}
+                      disabled={busy}
+                      onClick={() => {
+                        if (canLeave())
+                          void run(async () => {
+                            const saved = await api.duplicatePreset(original.id)
+                            pick(saved)
+                            await refresh()
+                          })
+                      }}
+                    >
+                      复制
+                    </MenuEntry>
+                    <MenuEntry icon={<DownloadIcon />} disabled={busy} onClick={() => api.exportPreset(original.id)}>
+                      导出
+                    </MenuEntry>
+                    <MenuDivider />
+                    <MenuEntry
+                      icon={<TrashIcon />}
+                      danger
+                      disabled={busy}
+                      onClick={() => {
+                        if (confirm(`删除预设「${original.name}」？该预设及未保存的修改都会被删除。`))
+                          void run(async () => {
+                            await api.deletePreset(original.id)
+                            pick(null)
+                            await refresh()
+                          })
+                      }}
+                    >
+                      删除
+                    </MenuEntry>
+                  </Menu>
+                </div>
+              }
+            />
+            <fieldset disabled={busy} className="mx-auto w-full max-w-3xl min-w-0 space-y-5 p-4 sm:p-6">
               <div className="overflow-x-auto">
                 <Tabs
                   value={tab}

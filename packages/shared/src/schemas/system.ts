@@ -28,13 +28,26 @@ export interface GenerationLogDTO extends GenerationLogSummary {
 }
 
 /** 扩展设置表单的字段描述，前端按它自动生成表单 */
+/**
+ * 显示条件：另一个设置项等于某个值（或其中之一）。
+ * 写成数组时表示「同时满足」，比如「后端是 OpenAI 且复用连接选了自定义」
+ */
+export interface VisibleCondition {
+  key: string
+  equals: string | number | boolean | (string | number | boolean)[]
+}
+
 /** 设置项的公共属性 */
 interface SettingFieldBase {
   key: string
   label: string
   hint?: string
+  /**
+   * half：占半行。连续的 half 字段两两并排（窄屏自动变成一列），适合步数、CFG 这类短数字
+   */
+  width?: 'half'
   /** 只在另一个设置项等于某个值（或其中之一）时显示，比如只在「后端」选 comfy 时显示 ComfyUI 的设置 */
-  visibleWhen?: { key: string; equals: string | number | boolean | (string | number | boolean)[] }
+  visibleWhen?: VisibleCondition | VisibleCondition[]
   /**
    * 附着到另一个设置项：不单独占一行，而是在 attachTo 那个字段输入框的右边显示一个小按钮（文字是 attachLabel，通常一个字，比如「头」），
    * 点开弹出小窗编辑这个字段。已经填了值时按钮高亮。适合不常改的附属设置（比如地址的附加请求头）
@@ -48,13 +61,15 @@ export type ExtensionSettingField =
   /** secret：密钥类字段，输入框用密码样式 */
   /**
    * secret：密钥类字段，输入框用密码样式。
-   * optionsSource：候选项从扩展自己的接口拉取（GET /api/ext/<扩展 id>/<optionsSource>，返回 { options: { value, label }[] }），
-   * 输入框旁边显示下拉候选和「拉取」按钮，仍然可以手动输入（比如模型名）。拉取时把当前表单里的设置作为查询参数 settings（JSON）带上，
-   * 这样不用先保存就能用刚填的地址和密钥拉取
+   * optionsSource：候选项从扩展自己的接口拉取：POST /api/ext/<扩展 id>/<optionsSource>，
+   * 请求体 { settings: 当前表单里的设置（草稿，未保存）, chatId?: 当前会话 }，返回 { options: { value, label }[] }。
+   * 用 POST 是因为草稿里可能有很长的内容（比如整份 ComfyUI 工作流），放进网址会超长。
+   * 输入框旁边显示可输入的下拉候选和「拉取」按钮，仍然可以手动输入（比如模型名）
    */
   | (SettingFieldBase & { type: 'string'; secret?: boolean; placeholder?: string; optionsSource?: string })
   | (SettingFieldBase & { type: 'textarea'; rows?: number; placeholder?: string })
-  | (SettingFieldBase & { type: 'number'; min?: number; max?: number; step?: number })
+  /** slider：同时显示滑块（需要 min 和 max），适合步数、CFG 这类有明确范围的值 */
+  | (SettingFieldBase & { type: 'number'; min?: number; max?: number; step?: number; slider?: boolean })
   /** optionsSource：同 string，候选项从接口拉取，和 options 合并（options 在前） */
   | (SettingFieldBase & { type: 'select'; options: { value: string; label: string }[]; optionsSource?: string })
   | (SettingFieldBase & {
@@ -67,6 +82,12 @@ export type ExtensionSettingField =
        */
       titleKey?: string
     })
+  /**
+   * 自定义控件：由扩展的前端自己渲染（注册 'extensions.settings.field' 插槽，id 等于这个字段的 key）。
+   * 用于表单组件表达不了的交互，比如「工作流下拉 + 编辑 / 新建 / 重命名 / 删除」「风格下拉 + 保存 / 重命名 / 删除」。
+   * 前端没有注册对应控件时显示一行提示，不影响其他设置
+   */
+  | (SettingFieldBase & { type: 'custom' })
   /**
    * 分组标题，不对应任何设置值。从这个标题到下一个标题之间的字段属于这一组，组可以展开 / 收起。
    * defaultCollapsed：默认收起（不常用的高级分组，比如提示词模板、ComfyUI 高级）

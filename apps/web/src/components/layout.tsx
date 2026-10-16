@@ -100,7 +100,7 @@ export function DetailHeader({
   actions?: ReactNode
 }) {
   return (
-    <header className="sticky top-0 z-10 flex min-h-14 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white/90 px-4 py-2 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
+    <header className="sticky top-0 z-10 flex min-h-14 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white/90 py-2 pr-3 pl-2 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
       <IconButton label="关闭" onClick={onBack}>
         <XIcon />
       </IconButton>

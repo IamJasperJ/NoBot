@@ -51,11 +51,13 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     const bodies: Record<string, unknown>[] = []
     let historyCalls = 0
     let capabilityCalls = 0
+    const remoteHeaders: Headers[] = []
     const remoteRequests: { url: string; authorization: string | null }[] = []
     let textGate: Promise<void> | undefined
     let promptFail = false
     const chatRequests: Record<string, unknown>[] = []
     const respond = async (request: Request) => {
+      remoteHeaders.push(new Headers(request.headers))
       const url = new URL(request.url)
       remoteRequests.push({ url: request.url, authorization: request.headers.get('authorization') })
       if (url.pathname.endsWith('/models'))
@@ -341,8 +343,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     expect(testResult.durationMs).toBeGreaterThanOrEqual(0)
     configure({ source: 'comfy', comfyUrl: base, comfyCheckpoint: 'mock_a', async: false })
     expect(
-      (await json<{ options: { value: string; label: string }[] }>('/ext/image-gen/comfy/models', undefined, 'GET'))
-        .options,
+      (await json<{ options: { value: string; label: string }[] }>('/ext/image-gen/comfy/models', {})).options,
     ).toContainEqual({ value: 'mock_a', label: 'mock a' })
     expect(
       (
@@ -467,52 +468,43 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     expect(fixedTool.meta.imageGen).toMatchObject({ prompt: 'fixed tool cat', negative: 'bad tool', status: 'done' })
     // IMG5：草稿发现、缓存、连接复用、预览快照与完整提示词。
     const connection = await json<{ id: string }>('/connections', {
+      headers: { 'X-Connection': 'connection-secret', 'X-Override': 'saved' },
       name: '图片复用连接',
       baseUrl: `${base}/reused/v1`,
       apiKey: 'reused-secret',
       model: 'do-not-use-chat-model',
     })
-    const draftQuery = (draft: Record<string, unknown>) => `?settings=${encodeURIComponent(JSON.stringify(draft))}`
-    const modelOptions = await json<{ options: { value: string; label: string }[] }>(
-      `/ext/image-gen/openai/models${draftQuery({ openaiConnectionId: connection.id })}`,
-      undefined,
-      'GET',
-    )
-    expect(modelOptions.options.map((item) => item.value)).toEqual(['flux-dev', 'gpt-image-1'])
+    const modelOptions = await json<{ options: { value: string; label: string }[] }>(`/ext/image-gen/openai/models`, {
+      settings: { openaiConnectionId: connection.id },
+    })
+    // 端点的全部模型都返回，不按名字限制；图片模型排在前面
+    expect(modelOptions.options.map((item) => item.value)).toEqual(['flux-dev', 'gpt-image-1', 'chat-model'])
     expect(remoteRequests.at(-1)).toEqual({ url: `${base}/reused/v1/models`, authorization: 'Bearer reused-secret' })
-    const all = await json<{ options: unknown[] }>(
-      `/ext/image-gen/openai/models${draftQuery({ openaiConnectionId: connection.id, openaiImageOnly: false })}`,
-      undefined,
-      'GET',
-    )
+    const all = await json<{ options: unknown[] }>(`/ext/image-gen/openai/models`, {
+      settings: { openaiConnectionId: connection.id },
+    })
     expect(all.options).toHaveLength(3)
-    const connections = await json<{ options: { value: string }[] }>('/ext/image-gen/connections', undefined, 'GET')
+    expect(remoteHeaders.at(-1)?.get('x-connection')).toBe('connection-secret')
+    const connections = await json<{ options: { value: string }[] }>('/ext/image-gen/connections', {})
     expect(connections.options.some((item) => item.value === connection.id)).toBe(true)
-    const promptModels = await json<{ options: unknown[] }>(
-      `/ext/image-gen/prompt/models${draftQuery({ promptConnectionId: connection.id })}`,
-      undefined,
-      'GET',
-    )
+    const promptModels = await json<{ options: unknown[] }>(`/ext/image-gen/prompt/models`, {
+      settings: { promptConnectionId: connection.id },
+    })
     expect(promptModels.options).toHaveLength(3)
+    expect(remoteHeaders.at(-1)?.get('x-connection')).toBe('connection-secret')
     const comfyDraft = {
       source: 'comfy',
       comfyUrl: `${base}/`,
       comfyHeaders: '{"Authorization":"Bearer proxy-secret"}',
     }
-    const capabilities = await json<{ models: { label: string }[] }>(
-      `/ext/image-gen/comfy/capabilities${draftQuery(comfyDraft)}`,
-      undefined,
-      'GET',
-    )
+    const capabilities = await json<{ models: { label: string }[] }>(`/ext/image-gen/comfy/capabilities`, {
+      settings: comfyDraft,
+    })
     expect(capabilities.models.map((item) => item.label)).toContain('UNet: flux_dev.safetensors')
     expect(capabilities.models.map((item) => item.label)).toContain('GGUF: flux.gguf')
     const count = capabilityCalls
     for (const name of ['models', 'samplers', 'schedulers', 'vaes']) {
-      const options = await json<{ options: unknown[] }>(
-        `/ext/image-gen/comfy/${name}${draftQuery(comfyDraft)}`,
-        undefined,
-        'GET',
-      )
+      const options = await json<{ options: unknown[] }>(`/ext/image-gen/comfy/${name}`, { settings: comfyDraft })
       expect(options.options.length).toBeGreaterThan(0)
     }
     expect(capabilityCalls).toBe(count)
@@ -520,22 +512,39 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     const now = Date.now()
     const mockedClock = spyOn(Date, 'now').mockReturnValue(now + 61000)
     try {
-      await json(`/ext/image-gen/comfy/capabilities${draftQuery(comfyDraft)}`, undefined, 'GET')
+      await json('/ext/image-gen/comfy/capabilities', { settings: comfyDraft })
     } finally {
       mockedClock.mockRestore()
     }
     expect(capabilityCalls).toBe(count + 1)
-    const brokenDiscovery = await app.request(
-      `/api/ext/image-gen/comfy/capabilities${draftQuery({ comfyUrl: `${base}/broken` })}`,
-    )
+    const brokenDiscovery = await app.request('/api/ext/image-gen/comfy/capabilities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: { comfyUrl: `${base}/broken` } }),
+    })
     expect(brokenDiscovery.status).toBe(502)
     expect(await brokenDiscovery.text()).toContain('ComfyUI 能力发现失败')
     expect(
       await json('/ext/image-gen/test-connection', { settings: { openaiConnectionId: connection.id } }),
     ).toMatchObject({ ok: true })
     expect(await json('/ext/image-gen/test-connection', { settings: comfyDraft })).toMatchObject({ ok: true })
-    await json('/ext/image-gen/test', { settings: { openaiConnectionId: connection.id, openaiModel: 'flux-dev' } })
+    await json('/ext/image-gen/test', {
+      settings: {
+        openaiConnectionId: connection.id,
+        openaiModel: 'flux-dev',
+        openaiHeaders: '{"X-Override":"draft-secret"}',
+      },
+    })
     expect(remoteRequests.some((item) => item.url === `${base}/reused/v1/images/generations`)).toBe(true)
+    expect(remoteHeaders.at(-1)?.get('x-connection')).toBe('connection-secret')
+    expect(remoteHeaders.at(-1)?.get('x-override')).toBe('draft-secret')
+    await json('/ext/image-gen/test-connection', {
+      settings: {
+        openaiConnectionId: connection.id,
+        openaiHeaders: '{"authorization":"Bearer image-form-secret"}',
+      },
+    })
+    expect(remoteHeaders.at(-1)?.get('authorization')).toBe('Bearer image-form-secret')
     const savedSettings = (
       await json<{ id: string; settings: Record<string, unknown> }[]>('/extensions', undefined, 'GET')
     ).find((item) => item.id === 'image-gen')!.settings
@@ -611,25 +620,52 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       width: 640,
       height: 480,
     })
-    const lists = await json<{ options: { value: string; label: string }[] }>(
-      `/ext/image-gen/styles${draftQuery({ styles: [{ name: 'draft' }] })}`,
-      undefined,
-      'GET',
-    )
+    const lists = await json<{ options: { value: string; label: string }[] }>(`/ext/image-gen/styles`, {
+      settings: { styles: [{ name: 'draft' }] },
+    })
     expect(lists.options).toEqual([{ value: 'draft', label: 'draft' }])
-    const workflows = await json<{ options: { value: string }[] }>(
-      `/ext/image-gen/comfy/workflows${draftQuery({ comfyWorkflows: [{ name: 'custom', json: '{}' }] })}`,
-      undefined,
-      'GET',
-    )
+    const fallback = await app.request('/api/ext/image-gen/styles', { method: 'POST', body: '{' })
+    expect(fallback.status).toBe(200)
+    expect(await fallback.json()).toEqual(await json('/ext/image-gen/styles', {}))
+    const workflows = await json<{ options: { value: string }[] }>(`/ext/image-gen/comfy/workflows`, {
+      settings: {
+        comfyWorkflows: [
+          { name: 'custom', json: JSON.stringify({ data: 'x'.repeat(200 * 1024) }) },
+          { name: '', json: '{}' },
+          { name: 'custom', json: '{}' },
+        ],
+      },
+    })
     expect(workflows.options.map((item) => item.value)).toEqual(['', 'avatar', 'custom'])
-    const inspection = await json<{ error: string }>(
-      `/ext/image-gen/comfy/workflow-inspection${draftQuery({ comfyWorkflowName: 'bad', comfyWorkflows: [{ name: 'bad', json: '{' }] })}`,
-      undefined,
-      'GET',
-    )
+    const inspection = await json<{ error: string }>(`/ext/image-gen/comfy/workflow-inspection`, {
+      settings: { comfyWorkflowName: 'bad', comfyWorkflows: [{ name: 'bad', json: '{' }] },
+    })
     expect(inspection.error).toContain('不是合法的 JSON')
     expect(inspection.error).toContain('第 1 行，第 2 列')
+    const check = await json<{ valid: boolean; error?: string; placeholders: { name: string; used: boolean }[] }>(
+      '/ext/image-gen/comfy/workflow-check',
+      {
+        settings: { comfyCustomPlaceholders: [{ find: '%custom%', replace: 'value' }] },
+        json: '{"text":"%prompt% %custom%"}',
+      },
+    )
+    expect(check.valid).toBe(true)
+    expect(check.placeholders).toHaveLength(16)
+    expect(check.placeholders[0]).toEqual({ name: 'prompt', used: true })
+    expect(check.placeholders.at(-1)).toEqual({ name: 'custom', used: true })
+    const invalidWorkflow = await json<{ valid: boolean; error: string }>('/ext/image-gen/comfy/workflow-check', {
+      json: '{\n "bad": }',
+    })
+    expect(invalidWorkflow.valid).toBe(false)
+    expect(invalidWorkflow.error).toContain('第 2 行')
+    const missing = await app.request('/api/ext/image-gen/comfy/workflow-inspection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: { comfyWorkflowName: 'missing', comfyWorkflows: [] } }),
+    })
+    expect(missing.status).toBe(502)
+    expect(await missing.json()).toMatchObject({ error: { message: '找不到名为 missing 的工作流' } })
+    expect((await app.request('/api/ext/image-gen/comfy/workflows')).status).toBe(404)
     // 头像提炼使用多模态消息，无头像时退回普通文本模板；请求仍不带工具。
     configure({ multimodalCaptioning: true })
     await json('/ext/image-gen/prompt', { chatId: chat.id, mode: 'face' })
@@ -826,6 +862,8 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     const serialized = JSON.stringify(logs)
     expect(serialized).not.toContain('img3-secret-key')
     expect(serialized).not.toContain('reused-secret')
+    expect(serialized).not.toContain('connection-secret')
+    expect(serialized).not.toContain('draft-secret')
     expect(serialized).not.toContain('proxy-secret')
     expect(serialized).not.toContain('never-log')
     expect(serialized).not.toContain('workflow-secret')

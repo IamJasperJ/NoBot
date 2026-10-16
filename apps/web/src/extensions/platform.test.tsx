@@ -139,7 +139,7 @@ test('助手与工具显示图片、异步占位和失败信息', () => {
   const stages = {
     prompt: '正在写提示词…',
     confirm: '等待确认…',
-    queued: '排队中（第 2 位）',
+    queued: '排队中 · 第 2 位',
     generating: '生成中…',
     saving: '保存中…',
   } as const
@@ -236,23 +236,8 @@ test('生成图片仅展示所选一张、计数正确，上传图片仍全部�
     await Promise.resolve()
     expect(render(selected)).toContain('2/3')
     expect(render({ ...msg, meta: { images: msg.meta.images ?? [] } }).match(/<img /g)).toHaveLength(3)
-    let nextMessage: MessageDTO | undefined
-    useExtensionsRuntime.setState({
-      listeners: [
-        {
-          extensionId: 'fixture',
-          type: 'image:swipe-next',
-          handler: (event) => {
-            if (event.type === 'image:swipe-next') nextMessage = event.message
-          },
-        },
-      ],
-    })
-    render(msg)
-    expect(render(msg)).toContain('＋ 生成新图')
-    expect(clicks.has('生成新图')).toBe(true)
-    clicks.get('生成新图')?.()
-    expect(nextMessage).toEqual(msg)
+    // 箭头只负责切换：最后一张时右箭头禁用，不会误触生成新图（生成新的备选用工具栏里的「重新生成」）
+    expect(render(msg)).not.toContain('生成新图')
     expect(saved).toHaveBeenCalledTimes(1)
   } finally {
     useExtensionsRuntime.setState({ listeners: [] })
@@ -303,7 +288,8 @@ test('候选设置保持手动输入和自定义选择值', () => {
       ]}
     />,
   )
-  expect(html).toContain('<datalist')
+  // 可输入的下拉框（不用原生 datalist：它会按已有文字过滤候选）
+  expect(html).toContain('role="combobox"')
   expect(html).toContain('value="custom"')
   expect(html).toContain('custom-style（自定义）')
   expect(html).toContain('内置风格')

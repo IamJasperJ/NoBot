@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { HttpError } from '../../../errors'
 import { listApiPresets } from '../../../services/connections'
-import { defineExtension, parseSettingsQuery } from '../../types'
+import { defineExtension, draftBody, draftChatId, parseSettingsDraft } from '../../types'
 import { matchInteractive } from './composition'
 import { comfyCapabilities, openaiModels, promptModels, testConnection } from './discovery'
 import { modes } from './modes'
@@ -73,32 +73,31 @@ export default defineExtension({
       return c.json(await toBackground(ctx, body.messageId, body.index))
     })
     const draft = async (c: import('hono').Context) => {
-      const body = z.object({ settings: z.record(z.string(), z.unknown()).optional() }).parse(await c.req.json())
-      return { ...ctx, settings: { ...ctx.settings, ...body.settings } }
+      return { ...ctx, settings: await parseSettingsDraft(c, ctx.settings) }
     }
     app.post('/test', async (c) => c.json(await testImage(await draft(c))))
     app.post('/test-connection', async (c) => c.json(await testConnection(parseSettings((await draft(c)).settings))))
-    app.get('/connections', (c) =>
+    app.post('/connections', async (c) =>
       c.json({ options: listApiPresets().map((item) => ({ value: item.id, label: item.name })) }),
     )
-    app.get('/openai/models', async (c) =>
-      c.json({ options: await openaiModels(parseSettings(parseSettingsQuery(c, ctx.settings))) }),
+    app.post('/openai/models', async (c) =>
+      c.json({ options: await openaiModels(parseSettings(await parseSettingsDraft(c, ctx.settings))) }),
     )
-    app.get('/prompt/models', async (c) =>
+    app.post('/prompt/models', async (c) =>
       c.json({
-        options: await promptModels(parseSettings(parseSettingsQuery(c, ctx.settings)), c.req.query('chatId')),
+        options: await promptModels(parseSettings(await parseSettingsDraft(c, ctx.settings)), await draftChatId(c)),
       }),
     )
-    app.get('/comfy/capabilities', async (c) =>
-      c.json(await comfyCapabilities(parseSettings(parseSettingsQuery(c, ctx.settings)))),
+    app.post('/comfy/capabilities', async (c) =>
+      c.json(await comfyCapabilities(parseSettings(await parseSettingsDraft(c, ctx.settings)))),
     )
     for (const key of ['models', 'samplers', 'schedulers', 'vaes'] as const)
-      app.get(`/comfy/${key}`, async (c) => {
-        const options = (await comfyCapabilities(parseSettings(parseSettingsQuery(c, ctx.settings))))[key]
+      app.post(`/comfy/${key}`, async (c) => {
+        const options = (await comfyCapabilities(parseSettings(await parseSettingsDraft(c, ctx.settings))))[key]
         return c.json({ options, [key]: options })
       })
-    app.get('/comfy/workflow-inspection', (c) => {
-      const settings = parseSettings(parseSettingsQuery(c, ctx.settings))
+    app.post('/comfy/workflow-inspection', async (c) => {
+      const settings = parseSettings(await parseSettingsDraft(c, ctx.settings))
       const source = workflowSource(settings)
       const error = workflowValidationError(source)
       return c.json({
@@ -109,26 +108,48 @@ export default defineExtension({
         ].map((name) => ({ name, used: source.includes(`%${name}%`) })),
       })
     })
-    app.get('/styles', (c) =>
+    app.post('/styles', async (c) =>
       c.json({
-        options: parseSettings(parseSettingsQuery(c, ctx.settings)).styles.map((item) => ({
+        options: parseSettings(await parseSettingsDraft(c, ctx.settings)).styles.map((item) => ({
           value: item.name,
           label: item.name,
         })),
       }),
     )
-    app.get('/comfy/workflows', (c) =>
+    app.post('/comfy/workflows', async (c) =>
       c.json({
         options: [
           { value: '', label: '内置默认' },
           { value: 'avatar', label: '角色头像图生图' },
-          ...parseSettings(parseSettingsQuery(c, ctx.settings)).comfyWorkflows.map((item) => ({
-            value: item.name,
-            label: item.name,
-          })),
+          ...parseSettings(await parseSettingsDraft(c, ctx.settings))
+            .comfyWorkflows.filter(
+              (item, index, items) =>
+                item.name.trim() &&
+                item.name !== 'avatar' &&
+                items.findIndex((other) => other.name === item.name) === index,
+            )
+            .map((item) => ({
+              value: item.name,
+              label: item.name,
+            })),
         ],
       }),
     )
+    app.post('/comfy/workflow-check', async (c) => {
+      const settings = parseSettings(await parseSettingsDraft(c, ctx.settings))
+      const { json } = z.object({ json: z.string() }).parse(await draftBody(c))
+      const error = workflowValidationError(json)
+      return c.json({
+        valid: !error,
+        ...(error ? { error } : {}),
+        placeholders: [
+          ...new Set([
+            ...placeholders,
+            ...settings.comfyCustomPlaceholders.map((item) => item.find.replace(/^%|%$/g, '')),
+          ]),
+        ].map((name) => ({ name, used: json.includes(`%${name}%`) })),
+      })
+    })
     app.get('/gallery', (c) => {
       const query = z
         .object({

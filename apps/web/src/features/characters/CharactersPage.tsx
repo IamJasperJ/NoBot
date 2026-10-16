@@ -4,9 +4,19 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useCharacter, useCharacters, useLorebooks, usePersonas } from '../../api/queries'
 import { NumberField, Section, SelectField } from '../../components/form'
-import { ChevronLeftIcon, ChevronRightIcon } from '../../components/icons'
+import {
+  ChatIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  DownloadIcon,
+  SearchIcon,
+  TrashIcon,
+} from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
-import { Avatar, Button, IconButton } from '../../components/ui'
+import { Menu, MenuDivider, MenuEntry } from '../../components/menu'
+import { TagInput, tagShape } from '../../components/tags'
+import { Avatar, Button, controlClass, cx, IconButton } from '../../components/ui'
 import { Slot } from '../../extensions/Slot'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -18,6 +28,7 @@ export function CharactersPage() {
   const focusId = useUi((s) => s.focusId)
   const [selected, setSelected] = useState<string | null>(focusId)
   const [search, setSearch] = useState('')
+  const [tagFilter, setTagFilter] = useState<string[]>([])
   const dirty = useRef(false)
   const editorBusy = useRef(false)
   const importInput = useRef<HTMLInputElement>(null)
@@ -72,27 +83,47 @@ export function CharactersPage() {
       }
       list={
         <div className="space-y-2">
-          <CountedText label="搜索角色" hint="按名字或标签筛选角色。" value={search} onChange={setSearch} />
+          <div className="relative">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-zinc-400" />
+            <input
+              className={cx(controlClass, 'pl-8')}
+              placeholder="搜索角色（名字或标签）"
+              aria-label="搜索角色"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          {characters.data && characters.data.length > 0 && (
+            <TagFilter characters={characters.data} selected={tagFilter} onChange={setTagFilter} />
+          )}
           {characters.isPending ? (
-            <p>加载中…</p>
+            <p className="p-3 text-sm text-zinc-500">加载中…</p>
           ) : characters.isError ? (
-            <p>{errorMessage(characters.error)}</p>
+            <p className="p-3 text-sm text-red-600">{errorMessage(characters.error)}</p>
           ) : characters.data.length === 0 ? (
             <p className="p-3 text-sm text-zinc-500">点击「新建」或「导入」添加第一个角色。</p>
           ) : (
             (() => {
-              const filtered = characters.data.filter((c) =>
-                [c.name, ...c.tags].some((text) => text.toLocaleLowerCase().includes(search.toLocaleLowerCase())),
+              const query = search.trim().toLocaleLowerCase()
+              const filtered = characters.data.filter(
+                (c) =>
+                  tagFilter.every((tag) => c.tags.includes(tag)) &&
+                  [c.name, ...c.tags].some((text) => text.toLocaleLowerCase().includes(query)),
               )
               return filtered.length ? (
                 filtered.map((c) => (
                   <ListItem key={c.id} active={c.id === selected} onClick={() => select(c.id)}>
                     <Avatar name={c.name} url={c.avatarUrl} />
-                    <span className="truncate">{c.name}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{c.name}</span>
+                      {c.tags.length > 0 && (
+                        <span className="block truncate text-xs text-zinc-400">{c.tags.join(' · ')}</span>
+                      )}
+                    </span>
                   </ListItem>
                 ))
               ) : (
-                <p>没有匹配的角色。</p>
+                <p className="p-3 text-sm text-zinc-500">没有匹配的角色。</p>
               )
             })()
           )}
@@ -143,13 +174,15 @@ export function CharacterEditor({
 }) {
   const [original, setOriginal] = useState(() => structuredClone(character))
   const [draft, setDraft] = useState(() => structuredClone(character))
-  const [tags, setTags] = useState(character.tags.join(', '))
   const lorebooks = useLorebooks()
   const personas = usePersonas()
   const qc = useQueryClient()
   const openChat = useUi((s) => s.openChat)
   const { busy, run } = useAction()
-  const dirty = JSON.stringify(draft) !== JSON.stringify(original) || tags !== original.tags.join(', ')
+  const dirty = JSON.stringify(draft) !== JSON.stringify(original)
+  const allTags = [...new Set((useCharacters().data ?? []).flatMap((c) => c.tags))].sort((a, b) =>
+    a.localeCompare(b, 'zh-CN'),
+  )
   useEffect(() => {
     onDirty(dirty, busy)
   }, [dirty, busy, onDirty])
@@ -167,7 +200,6 @@ export function CharacterEditor({
       const result = await api.updateCharacter(character.id, input satisfies CharacterUpdateInput)
       setDraft(structuredClone(result))
       setOriginal(structuredClone(result))
-      setTags(result.tags.join(', '))
       await refresh()
       toast.info('角色已保存')
     })
@@ -188,62 +220,82 @@ export function CharacterEditor({
   ) => <CountedArea label={label} hint={hint} rows={rows} value={draft[key]} onChange={(value) => patch(key, value)} />
   return (
     <>
-      <DetailHeader title={draft.name} onBack={onBack} />
-      <fieldset disabled={busy} className="min-w-0 space-y-5 p-4 sm:p-6">
-        <div className="flex flex-wrap gap-2">
-          <Button variant="primary" disabled={!dirty || !draft.name.trim()} onClick={save}>
-            保存
-          </Button>
-          <Button
-            disabled={!dirty}
-            onClick={() => {
-              setDraft(structuredClone(original))
-              setTags(original.tags.join(', '))
-            }}
-          >
-            撤销修改
-          </Button>
-          <Button
-            onClick={() => {
-              if (dirty && !confirm('有未保存的修改，是否放弃并开始聊天？')) return
-              void run(async () => {
-                const chat = await api.createChat({ characterId: character.id })
-                useUi.getState().openView('chat')
-                openChat({ characterId: character.id }, chat.id)
-              })
-            }}
-          >
-            开始聊天
-          </Button>
-          <Button
-            onClick={() => {
-              if (dirty && !confirm('复制使用已保存的角色，有未保存的修改，是否放弃并继续？')) return
-              void run(async () => {
-                const copy = await api.duplicateCharacter(character.id)
-                await refresh()
-                onSelect(copy.id)
-              })
-            }}
-          >
-            复制
-          </Button>
-          <Button onClick={() => api.exportCharacter(character.id, 'png')}>导出 PNG</Button>
-          <Button onClick={() => api.exportCharacter(character.id, 'json')}>导出 JSON</Button>
-          <Button
-            variant="danger"
-            onClick={() => {
-              if (confirm(`确定删除「${original.name}」？它的所有会话也会一起删除。`))
+      <DetailHeader
+        title={draft.name}
+        onBack={onBack}
+        actions={
+          <div className="flex items-center gap-1.5">
+            {dirty && <span className="mr-1 hidden text-xs text-amber-600 sm:inline">未保存</span>}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!dirty || busy}
+              onClick={() => {
+                setDraft(structuredClone(original))
+              }}
+            >
+              撤销修改
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                if (dirty && !confirm('有未保存的修改，是否放弃并开始聊天？')) return
                 void run(async () => {
-                  await api.deleteCharacter(character.id)
-                  await refresh()
-                  onSelect(null)
+                  const chat = await api.createChat({ characterId: character.id })
+                  useUi.getState().openView('chat')
+                  openChat({ characterId: character.id }, chat.id)
                 })
-            }}
-          >
-            删除
-          </Button>
-        </div>
-        <p className="text-xs text-zinc-500">编辑后点击保存；复制、导出和开始聊天使用已保存的角色资料。</p>
+              }}
+            >
+              <ChatIcon />
+              开始聊天
+            </Button>
+            <Button size="sm" variant="primary" disabled={busy || !dirty || !draft.name.trim()} onClick={save}>
+              保存
+            </Button>
+            <Menu>
+              <MenuEntry
+                icon={<CopyIcon />}
+                disabled={busy}
+                onClick={() => {
+                  if (dirty && !confirm('复制使用已保存的角色，有未保存的修改，是否放弃并继续？')) return
+                  void run(async () => {
+                    const copy = await api.duplicateCharacter(character.id)
+                    await refresh()
+                    onSelect(copy.id)
+                  })
+                }}
+              >
+                复制
+              </MenuEntry>
+              <MenuEntry icon={<DownloadIcon />} onClick={() => api.exportCharacter(character.id, 'png')}>
+                导出 PNG
+              </MenuEntry>
+              <MenuEntry icon={<DownloadIcon />} onClick={() => api.exportCharacter(character.id, 'json')}>
+                导出 JSON
+              </MenuEntry>
+              <MenuDivider />
+              <MenuEntry
+                icon={<TrashIcon />}
+                danger
+                disabled={busy}
+                onClick={() => {
+                  if (confirm(`确定删除「${original.name}」？它的所有会话也会一起删除。`))
+                    void run(async () => {
+                      await api.deleteCharacter(character.id)
+                      await refresh()
+                      onSelect(null)
+                    })
+                }}
+              >
+                删除
+              </MenuEntry>
+            </Menu>
+          </div>
+        }
+      />
+      <fieldset disabled={busy} className="mx-auto w-full max-w-3xl min-w-0 space-y-5 p-4 sm:p-6">
         <AvatarUpload
           name={draft.name}
           url={draft.avatarUrl}
@@ -264,21 +316,11 @@ export function CharacterEditor({
             value={draft.name}
             onChange={(v) => patch('name', v)}
           />
-          <CountedText
-            label="标签"
-            hint="用逗号分隔多个标签，方便搜索角色。"
-            value={tags}
-            onChange={(v) => {
-              setTags(v)
-              patch(
-                'tags',
-                v
-                  .split(/[,，]/)
-                  .map((t) => t.trim())
-                  .filter(Boolean),
-              )
-            }}
-          />
+          <div className="space-y-1.5 sm:col-span-2">
+            <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">标签</span>
+            <TagInput value={draft.tags} suggestions={allTags} onChange={(v) => patch('tags', v)} />
+            <p className="text-xs text-zinc-500">导入酒馆角色卡时自动带上卡里的标签；在角色列表里可以按标签筛选</p>
+          </div>
           <CountedText
             label="作者"
             hint="记录角色卡作者的名字。"
@@ -469,5 +511,66 @@ export function CharacterEditor({
         />
       </fieldset>
     </>
+  )
+}
+
+/** 角色列表上方的标签筛选：点选标签只显示带有这些标签的角色（多选为同时满足） */
+function TagFilter({
+  characters,
+  selected,
+  onChange,
+}: {
+  characters: { tags: string[] }[]
+  selected: string[]
+  onChange: (tags: string[]) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const counts = new Map<string, number>()
+  for (const c of characters) for (const tag of c.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+  const tags = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+  if (!tags.length) return null
+  const visible = expanded ? tags : tags.slice(0, 10)
+  return (
+    <div className="flex flex-wrap items-center gap-1 px-0.5">
+      {visible.map(([tag, count]) => {
+        const on = selected.includes(tag)
+        return (
+          <button
+            key={tag}
+            type="button"
+            aria-pressed={on}
+            className={cx(
+              tagShape,
+              'transition-colors',
+              on
+                ? 'bg-violet-600 text-white hover:bg-violet-500'
+                : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700',
+            )}
+            onClick={() => onChange(on ? selected.filter((t) => t !== tag) : [...selected, tag])}
+          >
+            {tag}
+            <span className={on ? 'text-violet-200' : 'text-zinc-400'}>{count}</span>
+          </button>
+        )
+      })}
+      {tags.length > 10 && (
+        <button
+          type="button"
+          className="h-6 px-1.5 text-xs text-zinc-500 hover:text-zinc-900"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? '收起' : `更多 ${tags.length - 10}`}
+        </button>
+      )}
+      {selected.length > 0 && (
+        <button
+          type="button"
+          className="h-6 px-1.5 text-xs text-violet-600 hover:underline"
+          onClick={() => onChange([])}
+        >
+          清除筛选
+        </button>
+      )}
+    </div>
   )
 }

@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useLorebooks, usePersonas } from '../../api/queries'
 import { SelectField } from '../../components/form'
+import { CheckIcon, TrashIcon } from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
-import { Avatar, Button } from '../../components/ui'
+import { Menu, MenuEntry } from '../../components/menu'
+import { Avatar, Button, badgeClass, cx } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { AvatarUpload, CountedArea, CountedText, useAction } from '../characters/editor'
 
@@ -124,8 +126,9 @@ function PersonaEditor({
     <>
       <DetailHeader title={draft.name} onBack={onBack} />
       <fieldset disabled={busy} className="min-w-0 space-y-5 p-3">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex items-center gap-1.5">
           <Button
+            size="sm"
             variant="primary"
             disabled={!dirty || !draft.name.trim()}
             onClick={() =>
@@ -144,34 +147,44 @@ function PersonaEditor({
           >
             保存
           </Button>
-          <Button disabled={!dirty} onClick={() => setDraft(structuredClone(original))}>
+          <Button size="sm" variant="ghost" disabled={!dirty} onClick={() => setDraft(structuredClone(original))}>
             撤销修改
           </Button>
-          <Button
-            disabled={persona.isDefault}
-            onClick={() =>
-              void run(async () => {
-                await api.setDefaultPersona(persona.id)
-                await refresh()
-                toast.info('已设为默认人设')
-              })
-            }
-          >
-            {persona.isDefault ? '已是默认人设' : '设为默认'}
-          </Button>
-          <Button
-            variant="danger"
-            onClick={() => {
-              if (confirm(`确定删除人设「${original.name}」？它的名字、描述和头像将被删除，已有会话会改用默认人设。`))
-                void run(async () => {
-                  await api.deletePersona(persona.id)
-                  await refresh()
-                  onDeleted()
-                })
-            }}
-          >
-            删除
-          </Button>
+          {persona.isDefault && <span className={cx(badgeClass, 'ml-1')}>默认人设</span>}
+          <div className="ml-auto">
+            <Menu>
+              {!persona.isDefault && (
+                <MenuEntry
+                  icon={<CheckIcon />}
+                  onClick={() =>
+                    void run(async () => {
+                      await api.setDefaultPersona(persona.id)
+                      await refresh()
+                      toast.info('已设为默认人设')
+                    })
+                  }
+                >
+                  设为默认
+                </MenuEntry>
+              )}
+              <MenuEntry
+                icon={<TrashIcon />}
+                danger
+                onClick={() => {
+                  if (
+                    confirm(`确定删除人设「${original.name}」？它的名字、描述和头像将被删除，已有会话会改用默认人设。`)
+                  )
+                    void run(async () => {
+                      await api.deletePersona(persona.id)
+                      await refresh()
+                      onDeleted()
+                    })
+                }}
+              >
+                删除
+              </MenuEntry>
+            </Menu>
+          </div>
         </div>
         <p className="text-xs text-zinc-500">默认人设用于没有单独指定人设的新会话；点击「设为默认」立即生效。</p>
         <AvatarUpload

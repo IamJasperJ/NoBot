@@ -28,7 +28,10 @@ export function Slot<K extends SlotName>({ name, props }: { name: K; props: Slot
     .filter(
       (entry) =>
         entry.slot === name &&
-        (name !== 'extensions.settings.footer' || ('extensionId' in props && entry.extensionId === props.extensionId)),
+        (name !== 'extensions.settings.footer' ||
+          ('extensionId' in props && entry.extensionId === props.extensionId)) &&
+        (name !== 'extensions.settings.field' ||
+          ('fieldKey' in props && entry.extensionId === props.extensionId && entry.id === props.fieldKey)),
     )
     .sort((a, b) => a.order - b.order)
     .map((entry) => (

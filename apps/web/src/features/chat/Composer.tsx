@@ -6,6 +6,7 @@ import { PlusIcon, SendIcon, StopIcon } from '../../components/icons'
 import { cx, IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
+import { useMobile } from '../../hooks/useMobile'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { runGeneration, runImpersonate } from './generate'
@@ -25,6 +26,7 @@ export function Composer({
   group: GroupDTO | null
   lastMessage: MessageDTO | null
 }) {
+  const mobile = useMobile()
   const qc = useQueryClient()
   const [text, setText] = useState('')
   const [images, setImages] = useState<{ key: string; attachment?: AttachmentDTO }[]>([])
@@ -226,7 +228,7 @@ export function Composer({
               addImages(files)
             }
           }}
-          placeholder={stopImpersonate ? '代写中…' : '说点什么…（Shift+Enter 换行）'}
+          placeholder={stopImpersonate ? '代写中…' : mobile ? '说点什么…' : '说点什么…（Shift+Enter 换行）'}
           className="max-h-[200px] min-w-0 flex-1 resize-none bg-transparent py-1 text-[15px] outline-none placeholder:text-zinc-400"
         />
         {busy ? (

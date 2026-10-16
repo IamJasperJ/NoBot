@@ -94,3 +94,11 @@ body {
 .dark[data-has-bg] .app-root main .border-t > .chat-column.rounded-2xl {
   background-color: rgb(24 24 27 / 80%);
 }
+
+/* 下拉框统一的箭头（替代系统默认样式，见 components/ui.tsx 的 selectClass） */
+.select-chevron {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+}

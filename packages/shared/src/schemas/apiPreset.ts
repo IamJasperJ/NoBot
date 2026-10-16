@@ -10,6 +10,8 @@ export const apiPresetInput = z.object({
   /** 不传表示保持原值 */
   apiKey: z.string().optional(),
   model: z.string().trim().min(1),
+  /** 额外请求头：每个发往这个连接的请求（聊天、拉取模型、测试、图片生成复用连接时）都会带上，例如反向代理鉴权 */
+  headers: z.record(z.string(), z.string()).default({}),
 })
 export type ApiPresetInput = z.input<typeof apiPresetInput>
 
@@ -20,6 +22,8 @@ export interface ApiPresetDTO {
   baseUrl: string
   model: string
   apiKeyMasked: string
+  /** 额外请求头（原样返回，编辑页需要显示和修改） */
+  headers: Record<string, string>
   isDefault: boolean
 }
 
@@ -28,6 +32,8 @@ export const testConnectionInput = z.object({
   presetId: z.string().optional(),
   baseUrl: z.url().optional(),
   apiKey: z.string().optional(),
+  /** 表单里还没保存的额外请求头；不传时用已保存配置的 */
+  headers: z.record(z.string(), z.string()).optional(),
 })
 export type TestConnectionInput = z.infer<typeof testConnectionInput>
 

@@ -53,9 +53,11 @@ export const placeholders = [
   'seed',
 ]
 export function workflowSource(settings: Settings): string {
-  return settings.comfyWorkflowName === 'avatar'
-    ? avatarWorkflow
-    : settings.comfyWorkflows.find((item) => item.name === settings.comfyWorkflowName)?.json || defaultWorkflow
+  if (!settings.comfyWorkflowName) return defaultWorkflow
+  if (settings.comfyWorkflowName === 'avatar') return avatarWorkflow
+  const workflow = settings.comfyWorkflows.find((item) => item.name === settings.comfyWorkflowName)
+  if (!workflow) throw new Error(`找不到名为 ${settings.comfyWorkflowName} 的工作流`)
+  return workflow.json
 }
 /** 先解析再逐项替换，确保提示词中的引号和占位符不被二次解释。 */
 export function buildWorkflow(

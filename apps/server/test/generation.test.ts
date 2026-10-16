@@ -136,6 +136,40 @@ test('单人发送按顺序推送事件并保存完整路径和角色提示词',
   expect(model.requests[0]?.messages[0]?.content).toContain('守护月光森林的旅伴')
 })
 
+test('连接请求头保存、PATCH 保留、表单测试覆盖与聊天日志脱敏', async () => {
+  const { chat } = await setup()
+  const connection = await json<{ id: string; headers: Record<string, string> }>('/connections', 'POST', {
+    name: '额外头',
+    baseUrl: model.url,
+    model: 'mock-one',
+    apiKey: 'original-key',
+    headers: { 'X-Connection': 'connection-secret', authorization: 'Bearer override-secret' },
+  })
+  expect(connection.headers['X-Connection']).toBe('connection-secret')
+  const patched = await json<{ headers: Record<string, string> }>(`/connections/${connection.id}`, 'PATCH', {
+    name: '改名',
+  })
+  expect(patched.headers).toEqual(connection.headers)
+  await json('/connections/test', 'POST', { presetId: connection.id })
+  expect(model.receivedHeaders.at(-1)?.get('authorization')).toBe('Bearer override-secret')
+  await json('/connections/test', 'POST', { presetId: connection.id, headers: { 'X-Form': 'form-secret' } })
+  expect(model.receivedHeaders.at(-1)?.get('x-form')).toBe('form-secret')
+  expect(model.receivedHeaders.at(-1)?.get('x-connection')).toBeNull()
+  await json(`/chats/${chat.id}`, 'PATCH', { apiPresetId: connection.id })
+  await generate(chat)
+  expect(model.receivedHeaders.at(-1)?.get('x-connection')).toBe('connection-secret')
+  expect(model.receivedHeaders.at(-1)?.get('authorization')).toBe('Bearer override-secret')
+  const { db } = await import('../src/db/client')
+  const { generationLogs } = await import('../src/db/schema')
+  const logs = JSON.stringify(db.select().from(generationLogs).all())
+  expect(logs).not.toContain('connection-secret')
+  expect(logs).not.toContain('override-secret')
+  const cleared = await json<{ headers: Record<string, string> }>(`/connections/${connection.id}`, 'PATCH', {
+    headers: {},
+  })
+  expect(cleared.headers).toEqual({})
+})
+
 test('推理分片被合并到最终消息的元数据', async () => {
   const { chat } = await setup()
   model.setScript(() => ({ text: '回答', reasoning: '先观察再思考' }))

@@ -7,43 +7,49 @@ import type { Settings } from './settings'
 export function resolveImageConnection(settings: Settings): Settings {
   if (settings.source !== 'openai' || !settings.openaiConnectionId) return settings
   const connection = getApiPresetRow(settings.openaiConnectionId)
-  return { ...settings, openaiBaseUrl: connection.baseUrl, openaiApiKey: connection.apiKey }
+  const headers = new Headers(connection.headers)
+  for (const [key, value] of Object.entries(openaiHeaders(settings))) headers.set(key, value)
+  return {
+    ...settings,
+    openaiBaseUrl: connection.baseUrl,
+    openaiApiKey: connection.apiKey,
+    openaiHeaders: JSON.stringify(Object.fromEntries(headers)),
+  }
 }
-export async function openaiModels(settings: Settings, all = false) {
+/** 端点的全部模型都返回（不按名字筛选），看起来是图片模型的排在前面并标注 */
+export async function openaiModels(settings: Settings) {
   const resolved = resolveImageConnection({ ...settings, source: 'openai' })
   const body = await jsonResponse(
     await imageFetch(`${resolved.openaiBaseUrl.replace(/\/+$/, '')}/models`, {
-      headers: { Authorization: `Bearer ${resolved.openaiApiKey}` },
+      headers: openaiRequestHeaders(resolved),
       signal: AbortSignal.timeout(30000),
     }),
   )
   const names = (Array.isArray(body.data) ? body.data : [])
     .map((item) => object(item).id)
     .filter((id): id is string => typeof id === 'string')
-  return imageModelOptions(names, !all && settings.openaiImageOnly)
+  return imageModelOptions(names)
 }
 export async function promptModels(settings: Settings, chatId?: string) {
   const connection = settings.promptConnectionId
     ? getApiPresetRow(settings.promptConnectionId)
     : resolveApiPreset(chatId ? getChatRow(chatId).apiPresetId : null)
-  return openaiModels(
-    {
-      ...settings,
-      openaiConnectionId: '',
-      openaiBaseUrl: connection.baseUrl,
-      openaiApiKey: connection.apiKey,
-      openaiImageOnly: false,
-    },
-    true,
-  )
+  return openaiModels({
+    ...settings,
+    openaiConnectionId: '',
+    openaiBaseUrl: connection.baseUrl,
+    openaiApiKey: connection.apiKey,
+    openaiHeaders: JSON.stringify(connection.headers),
+  })
 }
-export function comfyHeaders(settings: Settings): Record<string, string> {
-  if (!settings.comfyHeaders.trim()) return {}
+/** 解析「额外请求头」设置（JSON 对象，值必须是字符串） */
+function parseHeaders(text: string, label: string): Record<string, string> {
+  if (!text.trim()) return {}
   let parsed: unknown
   try {
-    parsed = JSON.parse(settings.comfyHeaders)
+    parsed = JSON.parse(text)
   } catch {
-    throw new Error('ComfyUI 附加请求头不是合法的 JSON')
+    throw new Error(`${label}额外请求头不是合法的 JSON`)
   }
   if (
     !parsed ||
@@ -51,8 +57,16 @@ export function comfyHeaders(settings: Settings): Record<string, string> {
     Array.isArray(parsed) ||
     Object.values(parsed).some((v) => typeof v !== 'string')
   )
-    throw new Error('ComfyUI 附加请求头必须是字符串值的 JSON 对象')
+    throw new Error(`${label}额外请求头必须是字符串值的 JSON 对象`)
   return parsed as Record<string, string>
+}
+export const comfyHeaders = (settings: Settings) => parseHeaders(settings.comfyHeaders, 'ComfyUI ')
+export const openaiHeaders = (settings: Settings) => parseHeaders(settings.openaiHeaders, '图片接口')
+/** 用 Headers 合并，保证大小写不同的 Authorization 也能覆盖默认鉴权。 */
+export function openaiRequestHeaders(settings: Settings): Headers {
+  const headers = new Headers({ 'Content-Type': 'application/json', Authorization: `Bearer ${settings.openaiApiKey}` })
+  for (const [key, value] of Object.entries(openaiHeaders(settings))) headers.set(key, value)
+  return headers
 }
 export interface Capabilities {
   models: Option[]
@@ -99,7 +113,7 @@ export function comfyCapabilities(settings: Settings): Promise<Capabilities> {
   return promise
 }
 export async function testConnection(settings: Settings) {
-  if (settings.source === 'openai') await openaiModels(settings, true)
+  if (settings.source === 'openai') await openaiModels(settings)
   else
     await jsonResponse(
       await imageFetch(`${settings.comfyUrl.replace(/\/+$/, '')}/system_stats`, {

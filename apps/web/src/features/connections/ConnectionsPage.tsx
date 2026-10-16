@@ -3,9 +3,13 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useEffectEvent, useId, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useConnections } from '../../api/queries'
+import { Combobox } from '../../components/combobox'
 import { TextField } from '../../components/form'
+import { HeadersEditor } from '../../components/headers'
+import { CheckIcon, RefreshIcon, TrashIcon } from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
-import { Button, Field, inputClass } from '../../components/ui'
+import { Menu, MenuEntry } from '../../components/menu'
+import { Button, Field, IconButton } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 
@@ -13,10 +17,17 @@ interface Draft {
   name: string
   baseUrl: string
   apiKey: string
+  headers: Record<string, string>
   model: string
 }
-const emptyDraft = (): Draft => ({ name: '', baseUrl: '', apiKey: '', model: '' })
-const toDraft = (p: ApiPresetDTO): Draft => ({ name: p.name, baseUrl: p.baseUrl, apiKey: '', model: p.model })
+const emptyDraft = (): Draft => ({ name: '', baseUrl: '', apiKey: '', model: '', headers: {} })
+const toDraft = (p: ApiPresetDTO): Draft => ({
+  name: p.name,
+  baseUrl: p.baseUrl,
+  apiKey: '',
+  model: p.model,
+  headers: p.headers ?? {},
+})
 
 export function ConnectionsPage() {
   const query = useConnections()
@@ -65,6 +76,7 @@ export function ConnectionsPage() {
       const result = await api.testConnection({
         baseUrl: draft.baseUrl.trim(),
         ...(draft.apiKey ? { apiKey: draft.apiKey } : {}),
+        headers: draft.headers,
         ...(original ? { presetId: original.id } : {}),
       })
       if (result.ok) {
@@ -142,6 +154,7 @@ export function ConnectionsPage() {
                     name: draft.name.trim(),
                     baseUrl: draft.baseUrl.trim(),
                     model: draft.model.trim(),
+                    headers: draft.headers,
                     ...(draft.apiKey ? { apiKey: draft.apiKey } : {}),
                   }
                   const saved = original
@@ -154,15 +167,18 @@ export function ConnectionsPage() {
               }}
             >
               <fieldset disabled={locked} className="min-w-0 space-y-5">
-                <div className="flex flex-wrap gap-2">
+                <div className="flex items-center gap-1.5">
                   <Button
                     type="submit"
+                    size="sm"
                     variant="primary"
                     disabled={locked || !dirty || !draft.name.trim() || !draft.baseUrl.trim() || !draft.model.trim()}
                   >
                     保存
                   </Button>
                   <Button
+                    size="sm"
+                    variant="ghost"
                     disabled={locked || !dirty}
                     onClick={() => {
                       setDraft(baseline)
@@ -171,37 +187,43 @@ export function ConnectionsPage() {
                   >
                     撤销修改
                   </Button>
-                  {original && !current?.isDefault && (
-                    <Button
-                      onClick={() =>
-                        void run(async () => {
-                          await api.setDefaultConnection(original.id)
-                          await refresh()
-                          toast.info('已设为默认连接')
-                        })
-                      }
-                    >
-                      设为默认
-                    </Button>
-                  )}
                   {original && (
-                    <Button
-                      variant="danger"
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `删除连接「${original.name}」？已保存的接口地址、密钥和模型配置及未保存的修改都会被删除。`,
-                          )
-                        )
-                          void run(async () => {
-                            await api.deleteConnection(original.id)
-                            pick(null)
-                            await refresh()
-                          })
-                      }}
-                    >
-                      删除
-                    </Button>
+                    <div className="ml-auto">
+                      <Menu>
+                        {!current?.isDefault && (
+                          <MenuEntry
+                            icon={<CheckIcon />}
+                            onClick={() =>
+                              void run(async () => {
+                                await api.setDefaultConnection(original.id)
+                                await refresh()
+                                toast.info('已设为默认连接')
+                              })
+                            }
+                          >
+                            设为默认
+                          </MenuEntry>
+                        )}
+                        <MenuEntry
+                          icon={<TrashIcon />}
+                          danger
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `删除连接「${original.name}」？已保存的接口地址、密钥和模型配置及未保存的修改都会被删除。`,
+                              )
+                            )
+                              void run(async () => {
+                                await api.deleteConnection(original.id)
+                                pick(null)
+                                await refresh()
+                              })
+                          }}
+                        >
+                          删除
+                        </MenuEntry>
+                      </Menu>
+                    </div>
                   )}
                 </div>
                 <TextField
@@ -236,26 +258,41 @@ export function ConnectionsPage() {
                 />
                 <Field
                   label="模型"
-                  hint="输入准确的模型 ID，或测试连接后从建议列表选择；测试使用当前表单的接口和密钥。"
+                  hint="可以从接口拉取全部模型后选择，也可以直接手填任意模型 ID；拉取使用当前表单的地址、密钥和请求头"
                 >
-                  <div className="flex flex-col gap-2">
-                    <input
-                      className={`${inputClass} min-w-0 flex-1`}
-                      value={draft.model}
-                      list={modelListId}
-                      onChange={(e) => setDraft({ ...draft, model: e.target.value })}
-                      required
-                    />
-                    <Button className="shrink-0" disabled={locked || !draft.baseUrl.trim()} onClick={() => void test()}>
-                      {testing ? '测试中…' : '测试并获取模型'}
-                    </Button>
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <Combobox
+                        label="模型"
+                        value={draft.model}
+                        options={models.map((model) => ({ value: model, label: model }))}
+                        disabled={locked}
+                        placeholder="直接输入，或点右侧按钮拉取"
+                        onChange={(model) => setDraft({ ...draft, model })}
+                      />
+                    </div>
+                    <IconButton
+                      variant="outline"
+                      label={testing ? '测试中…' : '测试连接并拉取模型'}
+                      disabled={locked || !draft.baseUrl.trim()}
+                      onClick={() => void test()}
+                    >
+                      <RefreshIcon className={testing ? 'animate-spin' : ''} />
+                    </IconButton>
                   </div>
-                  <datalist id={modelListId}>
-                    {models.map((model) => (
-                      <option key={model} value={model} />
-                    ))}
-                  </datalist>
                 </Field>
+                <div className="space-y-1.5">
+                  <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">额外请求头</span>
+                  <p className="text-xs leading-relaxed text-zinc-500">
+                    发往这个连接的每个请求都会带上（聊天、拉取模型、图片生成复用连接时），例如反向代理鉴权
+                  </p>
+                  <HeadersEditor
+                    key={original?.id ?? 'new'}
+                    value={draft.headers}
+                    disabled={locked}
+                    onChange={(headers) => setDraft({ ...draft, headers })}
+                  />
+                </div>
               </fieldset>
             </form>
           </>

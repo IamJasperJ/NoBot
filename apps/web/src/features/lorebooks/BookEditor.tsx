@@ -12,7 +12,7 @@ import { keys } from '../../api/queries'
 import { SwitchField, TextAreaField, TextField, Toggle } from '../../components/form'
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon } from '../../components/icons'
 import { DetailHeader } from '../../components/layout'
-import { Button, cx, Field, IconButton, inputClass } from '../../components/ui'
+import { Button, controlClass, cx, Field, IconButton } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { EntryEditor } from './EntryEditor'
 import { isDifferent, type LeaveGuard, SaveActions, useLeaveGuard } from './editor'
@@ -167,12 +167,13 @@ export function BookEditor({
             checked={draft.isGlobal}
             onChange={(isGlobal) => setDraft((d) => ({ ...d, isGlobal }))}
           />
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => api.exportLorebook(book.id)}>
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" onClick={() => api.exportLorebook(book.id)}>
               <DownloadIcon />
               导出
             </Button>
             <Button
+              size="sm"
               variant="danger"
               onClick={() => {
                 if (
@@ -197,7 +198,7 @@ export function BookEditor({
             <Field label="搜索条目" hint="按备注、关键词或内容过滤；正在编辑的条目会保留显示。">
               <input
                 type="search"
-                className={inputClass}
+                className={controlClass}
                 value={search}
                 placeholder="输入搜索词"
                 onChange={(e) => setSearch(e.target.value)}

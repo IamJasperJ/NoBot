@@ -9,6 +9,7 @@ import { parseSSE } from '@ai-parter/shared'
 export interface CompletionRequest {
   baseUrl: string
   apiKey: string
+  headers?: Record<string, string>
   /** 完整的请求体（由 buildRequestBody 生成，同时会记进日志） */
   body: Record<string, unknown>
   signal: AbortSignal
@@ -97,10 +98,12 @@ function endpoint(baseUrl: string, path: string) {
   return `${baseUrl.replace(/\/+$/, '')}${path}`
 }
 
-function headers(apiKey: string): Record<string, string> {
+function headers(apiKey: string, extra: Record<string, string> = {}): Headers {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
   if (apiKey) h.Authorization = `Bearer ${apiKey}`
-  return h
+  const merged = new Headers(h)
+  for (const [key, value] of Object.entries(extra)) merged.set(key, value)
+  return merged
 }
 
 /** 把上游的 HTTP 错误翻译成看得懂的提示 */
@@ -178,7 +181,7 @@ export async function* chatCompletion(req: CompletionRequest): AsyncGenerator<St
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: headers(req.apiKey),
+      headers: headers(req.apiKey, req.headers),
       body: JSON.stringify(req.body),
       signal: req.signal,
     })
@@ -235,11 +238,15 @@ export async function* chatCompletion(req: CompletionRequest): AsyncGenerator<St
 }
 
 /** 测试连接并拉取模型列表 */
-export async function listModels(baseUrl: string, apiKey: string): Promise<string[]> {
+export async function listModels(
+  baseUrl: string,
+  apiKey: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<string[]> {
   const url = endpoint(baseUrl, '/models')
   let res: Response
   try {
-    res = await fetch(url, { headers: headers(apiKey), signal: AbortSignal.timeout(15_000) })
+    res = await fetch(url, { headers: headers(apiKey, extraHeaders), signal: AbortSignal.timeout(15_000) })
   } catch (e) {
     throw toNetworkError(e, url)
   }

@@ -2,54 +2,15 @@ import type { ExtensionDTO } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, useExtensions, useTools } from '../../api/queries'
+import { keys, useExtensions } from '../../api/queries'
 import { Section, Toggle } from '../../components/form'
 import { DetailHeader, EmptyDetail, ManagerLayout } from '../../components/layout'
-import { Button, cx, IconButton } from '../../components/ui'
+import { Button, badgeClass, cx, IconButton } from '../../components/ui'
 import { loadExtensions, useExtensionsRuntime } from '../../extensions/runtime'
 import { ExtensionPage, Slot } from '../../extensions/Slot'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { SettingsEditor } from './SettingsEditor'
-
-const badgeClass = 'inline-block max-w-full break-all rounded bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800'
-
-function ToolSection() {
-  const query = useTools()
-  return (
-    <Section title="可用工具">
-      <p className="text-sm leading-relaxed text-zinc-500">
-        工具需要在『生成预设 → 参数 → 推理与工具』里开启『工具调用』才会发送给模型，并且模型本身要支持 function calling
-      </p>
-      {query.isPending ? (
-        <p className="text-sm">加载中…</p>
-      ) : query.isError ? (
-        <p role="alert" className="text-sm text-red-600">
-          {errorMessage(query.error)}
-        </p>
-      ) : query.data.length === 0 ? (
-        <p className="text-sm text-zinc-500">暂无可用工具。启用提供工具的扩展后会显示在这里。</p>
-      ) : (
-        <div className="space-y-3">
-          {query.data.map((tool) => (
-            <div
-              key={`${tool.source}:${tool.name}`}
-              className="min-w-0 space-y-1 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="break-all font-mono text-sm">{tool.name}</span>
-                <span className={badgeClass}>来源：{tool.source === 'builtin' ? '内置' : tool.source}</span>
-              </div>
-              <p className="whitespace-pre-wrap break-words text-sm text-zinc-500">
-                {tool.description || '暂无说明。'}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </Section>
-  )
-}
 
 type UpdateExtension = (
   id: string,
@@ -111,7 +72,7 @@ export function ExtensionDetail({
           <div
             role="tablist"
             aria-label={`${extension.name}详情`}
-            className="flex overflow-x-auto border-b border-zinc-200 px-4 dark:border-zinc-800"
+            className="flex gap-1 overflow-x-auto border-b border-zinc-200 px-3 dark:border-zinc-800"
           >
             {tabs.map((tab, index) => (
               <Button
@@ -124,10 +85,10 @@ export function ExtensionDetail({
                 tabIndex={(activePage?.id ?? null) === tab.id ? 0 : -1}
                 aria-controls={`extension-${extension.id}-panel`}
                 className={cx(
-                  'flex shrink-0 items-center gap-2 rounded-none whitespace-nowrap border-b-2 px-4 py-3 text-sm',
+                  '-mb-px h-11 shrink-0 gap-1.5 rounded-none border-b-2 px-3 text-sm',
                   (activePage?.id ?? null) === tab.id
-                    ? 'border-violet-600 text-violet-700 dark:text-violet-300'
-                    : 'border-transparent text-zinc-500',
+                    ? 'border-violet-600 text-violet-700 hover:bg-transparent dark:text-violet-300'
+                    : 'border-transparent text-zinc-500 hover:bg-transparent hover:text-zinc-900 dark:hover:text-zinc-100',
                 )}
                 onClick={() =>
                   tab.id === null ? openView('extensions', extension.id) : openView(`ext:${extension.id}:${tab.id}`)
@@ -167,31 +128,54 @@ export function ExtensionDetail({
       >
         {activePage && <ExtensionPage view={`ext:${extension.id}:${activePage.id}`} />}
         {/* 保留设置草稿，切换标签不会丢失尚未保存的修改。 */}
-        <div hidden={!!activePage} className="space-y-4 p-4 sm:p-6">
-          <Toggle
-            label={`启用${extension.name}`}
-            checked={extension.enabled}
-            disabled={busy}
-            onChange={(enabled) =>
-              void update(extension.id, { enabled }).catch((e: unknown) => toast.error(errorMessage(e)))
-            }
-          />
-          <div className="space-y-2">
-            <h2 className="break-words text-lg font-semibold">{extension.name}</h2>
-            <div className="flex flex-wrap gap-2 text-xs">
-              <span className={badgeClass}>版本：{extension.version}</span>
-              <span className={badgeClass}>{extension.source === 'builtin' ? '内置' : '本地'}</span>
-              <span className={badgeClass}>{extension.enabled ? '已启用' : '已停用'}</span>
-              <span className={badgeClass}>作者：{extension.author || '未提供'}</span>
-              {(extension.client.script || extension.client.style) && <span className={badgeClass}>前端</span>}
-              {(extension.hasRoutes ||
-                Object.values(extension.provides).some((v) => v.length > 0) ||
-                (!extension.client.script && !extension.client.style)) && <span className={badgeClass}>后端</span>}
-              {dirty && <span className="text-amber-600">有未保存的修改</span>}
+        <div hidden={!!activePage} className="mx-auto w-full max-w-3xl space-y-5 p-4 sm:p-6">
+          {/* 扩展概要：名字、说明、元信息、启用开关放在一张卡片里，不再上下重复 */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <div className="flex items-start gap-4">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <h2 className="mr-1 break-words text-base font-semibold">{extension.name}</h2>
+                  <span className={badgeClass}>v{extension.version}</span>
+                  <span className={badgeClass}>{extension.source === 'builtin' ? '内置' : '本地'}</span>
+                  {extension.author && <span className={badgeClass}>{extension.author}</span>}
+                </div>
+                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-500">
+                  {extension.description || '暂无描述。'}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                <span className="text-xs text-zinc-500">{extension.enabled ? '已启用' : '已停用'}</span>
+                <Toggle
+                  label={`启用${extension.name}`}
+                  checked={extension.enabled}
+                  disabled={busy}
+                  onChange={(enabled) =>
+                    void update(extension.id, { enabled }).catch((e: unknown) => toast.error(errorMessage(e)))
+                  }
+                />
+              </div>
             </div>
-            <p className="whitespace-pre-wrap break-words text-sm text-zinc-500">
-              {extension.description || '暂无描述。'}
-            </p>
+            {(() => {
+              const provided = [
+                ...extension.provides.tools.map((name) => ({ kind: '工具', name })),
+                ...extension.provides.macros.map((name) => ({ kind: '宏', name: `{{${name}}}` })),
+                ...extension.provides.hooks.map((name) => ({ kind: '钩子', name })),
+                ...(extension.hasRoutes ? [{ kind: '接口', name: `/api/ext/${extension.id}/` }] : []),
+                ...(extension.client.script || extension.client.style ? [{ kind: '前端', name: '界面' }] : []),
+              ]
+              return (
+                provided.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+                    {provided.map((item) => (
+                      <span key={`${item.kind}:${item.name}`} className={cx(badgeClass, 'gap-1 font-normal')}>
+                        <span className="text-zinc-400">{item.kind}</span>
+                        <span className="break-all font-mono">{item.name}</span>
+                      </span>
+                    ))}
+                  </div>
+                )
+              )
+            })()}
           </div>
           {extension.loadError && (
             <div
@@ -201,52 +185,27 @@ export function ExtensionDetail({
               加载失败：{extension.loadError}
             </div>
           )}
-          {extension.hasRoutes && (
-            <p className="text-sm">
-              自定义接口：<code>/api/ext/{extension.id}/</code>
-            </p>
+          {dirty && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300">
+              <span className="size-1.5 rounded-full bg-amber-500" />
+              有未保存的修改，点右上角「保存」生效
+            </div>
           )}
-          <Section title="提供的能力">
-            {[
-              { label: '宏', values: extension.provides.macros.map((name) => `{{${name}}}`) },
-              { label: '工具', values: extension.provides.tools },
-              { label: '钩子', values: extension.provides.hooks },
-            ]
-              .filter((row) => row.values.length > 0)
-              .map((row) => (
-                <div key={row.label} className="space-y-2">
-                  <h3 className="text-sm font-medium">{row.label}</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {row.values.map((name) => (
-                      <span key={name} className={badgeClass}>
-                        {name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            {Object.values(extension.provides).every((values) => values.length === 0) && (
-              <p className="text-sm text-zinc-500">该扩展未声明宏、工具或钩子。</p>
-            )}
-          </Section>
-          <Section title="设置" description="编辑后点击顶部「保存」生效；「撤销修改」会恢复已保存的设置。">
-            {extension.settingsSchema.length > 0 ? (
-              <SettingsEditor
-                fields={extension.settingsSchema}
-                values={draft}
-                onChange={setDraft}
-                disabled={busy}
-                extensionId={extension.id}
-              />
-            ) : (
-              <p className="text-sm text-zinc-500">此扩展没有可配置的设置。</p>
-            )}
-            <Slot
-              name="extensions.settings.footer"
-              props={{ extensionId: extension.id, settings: draft, onSettingsChange: setDraft }}
+          {extension.settingsSchema.length > 0 ? (
+            <SettingsEditor
+              fields={extension.settingsSchema}
+              values={draft}
+              onChange={setDraft}
+              disabled={busy}
+              extensionId={extension.id}
             />
-          </Section>
-          <ToolSection />
+          ) : (
+            <p className="text-sm text-zinc-500">此扩展没有可配置的设置。</p>
+          )}
+          <Slot
+            name="extensions.settings.footer"
+            props={{ extensionId: extension.id, settings: draft, onSettingsChange: setDraft }}
+          />
         </div>
       </div>
     </div>
@@ -362,11 +321,6 @@ export function ExtensionsPage() {
             第三方扩展放在 <code className="break-all">data/extensions/&lt;目录&gt;/manifest.json</code>
             ，重启后加载。扩展代码在后端和浏览器中运行，只安装你信任的扩展。
           </p>
-          {selectedId === null && (
-            <div className="mt-4">
-              <ToolSection />
-            </div>
-          )}
         </>
       }
       detail={
@@ -394,7 +348,6 @@ export function ExtensionsPage() {
                   text={selectedId ? '未找到此扩展，请从列表重新选择' : '选择一个扩展，查看能力并编辑设置'}
                 />
               )}
-              <ToolSection />
             </div>
           </>
         )

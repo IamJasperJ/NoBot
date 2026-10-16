@@ -12,6 +12,11 @@ import { HttpError, notFound } from '../errors'
 import { listModels } from '../llm/openai'
 import { SETTING_KEYS } from './settings'
 
+// Zod 4 的 partial 仍会填充内部默认值，PATCH 必须显式移除 headers 默认值。
+export const apiPresetPatchInput = apiPresetInput.partial().extend({
+  headers: apiPresetInput.shape.headers.removeDefault().optional(),
+})
+
 /** Key 打码：只露出最后 4 位 */
 function maskKey(key: string) {
   if (!key) return ''
@@ -24,6 +29,7 @@ function toDTO(row: ApiPresetRow, defaultId: string | undefined): ApiPresetDTO {
     name: row.name,
     baseUrl: row.baseUrl,
     model: row.model,
+    headers: row.headers,
     apiKeyMasked: maskKey(row.apiKey),
     isDefault: row.id === defaultId,
   }
@@ -64,9 +70,9 @@ export function createApiPreset(input: ApiPresetInput): ApiPresetDTO {
   return toDTO(getApiPresetRow(id), getSetting<string>(SETTING_KEYS.defaultApiPresetId))
 }
 
-export function updateApiPreset(id: string, input: ApiPresetInput): ApiPresetDTO {
+export function updateApiPreset(id: string, input: Partial<ApiPresetInput>): ApiPresetDTO {
   getApiPresetRow(id)
-  const { apiKey, ...data } = apiPresetInput.parse(input)
+  const { apiKey, ...data } = apiPresetPatchInput.parse(input)
   db.update(apiPresets)
     .set({ ...data, ...(apiKey !== undefined ? { apiKey } : {}), updatedAt: Date.now() })
     .where(eq(apiPresets.id, id))
@@ -94,7 +100,7 @@ export async function testConnection(input: TestConnectionInput): Promise<TestCo
   const apiKey = input.apiKey || saved?.apiKey || ''
   if (!baseUrl) throw new HttpError(400, 'BAD_REQUEST', '缺少接口地址')
   try {
-    return { ok: true, models: await listModels(baseUrl, apiKey) }
+    return { ok: true, models: await listModels(baseUrl, apiKey, input.headers ?? saved?.headers ?? {}) }
   } catch (e) {
     return { ok: false, models: [], error: e instanceof Error ? e.message : String(e) }
   }

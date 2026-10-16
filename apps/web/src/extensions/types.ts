@@ -27,6 +27,20 @@ export interface SlotProps {
   /** 图片区域下方，所有角色（包括工具）均可注册媒体操作。 */
   'chat.message.media': { chatId: string; message: MessageDTO }
   /** 设置表单下方，仅渲染 extensionId 对应扩展自己的贡献；settings 是当前草稿。 */
+  /**
+   * 设置表单里 type 为 custom 的字段的控件。贡献的 id 必须等于字段的 key，只渲染 extensionId 匹配的扩展自己的贡献。
+   * value / onChange 是这个字段的值；settings / onSettingsChange 是整份设置草稿（需要同时改多个字段时用，比如风格列表 + 当前风格）
+   */
+  'extensions.settings.field': {
+    extensionId: string
+    fieldKey: string
+    label: string
+    value: unknown
+    onChange: (value: unknown) => void
+    settings: Record<string, unknown>
+    onSettingsChange: (settings: Record<string, unknown>) => void
+    disabled: boolean
+  }
   'extensions.settings.footer': {
     extensionId: string
     settings: Record<string, unknown>

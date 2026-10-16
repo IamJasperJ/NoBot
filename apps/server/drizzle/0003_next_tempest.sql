@@ -1,0 +1,1 @@
+ALTER TABLE `api_presets` ADD `headers` text DEFAULT '{}' NOT NULL;

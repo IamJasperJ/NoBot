@@ -404,6 +404,7 @@ async function generateOne(
     for await (const chunk of chatCompletion({
       baseUrl: connection.baseUrl,
       apiKey: connection.apiKey,
+      headers: connection.headers,
       body,
       signal: job.controller.signal,
     })) {
@@ -498,6 +499,7 @@ export async function* impersonate(chatId: string, signal: AbortSignal): AsyncGe
     for await (const chunk of chatCompletion({
       baseUrl: connection.baseUrl,
       apiKey: connection.apiKey,
+      headers: connection.headers,
       body,
       signal,
     })) {

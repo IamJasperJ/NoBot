@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../api/client'
 import { RefreshIcon, XIcon } from '../../components/icons'
-import { cx, IconButton, inputClass } from '../../components/ui'
+import { cx, IconButton, selectClass } from '../../components/ui'
 import { errorMessage } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 
@@ -62,7 +62,7 @@ export function PromptPreview({ chatId }: { chatId: string }) {
           Prompt 预览
         </div>
         <select
-          className={cx(inputClass, 'max-w-24 shrink-0 py-1')}
+          className={cx(selectClass, 'h-8 max-w-28 shrink-0')}
           value={type}
           onChange={(e) => setType(e.target.value as GenerationType)}
         >

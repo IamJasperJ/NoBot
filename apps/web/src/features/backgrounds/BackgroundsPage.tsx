@@ -2,9 +2,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useAutoBackground, useBackgroundSettings, useBackgrounds, useChatPages } from '../../api/queries'
-import { SelectField, TextField } from '../../components/form'
-import { UploadIcon } from '../../components/icons'
-import { Button, cx, Dialog } from '../../components/ui'
+import { TextField } from '../../components/form'
+import { EditIcon, LinkIcon, SearchIcon, TrashIcon, UploadIcon, WandIcon } from '../../components/icons'
+import { Button, controlClass, cx, Dialog, IconButton, selectClass } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 
@@ -55,10 +55,11 @@ export function BackgroundsPage() {
   }
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 py-2 border-b border-zinc-200 px-3 dark:border-zinc-800">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-zinc-200 px-3 dark:border-zinc-800">
         <h1 className="mr-auto font-semibold">背景</h1>
         {chatId && (
-          <Button
+          <IconButton
+            label={auto.isPending ? '正在让模型挑选…' : '自动选择：让模型挑一张最适合当前场景的背景'}
             disabled={busy || auto.isPending}
             onClick={() => {
               auto.mutate(chatId, {
@@ -67,24 +68,13 @@ export function BackgroundsPage() {
               })
             }}
           >
-            <svg
-              aria-hidden="true"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="m4 20 13-13 3 3L7 23zM5 3v4M3 5h4M17 1v4M15 3h4M21 15v4M19 17h4" />
-            </svg>
-            {auto.isPending ? '选择中…' : '自动选择'}
-          </Button>
+            <WandIcon className={auto.isPending ? 'animate-pulse' : ''} />
+          </IconButton>
         )}
-        <Button disabled={busy} onClick={() => setImporting(true)}>
-          从网址添加
-        </Button>
-        <Button disabled={busy} onClick={() => input.current?.click()}>
+        <IconButton label="从网址添加" disabled={busy} onClick={() => setImporting(true)}>
+          <LinkIcon />
+        </IconButton>
+        <Button size="sm" variant="primary" className="ml-1" disabled={busy} onClick={() => input.current?.click()}>
           <UploadIcon />
           {busy ? '处理中…' : '上传'}
         </Button>
@@ -114,72 +104,76 @@ export function BackgroundsPage() {
         />
       </header>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        <div className="flex items-end gap-2">
-          <TextField label="搜索背景" value={search} onChange={setSearch} />
-          <SelectField
-            label="排序"
+        <div className="flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-zinc-400" />
+            <input
+              className={cx(controlClass, 'pl-8')}
+              placeholder="搜索背景"
+              aria-label="搜索背景"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <select
+            className={cx(selectClass, 'w-24 shrink-0')}
+            aria-label="排序"
             value={sort}
-            onChange={setSort}
-            options={[
-              { value: 'latest', label: '最新' },
-              { value: 'name', label: '名字' },
-            ]}
-          />
+            onChange={(e) => setSort(e.target.value as 'latest' | 'name')}
+          >
+            <option value="latest">最新</option>
+            <option value="name">名字</option>
+          </select>
         </div>
-        <div className="space-y-2 rounded-lg bg-zinc-100 p-2 text-xs dark:bg-zinc-900">
+        {/* 当前生效范围：本聊天 / 全局 */}
+        <div className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white text-[13px] dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/40">
           {chatId && (
-            <div className="flex items-center gap-1">
-              <span className="min-w-0 flex-1 break-words">
-                当前聊天背景：{list.find((b) => b.id === chat?.backgroundId)?.name ?? '跟随全局'}
+            <div className="flex h-10 items-center gap-2 px-3">
+              <span className="w-14 shrink-0 text-zinc-500">本聊天</span>
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {list.find((b) => b.id === chat?.backgroundId)?.name ?? (
+                  <span className="font-normal text-zinc-400">跟随全局</span>
+                )}
               </span>
-              <Button
-                disabled={busy || !chat?.backgroundId}
-                onClick={() => void run(() => api.updateChat(chatId, { backgroundId: null }))}
-              >
-                清除
-              </Button>
+              {chat?.backgroundId && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="-mr-1.5 h-7 px-2 text-xs"
+                  disabled={busy}
+                  onClick={() => void run(() => api.updateChat(chatId, { backgroundId: null }))}
+                >
+                  清除
+                </Button>
+              )}
             </div>
           )}
-          <div className="break-words">全局背景：{list.find((b) => b.id === globalId)?.name ?? '无'}</div>
+          <div className="flex h-10 items-center gap-2 px-3">
+            <span className="w-14 shrink-0 text-zinc-500">全局</span>
+            <span className="min-w-0 flex-1 truncate font-medium">
+              {list.find((b) => b.id === globalId)?.name ?? <span className="font-normal text-zinc-400">无</span>}
+            </span>
+          </div>
         </div>
         {current && (
           <fieldset
             disabled={busy}
-            className="space-y-2 rounded-lg border border-violet-200 p-2 dark:border-violet-900"
+            className="space-y-2.5 rounded-xl border border-violet-200 bg-violet-50/50 p-3 dark:border-violet-900 dark:bg-violet-950/30"
           >
-            <p className="truncate text-sm font-medium">{current.name}</p>
-            <Button
-              className="w-full"
-              disabled={settings.isPending || settings.isError}
-              onClick={() =>
-                void run(() => api.setBackgroundSettings({ globalId: globalId === current.id ? null : current.id }))
-              }
-            >
-              {globalId === current.id ? '取消全局' : '设为全局背景'}
-            </Button>
-            <Button
-              className="w-full"
-              disabled={!chat}
-              onClick={() =>
-                chatId &&
-                void run(() =>
-                  api.updateChat(chatId, { backgroundId: chat?.backgroundId === current.id ? null : current.id }),
-                )
-              }
-            >
-              {chat?.backgroundId === current.id ? '取消本聊天背景' : '设为当前聊天背景'}
-            </Button>
-            <div className="flex flex-wrap gap-2">
-              <Button
+            <div className="flex items-center gap-1">
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold">{current.name}</p>
+              <IconButton
+                label="重命名"
                 onClick={() => {
                   setName(current.name)
                   setRenaming(true)
                 }}
               >
-                重命名
-              </Button>
-              <Button
+                <EditIcon />
+              </IconButton>
+              <IconButton
                 variant="danger"
+                label="删除"
                 onClick={() => {
                   if (confirm(`确定删除背景「${current.name}」？使用它的会话将跟随全局背景。`))
                     void run(async () => {
@@ -188,7 +182,31 @@ export function BackgroundsPage() {
                     })
                 }}
               >
-                删除
+                <TrashIcon />
+              </IconButton>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                size="sm"
+                variant={chat?.backgroundId === current.id ? 'secondary' : 'primary'}
+                disabled={!chat}
+                onClick={() =>
+                  chatId &&
+                  void run(() =>
+                    api.updateChat(chatId, { backgroundId: chat?.backgroundId === current.id ? null : current.id }),
+                  )
+                }
+              >
+                {chat?.backgroundId === current.id ? '取消本聊天' : '用于本聊天'}
+              </Button>
+              <Button
+                size="sm"
+                disabled={settings.isPending || settings.isError}
+                onClick={() =>
+                  void run(() => api.setBackgroundSettings({ globalId: globalId === current.id ? null : current.id }))
+                }
+              >
+                {globalId === current.id ? '取消全局' : '设为全局'}
               </Button>
             </div>
           </fieldset>
@@ -198,9 +216,9 @@ export function BackgroundsPage() {
         ) : backgrounds.isError ? (
           <p className="text-sm text-red-600">{errorMessage(backgrounds.error)}</p>
         ) : list.length === 0 ? (
-          <p className="py-6 text-sm text-zinc-500">还没有背景，点右上角上传</p>
+          <p className="py-10 text-center text-sm text-zinc-400">还没有背景，点右上角「上传」</p>
         ) : filtered.length === 0 ? (
-          <p className="text-sm text-zinc-500">没有匹配的背景</p>
+          <p className="py-6 text-center text-sm text-zinc-400">没有匹配的背景</p>
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {filtered.map((b) => (
@@ -210,12 +228,14 @@ export function BackgroundsPage() {
                 disabled={busy}
                 aria-pressed={selected === b.id}
                 onClick={() => setSelected(selected === b.id ? null : b.id)}
-                className="min-w-0 text-left"
+                className="group min-w-0 text-left"
               >
                 <div
                   className={cx(
-                    'relative overflow-hidden rounded-lg ring-2 ring-offset-2 ring-offset-white dark:ring-offset-zinc-950',
-                    selected === b.id ? 'ring-violet-500' : 'ring-transparent',
+                    'relative overflow-hidden rounded-lg bg-zinc-100 ring-2 ring-offset-2 ring-offset-white transition-shadow dark:bg-zinc-800 dark:ring-offset-zinc-950',
+                    selected === b.id
+                      ? 'ring-violet-500'
+                      : 'ring-transparent group-hover:ring-zinc-200 dark:group-hover:ring-zinc-700',
                   )}
                 >
                   {b.mime.startsWith('video/') ? (
@@ -230,15 +250,17 @@ export function BackgroundsPage() {
                   ) : (
                     <img src={b.thumbUrl} alt={b.name} loading="lazy" className="aspect-video w-full object-cover" />
                   )}
-                  {b.animated && (
-                    <span className="absolute right-1 bottom-1 rounded bg-zinc-900/80 px-1 text-[10px] text-white">
-                      动态
-                    </span>
-                  )}
-                  <div className="absolute inset-x-1 top-1 flex flex-wrap gap-1 text-[10px] text-white">
-                    {globalId === b.id && <span className="rounded bg-violet-700 px-1">全局</span>}
-                    {chat?.backgroundId === b.id && <span className="rounded bg-blue-700 px-1">本聊天</span>}
-                    {b.source === 'generated' && <span className="rounded bg-zinc-900/80 px-1">AI</span>}
+                  <div className="absolute inset-x-1.5 top-1.5 flex flex-wrap gap-1 text-[10px] leading-4 font-medium text-white">
+                    {chat?.backgroundId === b.id && (
+                      <span className="rounded bg-violet-600/90 px-1.5 shadow-sm">本聊天</span>
+                    )}
+                    {globalId === b.id && <span className="rounded bg-zinc-900/75 px-1.5 shadow-sm">全局</span>}
+                  </div>
+                  <div className="absolute right-1.5 bottom-1.5 flex gap-1 text-[10px] leading-4 font-medium text-white">
+                    {b.source === 'generated' && (
+                      <span className="rounded bg-black/55 px-1.5 backdrop-blur-sm">AI</span>
+                    )}
+                    {b.animated && <span className="rounded bg-black/55 px-1.5 backdrop-blur-sm">动态</span>}
                   </div>
                 </div>
                 <p className="mt-1.5 truncate text-xs" title={b.name}>

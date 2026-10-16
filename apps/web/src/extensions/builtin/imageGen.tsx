@@ -1,6 +1,7 @@
 import type { AttachmentDTO, CharacterDTO, CharacterSummary, ChatPage, MessageDTO } from '@ai-parter/shared'
 import { ImagePromptDialog } from '../../features/chat/ImagePromptDialog'
 import type { ClientExtensionAPI } from '../types'
+import { SettingsFooter, StyleField, WorkflowField } from './imageGenSettings'
 
 export const imageModes = [
   ['character', '角色（全身）'],
@@ -314,117 +315,50 @@ export default function activate(api: ClientExtensionAPI) {
         api.toast.error(errorText(error))
       }
     }
+    const mediaButton =
+      'inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-100'
+    const icon = (d: string) =>
+      h(
+        'svg',
+        {
+          viewBox: '0 0 24 24',
+          width: 14,
+          height: 14,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 2,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          'aria-hidden': true,
+        },
+        h('path', { d }),
+      )
     return h(
-      'div',
-      { className: 'flex flex-wrap gap-1 text-zinc-500' },
+      R.Fragment,
+      null,
       !!message.meta.images?.length &&
         (message.meta.imageIndex ?? message.meta.images.length - 1) < message.meta.images.length &&
         h(
           R.Fragment,
           null,
-          h('button', { type: 'button', className: buttonClass, disabled: pending, onClick: retry }, '↻ 重新生成'),
           h(
             'button',
-            { type: 'button', className: buttonClass, disabled: pending, onClick: background },
-            '▧ 设为聊天背景',
+            {
+              type: 'button',
+              className: mediaButton,
+              disabled: pending,
+              onClick: retry,
+              title: '保留现有图片，再生成一张备选（可左右切换）',
+            },
+            icon('M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5'),
+            '重新生成',
           ),
-        ),
-    )
-  }
-  function SettingsFooter({
-    settings,
-  }: {
-    settings: Record<string, unknown>
-    onSettingsChange?: (settings: Record<string, unknown>) => void
-  }) {
-    const [busy, setBusy] = R.useState(false)
-    const [error, setError] = R.useState('')
-    const [image, setImage] = R.useState<AttachmentDTO>()
-    const [duration, setDuration] = R.useState<number>()
-    const [connection, setConnection] = R.useState('')
-    const [inspection, setInspection] = R.useState<{
-      error?: string
-      placeholders?: { name: string; used: boolean }[]
-    }>({})
-    const draft = JSON.stringify(settings)
-    R.useEffect(() => {
-      if (settings.source !== 'comfy') return
-      let stale = false
-      const timer = setTimeout(() => {
-        void request(`comfy/workflow-inspection?settings=${encodeURIComponent(draft)}`)
-          .then((data) => {
-            if (!stale) setInspection(data)
-          })
-          .catch((error) => {
-            if (!stale) setError(errorText(error))
-          })
-      }, 200)
-      return () => {
-        stale = true
-        clearTimeout(timer)
-      }
-    }, [draft, settings.source])
-    async function connect() {
-      setBusy(true)
-      setError('')
-      setConnection('')
-      try {
-        await request('test-connection', { settings })
-        setConnection('连接成功')
-      } catch (error) {
-        setError(errorText(error))
-      } finally {
-        setBusy(false)
-      }
-    }
-    async function test() {
-      setBusy(true)
-      setError('')
-      try {
-        const data = await request('test', { settings })
-        setImage(data.image)
-        setDuration(data.durationMs)
-      } catch (error) {
-        setError(errorText(error))
-      } finally {
-        setBusy(false)
-      }
-    }
-    return h(
-      'div',
-      { className: 'flex flex-col gap-2 border-t border-zinc-500/20 pt-3' },
-      h(
-        'div',
-        { className: 'flex gap-2' },
-        h(
-          'button',
-          { type: 'button', className: buttonClass, disabled: busy, onClick: test },
-          busy ? '正在请求…' : '测试生成',
-        ),
-        h('button', { type: 'button', className: buttonClass, disabled: busy, onClick: connect }, '测试连接'),
-      ),
-      connection && h('p', { role: 'status', className: 'text-green-600' }, connection),
-      settings.source === 'comfy' &&
-        h(
-          'div',
-          { className: 'text-sm' },
-          h('strong', null, '当前工作流参数生效检查'),
-          inspection.error && h('p', { role: 'alert', className: 'text-red-500' }, inspection.error),
-          ...(inspection.placeholders?.map((item) =>
-            h(
-              'p',
-              { key: item.name },
-              `${item.used ? '✅ 已使用' : '— 未使用'} %${item.name}%${item.used ? '' : `；当前工作流没有使用 %${item.name}%，对应设置不会生效`}`,
-            ),
-          ) ?? []),
-        ),
-      error && h('p', { className: 'text-sm text-red-500' }, error),
-      image &&
-        h(
-          'div',
-          { className: 'text-sm text-zinc-500' },
-          `生成耗时：${((duration ?? 0) / 1000).toFixed(2)} 秒`,
-          h('img', { src: image.url, alt: '测试生成的图片', className: 'mt-2 max-h-64 max-w-full rounded' }),
+          h(
+            'button',
+            { type: 'button', className: mediaButton, disabled: pending, onClick: background },
+            icon('M3 5h18v14H3zM3 15l5-5 4 4 3-3 6 6'),
+            '设为聊天背景',
+          ),
         ),
     )
   }
@@ -650,7 +584,16 @@ export default function activate(api: ClientExtensionAPI) {
   api.registerSlot('chat.message.media', { id: 'media', render: (props) => h(Media, props) })
   api.registerSlot('extensions.settings.footer', {
     id: 'settings',
-    render: ({ settings, onSettingsChange }) => h(SettingsFooter, { settings, onSettingsChange }),
+    render: ({ settings }) => h(SettingsFooter, { api, settings }),
+  })
+  // 设置表单里的自定义控件：工作流管理、风格管理
+  api.registerSlot('extensions.settings.field', {
+    id: 'comfyWorkflowName',
+    render: (props) => h(WorkflowField, props),
+  })
+  api.registerSlot('extensions.settings.field', {
+    id: 'activeStyle',
+    render: (props) => h(StyleField, props),
   })
   return () => {
     unsubscribe()

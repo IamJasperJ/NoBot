@@ -30,7 +30,7 @@ function frame(status: 'error' | 'pending' = 'error', error = '上游生成失�
 function harness(initial: MessageDTO) {
   const qc = new QueryClient()
   qc.setQueryData(keys.chat('chat'), { pages: [{ messages: [initial] }], pageParams: [undefined] })
-  let tree: ReactElement
+  let tree: ReactElement | null = null
   let current = initial
   function Probe() {
     tree = MessageMedia({ msg: current, chatId: 'chat' })
@@ -81,22 +81,24 @@ test('失败框采用占位尺寸、截断提示词、错误详情和三个操�
       '重新生成',
       '改提示词…',
       '放弃',
-      '详情',
       'line-clamp-3',
-      'border-red-300',
-      'width:320px',
+      'ring-red-200',
+      'width:min(320px, 100%)',
       'aspect-ratio:832 / 1216',
     ])
       expect(html).toContain(text)
+    // 短错误不显示「详情」，长错误才可以展开
+    expect(html).not.toContain('详情')
+    expect(h.render(message({ imageGen: frame('error', '上游错误'.repeat(20)) }))).toContain('详情')
     expect(html).toContain(frame().prompt.slice(0, 80))
     expect(html).not.toContain(frame().prompt)
     const pending = h.render(message({ imageGen: frame('pending') }))
-    expect(pending).toContain('width:320px')
+    expect(pending).toContain('width:min(320px, 100%)')
     expect(pending).toContain('aspect-ratio:832 / 1216')
     const canceled = h.render(message({ imageGen: frame('error', '已取消') }))
     expect(canceled).toContain('已取消')
-    expect(canceled).toContain('border-zinc-300')
-    expect(canceled).not.toContain('border-red-300')
+    expect(canceled).toContain('bg-zinc-100')
+    expect(canceled).not.toContain('ring-red-200')
     const tool = renderToStaticMarkup(
       <QueryClientProvider client={h.qc}>
         <MessageItem
@@ -150,7 +152,9 @@ test('失败格和排队格可以左右切换；放弃后选中最后一张成�
     h.button('放弃').onClick()
     await Bun.sleep(1)
     expect(h.cached().meta.imageIndex).toBe(0)
-    expect(h.render(h.cached())).toContain('1/1')
+    // 只剩一张图时不再显示「1/1」切换
+    expect(h.render(h.cached())).not.toContain('1/1')
+    expect(h.render(h.cached())).toContain('/image.webp')
     expect(h.render()).not.toContain('role="alert"')
     expect(h.render(message({ images: [image], imageIndex: 1, imageGen: frame('pending') }))).toContain('2/2')
     h.button('上一张图片').onClick()

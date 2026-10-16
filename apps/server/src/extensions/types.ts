@@ -160,9 +160,9 @@ export interface Extension {
    * 自定义后端接口：在传入的 Hono 子应用上注册路由，挂载在 /api/ext/<扩展 id>/ 下。
    * 例如 app.get('/ping', (c) => c.json({ ok: true })) → GET /api/ext/<id>/ping。
    * 扩展被停用时这些接口返回 404。
-   * 设置项 optionsSource 对应 GET /api/ext/<id>/<optionsSource>?settings=<编码后的 JSON>，
+   * 设置项 optionsSource 对应 POST /api/ext/<id>/<optionsSource>，请求体 { settings, chatId? }，
    * 返回 { options: { value: string, label: string }[] }；失败返回错误 JSON。
-   * settings 是当前未保存的表单草稿，可用 parseSettingsQuery(c, ctx.settings) 和保存值合并。
+   * settings 是当前未保存的表单草稿，可用 await parseSettingsDraft(c, ctx.settings) 和保存值合并。
    */
   routes?: (app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) => void
 }
@@ -171,12 +171,27 @@ export function defineExtension(extension: Extension): Extension {
   return extension
 }
 
-/** 查询草稿只接受 JSON 对象；格式错误时沿用已保存设置。 */
-export function parseSettingsQuery(c: Context, saved: Record<string, unknown>): Record<string, unknown> {
-  try {
-    const draft: unknown = JSON.parse(c.req.query('settings') ?? 'null')
-    return typeof draft === 'object' && draft !== null && !Array.isArray(draft) ? { ...saved, ...draft } : { ...saved }
-  } catch {
-    return { ...saved }
+/** 缓存解析结果，草稿、会话和工作流检查共用同一次请求体读取。 */
+const draftBodies = new WeakMap<Context, Promise<Record<string, unknown>>>()
+export function draftBody(c: Context): Promise<Record<string, unknown>> {
+  let body = draftBodies.get(c)
+  if (!body) {
+    body = c.req
+      .json<unknown>()
+      .then((value) =>
+        value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {},
+      )
+      .catch(() => ({}))
+    draftBodies.set(c, body)
   }
+  return body
+}
+/** POST 草稿只接受 JSON 对象；缺失或格式错误时沿用已保存设置。 */
+export async function parseSettingsDraft(c: Context, saved: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const draft = (await draftBody(c)).settings
+  return draft && typeof draft === 'object' && !Array.isArray(draft) ? { ...saved, ...draft } : { ...saved }
+}
+export async function draftChatId(c: Context): Promise<string | undefined> {
+  const chatId = (await draftBody(c)).chatId
+  return typeof chatId === 'string' ? chatId : undefined
 }

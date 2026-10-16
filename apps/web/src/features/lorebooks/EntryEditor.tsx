@@ -15,7 +15,7 @@ import {
   TextAreaField,
   TextField,
 } from '../../components/form'
-import { Button, Field, inputClass } from '../../components/ui'
+import { Button, controlClass, Field } from '../../components/ui'
 import { SaveActions } from './editor'
 
 const sources: Record<MatchSource, string> = {
@@ -244,7 +244,7 @@ export function EntryEditor({
         ))}
         <Field label="扫描深度" hint="扫描最近多少条消息（0–1000）；留空表示跟随全局。">
           <input
-            className={inputClass}
+            className={controlClass}
             type="number"
             min={0}
             max={1000}

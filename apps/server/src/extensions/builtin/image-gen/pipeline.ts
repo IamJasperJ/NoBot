@@ -9,7 +9,7 @@ import type { ExtensionContext } from '../../types'
 import { generateComfy } from './backends/comfy'
 import { generateOpenAI } from './backends/openai'
 import { characterPrompt, composePrompt, dimensions } from './composition'
-import { comfyHeaders, resolveImageConnection } from './discovery'
+import { comfyHeaders, openaiHeaders, resolveImageConnection } from './discovery'
 import { cleanPrompt, type Mode, rawPrompt, replaceTemplate, templateEnding, templates } from './modes'
 import { openaiSize } from './options'
 import { Semaphore } from './semaphore'
@@ -193,14 +193,21 @@ export async function promptPreview(ctx: Context, input: GenerateInput) {
   }
 }
 function safeSnapshot(settings: Settings) {
-  const { openaiApiKey: _key, comfyHeaders: _headers, charAvatar: _char, userAvatar: _user, ...safe } = settings
+  const {
+    openaiApiKey: _key,
+    comfyHeaders: _headers,
+    openaiHeaders: _openaiHeaders,
+    charAvatar: _char,
+    userAvatar: _user,
+    ...safe
+  } = settings
   return safe
 }
 function safeError(error: unknown, settings: Settings) {
   let text = errorText(error)
   const secrets = [settings.openaiApiKey]
   try {
-    secrets.push(...Object.values(comfyHeaders(settings)))
+    secrets.push(...Object.values(comfyHeaders(settings)), ...Object.values(openaiHeaders(settings)))
   } catch {
     /* 无效请求头本身不包含在错误里。 */
   }

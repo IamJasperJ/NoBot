@@ -29,11 +29,26 @@ export function AvatarUpload({
 }) {
   const input = useRef<HTMLInputElement>(null)
   return (
-    <div className="space-y-2">
-      <Button disabled={disabled} onClick={() => input.current?.click()} aria-label="上传头像">
+    <div className="flex items-center gap-4">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => input.current?.click()}
+        aria-label="上传头像"
+        title="点击更换头像"
+        className="group relative shrink-0 rounded-full ring-1 ring-black/5 disabled:opacity-60 dark:ring-white/10"
+      >
         <Avatar name={name} url={url} size={64} />
-        上传头像
-      </Button>
+        <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+          更换
+        </span>
+      </button>
+      <div className="min-w-0 space-y-1">
+        <Button size="sm" disabled={disabled} onClick={() => input.current?.click()}>
+          上传头像
+        </Button>
+        <p className="text-xs text-zinc-500">支持任意图片格式，上传后立即生效</p>
+      </div>
       <input
         ref={input}
         hidden
@@ -45,7 +60,6 @@ export function AvatarUpload({
           if (file) onUpload(file)
         }}
       />
-      <p className="text-xs text-zinc-500">点击头像上传任意图片格式，上传后立即生效。</p>
     </div>
   )
 }

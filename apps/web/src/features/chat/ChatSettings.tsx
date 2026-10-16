@@ -13,8 +13,8 @@ import {
   usePresets,
 } from '../../api/queries'
 import { NumberField, Section, SelectField, TextAreaField, TextField, Toggle } from '../../components/form'
-import { XIcon } from '../../components/icons'
-import { Avatar, Button, IconButton } from '../../components/ui'
+import { WandIcon, XIcon } from '../../components/icons'
+import { Avatar, Button, cx, IconButton } from '../../components/ui'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -113,45 +113,6 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
           />
         )}
 
-        <Section title="聊天背景">
-          <div className="flex items-center gap-2 text-sm">
-            {background &&
-              (background.mime.startsWith('video/') ? (
-                <video src={background.thumbUrl} muted preload="metadata" className="h-10 w-16 rounded object-cover" />
-              ) : (
-                <img src={background.thumbUrl} alt="" className="h-10 w-16 rounded object-cover" />
-              ))}
-            <span className="min-w-0 truncate">{background?.name ?? '跟随全局'}</span>
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={() => useUi.getState().openView('backgrounds')}>选择…</Button>
-            <Button
-              disabled={auto.isPending}
-              onClick={() =>
-                auto.mutate(chatId, {
-                  onSuccess: ({ background }) => toast.info(`已选择：${background.name}`),
-                  onError: (error) => toast.error(errorMessage(error)),
-                })
-              }
-            >
-              {auto.isPending ? '选择中…' : '自动选择'}
-            </Button>
-            <Button
-              disabled={!page.chat.backgroundId}
-              onClick={async () => {
-                try {
-                  await api.updateChat(chatId, { backgroundId: null })
-                  await qc.invalidateQueries({ queryKey: keys.chat(chatId) })
-                } catch (e) {
-                  toast.error(errorMessage(e))
-                }
-              }}
-            >
-              清除
-            </Button>
-          </div>
-        </Section>
-
         <TextField label="会话名称" value={draft.title} onChange={(v) => set('title', v)} />
 
         <Section title="人设与预设">
@@ -185,6 +146,56 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
               ...(connections.data ?? []).map((p) => ({ value: p.id, label: `${p.name}（${p.model}）` })),
             ]}
           />
+        </Section>
+
+        <Section title="聊天背景" description="只对这个会话生效，清除后跟随全局背景">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-20 shrink-0 overflow-hidden rounded-lg bg-zinc-100 ring-1 ring-black/5 dark:bg-zinc-800 dark:ring-white/10">
+              {background &&
+                (background.mime.startsWith('video/') ? (
+                  <video src={background.thumbUrl} muted preload="metadata" className="size-full object-cover" />
+                ) : (
+                  <img src={background.thumbUrl} alt="" className="size-full object-cover" />
+                ))}
+            </div>
+            <span className={cx('min-w-0 flex-1 truncate text-sm', background ? 'font-medium' : 'text-zinc-400')}>
+              {background?.name ?? '跟随全局'}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => useUi.getState().openView('backgrounds')}>
+              选择…
+            </Button>
+            <Button
+              size="sm"
+              disabled={auto.isPending}
+              onClick={() =>
+                auto.mutate(chatId, {
+                  onSuccess: ({ background }) => toast.info(`已选择：${background.name}`),
+                  onError: (error) => toast.error(errorMessage(error)),
+                })
+              }
+            >
+              <WandIcon />
+              {auto.isPending ? '选择中…' : '自动选择'}
+            </Button>
+            {page.chat.backgroundId && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={async () => {
+                  try {
+                    await api.updateChat(chatId, { backgroundId: null })
+                    await qc.invalidateQueries({ queryKey: keys.chat(chatId) })
+                  } catch (e) {
+                    toast.error(errorMessage(e))
+                  }
+                }}
+              >
+                清除
+              </Button>
+            )}
+          </div>
         </Section>
 
         <Section title="会话世界书" description="只在这个会话里生效，优先级最高">

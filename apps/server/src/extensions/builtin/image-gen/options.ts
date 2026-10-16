@@ -8,9 +8,8 @@ export function isImageModel(name: string): boolean {
     name,
   )
 }
-export function imageModelOptions(names: string[], imageOnly = false): Option[] {
+export function imageModelOptions(names: string[]): Option[] {
   return [...new Set(names)]
-    .filter((name) => !imageOnly || isImageModel(name))
     .sort((a, b) => Number(isImageModel(b)) - Number(isImageModel(a)) || a.localeCompare(b))
     .map((value) => ({ value, label: value + (isImageModel(value) ? '（图片）' : '') }))
 }

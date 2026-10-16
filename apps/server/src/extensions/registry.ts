@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { db, getSetting, setSetting } from '../db/client'
 import { settings } from '../db/schema'
 import { env } from '../env'
-import { notFound } from '../errors'
+import { HttpError, notFound } from '../errors'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
 import imageGen from './builtin/image-gen'
@@ -37,9 +37,18 @@ const loaded: Loaded[] = []
 function createApp(extension: Extension): Hono | undefined {
   if (!extension.routes) return undefined
   const app = new Hono()
-  app.onError((error) => {
-    throw error
-  })
+  app.onError((error, c) =>
+    c.json(
+      {
+        error: {
+          code: error instanceof HttpError ? error.code : 'INTERNAL',
+          message:
+            error instanceof HttpError ? error.message : `服务器内部错误：${error.message || '扩展接口执行失败'}`,
+        },
+      },
+      error instanceof HttpError ? error.status : 500,
+    ),
+  )
   app.notFound((c) => c.json({ error: { code: 'NOT_FOUND', message: '扩展接口不存在' } }, 404))
   extension.routes(app, {
     get settings() {

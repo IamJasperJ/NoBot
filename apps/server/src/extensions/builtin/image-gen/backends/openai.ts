@@ -1,4 +1,5 @@
 import { HttpError } from '../../../../errors'
+import { openaiRequestHeaders } from '../discovery'
 import { openaiSize } from '../options'
 import type { Settings } from '../settings'
 import { imageFetch, jsonResponse, object } from './http'
@@ -34,7 +35,7 @@ export async function generateOpenAI(
   const response = await imageFetch(`${settings.openaiBaseUrl.replace(/\/+$/, '')}/images/generations`, {
     method: 'POST',
     signal,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.openaiApiKey}` },
+    headers: openaiRequestHeaders(settings),
     body: JSON.stringify(openaiBody(settings, prompt, width, height)),
   })
   const body = await jsonResponse(response)

@@ -99,6 +99,7 @@ export const apiPresets = sqliteTable('api_presets', {
   baseUrl: text('base_url').notNull(),
   /** 本地数据库明文保存，接口返回时打码；将来部署到服务器时再加密 */
   apiKey: text('api_key').notNull().default(''),
+  headers: text('headers', { mode: 'json' }).$type<Record<string, string>>().notNull().default(sql`'{}'`),
   model: text('model').notNull(),
   ...timestamps,
 })

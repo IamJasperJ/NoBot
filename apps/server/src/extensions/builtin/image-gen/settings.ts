@@ -18,7 +18,7 @@ const shape = z
     openaiModel: z.string().default('gpt-image-1'),
     openaiExtra: z.string().default(''),
     openaiQuality: z.enum(['auto', 'low', 'medium', 'high']).default('auto'),
-    openaiImageOnly: z.boolean().default(true),
+    openaiHeaders: z.string().default(''),
     promptConnectionId: z.string().default(''),
     promptModel: z.string().default(''),
     comfyUrl: z.string().default('http://127.0.0.1:8188'),
@@ -104,6 +104,17 @@ const number = (key: string, label: string, hint: string, min = 0, step = 1): Ex
   min,
   step,
 })
+/** 带滑块的半宽数字（步数、CFG 这类两两并排显示） */
+const slider = (key: string, label: string, min: number, max: number, step: number): ExtensionSettingField => ({
+  key,
+  label,
+  type: 'number',
+  min,
+  max,
+  step,
+  slider: true,
+  width: 'half',
+})
 const bool = (key: string, label: string, hint: string): ExtensionSettingField => ({
   key,
   label,
@@ -138,19 +149,27 @@ export const settingsSchema: ExtensionSettingField[] = [
     visibleWhen: openai,
     hint: '仅复用地址与密钥，不切换聊天连接或使用聊天模型',
   },
-  text('openaiBaseUrl', '接口地址', '包含 /v1 等接口路径', { visibleWhen: { key: 'openaiConnectionId', equals: '' } }),
+  {
+    ...area(
+      'openaiHeaders',
+      '额外请求头（JSON）',
+      '每个图片请求都会带上，例如反向代理鉴权；示例：{"X-Api-Key": "xxx"}',
+    ),
+    attachTo: 'openaiConnectionId',
+    attachLabel: '额外请求头',
+    visibleWhen: openai,
+  },
+  text('openaiBaseUrl', '接口地址', '包含 /v1 等接口路径', {
+    visibleWhen: [openai, { key: 'openaiConnectionId', equals: '' }],
+  }),
   text('openaiApiKey', 'API 密钥', '图片接口的鉴权密钥', {
     secret: true,
-    visibleWhen: { key: 'openaiConnectionId', equals: '' },
+    visibleWhen: [openai, { key: 'openaiConnectionId', equals: '' }],
   }),
-  text('openaiModel', '图片模型', '从端点拉取候选，也可以手填模型 ID', {
+  text('openaiModel', '图片模型', '可以从端点拉取全部模型（图片模型排在前面），也可以直接手填任意模型 ID', {
     optionsSource: 'openai/models',
     visibleWhen: openai,
   }),
-  {
-    ...bool('openaiImageOnly', '只显示可能的图片模型', '按名称筛选，关闭可查看端点的全部模型；始终允许手填'),
-    visibleWhen: openai,
-  },
   {
     ...select(
       'openaiQuality',
@@ -169,34 +188,43 @@ export const settingsSchema: ExtensionSettingField[] = [
     {
       ...area(
         'comfyHeaders',
-        '附加请求头（JSON）',
+        '额外请求头（JSON）',
         '例如反向代理鉴权，留空不附加；示例：{"Authorization": "Bearer xxx"}',
       ),
       attachTo: 'comfyUrl',
-      attachLabel: '头',
+      attachLabel: '额外请求头',
     },
-    text('comfyCheckpoint', '模型文件名', '注意选择与工作流 Loader 匹配的类型', { optionsSource: 'comfy/models' }),
-    text('comfySampler', '采样器', '从 KSampler 读取', { optionsSource: 'comfy/samplers' }),
-    text('comfyScheduler', '调度器', '从 KSampler 读取', { optionsSource: 'comfy/schedulers' }),
-    text('comfyVae', 'VAE', '留空使用工作流默认 VAE', { optionsSource: 'comfy/vaes' }),
+    // 工作流管理（下拉 + 编辑 / 新建 / 重命名 / 删除，编辑器里显示占位符使用情况），由前端自定义控件渲染
+    {
+      key: 'comfyWorkflowName',
+      label: '工作流',
+      type: 'custom' as const,
+      hint: '编辑器里可以粘贴从 ComfyUI 导出的 API 格式工作流，并查看用到了哪些占位符',
+    },
+    {
+      ...text('comfyCheckpoint', '模型', '与工作流的 Loader 类型匹配', { optionsSource: 'comfy/models' }),
+      width: 'half' as const,
+    },
+    { ...text('comfyVae', 'VAE', '留空使用工作流默认', { optionsSource: 'comfy/vaes' }), width: 'half' as const },
+    { ...text('comfySampler', '采样器', '', { optionsSource: 'comfy/samplers' }), width: 'half' as const },
+    { ...text('comfyScheduler', '调度器', '', { optionsSource: 'comfy/schedulers' }), width: 'half' as const },
+    slider('comfySteps', '采样步数', 1, 150, 1),
+    slider('comfyCfg', 'CFG', 1, 30, 0.5),
+    slider('comfyDenoise', '去噪强度', 0, 1, 0.05),
+    slider('comfyClipSkip', 'CLIP 跳层', -12, -1, 1),
+    number('comfyTimeout', '超时（秒）', '超过后中止当前任务', 1),
   ].map((field) => ({ ...field, visibleWhen: comfy })),
   heading('picture', '画面与分辨率'),
   select('resolution', '基准分辨率', [...resolutionOptions, { value: 'custom', label: '自定义' }]),
   ...[
-    number('width', '自定义宽度', '仅自定义分辨率生效', 1),
-    number('height', '自定义高度', '仅自定义分辨率生效', 1),
+    { ...number('width', '宽度', '', 64, 64), width: 'half' as const },
+    { ...number('height', '高度', '', 64, 64), width: 'half' as const },
   ].map((field) => ({ ...field, visibleWhen: { key: 'resolution', equals: 'custom' } })),
   bool('snapResolution', '调整后贴合预设分辨率', '横竖图对调后，尽量保持像素总数并贴合最近的预设'),
   number('seed', '种子', '-1 为随机；生成新候选时固定种子也会重新随机', -1),
   heading('stylesSection', '风格'),
-  {
-    key: 'styles',
-    titleKey: 'name',
-    label: '风格列表',
-    type: 'list',
-    itemFields: [text('name', '名称', '用于选择风格'), ...promptFields],
-  },
-  select('activeStyle', '当前风格', [], 'styles'),
+  // 风格管理（下拉 + 保存 / 重命名 / 删除，下面直接编辑当前风格的前缀、后缀、负面），由前端自定义控件渲染
+  { key: 'activeStyle', label: '风格', type: 'custom', hint: '前缀里可以写 {prompt} 指定生成提示词插入的位置' },
   {
     key: 'modeOverrides',
     titleKey: 'mode',
@@ -250,38 +278,4 @@ export const settingsSchema: ExtensionSettingField[] = [
     .map((m) =>
       area(`tpl_${m.key}`, m.name, '要求输出英文关键词；支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}'),
     ),
-  heading('comfyAdvanced', 'ComfyUI 高级', true),
-  ...[
-    select(
-      'comfyWorkflowName',
-      '当前工作流',
-      [
-        { value: '', label: '内置默认' },
-        { value: 'avatar', label: '角色头像图生图' },
-      ],
-      'comfy/workflows',
-    ),
-    {
-      key: 'comfyWorkflows',
-      titleKey: 'name',
-      label: '自定义工作流',
-      type: 'list' as const,
-      itemFields: [
-        text('name', '名称', '选择工作流时显示'),
-        area('json', 'API 工作流 JSON', '从 ComfyUI 导出的 API 格式对象'),
-      ],
-    },
-    number('comfySteps', '步数', '仅工作流引用 %steps% 时生效', 1),
-    number('comfyCfg', 'CFG', '仅工作流引用 %scale% 时生效', 0, 0.5),
-    number('comfyDenoise', '去噪强度', '0～1，仅工作流引用 %denoise% 时生效', 0, 0.05),
-    number('comfyClipSkip', 'CLIP 跳层', '负整数，仅工作流引用 %clip_skip% 时生效', -99),
-    number('comfyTimeout', '超时（秒）', '超过后中止当前任务', 1),
-    {
-      key: 'comfyCustomPlaceholders',
-      titleKey: 'find',
-      label: '自定义占位符',
-      type: 'list' as const,
-      itemFields: [text('find', '查找', '填写名称或 %名称%'), text('replace', '替换', '支持 {{char}} {{user}} 宏')],
-    },
-  ].map((field) => ({ ...field, visibleWhen: comfy })),
 ]

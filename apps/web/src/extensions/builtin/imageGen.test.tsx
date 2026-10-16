@@ -7,6 +7,7 @@ import { Composer } from '../../features/chat/Composer'
 import { useExtensionsRuntime } from '../runtime'
 import type { ClientExtensionAPI, SlotContribution } from '../types'
 import activate from './imageGen'
+import { postDraft } from './imageGenSettings'
 
 test('独立图片按钮打开菜单，连续选择发出两个请求，群聊按成员展开，+ 菜单无重复分组', async () => {
   const requests: { path: string; body: unknown }[] = []
@@ -303,15 +304,24 @@ test('编辑预览确认与取消、角色提示词保存、swipe 事件和草�
     })
     expect(requests).toHaveLength(before)
     states.length = 0
+    // 测试连接 / 测试生成用表单草稿，通过请求体发送，不保存设置
     const settings = { source: 'comfy', comfyUrl: 'http://draft', comfyCheckpoint: 'draft' }
-    render('extensions.settings.footer', { settings })
-    clicks.get('测试连接')!()
-    await Bun.sleep(1)
-    expect(requests.at(-1)).toEqual({ path: 'test-connection', body: { settings } })
-    render('extensions.settings.footer', { settings })
-    clicks.get('测试生成')!()
-    await Bun.sleep(1)
-    expect(requests.at(-1)).toEqual({ path: 'test', body: { settings } })
+    const posted: { path: string; init?: RequestInit }[] = []
+    const fakeApi = {
+      fetchServer: async (path: string, init?: RequestInit) => {
+        posted.push({ path, ...(init ? { init } : {}) })
+        return Response.json({ ok: true })
+      },
+    }
+    await postDraft(fakeApi, 'test-connection', settings)
+    await postDraft(fakeApi, 'test', settings)
+    expect(posted.map((p) => [p.path, p.init?.method, JSON.parse(String(p.init?.body))])).toEqual([
+      ['test-connection', 'POST', { settings }],
+      ['test', 'POST', { settings }],
+    ])
+    await expect(
+      postDraft({ fetchServer: async () => new Response('', { status: 414 }) }, 'test', settings),
+    ).rejects.toThrow('HTTP 414')
     expect(saves).toBe(0)
     expect(errors).toEqual([])
   } finally {

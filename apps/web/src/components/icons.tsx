@@ -176,3 +176,55 @@ export const ImageIcon = (p: P) => (
     <path d="m3 17 6-6 4 4 3-3 5 5" />
   </Icon>
 )
+
+export const ChevronDownIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="m6 9 6 6 6-6" />
+  </Icon>
+)
+
+export const ArrowUpIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 19V5M5 12l7-7 7 7" />
+  </Icon>
+)
+
+export const ArrowDownIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 5v14M19 12l-7 7-7-7" />
+  </Icon>
+)
+
+export const EyeOffIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3 3.8M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18" />
+  </Icon>
+)
+
+export const SearchIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="m20 20-3.5-3.5" />
+  </Icon>
+)
+
+export const LinkIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+    <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+  </Icon>
+)
+
+export const WandIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="m15 4 5 5L9 20l-5-5L15 4z" />
+    <path d="M12 7l5 5M5 3v3M3.5 4.5h3M19 15v3M17.5 16.5h3" />
+  </Icon>
+)
+
+export const CheckIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="m5 12 5 5L20 7" />
+  </Icon>
+)

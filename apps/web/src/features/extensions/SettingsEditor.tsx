@@ -1,10 +1,22 @@
 import type { ExtensionSettingField } from '@ai-parter/shared'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Combobox, type Option } from '../../components/combobox'
 import { NumberField, SelectField, SwitchField, TextAreaField, TextField } from '../../components/form'
-import { ChevronLeftIcon, ChevronRightIcon, RefreshIcon } from '../../components/icons'
-import { Button, IconButton, inputClass } from '../../components/ui'
-
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  EyeIcon,
+  EyeOffIcon,
+  PlusIcon,
+  RefreshIcon,
+  TrashIcon,
+} from '../../components/icons'
+import { Button, cx, IconButton } from '../../components/ui'
+import { useExtensionsRuntime } from '../../extensions/runtime'
+import { Slot } from '../../extensions/Slot'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 
@@ -33,25 +45,6 @@ const regexHints: Record<string, string> = {
   enabled: '开启后执行这条规则，关闭可保留规则而暂停执行。',
 }
 
-function fallbackHint(field: ExtensionSettingField): string {
-  switch (field.type) {
-    case 'heading':
-      return ''
-    case 'boolean':
-      return `开启或关闭「${field.label}」功能。`
-    case 'string':
-      return `填写「${field.label}」使用的文字。`
-    case 'textarea':
-      return `填写「${field.label}」的内容，支持多行文字。`
-    case 'number':
-      return `设置「${field.label}」的数值${field.min !== undefined || field.max !== undefined ? `，范围为 ${field.min ?? -1e9} 至 ${field.max ?? 1e9}` : ''}。`
-    case 'select':
-      return `选择「${field.label}」使用的选项。`
-    case 'list':
-      return '逐项填写设置，可添加、删除或调整顺序；保存后生效。'
-  }
-}
-
 type EditorProps = {
   fields: ExtensionSettingField[]
   values: Record<string, unknown>
@@ -61,14 +54,17 @@ type EditorProps = {
   settings?: Record<string, unknown>
 }
 
+/** visibleWhen：单个条件，或数组（全部满足才显示） */
 function visible(field: ExtensionSettingField, values: Record<string, unknown>): boolean {
-  const condition = field.visibleWhen
-  return (
-    !condition ||
-    (Array.isArray(condition.equals) ? condition.equals : [condition.equals]).some(
-      (expected) => values[condition.key] === expected,
-    )
+  const conditions = field.visibleWhen === undefined ? [] : [field.visibleWhen].flat()
+  return conditions.every((condition) =>
+    [condition.equals].flat().some((expected) => values[condition.key] === expected),
   )
+}
+
+/** 设置项的说明：只用扩展自己写的说明（正则替换扩展有内置说明），不再自动生成「填写某某的文字」这类废话 */
+function hintOf(field: ExtensionSettingField, extensionId: string): string | undefined {
+  return field.hint || (extensionId === 'regex' ? regexHints[field.key] : undefined) || undefined
 }
 
 export function SettingsEditor(props: EditorProps) {
@@ -118,6 +114,7 @@ function SettingsForm({ fields, values, onChange, disabled, extensionId, setting
   const renderField = (field: ExtensionSettingField): ReactNode => (
     <SettingControl
       key={field.key}
+      onSettingsChange={onChange}
       field={field}
       value={values[field.key]}
       onChange={(next) => onChange({ ...values, [field.key]: next })}
@@ -134,49 +131,147 @@ function SettingsForm({ fields, values, onChange, disabled, extensionId, setting
     />
   )
   return (
-    <div className="min-w-0 space-y-4">
+    <div className="min-w-0 space-y-3">
       {headingCount >= 3 && (
-        <Button
-          aria-label="切换全部分组"
-          onClick={() =>
-            changeCollapsed({
-              ...collapsed,
-              ...Object.fromEntries(groups.flatMap(({ heading }) => (heading ? [[heading.key, !allCollapsed]] : []))),
-            })
-          }
-        >
-          {allCollapsed ? '全部展开' : '全部收起'}
-        </Button>
+        <div className="flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="切换全部分组"
+            onClick={() =>
+              changeCollapsed({
+                ...collapsed,
+                ...Object.fromEntries(groups.flatMap(({ heading }) => (heading ? [[heading.key, !allCollapsed]] : []))),
+              })
+            }
+          >
+            <ChevronDownIcon className={allCollapsed ? '' : 'rotate-180'} />
+            {allCollapsed ? '全部展开' : '全部收起'}
+          </Button>
+        </div>
       )}
       {groups.map(({ heading, fields: members }, index) => {
         const shown = members.filter((field) => isVisible(field))
         if (!shown.length || (heading && !visible(heading, values))) return null
-        const closed = heading ? (collapsed[heading.key] ?? heading.defaultCollapsed ?? false) : false
+        const body = layoutRows(
+          shown.filter((field) => !field.attachTo),
+          renderField,
+        )
+        if (!heading)
+          return (
+            <div key={index} className="min-w-0 space-y-5">
+              {body}
+            </div>
+          )
+        const closed = collapsed[heading.key] ?? heading.defaultCollapsed ?? false
         return (
-          <div key={heading?.key ?? index} className="min-w-0 space-y-4">
-            {heading && (
-              <button
-                type="button"
-                aria-expanded={!closed}
-                className="flex w-full items-center gap-2 text-left"
-                onClick={() => changeCollapsed({ ...collapsed, [heading.key]: !closed })}
-              >
-                <ChevronRightIcon className={`shrink-0 ${closed ? '' : 'rotate-90'}`} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-bold">{heading.label}</span>
-                  {heading.hint && <span className="block text-xs text-zinc-500">{heading.hint}</span>}
-                </span>
-                {closed && <span className="shrink-0 text-xs text-zinc-500">{shown.length} 项</span>}
-              </button>
+          <section
+            key={heading.key}
+            className="min-w-0 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40"
+          >
+            <button
+              type="button"
+              aria-expanded={!closed}
+              className={cx(
+                'flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40',
+                closed ? 'rounded-xl' : 'rounded-t-xl',
+              )}
+              onClick={() => changeCollapsed({ ...collapsed, [heading.key]: !closed })}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">{heading.label}</span>
+                {heading.hint && <span className="mt-0.5 block text-xs text-zinc-500">{heading.hint}</span>}
+              </span>
+              {closed && <span className="shrink-0 text-xs text-zinc-400 tabular-nums">{shown.length} 项</span>}
+              <ChevronRightIcon
+                className={cx('size-4 shrink-0 text-zinc-400 transition-transform', !closed && 'rotate-90')}
+              />
+            </button>
+            {!closed && (
+              <div className="min-w-0 space-y-5 border-t border-zinc-100 px-4 py-4 dark:border-zinc-800">{body}</div>
             )}
-            {!closed && shown.filter((field) => !field.attachTo).map(renderField)}
-          </div>
+          </section>
         )
       })}
     </div>
   )
 }
 
+/** type 为 custom 的字段：交给扩展前端注册的控件渲染 */
+function CustomField({
+  field,
+  value,
+  onChange,
+  settings,
+  onSettingsChange,
+  disabled,
+  extensionId,
+  hint,
+}: {
+  field: ExtensionSettingField
+  value: unknown
+  onChange: (value: unknown) => void
+  settings: Record<string, unknown>
+  onSettingsChange: (settings: Record<string, unknown>) => void
+  disabled: boolean
+  extensionId: string
+  hint: string | undefined
+}) {
+  const registered = useExtensionsRuntime((s) =>
+    s.slots.some(
+      (entry) =>
+        entry.slot === 'extensions.settings.field' && entry.extensionId === extensionId && entry.id === field.key,
+    ),
+  )
+  return (
+    <div className="min-w-0 space-y-1.5">
+      {registered ? (
+        <Slot
+          name="extensions.settings.field"
+          props={{
+            extensionId,
+            fieldKey: field.key,
+            label: field.label,
+            value,
+            onChange,
+            settings,
+            onSettingsChange,
+            disabled,
+          }}
+        />
+      ) : (
+        <p className="text-xs text-zinc-400">「{field.label}」需要扩展的前端部分来显示（扩展前端未加载）</p>
+      )}
+      {hint && <p className="text-xs leading-relaxed text-zinc-500">{hint}</p>}
+    </div>
+  )
+}
+
+/** 连续的半宽字段两两并排（窄屏一列），其余字段各占一行 */
+function layoutRows(fields: ExtensionSettingField[], render: (field: ExtensionSettingField) => ReactNode): ReactNode[] {
+  const rows: ReactNode[] = []
+  let halves: ExtensionSettingField[] = []
+  const flush = () => {
+    if (!halves.length) return
+    rows.push(
+      <div key={`row:${halves[0]?.key}`} className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">
+        {halves.map(render)}
+      </div>,
+    )
+    halves = []
+  }
+  for (const field of fields) {
+    if (field.width === 'half') halves.push(field)
+    else {
+      flush()
+      rows.push(render(field))
+    }
+  }
+  flush()
+  return rows
+}
+
+/** 附着字段：在目标输入框右侧显示一个和输入框同高的按钮，点开弹出小窗编辑 */
 function AttachedField({
   field,
   value,
@@ -192,6 +287,13 @@ function AttachedField({
   const button = useRef<HTMLButtonElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   const id = useId()
+  const place = () => {
+    const rect = button.current?.getBoundingClientRect()
+    // 浮层右边和按钮右边对齐（按钮在行尾），超出屏幕时往里收
+    return rect
+      ? { left: Math.max(8, Math.min(rect.right - 380, window.innerWidth - 388)), top: rect.bottom + 6 }
+      : null
+  }
   useEffect(() => {
     if (!position) return
     const closeOutside = (event: PointerEvent) => {
@@ -209,10 +311,7 @@ function AttachedField({
         button.current?.focus()
       }
     }
-    const reposition = () => {
-      const rect = button.current?.getBoundingClientRect()
-      if (rect) setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 368)), top: rect.bottom + 4 })
-    }
+    const reposition = () => setPosition(place())
     panel.current?.querySelector<HTMLElement>('input, textarea, select, button')?.focus()
     document.addEventListener('pointerdown', closeOutside)
     document.addEventListener('keydown', closeOnEscape, true)
@@ -226,7 +325,9 @@ function AttachedField({
     }
   }, [position !== null])
   const filled =
-    (typeof value === 'string' && value.length > 0) || (Array.isArray(value) && value.length > 0) || value === true
+    (typeof value === 'string' && value.trim().length > 0) ||
+    (Array.isArray(value) && value.length > 0) ||
+    value === true
   return (
     <>
       <button
@@ -238,18 +339,16 @@ function AttachedField({
         aria-controls={position ? id : undefined}
         aria-haspopup="dialog"
         disabled={disabled}
-        className={`size-[38px] shrink-0 rounded-lg text-sm font-medium disabled:opacity-50 ${filled ? 'bg-violet-600 text-white' : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'}`}
-        onClick={() => {
-          const rect = button.current?.getBoundingClientRect()
-          if (rect)
-            setPosition(
-              position
-                ? null
-                : { left: Math.max(8, Math.min(rect.left, window.innerWidth - 368)), top: rect.bottom + 4 },
-            )
-        }}
+        className={cx(
+          'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap shadow-xs transition-colors disabled:opacity-50',
+          filled
+            ? 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300'
+            : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300',
+        )}
+        onClick={() => setPosition(position ? null : place())}
       >
-        {field.attachLabel ?? field.label.slice(0, 1)}
+        {filled && <span aria-hidden="true" className="size-1.5 rounded-full bg-violet-500" />}
+        {field.attachLabel ?? field.label}
       </button>
       {position &&
         createPortal(
@@ -259,13 +358,32 @@ function AttachedField({
             role="dialog"
             aria-label={field.label}
             style={{ left: position.left, top: position.top, maxHeight: `calc(100dvh - ${position.top + 8}px)` }}
-            className="fixed z-50 w-[360px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            className="fixed z-50 w-[380px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
           >
             {children}
           </div>,
           document.body,
         )}
     </>
+  )
+}
+
+/** 控件右侧的按钮组（附着按钮、显示密码、拉取），和 36px 的输入框底边对齐 */
+function Trailing({ children }: { children: ReactNode }) {
+  return <div className="flex shrink-0 items-center gap-2">{children}</div>
+}
+
+function SecretToggle({ shown, onToggle, disabled }: { shown: boolean; onToggle: () => void; disabled: boolean }) {
+  return (
+    <IconButton
+      variant="outline"
+      label={shown ? '隐藏' : '显示'}
+      aria-pressed={shown}
+      disabled={disabled}
+      onClick={onToggle}
+    >
+      {shown ? <EyeOffIcon /> : <EyeIcon />}
+    </IconButton>
   )
 }
 
@@ -277,6 +395,7 @@ function SettingControl({
   extensionId,
   settings,
   attachments,
+  onSettingsChange,
 }: {
   field: ExtensionSettingField
   value: unknown
@@ -285,12 +404,23 @@ function SettingControl({
   extensionId: string
   settings: Record<string, unknown>
   attachments: ReactNode
+  onSettingsChange: (settings: Record<string, unknown>) => void
 }) {
-  const [shown, setShown] = useState<Record<string, boolean>>({})
-  const props = {
-    label: field.label,
-    hint: field.hint || (extensionId === 'regex' ? regexHints[field.key] : undefined) || fallbackHint(field),
-    disabled,
+  const [shown, setShown] = useState(false)
+  const hint = hintOf(field, extensionId)
+  if (field.type === 'custom') {
+    return (
+      <CustomField
+        field={field}
+        value={value}
+        onChange={setValue}
+        settings={settings}
+        onSettingsChange={onSettingsChange}
+        disabled={disabled}
+        extensionId={extensionId}
+        hint={hint}
+      />
+    )
   }
   if ((field.type === 'string' || field.type === 'select') && field.optionsSource) {
     return (
@@ -301,29 +431,29 @@ function SettingControl({
         disabled={disabled}
         extensionId={extensionId}
         settings={settings}
-        hint={props.hint}
+        hint={hint}
         attachments={attachments}
       />
     )
   }
-  // 单行控件把说明放在下一行，保证附着按钮与输入框底边对齐。
   if (field.type === 'string' || field.type === 'select') {
+    const hasTrailing = !!attachments || (field.type === 'string' && field.secret)
     return (
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1.5">
         <div className="flex items-end gap-2">
           <div className="min-w-0 flex-1">
             {field.type === 'string' ? (
               <TextField
-                label={props.label}
+                label={field.label}
                 disabled={disabled}
-                type={field.secret && !shown[field.key] ? 'password' : 'text'}
+                type={field.secret && !shown ? 'password' : 'text'}
                 {...(field.placeholder === undefined ? {} : { placeholder: field.placeholder })}
                 value={typeof value === 'string' ? value : ''}
                 onChange={setValue}
               />
             ) : (
               <SelectField
-                label={props.label}
+                label={field.label}
                 disabled={disabled}
                 value={typeof value === 'string' ? value : ''}
                 options={
@@ -335,18 +465,16 @@ function SettingControl({
               />
             )}
           </div>
-          {attachments}
+          {hasTrailing && (
+            <Trailing>
+              {field.type === 'string' && field.secret && (
+                <SecretToggle shown={shown} disabled={disabled} onToggle={() => setShown(!shown)} />
+              )}
+              {attachments}
+            </Trailing>
+          )}
         </div>
-        <p className="text-xs text-zinc-500">{props.hint}</p>
-        {field.type === 'string' && field.secret && (
-          <Button
-            disabled={disabled}
-            aria-pressed={!!shown[field.key]}
-            onClick={() => setShown({ ...shown, [field.key]: !shown[field.key] })}
-          >
-            {shown[field.key] ? '隐藏' : '显示'}
-          </Button>
-        )}
+        {hint && <p className="text-xs leading-relaxed text-zinc-500">{hint}</p>}
       </div>
     )
   }
@@ -355,8 +483,9 @@ function SettingControl({
       case 'boolean':
         return (
           <SwitchField
-            key={field.key}
-            {...props}
+            label={field.label}
+            {...(hint ? { hint } : {})}
+            disabled={disabled}
             checked={typeof value === 'boolean' ? value : false}
             onChange={setValue}
           />
@@ -366,8 +495,10 @@ function SettingControl({
           <TextAreaField
             {...(field.rows === undefined ? {} : { rows: field.rows })}
             {...(field.placeholder === undefined ? {} : { placeholder: field.placeholder })}
-            key={field.key}
-            {...props}
+            label={field.label}
+            {...(hint ? { hint } : {})}
+            disabled={disabled}
+            mono={/json|workflow|工作流/i.test(`${field.key}${field.label}`)}
             value={typeof value === 'string' ? value : ''}
             onChange={setValue}
           />
@@ -375,12 +506,13 @@ function SettingControl({
       case 'number':
         return (
           <NumberField
-            key={field.key}
-            {...props}
+            label={field.label}
+            {...(hint ? { hint } : {})}
+            disabled={disabled}
             value={typeof value === 'number' && Number.isFinite(value) ? value : 0}
             min={field.min ?? -1e9}
             max={field.max ?? 1e9}
-            slider={false}
+            slider={!!field.slider && field.min !== undefined && field.max !== undefined}
             step={field.step ?? 0.01}
             onChange={setValue}
           />
@@ -394,17 +526,20 @@ function SettingControl({
             disabled={disabled}
             extensionId={extensionId}
             settings={settings}
-            hint={props.hint}
+            hint={hint}
           />
         )
       case 'heading':
         return null
     }
   })()
+  if (!attachments) return <div className="min-w-0">{control}</div>
   return (
     <div className="flex min-w-0 items-start gap-2">
       <div className="min-w-0 flex-1">{control}</div>
-      <div className={`flex shrink-0 gap-2 ${field.type === 'textarea' ? 'mt-6' : ''}`}>{attachments}</div>
+      <div className={cx('shrink-0', field.type === 'textarea' && 'mt-[26px]')}>
+        <Trailing>{attachments}</Trailing>
+      </div>
     </div>
   )
 }
@@ -424,7 +559,7 @@ function SettingsList({
   disabled: boolean
   extensionId: string
   settings: Record<string, unknown>
-  hint: string
+  hint: string | undefined
 }) {
   const items: unknown[] = Array.isArray(value) ? value : []
   const [expanded, setExpanded] = useState<boolean[]>([])
@@ -453,97 +588,126 @@ function SettingsList({
     field.itemFields.find((child) => child.key === field.titleKey) ??
     field.itemFields.find((child) => child.type === 'string')
   const allExpanded = items.every((_, index) => expanded[index])
+  const add = () => {
+    focusIndex.current = items.length
+    setExpanded([...items.map((_, i) => !!expanded[i]), true])
+    onChange([...items, defaults(field.itemFields)])
+  }
   return (
-    <div ref={root} className="min-w-0 space-y-3">
-      <div>
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium">{field.label}</h3>
-          {items.length >= 2 && (
-            <Button aria-label={`切换全部${field.label}`} onClick={() => setExpanded(items.map(() => !allExpanded))}>
-              {allExpanded ? '全部收起' : '全部展开'}
-            </Button>
-          )}
-        </div>
-        <p className="text-xs text-zinc-500">{hint}</p>
-      </div>
-      {items.map((item, index) => {
-        const rawTitle = titleField ? recordOf(item)[titleField.key] : ''
-        const title =
-          titleField?.type === 'select'
-            ? (titleField.options.find((option) => option.value === rawTitle)?.label ?? rawTitle)
-            : rawTitle
-        return (
-          // 无 id 的设置列表以位置为键，移动和删除时同步调整展开状态。
-          <div
-            key={index}
-            data-settings-item={index}
-            className="min-w-0 space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
+    <div ref={root} className="min-w-0 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <span className="text-[13px] font-medium text-zinc-800 dark:text-zinc-200">{field.label}</span>
+        {items.length > 0 && <span className="text-xs text-zinc-400 tabular-nums">{items.length}</span>}
+        {items.length >= 2 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto -my-1 h-7 px-2 text-xs"
+            aria-label={`切换全部${field.label}`}
+            onClick={() => setExpanded(items.map(() => !allExpanded))}
           >
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-expanded={!!expanded[index]}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
-                onClick={() => setExpanded(items.map((_, i) => (i === index ? !expanded[i] : !!expanded[i])))}
+            {allExpanded ? '全部收起' : '全部展开'}
+          </Button>
+        )}
+      </div>
+      {hint && <p className="text-xs leading-relaxed text-zinc-500">{hint}</p>}
+      <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+        {items.map((item, index) => {
+          const rawTitle = titleField ? recordOf(item)[titleField.key] : ''
+          const title =
+            titleField?.type === 'select'
+              ? (titleField.options.find((option) => option.value === rawTitle)?.label ?? rawTitle)
+              : rawTitle
+          const open = !!expanded[index]
+          return (
+            // 无 id 的设置列表以位置为键，移动和删除时同步调整展开状态。
+            <div
+              key={index}
+              data-settings-item={index}
+              className="min-w-0 border-b border-zinc-100 last:border-b-0 dark:border-zinc-800"
+            >
+              <div
+                className={cx(
+                  'group flex h-10 items-center gap-1 pr-1.5 pl-2',
+                  open ? 'bg-zinc-50 dark:bg-zinc-800/40' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/30',
+                )}
               >
-                <ChevronRightIcon className={`shrink-0 ${expanded[index] ? 'rotate-90' : ''}`} />
-                <span className="truncate">{typeof title === 'string' && title.trim() ? title : '（未命名）'}</span>
-              </button>
-              <div className="ml-auto flex shrink-0 gap-1">
-                <IconButton label="上移" disabled={disabled || index === 0} onClick={() => move(index, -1)}>
-                  <ChevronLeftIcon className="rotate-90" />
-                </IconButton>
-                <IconButton
-                  label="下移"
-                  disabled={disabled || index === items.length - 1}
-                  onClick={() => move(index, 1)}
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  className="flex h-full min-w-0 flex-1 items-center gap-2 text-left text-sm"
+                  onClick={() => setExpanded(items.map((_, i) => (i === index ? !expanded[i] : !!expanded[i])))}
                 >
-                  <ChevronRightIcon className="rotate-90" />
-                </IconButton>
-                <Button
-                  variant="danger"
-                  aria-label={`删除${field.label}第 ${index + 1} 项`}
-                  disabled={disabled}
-                  onClick={() => {
-                    if (confirm(`确定删除「${field.label}」的第 ${index + 1} 项及其全部设置吗？保存后生效。`)) {
-                      setExpanded(items.flatMap((_, i) => (i === index ? [] : [!!expanded[i]])))
-                      onChange(items.filter((_, i) => i !== index))
-                    }
-                  }}
-                >
-                  删除
-                </Button>
+                  <ChevronRightIcon
+                    className={cx('size-4 shrink-0 text-zinc-400 transition-transform', open && 'rotate-90')}
+                  />
+                  <span
+                    className={cx(
+                      'truncate',
+                      typeof title === 'string' && title.trim() ? 'font-medium' : 'text-zinc-400 italic',
+                    )}
+                  >
+                    {typeof title === 'string' && title.trim() ? title : '（未命名）'}
+                  </span>
+                </button>
+                <div className="flex shrink-0 items-center opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <IconButton label="上移" disabled={disabled || index === 0} onClick={() => move(index, -1)}>
+                    <ArrowUpIcon />
+                  </IconButton>
+                  <IconButton
+                    label="下移"
+                    disabled={disabled || index === items.length - 1}
+                    onClick={() => move(index, 1)}
+                  >
+                    <ArrowDownIcon />
+                  </IconButton>
+                  <IconButton
+                    variant="danger"
+                    label={`删除${field.label}第 ${index + 1} 项`}
+                    disabled={disabled}
+                    onClick={() => {
+                      if (confirm(`确定删除「${field.label}」的第 ${index + 1} 项及其全部设置吗？保存后生效。`)) {
+                        setExpanded(items.flatMap((_, i) => (i === index ? [] : [!!expanded[i]])))
+                        onChange(items.filter((_, i) => i !== index))
+                      }
+                    }}
+                  >
+                    <TrashIcon />
+                  </IconButton>
+                </div>
               </div>
+              {open && (
+                <div className="border-t border-zinc-100 px-4 py-4 dark:border-zinc-800">
+                  <SettingsEditor
+                    fields={field.itemFields}
+                    values={recordOf(item)}
+                    extensionId={extensionId}
+                    disabled={disabled}
+                    settings={settings}
+                    onChange={(next) => onChange(items.map((old, i) => (i === index ? next : old)))}
+                  />
+                </div>
+              )}
             </div>
-            {expanded[index] && (
-              <SettingsEditor
-                fields={field.itemFields}
-                values={recordOf(item)}
-                extensionId={extensionId}
-                disabled={disabled}
-                settings={settings}
-                onChange={(next) => onChange(items.map((old, i) => (i === index ? next : old)))}
-              />
-            )}
-          </div>
-        )
-      })}
-      {items.length === 0 && <p className="text-sm text-zinc-500">暂无项目，点击下方按钮添加。</p>}
-      <Button
-        disabled={disabled}
-        onClick={() => {
-          focusIndex.current = items.length
-          setExpanded([...items.map((_, i) => !!expanded[i]), true])
-          onChange([...items, defaults(field.itemFields)])
-        }}
-      >
-        添加一项
-      </Button>
+          )
+        })}
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label="添加一项"
+          onClick={add}
+          className={cx(
+            'flex h-10 w-full items-center gap-2 px-3 text-sm text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-violet-600 disabled:opacity-50 dark:hover:bg-zinc-800/40',
+            items.length > 0 && 'border-t border-zinc-100 dark:border-zinc-800',
+          )}
+        >
+          <PlusIcon className="size-4" />
+          {items.length === 0 ? `还没有${field.label}，点这里添加` : '添加一项'}
+        </button>
+      </div>
     </div>
   )
 }
-
-type Option = { value: string; label: string }
 
 function RemoteOptionsField({
   field,
@@ -561,10 +725,9 @@ function RemoteOptionsField({
   disabled: boolean
   extensionId: string
   settings: Record<string, unknown>
-  hint: string
+  hint: string | undefined
   attachments: ReactNode
 }) {
-  const listId = useId()
   const [options, setOptions] = useState<Option[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -583,12 +746,22 @@ function RemoteOptionsField({
       const url = new URL(`/api/ext/${encodeURIComponent(extensionId)}/${path.replace(/^\/+/, '')}`, location.origin)
       if (!url.pathname.startsWith(`/api/ext/${encodeURIComponent(extensionId)}/`))
         throw new Error('候选接口路径不合法')
-      url.searchParams.set('settings', JSON.stringify(current.current))
-      // 候选列表跟随当前会话的连接，草稿设置仍只用于本次读取。
+      // 草稿放在请求体里（可能含整份工作流 JSON，放进网址会超长）；候选列表跟随当前会话的连接
       const chatId = useUi.getState().chatId
-      if (chatId) url.searchParams.set('chatId', chatId)
-      const response = await fetch(url, { signal: request.signal })
-      const data: unknown = await response.json()
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: current.current, ...(chatId ? { chatId } : {}) }),
+        signal: request.signal,
+      })
+      const raw = await response.text()
+      let data: unknown = null
+      try {
+        data = raw ? JSON.parse(raw) : null
+      } catch {
+        throw new Error(`拉取候选失败（HTTP ${response.status}，返回的不是 JSON）`)
+      }
+      if (data === null) throw new Error(`拉取候选失败（HTTP ${response.status}，没有返回内容）`)
       const body = recordOf(data)
       if (!response.ok || !Array.isArray(body.options)) {
         const detail = recordOf(body.error)
@@ -605,7 +778,10 @@ function RemoteOptionsField({
         if (typeof item.value !== 'string' || typeof item.label !== 'string') throw new Error('候选数据格式不正确')
         return { value: item.value, label: item.label }
       })
-      if (!request.signal.aborted) setOptions(fetched)
+      if (!request.signal.aborted) {
+        setOptions(fetched)
+        if (manual) toast.info(`已拉取 ${fetched.length} 个候选`)
+      }
     } catch (e) {
       if (!request.signal.aborted) {
         setError(errorMessage(e))
@@ -627,9 +803,16 @@ function RemoteOptionsField({
       [...(field.type === 'select' ? field.options : []), ...options].map((option) => [option.value, option]),
     ).values(),
   ]
-  if (value && !choices.some((option) => option.value === value)) choices.push({ value, label: `${value}（自定义）` })
+  if (field.type === 'select' && value && !choices.some((option) => option.value === value))
+    choices.push({ value, label: `${value}（自定义）` })
+  const labelId = useId()
   return (
-    <div className="space-y-1">
+    <div className="min-w-0 space-y-1.5">
+      {field.type === 'string' && (
+        <span id={labelId} className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">
+          {field.label}
+        </span>
+      )}
       <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1">
           {field.type === 'select' ? (
@@ -643,39 +826,39 @@ function RemoteOptionsField({
               }
             />
           ) : (
-            <label className="block space-y-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              <span>{field.label}</span>
-              <input
-                className={inputClass}
-                list={listId}
-                type={field.secret && !shown ? 'password' : 'text'}
-                placeholder={field.placeholder}
-                value={value}
-                disabled={disabled}
-                onChange={(e) => onChange(e.target.value)}
-              />
-              <datalist id={listId}>
-                {choices.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </datalist>
-            </label>
+            <Combobox
+              label={field.label}
+              value={value}
+              onChange={onChange}
+              options={choices}
+              disabled={disabled}
+              placeholder={field.placeholder ?? (choices.length ? '选择或直接输入' : '直接输入，或点右侧按钮拉取')}
+              secret={!!field.secret && !shown}
+            />
           )}
         </div>
-        {attachments}
-        <Button disabled={disabled || loading} onClick={() => void load(true)} aria-label={`拉取${field.label}`}>
-          <RefreshIcon className={loading ? 'animate-spin' : ''} />
-          拉取
-        </Button>
+        <Trailing>
+          {field.type === 'string' && field.secret && (
+            <SecretToggle shown={shown} disabled={disabled} onToggle={() => setShown(!shown)} />
+          )}
+          {attachments}
+          <IconButton
+            variant="outline"
+            disabled={disabled || loading}
+            onClick={() => void load(true)}
+            label={`拉取${field.label}`}
+          >
+            <RefreshIcon className={loading ? 'animate-spin' : ''} />
+          </IconButton>
+        </Trailing>
       </div>
-      <p className="text-xs text-zinc-500">{hint}</p>
-      {error && <p className="text-xs text-red-500">{error}</p>}
-      {field.type === 'string' && field.secret && (
-        <Button disabled={disabled} aria-pressed={shown} onClick={() => setShown(!shown)}>
-          {shown ? '隐藏' : '显示'}
-        </Button>
+      {error ? (
+        // 自动拉取失败时多个字段会同时报同一个错，这里只给一行简短提示，完整原因悬停可见（手动拉取会弹出完整错误）
+        <p className="truncate text-xs text-amber-600 dark:text-amber-400" title={error}>
+          未能拉取候选，可直接手填或点右侧按钮重试
+        </p>
+      ) : (
+        hint && <p className="text-xs leading-relaxed text-zinc-500">{hint}</p>
       )}
     </div>
   )

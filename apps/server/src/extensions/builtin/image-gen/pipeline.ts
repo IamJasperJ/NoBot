@@ -449,9 +449,32 @@ export async function retry(
   const controller = new AbortController()
   tasks.set(messageId, controller)
   let snapshot = ctx.storage.get<Snapshot>(`request:${messageId}`)
-  const settings = snapshot ? structuredClone(snapshot.settings) : resolveImageConnection(parseSettings(ctx.settings))
+  // 重试 / 重新生成用「当前」的接口设置（后端、模型、地址、密钥、请求头、工作流、采样参数……）：
+  // 失败往往正是因为设置不对，用户改好设置后再点重试必须生效。
+  // 和这张图本身相关的内容沿用原任务：提示词、负面提示词、画幅比例、冻结的头像数据
+  let settings: Settings
+  try {
+    settings = structuredClone(resolveImageConnection(parseSettings(ctx.settings)))
+    validate(settings)
+  } catch (error) {
+    retryLocks.delete(messageId)
+    tasks.delete(messageId)
+    throw error
+  }
+  if (snapshot) {
+    const frozen = snapshot.settings as Settings & { charAvatar?: unknown; userAvatar?: unknown }
+    Object.assign(settings, {
+      ...(frozen.charAvatar === undefined ? {} : { charAvatar: frozen.charAvatar }),
+      ...(frozen.userAvatar === undefined ? {} : { userAvatar: frozen.userAvatar }),
+    })
+  }
   settings.seed = Math.floor(Math.random() * 2 ** 48)
-  const size = { width: old.width ?? settings.width, height: old.height ?? settings.height }
+  let size = { width: old.width ?? settings.width, height: old.height ?? settings.height }
+  // 换了 OpenAI 模型时，尺寸要按新模型支持的规格重新贴合（比如 gpt-image 只接受 1024 / 1536）
+  if (settings.source === 'openai') {
+    const [width, height] = openaiSize(settings.openaiModel, size.width, size.height).split('x').map(Number)
+    size = { width: width!, height: height! }
+  }
   let meta: ImageGenMeta = {
     ...old,
     ...size,

@@ -19,6 +19,8 @@ const shape = z
     openaiExtra: z.string().default(''),
     openaiQuality: z.enum(['auto', 'low', 'medium', 'high']).default('auto'),
     openaiHeaders: z.string().default(''),
+    /** 出图走哪个接口：auto 按模型名判断并在报错时自动换另一个；images = /images/generations；chat = /chat/completions */
+    openaiApiType: z.enum(['auto', 'images', 'chat']).default('auto'),
     promptConnectionId: z.string().default(''),
     promptModel: z.string().default(''),
     comfyUrl: z.string().default('http://127.0.0.1:8188'),
@@ -170,6 +172,15 @@ export const settingsSchema: ExtensionSettingField[] = [
     optionsSource: 'openai/models',
     visibleWhen: openai,
   }),
+  {
+    ...select('openaiApiType', '接口类型', [
+      { value: 'auto', label: '自动（按模型判断，失败时换另一个）' },
+      { value: 'images', label: '图片接口 /images/generations（gpt-image、DALL·E）' },
+      { value: 'chat', label: '聊天接口 /chat/completions（Gemini 图片模型、nano-banana 等）' },
+    ]),
+    visibleWhen: openai,
+    hint: '有的模型（比如 Gemini 图片模型）只能通过聊天接口出图，图片包含在回复里',
+  },
   {
     ...select(
       'openaiQuality',

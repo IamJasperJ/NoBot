@@ -70,7 +70,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
         imagePeak = Math.max(imagePeak, imageRunning)
         try {
           await Bun.sleep(delay)
-          if (fail || String(body.prompt).includes('FAIL'))
+          if (fail || String(body.prompt).includes('FAIL') || body.model === 'unsupported-model')
             return Response.json({ error: { message: '模拟图片失败' } }, { status: 500 })
           if (body.model === 'download') return Response.json({ data: [{ url: `${url.origin}/view` }] })
           return Response.json({ data: [{ b64_json: png.toString('base64') }] })
@@ -309,6 +309,22 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     expect(dismissed.message.meta).toMatchObject({ imageIndex: 1, imageGen: { status: 'done' } })
     expect(dismissed.message.meta.imageGen?.error).toBeUndefined()
     expect(dismissed.message.meta.images).toHaveLength(2)
+    // 用户反馈：模型不被支持导致失败，改好模型后点「重新生成」必须用新设置，而不是原任务冻结的旧模型
+    configure({ openaiModel: 'unsupported-model', async: true })
+    const wrongModel = await json<{ message: MessageDTO }>('/ext/image-gen/generate', {
+      chatId: chat.id,
+      mode: 'free',
+      input: '!a fox',
+    })
+    await wait(wrongModel.message.id, 'error')
+    configure({ openaiModel: 'gpt-image-1', async: false })
+    await json('/ext/image-gen/retry', { messageId: wrongModel.message.id })
+    const recovered = await wait(wrongModel.message.id)
+    expect(recovered.meta.imageGen?.status).toBe('done')
+    expect(bodies.at(-1)).toMatchObject({ model: 'gpt-image-1', prompt: expect.stringContaining('a fox') })
+    // 换成 gpt-image 后尺寸按新模型的规格重新贴合
+    expect(['1024x1024', '1024x1536', '1536x1024']).toContain(String(bodies.at(-1)?.size))
+    configure({ async: true })
     const dismissDone = await app.request('/api/ext/image-gen/dismiss', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

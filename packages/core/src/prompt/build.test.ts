@@ -732,3 +732,58 @@ test('深度注入不拆开工具调用与结果', () => {
   ]
   expect(buildPrompt(value).messages.map((m) => m.role)).toEqual(['system', 'assistant', 'tool'])
 })
+
+describe('舞台指令注入', () => {
+  test('after_char 跟随最后一个启用的角色条目，计入报告与固定预算', () => {
+    const value = minimal()
+    value.speaker.fields.personality = '性格'
+    value.preset.prompts = [
+      custom('char_personality'),
+      custom('main'),
+      custom('char_description'),
+      custom('scenario', { enabled: false }),
+      custom('history'),
+    ]
+    value.stageInstructions = { content: '舞台说明', position: 'after_char', depth: 0 }
+    const report = buildPrompt(value).report
+    expect(report.segments.map((segment) => segment.source)).toEqual([
+      'char_personality',
+      'main',
+      'char_description',
+      'stage',
+      'history',
+      'history',
+    ])
+    expect(report.segments.find((segment) => segment.source === 'stage')?.label).toBe('舞台指令')
+    setBudget(value, tokenCost('舞台说明') - 1)
+    expect(() => buildPrompt(value)).toThrow(PromptBudgetError)
+  })
+  test('depth 按指定深度插入历史', () => {
+    const value = minimal()
+    value.stageInstructions = { content: '舞台说明', position: 'depth', depth: 1 }
+    expect(buildPrompt(value).report.segments.map((segment) => segment.source)).toEqual(['history', 'stage', 'history'])
+  })
+  test('没有角色设定条目时回退到历史之前', () => {
+    const value = minimal()
+    value.preset.prompts.unshift(custom('main'))
+    value.stageInstructions = { content: '舞台说明', position: 'after_char', depth: 9 }
+    expect(buildPrompt(value).report.segments.map((segment) => segment.source)).toEqual([
+      'main',
+      'stage',
+      'history',
+      'history',
+    ])
+  })
+  test('最后启用的角色条目为空时仍使用其排布位置', () => {
+    const value = minimal()
+    value.preset.prompts = [custom('char_description'), custom('main'), custom('wi_after'), custom('history')]
+    value.stageInstructions = { content: '舞台说明', position: 'after_char', depth: 0 }
+    expect(buildPrompt(value).report.segments.map((segment) => segment.source)).toEqual([
+      'char_description',
+      'main',
+      'stage',
+      'history',
+      'history',
+    ])
+  })
+})

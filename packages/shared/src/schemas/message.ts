@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { MessageStage } from './stage'
 
 /** 发言方。tool 是工具调用的结果 */
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool'])
@@ -39,8 +40,13 @@ export interface MessageMeta {
   /** tool 消息：对应哪一次调用 */
   toolCallId?: string
   toolName?: string
-  /** tool 消息：这次调用对会话变量的修改，沿激活路径累加就是当前的跑团状态 */
+  /**
+   * 这条消息对会话变量的修改，沿激活路径累加就是当前的跑团状态。
+   * 来源：tool 消息（工具调用），或 assistant 消息正文里的 <state> / MVU _.set 指令。值为 null 表示删除
+   */
   varsPatch?: Record<string, unknown>
+  /** assistant 消息正文里的舞台指令解析结果（玩法预设开启指令时才有），见 schemas/stage.ts */
+  stage?: MessageStage
   /**
    * 消息附带的图片（附件 id 和原图尺寸），文件在 data/assets/attachments/。
    * 用户消息的图片会发给模型（看图）；其他角色的图片（比如生成的图片）只显示，不发给模型

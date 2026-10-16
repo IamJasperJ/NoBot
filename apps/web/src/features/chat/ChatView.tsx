@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo } from 'react'
 import { ApiRequestError } from '../../api/client'
-import { flattenPages, keys, useCharacter, useChatPages, usePersonas } from '../../api/queries'
+import { flattenPages, keys, useCharacter, useChatPages, usePersonas, usePlayPresets } from '../../api/queries'
 import { MenuIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
@@ -24,6 +24,7 @@ export function ChatView({ chatId }: { chatId: string }) {
   const group = firstPage?.group ?? null
   const character = useCharacter(chat?.characterId ?? null)
   const personas = usePersonas()
+  const playPresets = usePlayPresets()
   const messages = useMemo(() => flattenPages(pages.data), [pages.data])
   const pendingImage = messages.some((message) => message.meta.imageGen?.status === 'pending')
   useEffect(() => {
@@ -38,6 +39,8 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   // 会话里出场的人：群聊是全部成员，单人会话是那个角色；用户是会话绑定的人设（没有就用默认人设）
   const persona = personas.data?.find((p) => p.id === chat?.personaId) ?? personas.data?.find((p) => p.isDefault)
+  const play = playPresets.data?.find((p) => p.id === firstPage?.playPresetId)?.data
+  const stageCast = firstPage?.stage?.cast
   const cast = useMemo<ChatCast>(() => {
     const speakers: ChatCast['speakers'] = {}
     if (group) for (const m of group.members) speakers[m.characterId] = { name: m.name, avatarUrl: m.avatarUrl }
@@ -46,8 +49,17 @@ export function ChatView({ chatId }: { chatId: string }) {
       speakers,
       fallback: { name: character.data?.name ?? group?.name ?? '角色', avatarUrl: character.data?.avatarUrl ?? null },
       user: { name: persona?.name ?? '我', avatarUrl: persona?.avatarUrl ?? null },
+      // 玩法预设开了舞台指令：消息里的指令要藏起来、台词按速记改写、显示选项
+      stage: play?.directives.enabled
+        ? {
+            knownNames: [...Object.values(speakers).map((s) => s.name), ...(stageCast ?? []).map((m) => m.name)],
+            narratorNames: play.trpg.gmName ? [play.trpg.gmName] : [],
+            showSpeaker: play.directives.showSpeaker,
+            choices: play.interaction.choices,
+          }
+        : null,
     }
-  }, [group, character.data, persona])
+  }, [group, character.data, persona, play, stageCast])
 
   // 打开会话时后端还在生成（比如刚刷新了页面）：重新接上这次生成
   const backendGenerating = firstPage?.generating ?? false

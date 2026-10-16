@@ -6,6 +6,7 @@ import type {
   MessageMeta,
   MessageRole,
   MessageStatus,
+  PlayPresetData,
   PresetData,
   PromptRole,
 } from '@ai-parter/shared'
@@ -112,6 +113,14 @@ export const promptPresets = sqliteTable('prompt_presets', {
   ...timestamps,
 })
 
+export const playPresets = sqliteTable('play_presets', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  data: text('data', { mode: 'json' }).$type<PlayPresetData>().notNull().default(sql`'{}'`),
+  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
+  ...timestamps,
+})
+
 export const groups = sqliteTable('groups', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -165,6 +174,7 @@ export const chats = sqliteTable(
     activeLeafId: text('active_leaf_id'),
     apiPresetId: text('api_preset_id').references(() => apiPresets.id, { onDelete: 'set null' }),
     promptPresetId: text('prompt_preset_id').references(() => promptPresets.id, { onDelete: 'set null' }),
+    playPresetId: text('play_preset_id'),
     authorNote: text('author_note').notNull().default(''),
     authorNoteDepth: integer('author_note_depth').notNull().default(4),
     authorNoteRole: text('author_note_role').$type<PromptRole>().notNull().default('system'),

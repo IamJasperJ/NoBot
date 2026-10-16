@@ -62,6 +62,7 @@ export interface HistoryMessage {
 }
 
 export interface BuildInput {
+  stageInstructions?: { content: string; position: 'after_char' | 'depth'; depth: number }
   type: GenerationType
   preset: PresetData
   /** 当前发言的角色 */
@@ -288,8 +289,10 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   // 【2】列表顺序就是相对顺序，历史与示例保留占位，预算确定后再填充。
   type Slot = { kind: 'piece'; piece: Piece } | { kind: 'history' } | { kind: 'examples' }
   const slots: Slot[] = []
+  let stageAnchor = -1
   for (const block of preset.prompts) {
     if (!block.enabled || (block.triggers.length > 0 && !block.triggers.includes(input.type))) continue
+    if (['char_description', 'char_personality', 'scenario', 'wi_after'].includes(block.id)) stageAnchor = slots.length
     if (block.id === 'history' || block.id === 'examples') {
       slots.push({ kind: block.id })
       continue
@@ -354,7 +357,22 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
         depth: block.depth,
         order: block.order,
       })
-    } else slots.push({ kind: 'piece', piece: piece(block.id, block.name, block.role, content) })
+    } else {
+      slots.push({ kind: 'piece', piece: piece(block.id, block.name, block.role, content) })
+      if (['char_description', 'char_personality', 'scenario', 'wi_after'].includes(block.id))
+        stageAnchor = slots.length
+    }
+  }
+
+  const stageInstructions = input.stageInstructions
+  if (stageInstructions?.content.trim()) {
+    if (stageInstructions.position === 'depth') {
+      addInjection('stage', '舞台指令', 'system', stageInstructions.content, stageInstructions.depth, 0)
+    } else {
+      const historyIndex = slots.findIndex((slot) => slot.kind === 'history')
+      const index = stageAnchor >= 0 ? stageAnchor : historyIndex >= 0 ? historyIndex : slots.length
+      slots.splice(index, 0, { kind: 'piece', piece: piece('stage', '舞台指令', 'system', stageInstructions.content) })
+    }
   }
 
   // 【3】每块示例独立计费与淘汰，前缀识别发生在正文宏替换之前。

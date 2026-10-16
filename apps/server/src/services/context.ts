@@ -6,8 +6,10 @@ import {
   type PromptCharacter,
   type ScanEntry,
 } from '@ai-parter/core'
+import { renderDirectiveInstructions, toDisplayText } from '@ai-parter/core/stage'
 import {
   type ChatMessage,
+  EXPRESSIONS,
   type GenerationType,
   type GroupDTO,
   lorebookEntryDataSchema,
@@ -20,6 +22,7 @@ import { asc, eq, inArray } from 'drizzle-orm'
 import { db, getSetting } from '../db/client'
 import {
   type ApiPresetRow,
+  backgrounds,
   type CharacterRow,
   type ChatRow,
   characterLorebooks,
@@ -33,9 +36,10 @@ import {
 import { HttpError, notFound } from '../errors'
 import { collectMacros, runAfterPrompt, runBeforePrompt } from '../extensions/registry'
 import { enabledToolNames } from '../tools'
-import { getChatRow, loadGroupDTO, loadPath } from './chats'
+import { computeVars, getChatRow, loadGroupDTO, loadPath } from './chats'
 import { resolveApiPreset } from './connections'
 import { getWorldInfoSettings, SETTING_KEYS } from './settings'
+import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema } from './stage'
 
 /**
  * 生成上下文：组装 Prompt 需要的一切，一次性从数据库读出来。
@@ -97,7 +101,7 @@ function resolvePreset(chat: ChatRow): PresetData {
   return presetDataSchema.parse(any?.data ?? {})
 }
 
-function resolvePersona(chat: ChatRow) {
+export function resolvePersona(chat: ChatRow) {
   const id = chat.personaId ?? getSetting<string>(SETTING_KEYS.defaultPersonaId)
   const row = id ? db.select().from(personas).where(eq(personas.id, id)).get() : undefined
   return row
@@ -108,7 +112,7 @@ function resolvePersona(chat: ChatRow) {
 /**
  * 收集挂载的世界书条目。同一本书挂在多处时按优先级只算一次：会话 > 人设 > 角色 > 全局。
  */
-function loadLore(chatId: string, characterIds: string[], personaLorebookId: string | null): ScanEntry[] {
+export function loadLore(chatId: string, characterIds: string[], personaLorebookId: string | null): ScanEntry[] {
   const sources = new Map<string, ScanEntry['source']>()
   const add = (ids: string[], source: ScanEntry['source']) => {
     for (const id of ids) if (!sources.has(id)) sources.set(id, source)
@@ -222,7 +226,23 @@ export function loadGenerationContext(chatId: string, opts: { requireConnection:
 /** 把激活路径上的消息转成组装用的历史（失败的消息不发给模型） */
 export function toHistory(ctx: GenerationContext, leafId: string | null): HistoryMessage[] {
   const names = new Map(ctx.members.map((m) => [m.id, m.name]))
-  return loadPath(leafId)
+  const preset = resolvePlayPreset(ctx.chat.id).data
+  const path = loadPath(leafId)
+  const knownNames = [
+    ...new Set([
+      ...ctx.members.map((m) => m.name),
+      ...(computeStage(ctx.chat.id, path)?.cast.map((actor) => actor.name) ?? []),
+    ]),
+  ]
+  const assistants = path.filter((m) => m.role === 'assistant' && m.status !== 'error')
+  const keep = new Set(
+    preset.directives.keepInHistory
+      ? (preset.directives.keepRecent > 0 ? assistants.slice(-preset.directives.keepRecent) : assistants).map(
+          (m) => m.id,
+        )
+      : [],
+  )
+  return path
     .filter(
       (m) =>
         m.status !== 'error' &&
@@ -243,7 +263,9 @@ export function toHistory(ctx: GenerationContext, leafId: string | null): Histor
           ? m.meta.imageGen.caption
           : !m.content && m.role !== 'user' && m.role !== 'tool' && (m.meta.imageGen || m.meta.images?.length)
             ? `（发送了一张图片${m.meta.imageGen?.prompt ? `：${m.meta.imageGen.prompt}` : ''}）`
-            : m.content,
+            : preset.directives.enabled && m.role === 'assistant' && !keep.has(m.id)
+              ? toDisplayText(m.content, { knownNames, narratorNames: [preset.trpg.gmName], speaker: 'plain' })
+              : m.content,
       name:
         m.role === 'user'
           ? ctx.persona.name
@@ -313,6 +335,33 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
         : enabledToolNames(ctx.chat.id, ctx.preset.samplers)),
     now: new Date(),
     macros: collectMacros(ctx.chat.id),
+  }
+  const play = resolvePlayPreset(ctx.chat.id).data
+  if (play.directives.enabled && play.directives.inject) {
+    const path = loadPath(opts.leafId)
+    const stage = computeStage(ctx.chat.id, path)
+    const init = initialVars(ctx.chat.id)
+    const content = renderDirectiveInstructions({
+      ...play.directives,
+      cast: [
+        ...new Set([...ctx.members.map((member) => member.name), ...(stage?.cast.map((actor) => actor.name) ?? [])]),
+      ],
+      expressions: [...EXPRESSIONS, ...play.sprites.customExpressions],
+      backgrounds: db
+        .select()
+        .from(backgrounds)
+        .all()
+        .map((row) => row.name),
+      schema: resolveStateSchema(ctx.chat.id, play),
+      rules: init.rules,
+      vars: computeVars(path, init.vars),
+      valuesInPrompt: play.state.valuesInPrompt,
+    })
+    input.stageInstructions = {
+      content,
+      position: play.directives.position === 'after_char' ? 'after_char' : 'depth',
+      depth: play.directives.position === 'author_note' ? ctx.chat.authorNoteDepth : play.directives.depth,
+    }
   }
   input = runBeforePrompt(input)
 

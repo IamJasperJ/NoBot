@@ -9,7 +9,9 @@ export function Background({ chatId }: { chatId: string | null }) {
   const backgrounds = useBackgrounds()
   const settings = useBackgroundSettings()
   const pages = useChatPages(chatId)
-  const id = pages.data?.pages[0]?.chat.backgroundId ?? settings.data?.globalId
+  const page = pages.data?.pages[0]
+  // 三层优先级：舞台（模型用 <scene bg> 切的场景）> 本聊天背景 > 全局背景
+  const id = page?.stage?.scene.backgroundId ?? page?.chat.backgroundId ?? settings.data?.globalId
   const background = backgrounds.data?.find((b) => b.id === id)
   const { bgDim, bgBlur, bgFit, bgAnimate } = useAppearance()
   const url = background && (!bgAnimate && background.mime === 'image/gif' ? background.thumbUrl : background.url)

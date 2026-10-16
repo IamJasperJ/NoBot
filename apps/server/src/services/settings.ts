@@ -5,6 +5,8 @@ import { getSetting, setSetting } from '../db/client'
  * settings 表里的键集中在这里，避免到处写字符串。
  */
 export const SETTING_KEYS = {
+  defaultPlayPresetId: 'defaultPlayPresetId',
+  playPresetsSeeded: 'playPresetsSeeded',
   defaultApiPresetId: 'defaultApiPresetId',
   defaultPromptPresetId: 'defaultPromptPresetId',
   defaultPersonaId: 'defaultPersonaId',

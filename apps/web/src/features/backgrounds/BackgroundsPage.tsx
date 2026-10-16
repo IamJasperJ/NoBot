@@ -15,6 +15,7 @@ export function BackgroundsPage() {
   const chatId = useUi((s) => s.chatId)
   const pages = useChatPages(chatId)
   const chat = pages.data?.pages[0]?.chat
+  const stageBg = pages.data?.pages[0]?.stage?.scene
   const qc = useQueryClient()
   const input = useRef<HTMLInputElement>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -127,6 +128,16 @@ export function BackgroundsPage() {
         </div>
         {/* 当前生效范围：本聊天 / 全局 */}
         <div className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white text-[13px] dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/40">
+          {stageBg?.bg && (
+            <div className="flex h-10 items-center gap-2 px-3" title="模型用场景指令切换的背景，优先于本聊天和全局背景">
+              <span className="w-14 shrink-0 text-zinc-500">舞台</span>
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {list.find((b) => b.id === stageBg.backgroundId)?.name ?? (
+                  <span className="font-normal text-zinc-400">「{stageBg.bg}」没有匹配的背景</span>
+                )}
+              </span>
+            </div>
+          )}
           {chatId && (
             <div className="flex h-10 items-center gap-2 px-3">
               <span className="w-14 shrink-0 text-zinc-500">本聊天</span>

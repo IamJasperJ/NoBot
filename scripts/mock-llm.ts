@@ -2,7 +2,9 @@
 // 图片：POST /v1/images/generations，延迟 1.5 秒返回 64×64 PNG；提示词含 FAIL 时返回 500
 // ComfyUI：POST /prompt、GET /history/<id>、GET /view、GET /object_info/CheckpointLoaderSimple（路径不加 /v1）
 // 用法：bun scripts/mock-llm.ts  （端口 3999；连接里填 http://127.0.0.1:3999/v1，Key 填 sk-test）
-// 规则：请求带 tools 且最后一条用户消息含「掷骰」、还没有工具结果时，返回一次 roll_dice 调用；
+// 规则：最后一条用户消息含「VN」时，回复一段带舞台指令（场景、上台、台词速记、<state>、<choices>）的内容，
+//      说话人固定是「艾莉丝」；
+//      请求带 tools 且最后一条用户消息含「掷骰」、还没有工具结果时，返回一次 roll_dice 调用；
 //      含「画图」且提供了 generate_image 工具时，返回一次 generate_image 调用
 // 64×64 纯色 PNG（直接内嵌，模拟服务不依赖 sharp）
 const mockPng = Buffer.from(
@@ -75,9 +77,28 @@ Bun.serve({
           : null
     const wantTool = !!toolCall
     const _last = msgs.at(-1)
+    const vnReply = [
+      '<scene bg="公会大厅" place="冒险者公会" time="傍晚" />',
+      '<show who="艾莉丝" at="left" />',
+      '公会里人声鼎沸，冒险者们围着任务板讨论着今天的委托。',
+      '艾莉丝[joy]：「你终于来啦！我还以为你忘了今天的约定呢。」',
+      '她把一杯热麦酒推到你面前，耳尖却悄悄红了。',
+      '艾莉丝[embarrassment]：「……才、才不是特意等你的！」',
+      '<state>',
+      '好感 += 3',
+      '时间 = "傍晚"',
+      '</state>',
+      '<choices>',
+      '- 笑着接过麦酒，坐到她身边',
+      '- 打趣她「明明就是在等我」',
+      '- [察觉 DC12] 留意角落里那个披着斗篷的人',
+      '</choices>',
+    ].join('\n')
     const reply = hasToolResult
       ? `根据工具结果「${msgs.filter((m) => m.role === 'tool').at(-1).content}」，继续故事。`
-      : `你好！这是模拟回复，你刚才说的是「${String(lastUser).slice(0, 20)}」。`
+      : String(lastUser).includes('VN')
+        ? vnReply
+        : `你好！这是模拟回复，你刚才说的是「${String(lastUser).slice(0, 20)}」。`
     const enc = new TextEncoder()
     if (!body.stream) {
       return Response.json({

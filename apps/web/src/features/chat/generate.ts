@@ -1,7 +1,7 @@
 import { type GenerateEvent, type GenerateInput, type ImpersonateEvent, parseSSE } from '@ai-parter/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import { readError } from '../../api/client'
-import { applyNewMessage, markIdle, replaceMessage, resetChat } from '../../api/queries'
+import { applyNewMessage, markIdle, refreshChatState, replaceMessage, resetChat } from '../../api/queries'
 import { emitClientEvent } from '../../extensions/runtime'
 import { useStreaming } from '../../stores/streaming'
 import { toast } from '../../stores/toast'
@@ -99,6 +99,8 @@ async function readStream(qc: QueryClient, chatId: string, input: GenerateInput 
           break
         case 'complete':
           completed = true
+          // 舞台和变量沿路径累加，新回复入库后要跟着刷新
+          void refreshChatState(qc, chatId)
           break
       }
     }

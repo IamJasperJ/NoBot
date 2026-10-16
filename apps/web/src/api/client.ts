@@ -28,6 +28,8 @@ import type {
   PersonaDTO,
   PersonaInput,
   PersonaUpdateInput,
+  PlayPresetData,
+  PlayPresetDTO,
   PresetData,
   PromptPresetDTO,
   PromptPreview,
@@ -128,6 +130,18 @@ export const api = {
   duplicatePreset: (id: string) => request<PromptPresetDTO>('POST', `/presets/${id}/duplicate`),
   importPreset: (file: File) => upload<PromptPresetDTO>('/presets/import', file),
   exportPreset: (id: string) => downloadUrl(`/presets/${id}/export`),
+
+  // ---- 玩法预设（VN 模式） ----
+  listPlayPresets: () => request<PlayPresetDTO[]>('GET', '/play-presets'),
+  createPlayPreset: (input: { name: string; data: PlayPresetData }) =>
+    request<PlayPresetDTO>('POST', '/play-presets', input),
+  updatePlayPreset: (id: string, input: { name?: string; data?: PlayPresetData }) =>
+    request<PlayPresetDTO>('PATCH', `/play-presets/${id}`, input),
+  deletePlayPreset: (id: string) => request<Ok>('DELETE', `/play-presets/${id}`),
+  setDefaultPlayPreset: (id: string) => request<Ok>('POST', `/play-presets/${id}/default`),
+  duplicatePlayPreset: (id: string) => request<PlayPresetDTO>('POST', `/play-presets/${id}/duplicate`),
+  importPlayPreset: (file: File) => upload<PlayPresetDTO>('/play-presets/import', file),
+  exportPlayPreset: (id: string) => downloadUrl(`/play-presets/${id}/export`),
 
   // ---- 人设 ----
   listPersonas: () => request<PersonaDTO[]>('GET', '/personas'),

@@ -27,6 +27,8 @@ beforeAll(async () => {
   const client = await import('../src/db/client')
   sqlite = client.sqlite
   client.initDatabase()
+  const { seedPlayPresets } = await import('../src/services/playPresets.builtin')
+  seedPlayPresets()
   app = (await import('../src/app')).app
   png = await sharp({ create: { width: 12, height: 18, channels: 3, background: '#ffccaa' } })
     .png()

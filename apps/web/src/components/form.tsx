@@ -92,7 +92,7 @@ export function DenseRow({
       <label htmlFor={id} title={label} className="min-w-0 truncate text-[13px] text-zinc-700 dark:text-zinc-300">
         {label}
       </label>
-      {notImplemented && <NotImplemented />}
+      {notImplemented && <NotImplementedDot />}
       {hint && <HintButton hint={hint} open={open} onToggle={() => setOpen(!open)} />}
     </span>
   )
@@ -120,6 +120,18 @@ export function NotImplemented() {
     <span className="ml-1.5 shrink-0 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
       未实现
     </span>
+  )
+}
+
+/** 紧凑排版里的「未实现」：标签旁一个小黄点，不占标签的位置（文字标记会把标签挤得看不全） */
+export function NotImplementedDot() {
+  return (
+    <span
+      role="img"
+      aria-label="未实现"
+      title="未实现：可以先设置，以后生效"
+      className="ml-1 inline-block size-1.5 shrink-0 rounded-full bg-amber-500"
+    />
   )
 }
 
@@ -334,7 +346,7 @@ export function SelectField<T extends string>({
   value,
   onChange,
   options,
-}: BaseProps & { value: T; onChange: (v: T) => void; options: { value: T; label: string }[] }) {
+}: BaseProps & { value: T; onChange: (v: T) => void; options: { value: T; label: string; disabled?: boolean }[] }) {
   const dense = useDense()
   const id = useId()
   if (dense)
@@ -348,7 +360,7 @@ export function SelectField<T extends string>({
           onChange={(e) => onChange(e.target.value as T)}
         >
           {options.map((o) => (
-            <option key={o.value} value={o.value}>
+            <option key={o.value} value={o.value} disabled={o.disabled}>
               {o.label}
             </option>
           ))}
@@ -360,7 +372,7 @@ export function SelectField<T extends string>({
       <Label label={label} notImplemented={notImplemented} />
       <select className={selectClass} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value as T)}>
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} disabled={o.disabled}>
             {o.label}
           </option>
         ))}
@@ -476,6 +488,65 @@ export function NumberField({
         aria-label={`${label}滑块`}
         onChange={(e) => onChange(Number(e.target.value))}
       />
+      <Hint hint={hint} />
+    </div>
+  )
+}
+
+/**
+ * 多选：一排可点的小标签，选中的高亮。紧凑排版下标签在左；普通排版下标题在上。
+ * 选项可以标 notImplemented（显示但带「未实现」提示）。
+ */
+export function CheckGroupField<T extends string>({
+  label,
+  hint,
+  notImplemented,
+  disabled,
+  value,
+  onChange,
+  options,
+}: BaseProps & {
+  value: T[]
+  onChange: (v: T[]) => void
+  options: { value: T; label: string; notImplemented?: boolean }[]
+}) {
+  const dense = useDense()
+  const chips = (
+    <fieldset aria-label={label} className="flex min-w-0 flex-1 flex-wrap gap-1.5 py-1" disabled={disabled}>
+      {options.map((o) => {
+        const on = value.includes(o.value)
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={on}
+            title={o.notImplemented ? `${o.label}（未实现，可以先勾选，以后生效）` : o.label}
+            onClick={() => onChange(on ? value.filter((v) => v !== o.value) : [...value, o.value])}
+            className={cx(
+              'inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[13px] transition-colors disabled:opacity-50',
+              on
+                ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300'
+                : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300',
+            )}
+          >
+            {on && <span aria-hidden="true" className="size-1.5 rounded-full bg-violet-500" />}
+            {o.label}
+            {o.notImplemented && <span className="text-[10px] text-amber-600 dark:text-amber-400">未实现</span>}
+          </button>
+        )
+      })}
+    </fieldset>
+  )
+  if (dense)
+    return (
+      <DenseRow label={label} hint={hint} notImplemented={notImplemented} disabled={disabled} wide>
+        {chips}
+      </DenseRow>
+    )
+  return (
+    <div className="space-y-1.5">
+      <Label label={label} notImplemented={notImplemented} />
+      {chips}
       <Hint hint={hint} />
     </div>
   )

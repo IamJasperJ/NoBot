@@ -10,6 +10,7 @@ import {
   useConnections,
   useLorebooks,
   usePersonas,
+  usePlayPresets,
   usePresets,
 } from '../../api/queries'
 import { NumberField, Section, SelectField, TextAreaField, TextField, Toggle } from '../../components/form'
@@ -34,6 +35,7 @@ function toDraft(page: ChatPage): Draft {
     authorNoteDepth: c.authorNoteDepth,
     authorNoteRole: c.authorNoteRole,
     lorebookIds: c.lorebookIds,
+    playPresetId: c.playPresetId,
   }
 }
 
@@ -53,6 +55,8 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
   const setOpen = useUi((s) => s.setChatSettingsOpen)
   const personas = usePersonas()
   const presets = usePresets()
+  const playPresets = usePlayPresets()
+  const effectivePlay = playPresets.data?.find((p) => p.id === page.playPresetId)
   const connections = useConnections()
   const lorebooks = useLorebooks()
   const auto = useAutoBackground()
@@ -137,6 +141,19 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
             ]}
           />
           <SelectField
+            label="玩法预设"
+            hint="VN 模式的玩法（指令、变量、立绘……），在「设置」里编辑。跟随：用角色卡指定的预设，没有就用默认"
+            value={draft.playPresetId ?? DEFAULT}
+            onChange={(v) => set('playPresetId', pick(v))}
+            options={[
+              {
+                value: DEFAULT,
+                label: `跟随${effectivePlay && !draft.playPresetId ? `（${effectivePlay.name}）` : ''}`,
+              },
+              ...(playPresets.data ?? []).map((p) => ({ value: p.id, label: p.name })),
+            ]}
+          />
+          <SelectField
             label="连接"
             hint="用哪个接口和模型"
             value={draft.apiPresetId ?? DEFAULT}
@@ -162,6 +179,13 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
               {background?.name ?? '跟随全局'}
             </span>
           </div>
+          {page.stage?.scene.bg && (
+            <p className="text-xs text-zinc-500">
+              现在生效的是舞台背景：
+              {backgrounds.data?.find((b) => b.id === page.stage?.scene.backgroundId)?.name ??
+                `「${page.stage.scene.bg}」（没有匹配的背景，暂用上面的）`}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={() => useUi.getState().openView('backgrounds')}>
               选择…
@@ -253,10 +277,13 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
           />
         </Section>
 
-        <Section title="跑团状态" description="由工具调用（set_chat_state）记录，随分支和重新生成自动回退">
+        <Section
+          title="状态变量"
+          description="来自状态定义的初始值、正文里的 <state> 指令和工具调用，随分支和重新生成自动回退"
+        >
           {Object.keys(page.vars).length === 0 ? (
             <p className="text-sm text-zinc-500">
-              暂无状态。在生成预设里开启「工具调用」后，模型可以用 set_chat_state 记录 HP、背包等数值。
+              暂无状态。可以在玩法预设里定义变量，或在生成预设里开启「工具调用」让模型用 set_chat_state 记录。
             </p>
           ) : (
             <table className="w-full text-sm">

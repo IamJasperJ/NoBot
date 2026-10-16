@@ -2,6 +2,7 @@ import { presetDataSchema } from '@ai-parter/shared'
 import { db, getSetting, initDatabase, newId, setSetting } from './db/client'
 import { personas, promptPresets } from './db/schema'
 import { loadLocalExtensions } from './extensions/registry'
+import { seedPlayPresets } from './services/playPresets.builtin'
 import { SETTING_KEYS } from './services/settings'
 
 /**
@@ -9,6 +10,7 @@ import { SETTING_KEYS } from './services/settings'
  */
 export async function bootstrap() {
   initDatabase()
+  seedPlayPresets()
   const now = Date.now()
 
   // 默认人设

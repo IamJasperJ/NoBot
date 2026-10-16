@@ -15,6 +15,7 @@ export const keys = {
   backgroundSettings: ['backgroundSettings'] as const,
   connections: ['connections'] as const,
   presets: ['presets'] as const,
+  playPresets: ['playPresets'] as const,
   personas: ['personas'] as const,
   characters: ['characters'] as const,
   character: (id: string) => ['character', id] as const,
@@ -48,6 +49,7 @@ export const useBackgroundSettings = () =>
 
 export const useConnections = () => useQuery({ queryKey: keys.connections, queryFn: api.listConnections })
 export const usePresets = () => useQuery({ queryKey: keys.presets, queryFn: api.listPresets })
+export const usePlayPresets = () => useQuery({ queryKey: keys.playPresets, queryFn: api.listPlayPresets })
 export const usePersonas = () => useQuery({ queryKey: keys.personas, queryFn: api.listPersonas })
 export const useCharacters = () => useQuery({ queryKey: keys.characters, queryFn: api.listCharacters })
 export const useCharacter = (id: string | null) =>
@@ -129,6 +131,31 @@ export function replaceMessage(qc: QueryClient, chatId: string, msg: MessageDTO)
         }
       : data,
   )
+}
+
+/**
+ * 只刷新会话页里由整条路径算出来的字段（舞台、变量、生效的玩法预设），不动已加载的消息。
+ * 生成完成、编辑消息之后调用：这些操作只替换了单条消息，但舞台和变量是沿路径累加的。
+ */
+export async function refreshChatState(qc: QueryClient, chatId: string) {
+  try {
+    const latest = await api.getChatPage(chatId)
+    qc.setQueryData<ChatCache>(keys.chat(chatId), (data) =>
+      data
+        ? {
+            ...data,
+            pages: data.pages.map((p) => ({
+              ...p,
+              stage: latest.stage,
+              vars: latest.vars,
+              playPresetId: latest.playPresetId,
+            })),
+          }
+        : data,
+    )
+  } catch {
+    // 只是附带刷新，失败了不打扰用户；下次打开会话时会拿到最新数据
+  }
 }
 
 /** 把缓存里的「后端正在生成」标记清掉 */

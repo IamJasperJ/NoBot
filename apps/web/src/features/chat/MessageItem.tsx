@@ -1,8 +1,9 @@
-import type { MessageDTO } from '@ai-parter/shared'
+import { toDisplayText } from '@ai-parter/core/stage'
+import type { ChoiceOption, MessageDTO } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { memo, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, replaceMessage, resetChat } from '../../api/queries'
+import { keys, refreshChatState, replaceMessage, resetChat } from '../../api/queries'
 import {
   BranchIcon,
   ChevronLeftIcon,
@@ -30,6 +31,13 @@ export interface ChatCast {
   /** 找不到发言人时（比如角色被删了）用它 */
   fallback: { name: string; avatarUrl: string | null }
   user: { name: string; avatarUrl: string | null }
+  /** 玩法预设开了舞台指令时才有：怎么隐藏指令、要不要显示选项 */
+  stage?: {
+    knownNames: string[]
+    narratorNames: string[]
+    showSpeaker: boolean
+    choices: boolean
+  } | null
 }
 
 interface Props {
@@ -292,11 +300,19 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
   const isStreaming = liveText !== null || msg.status === 'streaming'
   // {{char}} 用这条消息的角色（用户消息里用会话的角色），{{user}} 用当前人设
   const charName = isUser ? (speaker?.name ?? cast.fallback.name) : who.name
-  const text = transformMessage(
-    displayMacros(liveText ?? msg.content, { char: charName, user: cast.user.name }),
-    msg,
-    transforms,
-  )
+  const raw = liveText ?? msg.content
+  // 舞台指令只对角色回复生效：隐藏标签、台词速记改写成「**名字**：台词」，流式时连半截标签一起藏
+  const visible =
+    cast.stage && msg.role === 'assistant'
+      ? toDisplayText(raw, {
+          knownNames: cast.stage.knownNames,
+          narratorNames: cast.stage.narratorNames,
+          speaker: cast.stage.showSpeaker ? 'bold' : 'none',
+          streaming: isStreaming,
+        })
+      : raw
+  const text = transformMessage(displayMacros(visible, { char: charName, user: cast.user.name }), msg, transforms)
+  const choices = cast.stage?.choices && isLast && !isStreaming ? msg.meta.stage?.choices : undefined
   const reasoning = liveReasoning || msg.meta.reasoning
   // 最后一条角色回复可以向右滑出新的回复、可以续写；其他消息只能在已有的 swipe 间切换
   const isReply = msg.role === 'assistant' && msg.parentId !== null
@@ -323,6 +339,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
     if (editing === null) return
     try {
       replaceMessage(qc, chatId, await api.editMessage(msg.id, editing))
+      void refreshChatState(qc, chatId)
       setEditing(null)
     } catch (e) {
       toast.error(errorMessage(e))
@@ -453,6 +470,10 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
           </div>
         ) : null}
 
+        {choices && choices.length > 0 && (
+          <Choices options={choices} disabled={busy} onPick={(text) => void run({ mode: 'send', text, images: [] })} />
+        )}
+
         <Slot name="chat.message.footer" props={{ chatId, message: { ...msg, content: liveText ?? msg.content } }} />
 
         {msg.status === 'error' && (
@@ -513,5 +534,44 @@ function MenuItem({
       <span className="text-zinc-400 [&>svg]:size-4">{icon}</span>
       {label}
     </button>
+  )
+}
+
+/**
+ * 模型给出的选项（<choices>）：最后一条回复下方的一组按钮，点一下就作为你的发言发出去。
+ * 带检定的选项（[察觉 DC12]）先在右侧标出技能和难度，掷骰在 VN5 再做。
+ */
+function Choices({
+  options,
+  disabled,
+  onPick,
+}: {
+  options: ChoiceOption[]
+  disabled: boolean
+  onPick: (text: string) => void
+}) {
+  return (
+    <fieldset aria-label="选项" className="mt-3 grid gap-1.5">
+      {options.map((option, index) => (
+        <button
+          // 选项列表在消息定稿后不会再变，下标做 key 是安全的
+          key={index}
+          type="button"
+          disabled={disabled}
+          onClick={() => onPick(option.text)}
+          className="group flex min-h-9 w-full items-center gap-2.5 rounded-lg border border-zinc-200 bg-white/70 px-3 py-1.5 text-left text-sm transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900/60 dark:hover:border-violet-700 dark:hover:bg-violet-950/50"
+        >
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[11px] font-medium text-zinc-500 tabular-nums group-hover:bg-violet-100 group-hover:text-violet-700 dark:bg-zinc-800 dark:text-zinc-400 dark:group-hover:bg-violet-900 dark:group-hover:text-violet-300">
+            {index + 1}
+          </span>
+          <span className="min-w-0 flex-1">{option.text}</span>
+          {option.check && (
+            <span className="shrink-0 rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+              {option.check.skill} DC{option.check.dc}
+            </span>
+          )}
+        </button>
+      ))}
+    </fieldset>
   )
 }

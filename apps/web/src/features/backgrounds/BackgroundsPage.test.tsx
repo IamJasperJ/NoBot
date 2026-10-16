@@ -68,7 +68,14 @@ test('背景库展示视频缩略图、GIF 缩略图、动态角标和最新排�
 
 test('设置提供四种填充方式，动态背景默认播放', () => {
   expect(DEFAULT_APPEARANCE.bgAnimate).toBe(true)
-  const html = renderToStaticMarkup(<SettingsPage />)
+  // 设置页现在带玩法预设列表（要查询数据），给一个空的 QueryClient
+  const qc = new QueryClient()
+  const html = renderToStaticMarkup(
+    <QueryClientProvider client={qc}>
+      <SettingsPage />
+    </QueryClientProvider>,
+  )
+  qc.clear()
   for (const label of ['铺满裁剪', '完整显示', '拉伸', '居中原尺寸', '播放动态背景']) expect(html).toContain(label)
   for (const value of ['cover', 'contain', 'stretch', 'center']) expect(html).toContain(`value="${value}"`)
 })

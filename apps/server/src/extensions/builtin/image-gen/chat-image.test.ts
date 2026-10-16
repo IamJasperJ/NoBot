@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test'
 import { aspectRatio, findChatImage, generateOpenAI, openaiApiKind, openaiChatBody } from './backends/openai'
 import { parseSettings } from './settings'
 
@@ -50,34 +50,45 @@ test('从各种聊天回复格式里找出图片', () => {
 })
 
 // 模拟中转：gemini 模型只能走聊天接口（图片接口返回 400），gpt-image 只能走图片接口
-let server: ReturnType<typeof Bun.serve>
+let server: ReturnType<typeof Bun.serve> | undefined
+let restoreFetch: (() => void) | undefined
 const hits: string[] = []
 beforeAll(() => {
-  server = Bun.serve({
-    port: 0,
-    async fetch(request) {
-      const url = new URL(request.url)
-      const body = (await request.json()) as { model: string }
-      hits.push(`${url.pathname} ${body.model}`)
-      if (body.model.includes('401')) return Response.json({ error: { message: 'bad key' } }, { status: 401 })
-      if (url.pathname.endsWith('/images/generations')) {
-        if (body.model.includes('404')) return new Response('not found', { status: 404 })
-        if (body.model.startsWith('gemini') || body.model.includes('chat-only'))
-          return Response.json(
-            { error: { message: `Model ${body.model} is not supported on /v1/images/generations` } },
-            { status: 400 },
-          )
-        return Response.json({ data: [{ b64_json: png }] })
-      }
-      if (body.model === 'text-only') return Response.json(reply({ content: '抱歉，我只会写字' }))
-      return Response.json(reply({ content: `![](data:image/png;base64,${png})` }))
-    },
-  })
+  const respond = async (request: Request) => {
+    const url = new URL(request.url)
+    const body = (await request.json()) as { model: string }
+    hits.push(`${url.pathname} ${body.model}`)
+    if (body.model.includes('401')) return Response.json({ error: { message: 'bad key' } }, { status: 401 })
+    if (url.pathname.endsWith('/images/generations')) {
+      if (body.model.includes('404')) return new Response('not found', { status: 404 })
+      if (body.model.startsWith('gemini') || body.model.includes('chat-only'))
+        return Response.json(
+          { error: { message: `Model ${body.model} is not supported on /v1/images/generations` } },
+          { status: 400 },
+        )
+      return Response.json({ data: [{ b64_json: png }] })
+    }
+    if (body.model === 'text-only') return Response.json(reply({ content: '抱歉，我只会写字' }))
+    return Response.json(reply({ content: `![](data:image/png;base64,${png})` }))
+  }
+  if (process.env.IMG3_FETCH_MOCK) {
+    // 受限环境不能监听端口时，仍走同一套模拟响应。
+    const mocked = spyOn(globalThis, 'fetch').mockImplementation(
+      Object.assign(
+        async (input: Parameters<typeof fetch>[0], init?: RequestInit) => respond(new Request(String(input), init)),
+        { preconnect: fetch.preconnect },
+      ),
+    )
+    restoreFetch = () => mocked.mockRestore()
+  } else server = Bun.serve({ port: 0, fetch: respond })
 })
-afterAll(() => server.stop(true))
+afterAll(() => {
+  restoreFetch?.()
+  server?.stop(true)
+})
 
 test('聊天接口出图、自动模式猜错时换接口重试、没有图片时给出清楚的错误', async () => {
-  const base = `http://127.0.0.1:${server.port}/v1`
+  const base = `http://127.0.0.1:${server?.port ?? 12345}/v1`
   const run = (openaiModel: string, openaiApiType = 'auto') =>
     generateOpenAI(parseSettings({ openaiBaseUrl: base, openaiModel, openaiApiType }), 'a cat', 1024, 1024)
   hits.length = 0

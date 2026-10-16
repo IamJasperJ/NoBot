@@ -19,7 +19,9 @@ import { HttpError, notFound } from '../errors'
 import { emitServerEvent } from '../extensions/registry'
 import { avatarUrl } from '../lib/files'
 import { requireBackground } from './backgrounds'
+import { getPlayPreset } from './playPresets'
 import { SETTING_KEYS } from './settings'
+import { applyStageParse, computeStage, initialVars, resolvePlayPreset } from './stage'
 
 // ---------------------------------------------------------------------------
 // 消息树查询：用递归 CTE 从叶子沿 parent_id 往上走，一条 SQL 拿到整条路径。
@@ -87,11 +89,14 @@ export function loadMessage(id: string): MessageDTO {
   return msg
 }
 
-/** 跑团状态 = 激活路径上所有 tool 消息的 varsPatch 依次合并（值为 null 表示删除） */
-export function computeVars(path: { role: MessageRole; meta: MessageMeta }[]): Record<string, unknown> {
-  const vars: Record<string, unknown> = {}
+/** 跑团状态 = 激活路径上所有消息的 varsPatch 依次合并（值为 null 表示删除） */
+export function computeVars(
+  path: { role: MessageRole; meta: MessageMeta }[],
+  base: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const vars: Record<string, unknown> = { ...base }
   for (const m of path) {
-    if (m.role !== 'tool' || !m.meta.varsPatch) continue
+    if (!m.meta.varsPatch) continue
     for (const [k, v] of Object.entries(m.meta.varsPatch)) {
       if (v === null) delete vars[k]
       else vars[k] = v
@@ -129,6 +134,7 @@ function toDTO(row: ChatRow): ChatDTO {
     activeLeafId: row.activeLeafId,
     apiPresetId: row.apiPresetId,
     promptPresetId: row.promptPresetId,
+    playPresetId: row.playPresetId,
     authorNote: row.authorNote,
     authorNoteDepth: row.authorNoteDepth,
     authorNoteRole: row.authorNoteRole,
@@ -308,12 +314,15 @@ export function getChatPage(chatId: string, opts: { before?: string; limit?: num
     hasMore,
     generating,
     // 状态变量要看整条路径；翻旧页时前端不用它
-    vars: opts.before ? {} : computeVars(loadPath(chat.activeLeafId)),
+    vars: opts.before ? {} : computeVars(loadPath(chat.activeLeafId), initialVars(chatId).vars),
+    stage: computeStage(chatId, loadPath(chat.activeLeafId)),
+    playPresetId: resolvePlayPreset(chatId).id,
   }
 }
 
 export function updateChat(chatId: string, input: UpdateChatInput): ChatDTO {
   getChatRow(chatId)
+  if (input.playPresetId != null) getPlayPreset(input.playPresetId)
   if (input.backgroundId != null) requireBackground(input.backgroundId)
   const { lorebookIds, ...rest } = input
   db.transaction((tx) => {
@@ -412,7 +421,10 @@ export function editMessage(messageId: string, content: string): MessageDTO {
   const row = db.select().from(messages).where(eq(messages.id, messageId)).get()
   if (!row) throw notFound('消息')
   if (row.status === 'streaming') throw new HttpError(409, 'BUSY', '这条消息还在生成中，不能编辑')
-  db.update(messages).set({ content }).where(eq(messages.id, messageId)).run()
+  db.update(messages)
+    .set({ content, meta: applyStageParse(row.chatId, row, content) })
+    .where(eq(messages.id, messageId))
+    .run()
   return loadMessage(messageId)
 }
 

@@ -19,6 +19,7 @@ import { getAttachment, redactImages, resolveImages } from './attachments'
 import { computeVars, loadMessage, loadPath } from './chats'
 import { assemble, type GenerationContext, loadGenerationContext } from './context'
 import { insertLog, logError } from './logs'
+import { applyStageParse, initialVars } from './stage'
 
 /**
  * 生成任务。一次任务可能产出多条消息：
@@ -264,7 +265,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
 
         // 执行工具，结果作为 tool 消息挂在消息树上，然后同一个角色接着写
         for (const call of step.toolCalls) {
-          const vars = computeVars(loadPath(parentId))
+          const vars = computeVars(loadPath(parentId), initialVars(job.chatId).vars)
           const result = await runTool(
             call.name,
             call.arguments,
@@ -465,7 +466,14 @@ async function generateOne(
     content = step.continueTarget.content
     status = 'done'
   }
-  db.update(messages).set({ content, status, meta }).where(eq(messages.id, messageId)).run()
+  db.update(messages)
+    .set({
+      content,
+      status,
+      meta: applyStageParse(job.chatId, { role: 'assistant', status, parentId: step.parentId, meta }, content),
+    })
+    .where(eq(messages.id, messageId))
+    .run()
   job.current = null
   const message = loadMessage(messageId)
   emitServerEvent({ type: 'message:saved', message })

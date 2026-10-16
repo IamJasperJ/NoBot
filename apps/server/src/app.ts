@@ -14,6 +14,7 @@ import { logRoutes } from './routes/logs'
 import { lorebookRoutes } from './routes/lorebooks'
 import { messageRoutes } from './routes/messages'
 import { personaRoutes } from './routes/personas'
+import { playPresetRoutes } from './routes/playPresets'
 import { presetRoutes } from './routes/presets'
 import { logError } from './services/logs'
 
@@ -52,6 +53,7 @@ app.get('/health', (c) => c.json({ ok: true }))
 app.route('/backgrounds', backgroundRoutes)
 app.route('/connections', connectionRoutes)
 app.route('/presets', presetRoutes)
+app.route('/play-presets', playPresetRoutes)
 app.route('/personas', personaRoutes)
 app.route('/characters', characterRoutes)
 app.route('/lorebooks', lorebookRoutes)

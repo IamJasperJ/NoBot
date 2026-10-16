@@ -29,6 +29,7 @@
     "apps/web": {
       "name": "@ai-parter/web",
       "dependencies": {
+        "@ai-parter/core": "workspace:*",
         "@ai-parter/shared": "workspace:*",
         "@tanstack/react-query": "^5.104.3",
         "@tanstack/react-virtual": "^3.14.20",

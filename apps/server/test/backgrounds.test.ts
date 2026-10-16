@@ -27,6 +27,8 @@ test('背景上传、设置、删除与校验使用独立数据库', async () =>
   }
   const { initDatabase, sqlite } = await import('../src/db/client')
   initDatabase()
+  const { seedPlayPresets } = await import('../src/services/playPresets.builtin')
+  seedPlayPresets()
   const { app } = await import('../src/app')
   const { paths } = await import('../src/env')
   const { saveBackground, checkBackgroundSize, detectBackgroundMime } = await import('../src/services/backgrounds')

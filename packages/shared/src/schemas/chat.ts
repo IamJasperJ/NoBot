@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { GroupDTO } from './group'
 import type { MessageDTO } from './message'
+import type { StageState } from './stage'
 
 export interface ChatSummary {
   id: string
@@ -26,6 +27,8 @@ export interface ChatDTO extends ChatSummary {
   lorebookIds: string[]
   /** 聊天背景（背景库里的 id），为空则用全局背景 */
   backgroundId: string | null
+  /** 玩法预设（VN 模式），为空则用角色卡指定的预设或全局默认 */
+  playPresetId: string | null
   createdAt: number
 }
 
@@ -40,8 +43,12 @@ export interface ChatPage {
   hasMore: boolean
   /** 当前会话是否有正在进行的生成 */
   generating: boolean
-  /** 沿激活路径累加工具调用得到的会话变量（跑团状态） */
+  /** 会话变量（跑团状态）= 初始值（[InitVar]、状态 schema 的 init）+ 沿激活路径累加的 varsPatch */
   vars: Record<string, unknown>
+  /** 沿激活路径累加舞台指令得到的当前舞台；玩法预设没开指令时为 null */
+  stage: StageState | null
+  /** 实际生效的玩法预设 id（会话指定 > 角色卡指定 > 默认） */
+  playPresetId: string
 }
 
 export const createChatInput = z
@@ -64,6 +71,7 @@ export const updateChatInput = z.object({
   authorNoteRole: z.enum(['system', 'user', 'assistant']).optional(),
   lorebookIds: z.array(z.string()).optional(),
   backgroundId: z.string().nullable().optional(),
+  playPresetId: z.string().nullable().optional(),
 })
 export type UpdateChatInput = z.infer<typeof updateChatInput>
 

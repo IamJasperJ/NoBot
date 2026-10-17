@@ -19,6 +19,7 @@ import { messageRoutes } from './routes/messages'
 import { personaRoutes } from './routes/personas'
 import { playPresetRoutes } from './routes/playPresets'
 import { presetRoutes } from './routes/presets'
+import { trashRoutes } from './routes/trash'
 import { logError } from './services/logs'
 
 /**
@@ -62,6 +63,7 @@ app.route('/characters', characterRoutes)
 app.route('/lorebooks', lorebookRoutes)
 app.route('/groups', groupRoutes)
 app.route('/chats', chatRoutes)
+app.route('/trash', trashRoutes)
 app.route('/bookmarks', bookmarkRoutes)
 app.route('/messages', messageRoutes)
 app.route('/logs', logRoutes)

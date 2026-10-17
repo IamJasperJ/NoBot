@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'
 import * as service from '../services/characters'
+import { characterUsage } from '../services/trash'
 import { spriteRoutes } from './sprites'
 
 export const characterRoutes = new Hono()
@@ -27,6 +28,7 @@ export const characterRoutes = new Hono()
     )
     return c.body(new Uint8Array(file.bytes))
   })
+  .get('/:id/usage', (c) => c.json(characterUsage(c.req.param('id'))))
   .get('/:id', (c) => c.json(service.getCharacter(c.req.param('id'))))
   .patch('/:id', validate('json', characterUpdateInput), async (c) =>
     c.json(service.updateCharacter(c.req.param('id'), await c.req.json<Record<string, unknown>>())),
@@ -40,4 +42,8 @@ export const characterRoutes = new Hono()
     c.json(await service.setCharacterAvatar(c.req.param('id'), await readUpload(await c.req.parseBody()))),
   )
 
+characterRoutes.use('/:id/sprites/*', async (c, next) => {
+  service.getCharacterRow(c.req.param('id')!)
+  await next()
+})
 characterRoutes.route('/:id/sprites', spriteRoutes)

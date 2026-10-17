@@ -2,7 +2,7 @@ import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { spriteNameFromPath } from '@ai-parter/core/stage'
 import { type SpriteDTO, type SpriteImportResult, updateSpriteInput } from '@ai-parter/shared'
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import sharp, { type Metadata } from 'sharp'
 import { db, newId } from '../db/client'
 import { characters, sprites } from '../db/schema'
@@ -13,7 +13,13 @@ import { readZip } from '../lib/zip'
 
 type SpriteRow = typeof sprites.$inferSelect
 export function requireCharacter(id: string) {
-  if (!db.select({ id: characters.id }).from(characters).where(eq(characters.id, id)).get()) throw notFound(t('角色'))
+  // 回收站里的角色当作不存在
+  const row = db
+    .select({ id: characters.id })
+    .from(characters)
+    .where(and(eq(characters.id, id), isNull(characters.deletedAt)))
+    .get()
+  if (!row) throw notFound(t('角色'))
 }
 function dto(row: SpriteRow): SpriteDTO {
   const base = `/api/assets/sprites/${row.characterId}/${row.id}`

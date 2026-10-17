@@ -1,73 +1,92 @@
 import { type PlayPresetData, playPresetDataSchema, type StateSchema } from '@ai-parter/shared'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { playPresets } from '../db/schema'
+import { t } from '../i18n'
 import { SETTING_KEYS } from './settings'
 
-const galgame: StateSchema = {
-  好感: {
-    type: 'meter',
-    min: 0,
-    max: 100,
-    init: 30,
-    label: '好感',
-    stages: [
-      [0, '陌生'],
-      [40, '朋友'],
-      [70, '心动'],
-      [90, '恋人'],
-    ],
-    rule: 'Kind, considerate interactions +1~3; offense or neglect -3~5; major events may change more',
-  },
-  日期: { type: 'text', init: '第1天', pin: true },
-  时间: { type: 'text', init: '早晨', pin: true },
-  地点: { type: 'text', init: '' },
+function galgame(): StateSchema {
+  return {
+    affection: {
+      label: t('好感'),
+      type: 'meter',
+      min: 0,
+      max: 100,
+      init: 30,
+      stages: [
+        [0, 'Strangers'],
+        [40, 'Friends'],
+        [70, 'Attraction'],
+        [90, 'Lovers'],
+      ],
+      rule: 'Kind, considerate interactions +1~3; offense or neglect -3~5; major events may change more',
+    },
+    day: { label: t('日期'), type: 'text', init: 'Day 1', pin: true },
+    time: { label: t('时间'), type: 'text', init: 'Morning', pin: true },
+    location: { label: t('地点'), type: 'text', init: '' },
+  }
 }
-const rpg: StateSchema = {
-  HP: {
-    type: 'meter',
-    min: 0,
-    max: 'HP上限',
-    init: 20,
-    color: 'red',
-    pin: true,
-    rule: 'Decrease when injured; recover through rest or healing',
-  },
-  HP上限: { type: 'number', init: 20 },
-  金币: { type: 'number', init: 10, pin: true },
-  背包: { type: 'list', init: ['短剑', '火把×3', '干粮×2'], rule: 'Update when items are acquired or consumed' },
-  任务: { type: 'list', init: [], rule: 'Add accepted quests and remove completed ones' },
-  地点: { type: 'text', init: '', pin: true },
-  时间: { type: 'text', init: '第1天 早晨' },
+function rpg(): StateSchema {
+  return {
+    hp: {
+      label: t('生命值'),
+      type: 'meter',
+      min: 0,
+      max: 'maxHp',
+      init: 20,
+      color: 'red',
+      pin: true,
+      rule: 'Decrease when injured; recover through rest or healing',
+    },
+    maxHp: { label: t('生命上限'), type: 'number', init: 20 },
+    gold: { label: t('金币'), type: 'number', init: 10, pin: true },
+    inventory: {
+      label: t('背包'),
+      type: 'list',
+      init: ['Short sword', 'Torch x3', 'Rations x2'],
+      rule: 'Update when items are acquired or consumed',
+    },
+    quests: { label: t('任务'), type: 'list', init: [], rule: 'Add accepted quests and remove completed ones' },
+    location: { label: t('地点'), type: 'text', init: '', pin: true },
+    time: { label: t('时间'), type: 'text', init: 'Day 1 morning' },
+  }
 }
-const dnd: StateSchema = {
-  '主角.等级': { type: 'number', init: 1 },
-  '主角.HP': {
-    type: 'meter',
-    min: 0,
-    max: '主角.HP上限',
-    init: 10,
-    color: 'red',
-    pin: true,
-    rule: 'Decrease when taking damage; recover during short or long rests',
-  },
-  '主角.HP上限': { type: 'number', init: 10 },
-  '主角.AC': { type: 'number', init: 12, pin: true },
-  ...Object.fromEntries(
-    ['力量', '敏捷', '体质', '智力', '感知', '魅力'].map((name) => [
-      `主角.${name}`,
-      { type: 'number' as const, init: 10 },
-    ]),
-  ),
-  '主角.熟练加值': { type: 'number', init: 2 },
-  '主角.熟练技能': { type: 'list', init: [] },
-  '主角.状态': {
-    type: 'list',
-    init: [],
-    rule: 'Track conditions such as poisoned, prone, or charmed; remove when cleared',
-  },
-  背包: { type: 'list', init: [] },
-  金币: { type: 'number', init: 0 },
-  地点: { type: 'text', init: '', pin: true },
+function dnd(): StateSchema {
+  return {
+    'player.level': { label: t('等级'), type: 'number', init: 1 },
+    'player.hp': {
+      label: t('生命值'),
+      type: 'meter',
+      min: 0,
+      max: 'player.maxHp',
+      init: 10,
+      color: 'red',
+      pin: true,
+      rule: 'Decrease when taking damage; recover during short or long rests',
+    },
+    'player.maxHp': { label: t('生命上限'), type: 'number', init: 10 },
+    'player.ac': { label: t('护甲等级'), type: 'number', init: 12, pin: true },
+    ...Object.fromEntries(
+      [
+        ['str', t('力量')],
+        ['dex', t('敏捷')],
+        ['con', t('体质')],
+        ['int', t('智力')],
+        ['wis', t('感知')],
+        ['cha', t('魅力')],
+      ].map(([name, label]) => [`player.${name}`, { type: 'number' as const, init: 10, label }]),
+    ),
+    'player.proficiencyBonus': { label: t('熟练加值'), type: 'number', init: 2 },
+    'player.skills': { label: t('熟练技能'), type: 'list', init: [] },
+    'player.conditions': {
+      label: t('状态'),
+      type: 'list',
+      init: [],
+      rule: 'Track conditions such as poisoned, prone, or charmed; remove when cleared',
+    },
+    inventory: { label: t('背包'), type: 'list', init: [] },
+    gold: { label: t('金币'), type: 'number', init: 0 },
+    location: { label: t('地点'), type: 'text', init: '', pin: true },
+  }
 }
 
 export type BuiltinPlayPresetKey = 'chat' | 'companion' | 'galgame' | 'rpg' | 'dnd5e'
@@ -89,14 +108,14 @@ export const BUILTIN_PLAY_PRESETS: { key: BuiltinPlayPresetKey; name: string; bu
   {
     key: 'galgame',
     name: 'Galgame',
-    build: () => story(['expression', 'cast', 'scene', 'state', 'choices', 'cg'], 'adv', galgame),
+    build: () => story(['expression', 'cast', 'scene', 'state', 'choices', 'cg'], 'adv', galgame()),
   },
-  { key: 'rpg', name: 'RPG', build: () => story(['expression', 'cast', 'scene', 'state', 'choices'], 'auto', rpg) },
+  { key: 'rpg', name: 'RPG', build: () => story(['expression', 'cast', 'scene', 'state', 'choices'], 'auto', rpg()) },
   {
     key: 'dnd5e',
     name: 'D&D 5e',
     build: () => {
-      const data = story(['expression', 'cast', 'scene', 'state', 'choices', 'combat'], 'auto', dnd)
+      const data = story(['expression', 'cast', 'scene', 'state', 'choices', 'combat'], 'auto', dnd())
       data.trpg.ruleSystem = 'dnd5e'
       return data
     },

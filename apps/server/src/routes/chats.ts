@@ -65,6 +65,10 @@ function streamJob(c: Context, job: NonNullable<ReturnType<typeof generation.get
 
 /** 会话、生成、代写、预览、分支 */
 export const chatRoutes = new Hono()
+  .use('/:id/*', async (c, next) => {
+    chats.getChatRow(c.req.param('id')!)
+    await next()
+  })
   .get('/', validate('query', z.object({ characterId: z.string().optional(), groupId: z.string().optional() })), (c) =>
     c.json(chats.listChats(c.req.valid('query'))),
   )

@@ -27,6 +27,7 @@ const timestamps = {
 }
 
 export const characters = sqliteTable('characters', {
+  deletedAt: integer('deleted_at'),
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
@@ -123,6 +124,7 @@ export const playPresets = sqliteTable('play_presets', {
 })
 
 export const groups = sqliteTable('groups', {
+  deletedAt: integer('deleted_at'),
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   activation: text('activation').$type<GroupActivation>().notNull().default('natural'),

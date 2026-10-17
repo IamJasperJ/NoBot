@@ -16,7 +16,7 @@ const DIRECTIVE_KIND_GUIDES: Record<'shorthand' | 'xml', Partial<Record<Directiv
   shorthand: {
     ...commonGuides,
     expression:
-      '- Put each line of dialogue on its own line: 名字[表情]：「台词」 (name[expression]：「dialogue」), e.g. Alice[joy]：「Welcome back!」. Omit [expression] when unchanged.',
+      '- Put each line of dialogue on its own line: name[expression]：「dialogue」, e.g. Alice[joy]：「Welcome back!」. Omit [expression] when unchanged.',
     state:
       '- Put state changes at the end of the reply:\n<state>\npath = value\npath += number\npath -= number\n</state>',
   },
@@ -29,7 +29,7 @@ const DIRECTIVE_KIND_GUIDES: Record<'shorthand' | 'xml', Partial<Record<Directiv
 
 export function renderDirectiveInstructions(input: InstructionsInput): string {
   const list = (kind: 'cast' | 'expressions' | 'backgrounds', values: string[]): string =>
-    input.lists.includes(kind) ? values.join('、') : ''
+    input.lists.includes(kind) ? values.join(', ') : ''
   const paths = [...new Set([...Object.keys(input.schema), ...Object.keys(input.vars)])]
   const state: string[] = []
   if (input.kinds.includes('state') && input.lists.includes('vars')) {
@@ -45,7 +45,7 @@ export function renderDirectiveInstructions(input: InstructionsInput): string {
               ? 'list'
               : ''
       const rule = field?.rule ?? (Object.hasOwn(input.rules, path) ? input.rules[path] : '')
-      let line = `- ${path}：${[type, rule].filter(Boolean).join(', ')}`
+      let line = `- ${path}: ${[type, rule].filter(Boolean).join(', ')}`
       if (input.valuesInPrompt && Object.hasOwn(input.vars, path)) {
         const value = input.vars[path]
         const rendered = typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value))

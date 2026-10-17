@@ -13,6 +13,7 @@ import { getSetting, setSetting } from '../db/client'
 export const SETTING_KEYS = {
   defaultPlayPresetId: 'defaultPlayPresetId',
   playPresetsSeeded: 'playPresetsSeeded',
+  legacyPromptsMigrated: 'legacyPromptsMigrated',
   defaultApiPresetId: 'defaultApiPresetId',
   defaultPromptPresetId: 'defaultPromptPresetId',
   builtinPromptPresetId: 'builtinPromptPresetId',

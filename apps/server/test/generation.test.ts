@@ -416,6 +416,8 @@ test('正则扩展分别转换保存的用户输入和模型输出', async () =>
 })
 
 test('日志倒序保存请求响应报告并由消息引用且支持全部清空', async () => {
+  // 启动迁移会写独立日志，这里只验证本测试创建的生成日志。
+  await json('/logs', 'DELETE')
   const { chat } = await setup()
   await generate(chat)
   await generate(chat, { mode: 'send', text: '第二轮' })

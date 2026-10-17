@@ -426,6 +426,8 @@ test('VN2：立绘、CharX、演员与情绪判断集成', async () => {
     }
     await access(join(paths.sprites, actor.id))
     await json(`/characters/${actor.id}`, 'DELETE')
+    await access(join(paths.sprites, actor.id))
+    await json(`/trash/characters/${actor.id}`, 'DELETE')
     expect(await Bun.file(join(paths.sprites, actor.id, `${explicit.added[0]!.id}.png`)).exists()).toBe(false)
     await expect(access(join(paths.sprites, actor.id))).rejects.toThrow()
     expect(db.select().from(sprites).where(eq(sprites.characterId, actor.id)).all()).toEqual([])

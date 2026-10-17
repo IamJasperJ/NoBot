@@ -85,7 +85,7 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     const plain = seeded[0]!
     const gal = seeded[2]!
     expect(plain.isDefault).toBe(true)
-    expect(JSON.parse(seeded[4]!.data.state.schema)['主角.HP'].init).toBe(10)
+    expect(JSON.parse(seeded[4]!.data.state.schema)['player.hp'].init).toBe(10)
     await bootstrap()
     expect((await list()).length).toBe(5)
     // 重置内置预设：名字和设置回到内置默认；补回只补缺少的那几个
@@ -176,7 +176,8 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
         .共同,
     ).toBeUndefined()
     expect(
-      stage.resolveStateSchema(groupChat.id, { ...gal.data, state: { ...gal.data.state, schemaSource: 'card' } }).好感,
+      stage.resolveStateSchema(groupChat.id, { ...gal.data, state: { ...gal.data.state, schemaSource: 'card' } })
+        .affection,
     ).toBeUndefined()
     db.update(characters).set({ extensions: {} }).where(eq(characters.id, actor.id)).run()
 
@@ -194,16 +195,16 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     db.insert(backgrounds)
       .values({ id: bgId, name: '黄昏的酒馆', width: 1, height: 1, source: 'upload', createdAt: Date.now() })
       .run()
-    model.setScript(() => ({ text: '<scene bg=" 黄昏的酒馆 " />\n艾莉丝[joy]：欢迎\n<state>好感 += 2</state>' }))
+    model.setScript(() => ({ text: '<scene bg=" 黄昏的酒馆 " />\n艾莉丝[joy]：欢迎\n<state>affection += 2</state>' }))
     const first = await generate(chat.id)
     // 切到 Galgame 后，之前「普通聊天」下生成的回复在生成前被补解析
     expect(chatService.loadMessage(normal.id).meta.stage?.ops).toEqual([
       { op: 'expr', who: '艾莉丝', expression: 'joy' },
     ])
     expect(first.meta.stage?.ops.length).toBe(2)
-    expect(first.meta.varsPatch).toEqual({ 好感: 32 })
+    expect(first.meta.varsPatch).toEqual({ affection: 32 })
     let current = await page(chat.id)
-    expect(current.vars).toMatchObject({ 好感: 32, 日期: '第1天' })
+    expect(current.vars).toMatchObject({ affection: 32, day: 'Day 1' })
     // VN 视图从这条回复开头演：取它之前的舞台，不含它自己的场景和上台
     const before = await json<{ stage: ChatPage['stage'] }>(`/chats/${chat.id}/stage?before=${first.id}`)
     expect(before.stage?.scene.bg).toBeUndefined()
@@ -211,17 +212,17 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     expect((await request(`/chats/${chat.id}/stage?before=nope`)).status).toBe(404)
     expect(current.stage?.scene.backgroundId).toBe(bgId)
     expect(current.stage?.cast[0]?.name).toBe('艾莉丝')
-    model.setScript(() => ({ text: '<scene bg="森林" />\n<state>好感 += 5</state>' }))
+    model.setScript(() => ({ text: '<scene bg="森林" />\n<state>affection += 5</state>' }))
     const regenerated = await generate(chat.id, { mode: 'regenerate', targetId: first.id })
-    expect((await page(chat.id)).vars.好感).toBe(35)
+    expect((await page(chat.id)).vars.affection).toBe(35)
     expect((await page(chat.id)).stage?.scene.backgroundId).toBeNull()
     await json(`/chats/${chat.id}/swipe`, 'POST', { messageId: regenerated.id, direction: -1 })
-    expect((await page(chat.id)).vars.好感).toBe(32)
+    expect((await page(chat.id)).vars.affection).toBe(32)
     expect((await page(chat.id)).stage?.scene.backgroundId).toBe(bgId)
     const edited = await json<MessageDTO>(`/messages/${first.id}`, 'PATCH', {
-      content: '<scene bg="酒馆" />\n<state>好感 += 7</state>',
+      content: '<scene bg="酒馆" />\n<state>affection += 7</state>',
     })
-    expect(edited.meta.varsPatch?.好感).toBe(37)
+    expect(edited.meta.varsPatch?.affection).toBe(37)
     expect((await page(chat.id)).stage?.scene.backgroundId).toBe(bgId)
     const longer = newId()
     db.insert(backgrounds)
@@ -239,18 +240,21 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     expect(sceneFor('Tavren')?.scene.backgroundId).toBeNull()
 
     await json(`/messages/${first.id}`, 'PATCH', {
-      content: '<scene bg="不存在" />\n<UpdateVariable>_.set(\'好感\', 30, 45);</UpdateVariable>',
+      content: '<scene bg="不存在" />\n<UpdateVariable>_.set(\'affection\', 30, 45);</UpdateVariable>',
     })
-    expect((await page(chat.id)).vars.好感).toBe(45)
+    expect((await page(chat.id)).vars.affection).toBe(45)
     expect((await page(chat.id)).stage?.scene.backgroundId).toBeNull()
 
     const book = await json<LorebookDTO>('/lorebooks', 'POST', { name: '初值', isGlobal: true })
     await json(`/lorebooks/${book.id}/entries`, 'POST', {
       comment: '[InitVar] 初始值',
       enabled: false,
-      content: '{"金币":[12,"奖励时增加"],"好感":31}',
+      content: '{"金币":[12,"奖励时增加"],"affection":31}',
     })
-    expect(stage.initialVars(chat.id)).toMatchObject({ vars: { 金币: 12, 好感: 31 }, rules: { 金币: '奖励时增加' } })
+    expect(stage.initialVars(chat.id)).toMatchObject({
+      vars: { 金币: 12, affection: 31 },
+      rules: { 金币: '奖励时增加' },
+    })
     const cardBook = await json<LorebookDTO>('/lorebooks', 'POST', { name: '角色初值' })
     await json(`/lorebooks/${cardBook.id}/entries`, 'POST', {
       comment: '[InitVar]',
@@ -303,7 +307,7 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     expect(history.find((m) => m.id === normal.id)?.content).not.toContain('<state>')
     model.setScript(() => ({ text: '\n<state>金币 += 1</state>' }))
     await generate(chat.id, { mode: 'continue', targetId: first.id })
-    expect((await page(chat.id)).vars).toMatchObject({ 好感: 45, 金币: 13 })
+    expect((await page(chat.id)).vars).toMatchObject({ affection: 45, 金币: 13 })
 
     const prompt = (await json<PromptPresetDTO[]>('/presets'))[0]!
     prompt.data.samplers.functionCalling = true

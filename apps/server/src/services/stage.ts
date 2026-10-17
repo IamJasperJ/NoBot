@@ -16,7 +16,7 @@ import {
   type PlayPresetData,
   type StateSchema,
 } from '@ai-parter/shared'
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 import { db } from '../db/client'
 import { characters, groupMembers, messages } from '../db/schema'
 import { backgroundsForChat } from './backgrounds'
@@ -31,14 +31,17 @@ export function stageMembers(chatId: string) {
     return row ? [row] : []
   }
   if (!chat.groupId) return []
-  return db
-    .select({ character: characters })
-    .from(groupMembers)
-    .innerJoin(characters, eq(characters.id, groupMembers.characterId))
-    .where(eq(groupMembers.groupId, chat.groupId))
-    .orderBy(asc(groupMembers.position))
-    .all()
-    .map((row) => row.character)
+  return (
+    db
+      .select({ character: characters })
+      .from(groupMembers)
+      .innerJoin(characters, eq(characters.id, groupMembers.characterId))
+      // 回收站里的角色不参与群聊的演员映射（恢复后自动回来）
+      .where(and(eq(groupMembers.groupId, chat.groupId), isNull(characters.deletedAt)))
+      .orderBy(asc(groupMembers.position))
+      .all()
+      .map((row) => row.character)
+  )
 }
 const cardConfig = (extensions: Record<string, unknown>) => cardVnSchema.safeParse(extensions.ai_parter_vn).data
 

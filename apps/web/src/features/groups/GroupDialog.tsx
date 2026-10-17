@@ -14,6 +14,7 @@ import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from '../../components/i
 import { Avatar, Button, Dialog, IconButton } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
+import { useUi } from '../../stores/ui'
 import { CountedArea, CountedText, moveItem, useAction } from '../characters/editor'
 
 export function GroupDialog(props: {
@@ -306,14 +307,25 @@ function GroupEditor({
             <Button
               variant="danger"
               disabled={busy}
-              onClick={() => {
-                if (confirm(t('确定删除群组？群组的所有会话也会一起删除。')))
-                  void run(async () => {
-                    await api.deleteGroup(groupId)
-                    await refresh()
-                    onClose()
-                  })
-              }}
+              onClick={() =>
+                void run(async () => {
+                  const usage = await api.groupUsage(groupId)
+                  const message =
+                    usage.chats > 0
+                      ? t(
+                          '这个群组还有 {count} 个会话，会和群组一起进回收站，可以在角色页的「回收站」里恢复。确定删除？',
+                          {
+                            count: usage.chats,
+                          },
+                        )
+                      : t('删除这个群组？可以在角色页的「回收站」里恢复。')
+                  if (!confirm(message)) return
+                  await api.deleteGroup(groupId)
+                  if (useUi.getState().groupId === groupId) useUi.getState().openChat({}, null)
+                  await refresh()
+                  onClose()
+                })
+              }
             >
               {t('删除群组')}
             </Button>

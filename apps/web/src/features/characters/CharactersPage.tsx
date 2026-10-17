@@ -23,6 +23,7 @@ import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { AvatarUpload, CountedArea, CountedText, moveItem, useAction } from './editor'
 import { SpriteManager } from './SpriteManager'
+import { TrashDialog } from './TrashDialog'
 import { useCharacterImport } from './useCharacterImport'
 
 export function CharactersPage() {
@@ -31,6 +32,7 @@ export function CharactersPage() {
   const [selected, setSelected] = useState<string | null>(focusId)
   const [search, setSearch] = useState('')
   const [tagFilter, setTagFilter] = useState<string[]>([])
+  const [trashOpen, setTrashOpen] = useState(false)
   const dirty = useRef(false)
   const editorBusy = useRef(false)
   const importInput = useRef<HTMLInputElement>(null)
@@ -68,6 +70,10 @@ export function CharactersPage() {
           <Button disabled={busy || importing} onClick={() => importInput.current?.click()}>
             {importing ? t('导入中…') : t('导入')}
           </Button>
+          <IconButton label={t('回收站')} onClick={() => setTrashOpen(true)}>
+            <TrashIcon />
+          </IconButton>
+          <TrashDialog open={trashOpen} onClose={() => setTrashOpen(false)} />
           {importDialog}
           <input
             ref={importInput}
@@ -282,14 +288,35 @@ export function CharacterEditor({
                 icon={<TrashIcon />}
                 danger
                 disabled={busy}
-                onClick={() => {
-                  if (confirm(t('确定删除「{name}」？它的所有会话也会一起删除。', { name: original.name })))
-                    void run(async () => {
-                      await api.deleteCharacter(character.id)
-                      await refresh()
-                      onSelect(null)
-                    })
-                }}
+                onClick={() =>
+                  void run(async () => {
+                    // 先查它还有多少会话、在哪些群聊里，提醒清楚再删（删了先进回收站，可以恢复）
+                    const usage = await api.characterUsage(character.id)
+                    const lines = [
+                      usage.chats > 0
+                        ? t('「{name}」还有 {count} 个会话，会和角色一起进回收站。', {
+                            name: original.name,
+                            count: usage.chats,
+                          })
+                        : t('删除「{name}」？', { name: original.name }),
+                      ...(usage.groups.length
+                        ? [
+                            t('它还在这些群聊里：{groups}。在回收站期间，它不会在这些群聊里发言。', {
+                              groups: usage.groups.map((g) => g.name).join(t('、')),
+                            }),
+                          ]
+                        : []),
+                      t('删除后可以在角色页的「回收站」里恢复。'),
+                    ]
+                    if (!confirm(lines.join('\n\n'))) return
+                    await api.deleteCharacter(character.id)
+                    // 正打开着它的会话：回到空白页，不然还会显示缓存里的旧聊天
+                    if (useUi.getState().characterId === character.id) useUi.getState().openChat({}, null)
+                    await refresh()
+                    onSelect(null)
+                    toast.info(t('已移到回收站'))
+                  })
+                }
               >
                 {t('删除')}
               </MenuEntry>

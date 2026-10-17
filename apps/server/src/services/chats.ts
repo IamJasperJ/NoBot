@@ -13,7 +13,7 @@ import type {
   UpdateChatInput,
 } from '@ai-parter/shared'
 import { createChatInput } from '@ai-parter/shared'
-import { asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import { db, getSetting, newId, sqlite } from '../db/client'
 import {
   backgrounds,
@@ -158,13 +158,17 @@ function toDTO(row: ChatRow): ChatDTO {
 
 /** 群组信息（会话页需要成员的名字和头像来显示发言人） */
 export function loadGroupDTO(groupId: string): GroupDTO {
-  const g = db.select().from(groups).where(eq(groups.id, groupId)).get()
+  const g = db
+    .select()
+    .from(groups)
+    .where(and(eq(groups.id, groupId), isNull(groups.deletedAt)))
+    .get()
   if (!g) throw notFound(t('群组'))
   const members = db
     .select({ member: groupMembers, character: characters })
     .from(groupMembers)
     .innerJoin(characters, eq(characters.id, groupMembers.characterId))
-    .where(eq(groupMembers.groupId, groupId))
+    .where(and(eq(groupMembers.groupId, groupId), isNull(characters.deletedAt)))
     .orderBy(asc(groupMembers.position))
     .all()
   return {
@@ -188,17 +192,46 @@ export function loadGroupDTO(groupId: string): GroupDTO {
 
 export function getChatRow(id: string): ChatRow {
   const row = db.select().from(chats).where(eq(chats.id, id)).get()
-  if (!row) throw notFound(t('会话'))
+  if (!row || !ownerAvailable(row)) throw notFound(t('会话'))
   return row
 }
 
+/** 回收站中的主人仍保留会话，但普通读取不能再访问它们。 */
+function ownerAvailable(row: ChatRow): boolean {
+  if (row.characterId)
+    return !!db
+      .select({ id: characters.id })
+      .from(characters)
+      .where(and(eq(characters.id, row.characterId), isNull(characters.deletedAt)))
+      .get()
+  if (row.groupId)
+    return !!db
+      .select({ id: groups.id })
+      .from(groups)
+      .where(and(eq(groups.id, row.groupId), isNull(groups.deletedAt)))
+      .get()
+  return false
+}
+
 export function listChats(filter: { characterId?: string; groupId?: string }): ChatSummary[] {
-  const where = filter.characterId
-    ? eq(chats.characterId, filter.characterId)
-    : filter.groupId
-      ? eq(chats.groupId, filter.groupId)
-      : undefined
-  return db.select().from(chats).where(where).orderBy(desc(chats.updatedAt)).all().map(toSummary)
+  return db
+    .select({ chat: chats })
+    .from(chats)
+    .leftJoin(characters, eq(characters.id, chats.characterId))
+    .leftJoin(groups, eq(groups.id, chats.groupId))
+    .where(
+      and(
+        filter.characterId ? eq(chats.characterId, filter.characterId) : undefined,
+        !filter.characterId && filter.groupId ? eq(chats.groupId, filter.groupId) : undefined,
+        or(
+          and(eq(characters.id, chats.characterId), isNull(characters.deletedAt)),
+          and(eq(groups.id, chats.groupId), isNull(groups.deletedAt)),
+        ),
+      ),
+    )
+    .orderBy(desc(chats.updatedAt))
+    .all()
+    .map(({ chat }) => toSummary(chat))
 }
 
 const shortDate = (now: number) =>
@@ -217,7 +250,11 @@ export function createChat(input: CreateChatInput): ChatDTO {
   const defaultPersona = getSetting<string>(SETTING_KEYS.defaultPersonaId) ?? null
 
   if (characterId) {
-    const character = db.select().from(characters).where(eq(characters.id, characterId)).get()
+    const character = db
+      .select()
+      .from(characters)
+      .where(and(eq(characters.id, characterId), isNull(characters.deletedAt)))
+      .get()
     if (!character) throw notFound(t('角色'))
     const greetings = [character.firstMes, ...character.alternateGreetings].filter((g) => g.trim())
     db.transaction((tx) => {
@@ -307,9 +344,9 @@ export function createChat(input: CreateChatInput): ChatDTO {
  * before 为空时取最新的 limit 条；否则取 before 之前（更旧）的 limit 条。
  */
 export function getChatPage(chatId: string, opts: { before?: string; limit?: number }, generating: boolean): ChatPage {
+  const chat = getChatRow(chatId)
   // 开场白、开启指令前的旧消息还没解析过舞台指令，打开会话时补上（只在加载最新一页时做）
   if (!opts.before && !generating) backfillStage(chatId)
-  const chat = getChatRow(chatId)
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500)
 
   let start = chat.activeLeafId

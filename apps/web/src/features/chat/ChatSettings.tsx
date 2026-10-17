@@ -1,6 +1,6 @@
 import type { ChatPage, UpdateChatInput } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../api/client'
 import {
   keys,
@@ -61,6 +61,17 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
   const presets = usePresets()
   const playPresets = usePlayPresets()
   const effectivePlay = playPresets.data?.find((p) => p.id === page.playPresetId)
+  // 变量名给模型看（英文），界面上显示状态定义里的 label（内置预设按界面语言生成）
+  const varLabels = useMemo(() => {
+    try {
+      const schema = JSON.parse(effectivePlay?.data.state.schema || '{}') as Record<string, { label?: string }>
+      return Object.fromEntries(
+        Object.entries(schema).flatMap(([key, field]) => (field?.label ? [[key, field.label]] : [])),
+      )
+    } catch {
+      return {} as Record<string, string>
+    }
+  }, [effectivePlay?.data.state.schema])
   const connections = useConnections()
   const lorebooks = useLorebooks()
   const auto = useAutoBackground()
@@ -310,7 +321,9 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
               <tbody>
                 {Object.entries(page.vars).map(([k, v]) => (
                   <tr key={k} className="border-b border-zinc-100 last:border-0 dark:border-zinc-800">
-                    <td className="py-1 pr-2 font-medium whitespace-nowrap">{k}</td>
+                    <td className="py-1 pr-2 font-medium whitespace-nowrap" title={k}>
+                      {varLabels[k] ?? k}
+                    </td>
                     <td className="py-1 break-all text-zinc-600 dark:text-zinc-300">
                       {typeof v === 'string' ? v : JSON.stringify(v)}
                     </td>

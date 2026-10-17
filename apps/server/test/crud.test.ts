@@ -291,7 +291,10 @@ describe.skipIf(!process.env.CRUD_TEST_CHILD)('后端 CRUD 接口', () => {
     expect(parseCardFile(new Uint8Array(await withoutBook.arrayBuffer())).characterBook).toEqual(
       raw.data.character_book,
     )
-    for (const id of [imported.id, copy.id, blank.id, jsonCard.id]) await json(`/characters/${id}`, 'DELETE')
+    for (const id of [imported.id, copy.id, blank.id, jsonCard.id]) {
+      await json(`/characters/${id}`, 'DELETE')
+      await json(`/trash/characters/${id}`, 'DELETE')
+    }
     expect(await Bun.file(join(directory, 'assets/avatars', `${imported.id}.png`)).exists()).toBe(false)
     expect(await Bun.file(join(directory, 'assets/avatars', `${copy.id}.webp`)).exists()).toBe(false)
     await json(`/lorebooks/${book.lorebook.id}`, 'DELETE')

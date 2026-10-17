@@ -43,9 +43,11 @@ import type {
   TestConnectionInput,
   TestConnectionResult,
   ToolInfo,
+  TrashDTO,
   UpdateBackgroundInput,
   UpdateChatInput,
   UpdateSpriteInput,
+  UsageDTO,
   WorldInfoSettings,
 } from '@ai-parter/shared'
 import { t } from '../i18n'
@@ -284,6 +286,16 @@ export const api = {
   // ---- 应用设置（界面语言等） ----
   getAppSettings: () => request<AppSettings>('GET', '/app-settings'),
   updateAppSettings: (input: AppSettings) => request<AppSettings>('PUT', '/app-settings', input),
+
+  // ---- 回收站（删除角色 / 群组先进回收站） ----
+  characterUsage: (id: string) => request<UsageDTO>('GET', `/characters/${id}/usage`),
+  groupUsage: (id: string) => request<UsageDTO>('GET', `/groups/${id}/usage`),
+  listTrash: () => request<TrashDTO>('GET', '/trash'),
+  restoreTrash: (kind: 'character' | 'group', id: string) =>
+    request<Ok>('POST', `/trash/${kind === 'character' ? 'characters' : 'groups'}/${id}/restore`),
+  purgeTrash: (kind: 'character' | 'group', id: string) =>
+    request<Ok>('DELETE', `/trash/${kind === 'character' ? 'characters' : 'groups'}/${id}`),
+  emptyTrash: () => request<{ deleted: number }>('DELETE', '/trash'),
 
   // ---- 书签 ----
   listBookmarks: (chatId: string) => request<BookmarkDTO[]>('GET', `/chats/${chatId}/bookmarks`),

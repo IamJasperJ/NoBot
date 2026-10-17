@@ -421,12 +421,12 @@ describe('初始化、schema 与说明模板', () => {
 
   test.each(['shorthand', 'xml'] as const)('默认说明风格 %s、清单和状态格式', (style) => {
     const result = renderDirectiveInstructions({ ...input, style })
-    expect(result).toContain(style === 'shorthand' ? '名字[表情]' : '<say who=')
-    expect(result).toContain('Available characters: 甲、乙')
+    expect(result).toContain(style === 'shorthand' ? 'name[expression]' : '<say who=')
+    expect(result).toContain('Available characters: 甲, 乙')
     expect(result).toContain('Available expressions: joy')
     expect(result).toContain('Available backgrounds: 夜')
     expect(result).toContain(
-      'State variables (name: range, update rule; current value):\n- 艾莉丝.好感：0–100, 温柔对待 +1~3; current: 35\n- 金币：number, 花费减少\n- 背包：current: ["短剑"]',
+      'State variables (name: range, update rule; current value):\n- 艾莉丝.好感: 0–100, 温柔对待 +1~3; current: 35\n- 金币: number, 花费减少\n- 背包: current: ["短剑"]',
     )
     expect(result).not.toContain('被覆盖')
     expect(result).not.toContain('{{')

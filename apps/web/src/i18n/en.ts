@@ -299,7 +299,6 @@ export const en: Record<string, string> = {
   复制: 'Copy',
   '导出 PNG': 'Export PNG',
   '导出 JSON': 'Export JSON',
-  '确定删除「{name}」？它的所有会话也会一起删除。': 'Delete “{name}” and all its chats?',
   '角色在列表和对话中显示的名字。': "The character's display name in lists and chats.",
   '导入酒馆角色卡时自动带上卡里的标签；在角色列表里可以按标签筛选':
     'Tags from imported SillyTavern cards are included automatically; use tags to filter the character list',
@@ -749,7 +748,6 @@ export const en: Record<string, string> = {
   场景覆盖: 'Scenario override',
   填写后代替所有成员的场景: "Replaces all members' scenarios when filled in",
   '请填写群名，并添加至少一位成员。': 'Enter a group name and add at least one member.',
-  '确定删除群组？群组的所有会话也会一起删除。': 'Delete this group and all its chats?',
   删除群组: 'Delete group',
 
   // 日志
@@ -1552,4 +1550,36 @@ export const en: Record<string, string> = {
   从这里重演: 'Replay from here',
   '（图片或空内容）': '(image or empty content)',
   '还没有对话。': 'No chat yet.',
+
+  // 回收站
+  '这个群组还有 {count} 个会话，会和群组一起进回收站，可以在角色页的「回收站」里恢复。确定删除？':
+    'This group still has {count} chat(s). They will move to the trash with the group and can be restored from Trash on the Characters page. Delete it?',
+  '删除这个群组？可以在角色页的「回收站」里恢复。':
+    'Delete this group? You can restore it from Trash on the Characters page.',
+  回收站: 'Trash',
+  '「{name}」还有 {count} 个会话，会和角色一起进回收站。':
+    '“{name}” still has {count} chat(s). They will move to the trash with the character.',
+  '删除「{name}」？': 'Delete “{name}”?',
+  '它还在这些群聊里：{groups}。在回收站期间，它不会在这些群聊里发言。':
+    'It is also in these group chats: {groups}. While in the trash, it will not speak in them.',
+  '、': ', ',
+  '删除后可以在角色页的「回收站」里恢复。': 'You can restore it from Trash on the Characters page.',
+  已移到回收站: 'Moved to trash',
+  '彻底删除「{name}」和它的 {count} 个会话？删除后无法恢复。':
+    'Permanently delete “{name}” and its {count} chat(s)? This cannot be undone.',
+  '彻底删除「{name}」？删除后无法恢复。': 'Permanently delete “{name}”? This cannot be undone.',
+  已彻底删除: 'Permanently deleted',
+  '删除的角色和群组会先放在这里，连同它们的会话，可以随时恢复。彻底删除后无法找回。':
+    'Deleted characters and groups stay here with their chats and can be restored at any time. Permanently deleted items cannot be recovered.',
+  回收站是空的: 'Trash is empty',
+  群组: 'Group',
+  '{count} 个会话': 'Chats: {count}',
+  '删除于 {time}': 'Deleted {time}',
+  '已恢复「{name}」': 'Restored “{name}”',
+  恢复: 'Restore',
+  彻底删除: 'Delete permanently',
+  '清空回收站？里面的 {count} 项和它们的会话都会被彻底删除，无法恢复。':
+    'Empty the trash? All {count} item(s) and their chats will be permanently deleted. This cannot be undone.',
+  回收站已清空: 'Trash emptied',
+  清空回收站: 'Empty trash',
 }

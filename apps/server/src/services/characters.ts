@@ -22,7 +22,7 @@ import {
   characterUpdateInput,
   lorebookEntryDataSchema,
 } from '@ai-parter/shared'
-import { asc, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, newId } from '../db/client'
 import { type CharacterRow, characterLorebooks, characters, lorebooks, personas } from '../db/schema'
@@ -83,7 +83,11 @@ function fromFields(fields: CharacterFields) {
   }
 }
 export function getCharacterRow(id: string): CharacterRow {
-  const row = db.select().from(characters).where(eq(characters.id, id)).get()
+  const row = db
+    .select()
+    .from(characters)
+    .where(and(eq(characters.id, id), isNull(characters.deletedAt)))
+    .get()
   if (!row) throw notFound(t('角色'))
   return row
 }
@@ -111,7 +115,13 @@ export function getCharacter(id: string): CharacterDTO {
   }
 }
 export function listCharacters(): CharacterSummary[] {
-  return db.select().from(characters).orderBy(desc(characters.updatedAt), desc(characters.id)).all().map(toSummary)
+  return db
+    .select()
+    .from(characters)
+    .where(isNull(characters.deletedAt))
+    .orderBy(desc(characters.updatedAt), desc(characters.id))
+    .all()
+    .map(toSummary)
 }
 function checkRelations(bookIds: string[], personaId: string | null) {
   if (new Set(bookIds).size !== bookIds.length) throw new HttpError(400, 'VALIDATION', t('关联世界书不能重复'))
@@ -283,7 +293,11 @@ export async function importCharacter(
   }
 }
 export async function deleteCharacter(id: string) {
-  const row = getCharacterRow(id)
+  getCharacterRow(id)
+  db.update(characters).set({ deletedAt: Date.now() }).where(eq(characters.id, id)).run()
+}
+export async function hardDeleteCharacter(row: CharacterRow) {
+  const id = row.id
   db.delete(characters).where(eq(characters.id, id)).run()
   await deleteAvatar(row.avatarFile)
   await rm(join(paths.sprites, id), { recursive: true, force: true })
@@ -307,7 +321,7 @@ export async function duplicateCharacter(id: string): Promise<CharacterDTO> {
     db.update(characters).set({ raw: row.raw }).where(eq(characters.id, copy.id)).run()
     return getCharacter(copy.id)
   } catch (error) {
-    await deleteCharacter(copy.id)
+    await hardDeleteCharacter(getCharacterRow(copy.id))
     throw error
   }
 }

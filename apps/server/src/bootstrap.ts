@@ -2,6 +2,7 @@ import { parsePresetWithEnglishDefaults } from '@ai-parter/core'
 import { db, getSetting, initDatabase, newId, setSetting } from './db/client'
 import { personas, promptPresets } from './db/schema'
 import { loadLocalExtensions } from './extensions/registry'
+import { migrateLegacyPrompts } from './services/migrate-legacy-prompts'
 import { seedPlayPresets } from './services/playPresets.builtin'
 import { SETTING_KEYS } from './services/settings'
 
@@ -37,5 +38,6 @@ export async function bootstrap() {
     setSetting(SETTING_KEYS.defaultPromptPresetId, id)
   }
 
+  migrateLegacyPrompts()
   await loadLocalExtensions()
 }

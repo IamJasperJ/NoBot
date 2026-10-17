@@ -13,6 +13,7 @@ export * from './schemas/sprite'
 export * from './schemas/stage'
 export * from './schemas/summary'
 export * from './schemas/system'
+export * from './schemas/trash'
 export * from './sse'
 
 /** 统一的接口错误格式 */

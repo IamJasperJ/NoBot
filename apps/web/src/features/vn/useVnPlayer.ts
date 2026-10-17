@@ -209,14 +209,43 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   }
 
   // ---- 推进 ----
+  const keyOf = (m: MessageDTO) => `${m.id}#${m.swipeIndex}`
+  // 前后相邻的回复（回退 / 前进跨消息用）
+  const position = current ? replies.findIndex((m) => m.id === current.id) : -1
+  const prevReply = position > 0 ? replies[position - 1] : undefined
+  const nextReply = position >= 0 ? replies[position + 1] : undefined
   const advance = useCallback(() => {
+    // 重看旧回复时演到头：接着看下一条（已经看过的，直接显示整句）；下一条是最新的就回到跟随最新
+    if (pinnedId && ended && nextReply) {
+      setPinnedId(nextReply.id === latest?.id ? null : nextReply.id)
+      setCursor({ id: keyOf(nextReply), shown: 0, revealed: Number.POSITIVE_INFINITY })
+      return
+    }
     setCursor((c) => {
       if (c.id !== playKey) return c
-      if (c.revealed < textLength) return { ...c, revealed: Number.POSITIVE_INFINITY }
-      if (c.shown < shownCount - 1) return { ...c, shown: c.shown + 1, revealed: 0 }
+      const shown = Math.min(c.shown, Math.max(0, shownCount - 1))
+      if (c.revealed < textLength) return { ...c, shown, revealed: Number.POSITIVE_INFINITY }
+      if (shown < shownCount - 1) {
+        // 回退后再往前走：读过的句子直接整句显示，不再逐字打一遍
+        const i = shownIndexes[shown + 1]
+        const seen = i !== undefined && read.includes(`${playKey}:${i}`)
+        return { ...c, shown: shown + 1, revealed: seen ? Number.POSITIVE_INFINITY : 0 }
+      }
       return c
     })
-  }, [playKey, textLength, shownCount])
+  }, [playKey, textLength, shownCount, shownIndexes, read, pinnedId, ended, nextReply, latest?.id])
+  /** 回退：这条回复里往回一句（整句显示）；已经是第一句就回到上一条回复的最后一句 */
+  const back = useCallback(() => {
+    if (index > 0) {
+      setCursor((c) => ({ ...c, shown: index - 1, revealed: Number.POSITIVE_INFINITY }))
+      return
+    }
+    if (!prevReply) return
+    setPinnedId(prevReply.id)
+    // 不知道上一条有几拍：给一个足够大的下标，显示时会被夹到最后一拍
+    setCursor({ id: keyOf(prevReply), shown: Number.MAX_SAFE_INTEGER, revealed: Number.POSITIVE_INFINITY })
+  }, [index, prevReply])
+  const canBack = index > 0 || !!prevReply
   const jumpToEnd = useCallback(() => {
     setCursor((c) => ({ ...c, shown: Math.max(0, shownCount - 1), revealed: Number.POSITIVE_INFINITY }))
   }, [shownCount])
@@ -299,6 +328,8 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
     skip,
     setSkip,
     advance,
+    back,
+    canBack,
     jumpToEnd,
     replay,
     pinned: pinnedId !== null,

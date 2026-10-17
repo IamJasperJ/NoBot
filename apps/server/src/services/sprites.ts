@@ -2,7 +2,7 @@ import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { spriteNameFromPath } from '@ai-parter/core/stage'
 import { type SpriteDTO, type SpriteImportResult, updateSpriteInput } from '@ai-parter/shared'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import sharp, { type Metadata } from 'sharp'
 import { db, newId } from '../db/client'
 import { characters, sprites } from '../db/schema'
@@ -78,10 +78,15 @@ export async function saveSprite(characterId: string, bytes: Uint8Array, outfit:
     throw error
   }
 }
+/**
+ * 批量导入立绘。overrides 是界面上明确指定的服装 / 表情（单个格子上传）；
+ * rootOutfit 是立绘包根目录下的图片归入的服装（界面上当前选中的那套），包里的子目录仍各自成为一套服装
+ */
 export async function importSprites(
   characterId: string,
   entries: { path: string; data: Uint8Array }[],
   overrides?: { outfit?: string; expression?: string },
+  rootOutfit = '',
 ): Promise<SpriteImportResult> {
   requireCharacter(characterId)
   const result: SpriteImportResult = { added: [], skipped: [] }
@@ -97,14 +102,17 @@ export async function importSprites(
       continue
     }
     try {
-      result.added.push(await saveSprite(characterId, entry.data, overrides?.outfit ?? name?.outfit ?? '', expression))
+      result.added.push(
+        await saveSprite(characterId, entry.data, overrides?.outfit ?? (name?.outfit || rootOutfit), expression),
+      )
     } catch (error) {
       result.skipped.push(`${entry.path}：${error instanceof Error ? error.message : '导入失败'}`)
     }
   }
   return result
 }
-export const importSpriteZip = (id: string, bytes: Uint8Array) => importSprites(id, readZip(bytes))
+export const importSpriteZip = (id: string, bytes: Uint8Array, rootOutfit = '') =>
+  importSprites(id, readZip(bytes), undefined, rootOutfit)
 function findSprite(characterId: string, id: string) {
   requireCharacter(characterId)
   const row = db
@@ -127,6 +135,17 @@ export async function deleteSprite(characterId: string, id: string) {
   await Promise.all(
     [`${id}.${row.ext}`, `${id}.thumb.webp`].map((file) => rm(join(paths.sprites, characterId, file), { force: true })),
   )
+}
+/** 多选删除：只删属于这个角色的立绘，不存在的 id 忽略（可能已经被别处删掉了） */
+export async function deleteSprites(characterId: string, ids: string[]) {
+  requireCharacter(characterId)
+  const rows = db
+    .select()
+    .from(sprites)
+    .where(and(eq(sprites.characterId, characterId), inArray(sprites.id, ids)))
+    .all()
+  for (const row of rows) await deleteSprite(characterId, row.id)
+  return { deleted: rows.length }
 }
 export async function deleteOutfit(characterId: string, outfit: string) {
   requireCharacter(characterId)

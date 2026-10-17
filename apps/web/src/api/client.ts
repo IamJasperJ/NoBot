@@ -149,8 +149,15 @@ export const api = {
     return request<SpriteImportResult>('POST', `/characters/${characterId}/sprites`, form)
   },
   /** 导入立绘包 zip（酒馆的扁平包，或一层目录 = 一套服装） */
-  importSprites: (characterId: string, file: File) =>
-    upload<SpriteImportResult>(`/characters/${characterId}/sprites/import`, file),
+  /** 导入立绘包：根目录下的图片归入 outfit 这套服装，子目录各自成为一套 */
+  importSprites: (characterId: string, file: File, outfit = '') => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('outfit', outfit)
+    return request<SpriteImportResult>('POST', `/characters/${characterId}/sprites/import`, form)
+  },
+  deleteSprites: (characterId: string, ids: string[]) =>
+    request<{ deleted: number }>('POST', `/characters/${characterId}/sprites/delete`, { ids }),
   updateSprite: (characterId: string, spriteId: string, input: UpdateSpriteInput) =>
     request<SpriteDTO>('PATCH', `/characters/${characterId}/sprites/${spriteId}`, input),
   deleteSprite: (characterId: string, spriteId: string) =>

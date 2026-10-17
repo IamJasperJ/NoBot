@@ -4,7 +4,7 @@ import { type DragEvent, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useSprites } from '../../api/queries'
 import { Section } from '../../components/form'
-import { PlusIcon, TrashIcon, UploadIcon } from '../../components/icons'
+import { CheckIcon, PlusIcon, TrashIcon, UploadIcon } from '../../components/icons'
 import { Button, badgeClass, cx, Dialog, IconButton } from '../../components/ui'
 import { errorMessage, toast } from '../../stores/toast'
 
@@ -21,6 +21,9 @@ export function SpriteManager({ characterId }: { characterId: string }) {
   const [customs, setCustoms] = useState<string[]>([])
   const [opened, setOpened] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // 多选删除：选中的是立绘 id；格子按表情整组选，弹窗里可以一张张选
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const zipInput = useRef<HTMLInputElement>(null)
   const batchInput = useRef<HTMLInputElement>(null)
 
@@ -52,6 +55,26 @@ export function SpriteManager({ characterId }: { characterId: string }) {
     )
     if (result.skipped.length) toast.error(result.skipped.slice(0, 5).join('\n'))
   }
+  const toggle = (ids: string[]) => {
+    const next = new Set(selected)
+    const all = ids.every((id) => next.has(id))
+    for (const id of ids) all ? next.delete(id) : next.add(id)
+    setSelected(next)
+  }
+  const stopSelecting = () => {
+    setSelecting(false)
+    setSelected(new Set())
+  }
+  const removeSelected = (ids: string[]) => {
+    if (!ids.length || !confirm(`删除选中的 ${ids.length} 张立绘？`)) return
+    void run(async () => {
+      const { deleted } = await api.deleteSprites(characterId, ids)
+      toast.info(`已删除 ${deleted} 张立绘`)
+      const next = new Set(selected)
+      for (const id of ids) next.delete(id)
+      setSelected(next)
+    })
+  }
   const upload = (files: File[], expression?: string) => {
     const images = files.filter((f) => f.type.startsWith('image/'))
     if (!images.length) return
@@ -73,7 +96,10 @@ export function SpriteManager({ characterId }: { characterId: string }) {
               key={name || '__default'}
               type="button"
               aria-pressed={outfit === name}
-              onClick={() => setOutfit(name)}
+              onClick={() => {
+                setOutfit(name)
+                setSelected(new Set())
+              }}
               className={cx(
                 'h-8 rounded-lg border px-3 text-[13px] transition-colors',
                 outfit === name
@@ -99,6 +125,13 @@ export function SpriteManager({ characterId }: { characterId: string }) {
             <PlusIcon />
           </IconButton>
           <div className="ml-auto flex items-center gap-1">
+            <Button
+              size="sm"
+              disabled={busy || (!selecting && !mine.length)}
+              onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
+            >
+              {selecting ? '取消多选' : '多选'}
+            </Button>
             <Button size="sm" disabled={busy} onClick={() => batchInput.current?.click()}>
               按文件名上传
             </Button>
@@ -146,16 +179,37 @@ export function SpriteManager({ characterId }: { characterId: string }) {
             onChange={(e) => {
               const file = e.target.files?.[0]
               e.target.value = ''
-              if (file) void run(async () => report(await api.importSprites(characterId, file)))
+              // 根目录下的图片导入当前选中的服装；包里的子目录各自成为一套服装
+              if (file) void run(async () => report(await api.importSprites(characterId, file, outfit)))
             }}
           />
         </div>
 
-        <p className="text-xs text-zinc-500">
-          {filled} / {EXPRESSIONS.length}{' '}
-          个表情有图。文件名就是表情名（joy.png、joy-2.png），「按文件名上传」和立绘包都按这个规则；
-          立绘包里的一层目录会成为一套服装。
-        </p>
+        {selecting ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50 px-3 py-1.5 text-[13px] text-violet-800 dark:bg-violet-950/50 dark:text-violet-200">
+            <span className="flex-1">
+              点表情格子选中这个表情的全部立绘，点开格子可以一张张选。已选 {selected.size} 张
+            </span>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => toggle(mine.map((s) => s.id))}>
+              {mine.length && mine.every((s) => selected.has(s.id)) ? '取消全选' : '全选本服装'}
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={busy || !selected.size}
+              onClick={() => removeSelected([...selected])}
+            >
+              <TrashIcon />
+              删除选中
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-500">
+            {filled} / {EXPRESSIONS.length}{' '}
+            个表情有图。文件名就是表情名（joy.png、joy-2.png），「按文件名上传」和立绘包都按这个规则；
+            立绘包根目录的图片导入当前选中的服装，包里的一层目录会成为一套服装。
+          </p>
+        )}
 
         {sprites.isError ? (
           <p className="text-sm text-red-600">{errorMessage(sprites.error)}</p>
@@ -168,6 +222,10 @@ export function SpriteManager({ characterId }: { characterId: string }) {
                 custom={!builtin.has(expression)}
                 sprites={byExpression.get(expression) ?? []}
                 disabled={busy}
+                selection={
+                  selecting ? (byExpression.get(expression) ?? []).filter((s) => selected.has(s.id)).length : undefined
+                }
+                onSelect={() => toggle((byExpression.get(expression) ?? []).map((s) => s.id))}
                 onUpload={(files) => upload(files, expression)}
                 onOpen={() => setOpened(expression)}
               />
@@ -200,6 +258,7 @@ export function SpriteManager({ characterId }: { characterId: string }) {
         onClose={() => setOpened(null)}
         onUpload={(files) => opened && upload(files, opened)}
         onDelete={(id) => void run(() => api.deleteSprite(characterId, id).then(() => undefined))}
+        onDeleteMany={removeSelected}
       />
     </Section>
   )
@@ -211,6 +270,8 @@ function SpriteCell({
   custom,
   sprites,
   disabled,
+  selection,
+  onSelect,
   onUpload,
   onOpen,
 }: {
@@ -218,12 +279,17 @@ function SpriteCell({
   custom: boolean
   sprites: SpriteDTO[]
   disabled: boolean
+  /** 多选模式下这个格子里选中了几张；undefined 表示不在多选模式 */
+  selection?: number
+  onSelect: () => void
   onUpload: (files: File[]) => void
   onOpen: () => void
 }) {
   const input = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
   const first = sprites[0]
+  const selecting = selection !== undefined
+  const checked = selecting && !!first && selection === sprites.length
   const drop = (e: DragEvent) => {
     e.preventDefault()
     setOver(false)
@@ -233,9 +299,16 @@ function SpriteCell({
     <div className="min-w-0">
       <button
         type="button"
-        disabled={disabled}
-        title={first ? `${expression}：${sprites.length} 张，点击管理` : `上传 ${expression} 的立绘`}
-        onClick={() => (first ? onOpen() : input.current?.click())}
+        disabled={disabled || (selecting && !first)}
+        aria-pressed={selecting && first ? checked : undefined}
+        title={
+          selecting
+            ? `选中 ${expression} 的全部 ${sprites.length} 张`
+            : first
+              ? `${expression}：${sprites.length} 张，点击管理`
+              : `上传 ${expression} 的立绘`
+        }
+        onClick={() => (selecting ? onSelect() : first ? onOpen() : input.current?.click())}
         onDragOver={(e) => {
           e.preventDefault()
           setOver(true)
@@ -248,6 +321,8 @@ function SpriteCell({
             ? 'border-zinc-200 hover:border-violet-300 dark:border-zinc-700'
             : 'border-dashed border-zinc-300 text-zinc-300 hover:border-violet-400 hover:text-violet-500 dark:border-zinc-700 dark:text-zinc-600',
           over && 'border-violet-500 bg-violet-50 dark:bg-violet-950/40',
+          selecting && !first && 'opacity-40',
+          !!selection && 'border-violet-500 ring-2 ring-violet-500/60',
         )}
       >
         {first ? (
@@ -261,8 +336,11 @@ function SpriteCell({
           <PlusIcon className="mb-[40%] size-5" />
         )}
         {sprites.length > 1 && (
-          <span className={cx(badgeClass, 'absolute top-1 right-1 bg-zinc-900/70 text-white')}>{sprites.length}</span>
+          <span className={cx(badgeClass, 'absolute top-1 right-1 bg-zinc-900/70 text-white')}>
+            {selection ? `${selection}/${sprites.length}` : sprites.length}
+          </span>
         )}
+        {selecting && first && <SelectMark checked={checked} partial={!!selection && !checked} />}
       </button>
       <p className={cx('mt-1 truncate text-center text-[11px]', custom ? 'text-violet-600' : 'text-zinc-500')}>
         {expression}
@@ -284,6 +362,27 @@ function SpriteCell({
   )
 }
 
+/** 多选的勾选圆圈：选中是紫底白勾，部分选中是紫色描边加小点 */
+function SelectMark({ checked, partial, inline }: { checked: boolean; partial?: boolean; inline?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cx(
+        'flex size-5 items-center justify-center rounded-full border-2 shadow-sm',
+        !inline && 'absolute top-1 left-1',
+        checked ? 'border-violet-600 bg-violet-600 text-white' : 'border-white bg-black/25',
+        partial && 'border-violet-500',
+      )}
+    >
+      {checked ? (
+        <CheckIcon className="size-3" />
+      ) : partial ? (
+        <span className="size-1.5 rounded-full bg-violet-500" />
+      ) : null}
+    </span>
+  )
+}
+
 /** 一个表情的全部立绘：多张时 VN 里随机挑一张显示；可以继续添加或删除单张 */
 function ExpressionDialog({
   expression,
@@ -292,6 +391,7 @@ function ExpressionDialog({
   onClose,
   onUpload,
   onDelete,
+  onDeleteMany,
 }: {
   expression: string | null
   sprites: SpriteDTO[]
@@ -299,20 +399,72 @@ function ExpressionDialog({
   onClose: () => void
   onUpload: (files: File[]) => void
   onDelete: (id: string) => void
+  onDeleteMany: (ids: string[]) => void
 }) {
   const input = useRef<HTMLInputElement>(null)
+  // 弹窗里一张张选；换表情或关掉时清空
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [lastExpression, setLastExpression] = useState(expression)
+  if (lastExpression !== expression) {
+    setLastExpression(expression)
+    setPicked(new Set())
+  }
+  const live = sprites.filter((s) => picked.has(s.id))
+  const pick = (id: string) => {
+    const next = new Set(picked)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setPicked(next)
+  }
   return (
     <Dialog open={!!expression} onClose={onClose} title={`${expression ?? ''} · ${sprites.length} 张`}>
       <div className="space-y-3">
-        <p className="text-xs text-zinc-500">同一个表情有多张时，VN 里会随机挑一张（可以在玩法预设里关掉随机）。</p>
+        <div className="flex items-center gap-2">
+          <p className="flex-1 text-xs text-zinc-500">
+            同一个表情有多张时，VN 里会随机挑一张（可以在玩法预设里关掉随机）。点图片左上角的圆圈可以多选。
+          </p>
+          {sprites.length > 1 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setPicked(live.length === sprites.length ? new Set() : new Set(sprites.map((s) => s.id)))}
+            >
+              {live.length === sprites.length ? '取消全选' : '全选'}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={busy || !live.length}
+            onClick={() => onDeleteMany(live.map((s) => s.id))}
+          >
+            <TrashIcon />
+            删除选中{live.length ? `（${live.length}）` : ''}
+          </Button>
+        </div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-3">
           {sprites.map((s) => (
             <div key={s.id} className="group relative">
               <img
                 src={s.url}
                 alt={expression ?? ''}
-                className="sprite-cell aspect-[3/4] w-full rounded-lg border border-zinc-200 object-contain object-bottom dark:border-zinc-700"
+                className={cx(
+                  'sprite-cell aspect-[3/4] w-full rounded-lg border object-contain object-bottom',
+                  picked.has(s.id)
+                    ? 'border-violet-500 ring-2 ring-violet-500/60'
+                    : 'border-zinc-200 dark:border-zinc-700',
+                )}
               />
+              <button
+                type="button"
+                aria-label="选中这张"
+                aria-pressed={picked.has(s.id)}
+                disabled={busy}
+                onClick={() => pick(s.id)}
+                className="absolute top-1 left-1"
+              >
+                <SelectMark checked={picked.has(s.id)} inline />
+              </button>
               <p className="mt-1 text-center text-[11px] text-zinc-400 tabular-nums">
                 {s.width}×{s.height}
               </p>

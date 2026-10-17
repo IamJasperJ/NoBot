@@ -1,5 +1,6 @@
 import { updateSpriteInput } from '@ai-parter/shared'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { HttpError } from '../errors'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'
@@ -20,8 +21,14 @@ export const spriteRoutes = new Hono()
     }
     return c.json(await service.importSprites(c.req.param('id')!, entries, fields))
   })
-  .post('/import', async (c) =>
-    c.json(await service.importSpriteZip(c.req.param('id')!, await readUpload(await c.req.parseBody(), 'file', 300))),
+  .post('/import', async (c) => {
+    const body = await c.req.parseBody()
+    // 根目录下的图片归入界面上当前选中的服装（不传就是默认服装）
+    const { outfit } = updateSpriteInput.parse({ outfit: body.outfit ?? '' })
+    return c.json(await service.importSpriteZip(c.req.param('id')!, await readUpload(body, 'file', 300), outfit))
+  })
+  .post('/delete', validate('json', z.object({ ids: z.array(z.string()).min(1).max(500) })), async (c) =>
+    c.json(await service.deleteSprites(c.req.param('id')!, c.req.valid('json').ids)),
   )
   .patch('/:spriteId', validate('json', updateSpriteInput), (c) =>
     c.json(service.updateSprite(c.req.param('id')!, c.req.param('spriteId'), c.req.valid('json'))),

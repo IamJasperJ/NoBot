@@ -144,6 +144,31 @@ test('VN2：立绘、CharX、演员与情绪判断集成', async () => {
     ])
     expect(zipped.skipped.length).toBe(2)
     expect(zipped.skipped[0]).toBe('readme.txt：不是图片')
+    // 指定了服装：根目录的图片归入这套服装，子目录仍是自己的服装
+    const intoOutfit = await upload<SpriteImportResult>(
+      `${base}/import`,
+      [
+        [
+          'file',
+          '泳装.zip',
+          makeZip([
+            { path: 'joy.png', data: png },
+            { path: 'casual/surprise.png', data: png },
+          ]),
+        ],
+      ],
+      { outfit: '泳装' },
+    )
+    expect(intoOutfit.added.map((sprite) => [sprite.outfit, sprite.expression])).toEqual([
+      ['泳装', 'joy'],
+      ['casual', 'surprise'],
+    ])
+    // 多选删除：别的角色的、不存在的 id 忽略
+    expect(
+      await json(`${base}/delete`, 'POST', { ids: [...intoOutfit.added.map((sprite) => sprite.id), newId()] }),
+    ).toEqual({ deleted: 2 })
+    expect((await request(`${base}/delete`, 'POST', { ids: [] })).status).toBe(400)
+    expect((await app.request(intoOutfit.added[0]!.url)).status).toBe(404)
     const listing = await json<SpriteDTO[]>(base)
     expect(listing.map((sprite) => sprite.outfit)).toEqual(['', '', '', 'casual', 'casual', '礼服'])
     const updated = await json<SpriteDTO>(`${base}/${first.id}`, 'PATCH', { expression: 'ANGER', outfit: '新衣' })

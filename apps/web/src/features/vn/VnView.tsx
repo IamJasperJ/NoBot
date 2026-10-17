@@ -101,7 +101,7 @@ export function VnView({
         beat?.kind === 'narration' &&
         Array.from(beat.text).length > play.basic.nvlThreshold))
 
-  // 键盘：空格 / 回车推进（焦点在输入框里时不抢）；Esc 关回想、恢复隐藏的界面
+  // 键盘：空格 / 回车 / → 推进，← 回退（焦点在输入框里时不抢）；Esc 关回想、恢复隐藏的界面
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
@@ -111,7 +111,13 @@ export function VnView({
         setHidden(false)
         return
       }
-      if ((e.key === ' ' || e.key === 'Enter') && !backlog) {
+      if (e.key === 'ArrowLeft' && !backlog && !hidden) {
+        e.preventDefault()
+        player.back()
+        return
+      }
+      // 空格 / 回车 / → 推进（→ 和 ← 回退成对）
+      if ((e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowRight') && !backlog) {
         e.preventDefault()
         if (hidden) setHidden(false)
         else player.advance()
@@ -119,7 +125,7 @@ export function VnView({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [player.advance, backlog, hidden])
+  }, [player.advance, player.back, backlog, hidden])
 
   const said = player.said
   const speakerName = said?.kind === 'line' ? said.speaker : null
@@ -290,6 +296,17 @@ export function VnView({
             )}
             <div className="absolute right-4 bottom-2 flex items-center gap-2 text-[11px] opacity-60">
               {player.streaming && <span>生成中…</span>}
+              {player.canBack && (
+                <button
+                  type="button"
+                  title="回退（看上一句，或上一条回复）"
+                  aria-label="回退"
+                  onClick={player.back}
+                  className="pointer-events-auto -my-1 flex size-6 items-center justify-center rounded-full hover:bg-white/15 [&_svg]:size-3.5"
+                >
+                  <ChevronLeftIcon />
+                </button>
+              )}
               {player.shownCount > 0 && (
                 <span className="tabular-nums">
                   {player.index + 1} / {player.shownCount}

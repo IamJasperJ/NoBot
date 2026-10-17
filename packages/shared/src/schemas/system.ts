@@ -42,10 +42,6 @@ interface SettingFieldBase {
   key: string
   label: string
   hint?: string
-  /**
-   * half：占半行。连续的 half 字段两两并排（窄屏自动变成一列），适合步数、CFG 这类短数字
-   */
-  width?: 'half'
   /** 只在另一个设置项等于某个值（或其中之一）时显示，比如只在「后端」选 comfy 时显示 ComfyUI 的设置 */
   visibleWhen?: VisibleCondition | VisibleCondition[]
   /**

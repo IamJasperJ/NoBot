@@ -117,7 +117,6 @@ const slider = (key: string, label: string, min: number, max: number, step: numb
   max,
   step,
   slider: true,
-  width: 'half',
 })
 const bool = (key: string, label: string, hint: string): ExtensionSettingField => ({
   key,
@@ -222,13 +221,10 @@ export const settingsSchema: ExtensionSettingField[] = [
       type: 'custom' as const,
       hint: '编辑器里可以粘贴从 ComfyUI 导出的 API 格式工作流，并查看用到了哪些占位符',
     },
-    {
-      ...text('comfyCheckpoint', '模型', '与工作流的 Loader 类型匹配', { optionsSource: 'comfy/models' }),
-      width: 'half' as const,
-    },
-    { ...text('comfyVae', 'VAE', '留空使用工作流默认', { optionsSource: 'comfy/vaes' }), width: 'half' as const },
-    { ...text('comfySampler', '采样器', '', { optionsSource: 'comfy/samplers' }), width: 'half' as const },
-    { ...text('comfyScheduler', '调度器', '', { optionsSource: 'comfy/schedulers' }), width: 'half' as const },
+    text('comfyCheckpoint', '模型', '与工作流的 Loader 类型匹配', { optionsSource: 'comfy/models' }),
+    text('comfyVae', 'VAE', '留空使用工作流默认', { optionsSource: 'comfy/vaes' }),
+    text('comfySampler', '采样器', '', { optionsSource: 'comfy/samplers' }),
+    text('comfyScheduler', '调度器', '', { optionsSource: 'comfy/schedulers' }),
     slider('comfySteps', '采样步数', 1, 150, 1),
     slider('comfyCfg', 'CFG', 1, 30, 0.5),
     slider('comfyDenoise', '去噪强度', 0, 1, 0.05),
@@ -237,10 +233,10 @@ export const settingsSchema: ExtensionSettingField[] = [
   ].map((field) => ({ ...field, visibleWhen: comfy })),
   heading('picture', '画面与分辨率'),
   select('resolution', '基准分辨率', [...resolutionOptions, { value: 'custom', label: '自定义' }]),
-  ...[
-    { ...number('width', '宽度', '', 64, 64), width: 'half' as const },
-    { ...number('height', '高度', '', 64, 64), width: 'half' as const },
-  ].map((field) => ({ ...field, visibleWhen: { key: 'resolution', equals: 'custom' } })),
+  ...[number('width', '宽度', '', 64, 64), number('height', '高度', '', 64, 64)].map((field) => ({
+    ...field,
+    visibleWhen: { key: 'resolution', equals: 'custom' },
+  })),
   bool('snapResolution', '调整后贴合预设分辨率', '横竖图对调后，尽量保持像素总数并贴合最近的预设'),
   number('seed', '种子', '-1 为随机；生成新候选时固定种子也会重新随机', -1),
   heading('stylesSection', '风格'),

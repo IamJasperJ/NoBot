@@ -49,7 +49,7 @@ export interface SlotProps {
     /** 扩展保存候选值时同步表单草稿，防止后续保存覆盖它。 */
     onSettingsChange?: (settings: Record<string, unknown>) => void
   }
-  /** 聊天页标题栏右侧（会话设置、预览按钮旁边） */
+  /** 会话级操作：聊天页没有顶部标题栏了，渲染在输入框「+」菜单里 */
   'chat.header.actions': { chatId: string }
   /** 输入框左侧、+ 按钮右边的按钮区 */
   'chat.composer.buttons': { chatId: string }

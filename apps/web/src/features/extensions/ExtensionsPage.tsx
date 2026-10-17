@@ -8,6 +8,7 @@ import { DetailHeader, EmptyDetail, ManagerLayout } from '../../components/layou
 import { Button, badgeClass, cx, IconButton } from '../../components/ui'
 import { loadExtensions, useExtensionsRuntime } from '../../extensions/runtime'
 import { ExtensionPage, Slot } from '../../extensions/Slot'
+import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { SettingsEditor } from './SettingsEditor'
@@ -34,7 +35,7 @@ export function ExtensionDetail({
   const pageId = useUi((s) => s.extensionPageId)
   const openView = useUi((s) => s.openView)
   const activePage = extension.enabled ? pages.find((page) => page.id === pageId) : undefined
-  const tabs = [{ id: null, label: '设置', icon: '' }, ...pages]
+  const tabs = [{ id: null, label: t('设置'), icon: '' }, ...pages]
   const [draft, setDraft] = useState(() => structuredClone(extension.settings))
   const dirty = JSON.stringify(draft) !== JSON.stringify(extension.settings)
   useEffect(() => {
@@ -45,7 +46,7 @@ export function ExtensionDetail({
     try {
       const saved = await update(extension.id, { settings: draft })
       setDraft(structuredClone(saved.settings))
-      toast.info('扩展设置已保存')
+      toast.info(t('扩展设置已保存'))
     } catch (e) {
       toast.error(errorMessage(e))
     }
@@ -60,10 +61,10 @@ export function ExtensionDetail({
           actions={
             <div className="flex gap-1">
               <Button disabled={!dirty || busy} onClick={() => setDraft(structuredClone(extension.settings))}>
-                撤销修改
+                {t('撤销修改')}
               </Button>
               <Button variant="primary" disabled={!dirty || busy} onClick={() => void save()}>
-                保存
+                {t('保存')}
               </Button>
             </div>
           }
@@ -71,7 +72,7 @@ export function ExtensionDetail({
         {pages.length > 0 && (
           <div
             role="tablist"
-            aria-label={`${extension.name}详情`}
+            aria-label={t('{name}详情', { name: extension.name })}
             className="flex gap-1 overflow-x-auto border-b border-zinc-200 px-3 dark:border-zinc-800"
           >
             {tabs.map((tab, index) => (
@@ -136,17 +137,17 @@ export function ExtensionDetail({
                 <div className="flex flex-wrap items-center gap-1.5">
                   <h2 className="mr-1 break-words text-base font-semibold">{extension.name}</h2>
                   <span className={badgeClass}>v{extension.version}</span>
-                  <span className={badgeClass}>{extension.source === 'builtin' ? '内置' : '本地'}</span>
+                  <span className={badgeClass}>{extension.source === 'builtin' ? t('内置') : t('本地')}</span>
                   {extension.author && <span className={badgeClass}>{extension.author}</span>}
                 </div>
                 <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-zinc-500">
-                  {extension.description || '暂无描述。'}
+                  {extension.description || t('暂无描述。')}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                <span className="text-xs text-zinc-500">{extension.enabled ? '已启用' : '已停用'}</span>
+                <span className="text-xs text-zinc-500">{extension.enabled ? t('已启用') : t('已停用')}</span>
                 <Toggle
-                  label={`启用${extension.name}`}
+                  label={t('启用{name}', { name: extension.name })}
                   checked={extension.enabled}
                   disabled={busy}
                   onChange={(enabled) =>
@@ -157,11 +158,11 @@ export function ExtensionDetail({
             </div>
             {(() => {
               const provided = [
-                ...extension.provides.tools.map((name) => ({ kind: '工具', name })),
-                ...extension.provides.macros.map((name) => ({ kind: '宏', name: `{{${name}}}` })),
-                ...extension.provides.hooks.map((name) => ({ kind: '钩子', name })),
-                ...(extension.hasRoutes ? [{ kind: '接口', name: `/api/ext/${extension.id}/` }] : []),
-                ...(extension.client.script || extension.client.style ? [{ kind: '前端', name: '界面' }] : []),
+                ...extension.provides.tools.map((name) => ({ kind: t('工具'), name })),
+                ...extension.provides.macros.map((name) => ({ kind: t('宏'), name: `{{${name}}}` })),
+                ...extension.provides.hooks.map((name) => ({ kind: t('钩子'), name })),
+                ...(extension.hasRoutes ? [{ kind: t('接口'), name: `/api/ext/${extension.id}/` }] : []),
+                ...(extension.client.script || extension.client.style ? [{ kind: t('前端'), name: t('界面') }] : []),
               ]
               return (
                 provided.length > 0 && (
@@ -182,13 +183,13 @@ export function ExtensionDetail({
               role="alert"
               className="rounded-lg border border-red-300 bg-red-50 p-3 whitespace-pre-wrap break-words text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
             >
-              加载失败：{extension.loadError}
+              {t('加载失败：{error}', { error: extension.loadError })}
             </div>
           )}
           {dirty && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300">
               <span className="size-1.5 rounded-full bg-amber-500" />
-              有未保存的修改，点右上角「保存」生效
+              {t('有未保存的修改，点右上角「保存」生效')}
             </div>
           )}
           {extension.settingsSchema.length > 0 ? (
@@ -200,7 +201,7 @@ export function ExtensionDetail({
               extensionId={extension.id}
             />
           ) : (
-            <p className="text-sm text-zinc-500">此扩展没有可配置的设置。</p>
+            <p className="text-sm text-zinc-500">{t('此扩展没有可配置的设置。')}</p>
           )}
           <Slot
             name="extensions.settings.footer"
@@ -229,7 +230,7 @@ export function ExtensionsPage() {
       else openView('extensions', id)
       return
     }
-    if (dirty && !confirm('当前扩展有未保存的设置，确定放弃这些修改并切换吗？')) return
+    if (dirty && !confirm(t('当前扩展有未保存的设置，确定放弃这些修改并切换吗？'))) return
     setDirty(false)
     if (pageId && id) openView(`ext:${id}:${pageId}`)
     else openView('extensions', id)
@@ -260,18 +261,18 @@ export function ExtensionsPage() {
 
   return (
     <ManagerLayout
-      title="扩展"
+      title={t('扩展')}
       showDetailOnMobile={selectedId !== null}
       list={
         <>
           {query.isPending ? (
-            <p className="p-2 text-sm">加载中…</p>
+            <p className="p-2 text-sm">{t('加载中…')}</p>
           ) : query.isError ? (
             <p role="alert" className="p-2 text-sm text-red-600">
               {errorMessage(query.error)}
             </p>
           ) : query.data.length === 0 ? (
-            <p className="p-2 text-sm text-zinc-500">暂无扩展。可在下方说明的目录中安装本地扩展。</p>
+            <p className="p-2 text-sm text-zinc-500">{t('暂无扩展。可在下方说明的目录中安装本地扩展。')}</p>
           ) : (
             query.data.map((item) => (
               <div
@@ -284,7 +285,7 @@ export function ExtensionsPage() {
                 )}
               >
                 <Toggle
-                  label={`启用${item.name}`}
+                  label={t('启用{name}', { name: item.name })}
                   checked={item.enabled}
                   disabled={busy}
                   onChange={(enabled) => void toggle(item, enabled)}
@@ -303,7 +304,7 @@ export function ExtensionsPage() {
                     .map((page) => (
                       <IconButton
                         key={page.id}
-                        label={`打开${item.name}：${page.label}`}
+                        label={t('打开{name}：{pageLabel}', { name: item.name, pageLabel: page.label })}
                         className="shrink-0"
                         disabled={busy}
                         onClick={() => select(item.id, page.id)}
@@ -312,14 +313,15 @@ export function ExtensionsPage() {
                       </IconButton>
                     ))}
                 <span className={`${badgeClass} shrink-0`} title={item.loadError || undefined}>
-                  {item.loadError ? '失败' : item.source === 'builtin' ? '内置' : '本地'}
+                  {item.loadError ? t('失败') : item.source === 'builtin' ? t('内置') : t('本地')}
                 </span>
               </div>
             ))
           )}
           <p className="mt-4 px-2 text-xs leading-relaxed text-zinc-500">
-            第三方扩展放在 <code className="break-all">data/extensions/&lt;目录&gt;/manifest.json</code>
-            ，重启后加载。扩展代码在后端和浏览器中运行，只安装你信任的扩展。
+            {t('第三方扩展放在')}
+            <code className="break-all">{t('data/extensions/&lt;目录&gt;/manifest.json')}</code>
+            {t('，重启后加载。扩展代码在后端和浏览器中运行，只安装你信任的扩展。')}
           </p>
         </>
       }
@@ -335,17 +337,17 @@ export function ExtensionsPage() {
           />
         ) : (
           <>
-            {selectedId && <DetailHeader title="扩展详情" onBack={() => select(null)} />}
+            {selectedId && <DetailHeader title={t('扩展详情')} onBack={() => select(null)} />}
             <div className="space-y-4 p-4 sm:p-6">
               {query.isPending ? (
-                <p>加载中…</p>
+                <p>{t('加载中…')}</p>
               ) : query.isError ? (
                 <p role="alert" className="text-sm text-red-600">
                   {errorMessage(query.error)}
                 </p>
               ) : (
                 <EmptyDetail
-                  text={selectedId ? '未找到此扩展，请从列表重新选择' : '选择一个扩展，查看能力并编辑设置'}
+                  text={selectedId ? t('未找到此扩展，请从列表重新选择') : t('选择一个扩展，查看能力并编辑设置')}
                 />
               )}
             </div>

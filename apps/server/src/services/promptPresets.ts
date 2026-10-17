@@ -1,9 +1,11 @@
-import { exportSTPreset, importSTPreset, STFormatError } from '@ai-parter/core'
-import { type PromptPresetDTO, type PromptPresetInput, presetDataSchema, promptPresetInput } from '@ai-parter/shared'
+import { exportSTPreset, importSTPreset, parsePresetWithEnglishDefaults, STFormatError } from '@ai-parter/core'
+import { BUILTIN_PROMPTS, type PromptPresetDTO, type PromptPresetInput, promptPresetInput } from '@ai-parter/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { promptPresets } from '../db/schema'
 import { HttpError, notFound } from '../errors'
+import { t } from '../i18n'
+import { translateMetadata } from '../i18n/metadata'
 import { SETTING_KEYS } from './settings'
 
 export function listPromptPresets(): PromptPresetDTO[] {
@@ -12,17 +14,28 @@ export function listPromptPresets(): PromptPresetDTO[] {
     .from(promptPresets)
     .orderBy(asc(promptPresets.createdAt), asc(promptPresets.id))
     .all()
-    .map((row) => ({
-      id: row.id,
-      name: row.name,
-      data: presetDataSchema.parse(row.data),
-      updatedAt: row.updatedAt,
-      isDefault: row.id === getSetting<string>(SETTING_KEYS.defaultPromptPresetId),
-    }))
+    .map((row) => {
+      const builtin = row.id === getSetting<string>(SETTING_KEYS.builtinPromptPresetId)
+      const data = parsePresetWithEnglishDefaults(row.data)
+      if (builtin) {
+        // 内置块可改名；只有仍与原始默认值一致时才翻译展示名称。
+        data.prompts = data.prompts.map((prompt) => {
+          const original = BUILTIN_PROMPTS[prompt.id as keyof typeof BUILTIN_PROMPTS]?.name
+          return original === prompt.name ? { ...prompt, name: translateMetadata(prompt.name) } : prompt
+        })
+      }
+      return {
+        id: row.id,
+        name: builtin && row.name === '默认预设' ? translateMetadata(row.name) : row.name,
+        data,
+        updatedAt: row.updatedAt,
+        isDefault: row.id === getSetting<string>(SETTING_KEYS.defaultPromptPresetId),
+      }
+    })
 }
 export function getPromptPreset(id: string): PromptPresetDTO {
   const preset = listPromptPresets().find((row) => row.id === id)
-  if (!preset) throw notFound('生成预设')
+  if (!preset) throw notFound(t('生成预设'))
   return preset
 }
 export function createPromptPreset(input: PromptPresetInput): PromptPresetDTO {
@@ -54,7 +67,7 @@ export function deletePromptPreset(id: string) {
   db.transaction(() => {
     const preset = getPromptPreset(id)
     const remaining = listPromptPresets().filter((row) => row.id !== id)
-    if (!remaining.length) throw new HttpError(400, 'LAST_PRESET', '不能删除最后一个生成预设')
+    if (!remaining.length) throw new HttpError(400, 'LAST_PRESET', t('不能删除最后一个生成预设'))
     db.delete(promptPresets).where(eq(promptPresets.id, id)).run()
     if (preset.isDefault) setSetting(SETTING_KEYS.defaultPromptPresetId, remaining[0]!.id)
   })
@@ -65,15 +78,15 @@ export function setDefaultPromptPreset(id: string) {
 }
 export function duplicatePromptPreset(id: string) {
   const preset = getPromptPreset(id)
-  return createPromptPreset({ name: `${preset.name} 副本`, data: preset.data })
+  return createPromptPreset({ name: t('{name} 副本', { name: preset.name }), data: preset.data })
 }
 export function importPromptPreset(bytes: Uint8Array, fileName: string) {
   try {
     const data = importSTPreset(JSON.parse(new TextDecoder().decode(bytes)))
-    return createPromptPreset({ name: fileName.replace(/\.[^.]+$/, '') || '导入预设', data })
+    return createPromptPreset({ name: fileName.replace(/\.[^.]+$/, '') || t('导入预设'), data })
   } catch (error) {
     if (error instanceof SyntaxError || error instanceof STFormatError)
-      throw new HttpError(400, 'BAD_PRESET', '无法解析生成预设文件')
+      throw new HttpError(400, 'BAD_PRESET', t('无法解析生成预设文件'))
     throw error
   }
 }

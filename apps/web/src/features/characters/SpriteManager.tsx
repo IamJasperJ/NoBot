@@ -6,6 +6,7 @@ import { keys, useSprites } from '../../api/queries'
 import { Section } from '../../components/form'
 import { CheckIcon, PlusIcon, TrashIcon, UploadIcon } from '../../components/icons'
 import { Button, badgeClass, cx, Dialog, IconButton } from '../../components/ui'
+import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 
 /**
@@ -51,7 +52,12 @@ export function SpriteManager({ characterId }: { characterId: string }) {
   }
   const report = (result: SpriteImportResult) => {
     toast.info(
-      `已导入 ${result.added.length} 张立绘${result.skipped.length ? `，跳过 ${result.skipped.length} 个文件` : ''}`,
+      result.skipped.length
+        ? t('已导入 {count} 张立绘，跳过 {skipped} 个文件', {
+            count: result.added.length,
+            skipped: result.skipped.length,
+          })
+        : t('已导入 {count} 张立绘', { count: result.added.length }),
     )
     if (result.skipped.length) toast.error(result.skipped.slice(0, 5).join('\n'))
   }
@@ -66,10 +72,10 @@ export function SpriteManager({ characterId }: { characterId: string }) {
     setSelected(new Set())
   }
   const removeSelected = (ids: string[]) => {
-    if (!ids.length || !confirm(`删除选中的 ${ids.length} 张立绘？`)) return
+    if (!ids.length || !confirm(t('删除选中的 {count} 张立绘？', { count: ids.length }))) return
     void run(async () => {
       const { deleted } = await api.deleteSprites(characterId, ids)
-      toast.info(`已删除 ${deleted} 张立绘`)
+      toast.info(t('已删除 {deleted} 张立绘', { deleted }))
       const next = new Set(selected)
       for (const id of ids) next.delete(id)
       setSelected(next)
@@ -85,8 +91,8 @@ export function SpriteManager({ characterId }: { characterId: string }) {
 
   return (
     <Section
-      title="立绘"
-      description="VN 模式里按表情显示的角色图。透明背景的 PNG 最好；可以直接导入酒馆的立绘包（zip）"
+      title={t('立绘')}
+      description={t('VN 模式里按表情显示的角色图。透明背景的 PNG 最好；可以直接导入酒馆的立绘包（zip）')}
     >
       <div className="space-y-3">
         {/* 服装切换 + 导入 */}
@@ -107,16 +113,16 @@ export function SpriteManager({ characterId }: { characterId: string }) {
                   : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300',
               )}
             >
-              {name || '默认服装'}
+              {name || t('默认服装')}
               <span className="ml-1.5 text-xs text-zinc-400 tabular-nums">
                 {list.filter((s) => s.outfit === name).length}
               </span>
             </button>
           ))}
           <IconButton
-            label="新建一套服装"
+            label={t('新建一套服装')}
             onClick={() => {
-              const name = prompt('服装名称（比如 casual、泳装）')?.trim()
+              const name = prompt(t('服装名称（比如 casual、泳装）'))?.trim()
               if (!name) return
               if (!outfits.includes(name)) setDraftOutfits([...draftOutfits, name])
               setOutfit(name)
@@ -130,22 +136,22 @@ export function SpriteManager({ characterId }: { characterId: string }) {
               disabled={busy || (!selecting && !mine.length)}
               onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
             >
-              {selecting ? '取消多选' : '多选'}
+              {selecting ? t('取消多选') : t('多选')}
             </Button>
             <Button size="sm" disabled={busy} onClick={() => batchInput.current?.click()}>
-              按文件名上传
+              {t('按文件名上传')}
             </Button>
             <Button size="sm" disabled={busy} onClick={() => zipInput.current?.click()}>
               <UploadIcon />
-              导入立绘包
+              {t('导入立绘包')}
             </Button>
             {outfit && (
               <IconButton
                 variant="danger"
-                label={`删除服装「${outfit}」`}
+                label={t('删除服装「{outfit}」', { outfit })}
                 disabled={busy}
                 onClick={() => {
-                  if (!confirm(`删除服装「${outfit}」和它的全部立绘？`)) return
+                  if (!confirm(t('删除服装「{outfit}」和它的全部立绘？', { outfit }))) return
                   void run(async () => {
                     await api.deleteOutfit(characterId, outfit)
                     setDraftOutfits(draftOutfits.filter((n) => n !== outfit))
@@ -163,7 +169,7 @@ export function SpriteManager({ characterId }: { characterId: string }) {
             accept="image/png,image/webp,image/gif,image/jpeg"
             multiple
             className="hidden"
-            aria-label="按文件名批量上传立绘"
+            aria-label={t('按文件名批量上传立绘')}
             onChange={(e) => {
               const files = Array.from(e.target.files ?? [])
               e.target.value = ''
@@ -175,7 +181,7 @@ export function SpriteManager({ characterId }: { characterId: string }) {
             type="file"
             accept=".zip,application/zip"
             className="hidden"
-            aria-label="导入立绘包"
+            aria-label={t('导入立绘包')}
             onChange={(e) => {
               const file = e.target.files?.[0]
               e.target.value = ''
@@ -188,10 +194,10 @@ export function SpriteManager({ characterId }: { characterId: string }) {
         {selecting ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50 px-3 py-1.5 text-[13px] text-violet-800 dark:bg-violet-950/50 dark:text-violet-200">
             <span className="flex-1">
-              点表情格子选中这个表情的全部立绘，点开格子可以一张张选。已选 {selected.size} 张
+              {t('点表情格子选中这个表情的全部立绘，点开格子可以一张张选。已选 {count} 张', { count: selected.size })}
             </span>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => toggle(mine.map((s) => s.id))}>
-              {mine.length && mine.every((s) => selected.has(s.id)) ? '取消全选' : '全选本服装'}
+              {mine.length && mine.every((s) => selected.has(s.id)) ? t('取消全选') : t('全选本服装')}
             </Button>
             <Button
               size="sm"
@@ -200,14 +206,15 @@ export function SpriteManager({ characterId }: { characterId: string }) {
               onClick={() => removeSelected([...selected])}
             >
               <TrashIcon />
-              删除选中
+              {t('删除选中')}
             </Button>
           </div>
         ) : (
           <p className="text-xs text-zinc-500">
-            {filled} / {EXPRESSIONS.length}{' '}
-            个表情有图。文件名就是表情名（joy.png、joy-2.png），「按文件名上传」和立绘包都按这个规则；
-            立绘包根目录的图片导入当前选中的服装，包里的一层目录会成为一套服装。
+            {t(
+              '{filled} / {total} 个表情有图。文件名就是表情名（joy.png、joy-2.png），「按文件名上传」和立绘包都按这个规则； 立绘包根目录的图片导入当前选中的服装，包里的一层目录会成为一套服装。',
+              { filled: filled, total: EXPRESSIONS.length },
+            )}
           </p>
         )}
 
@@ -234,10 +241,10 @@ export function SpriteManager({ characterId }: { characterId: string }) {
               type="button"
               disabled={busy}
               onClick={() => {
-                const name = prompt('自定义表情名（英文，比如 smug）')?.trim().toLowerCase()
+                const name = prompt(t('自定义表情名（英文，比如 smug）'))?.trim().toLowerCase()
                 if (!name) return
                 if (!/^[a-z0-9_-]+$/.test(name)) {
-                  toast.error('表情名只能用英文字母、数字、_ 和 -')
+                  toast.error(t('表情名只能用英文字母、数字、_ 和 -'))
                   return
                 }
                 setCustoms([...customs, name])
@@ -245,7 +252,7 @@ export function SpriteManager({ characterId }: { characterId: string }) {
               className="flex aspect-[3/4] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-300 text-xs text-zinc-400 transition-colors hover:border-violet-400 hover:text-violet-600 dark:border-zinc-700"
             >
               <PlusIcon className="size-4" />
-              自定义表情
+              {t('自定义表情')}
             </button>
           </div>
         )}
@@ -303,10 +310,10 @@ function SpriteCell({
         aria-pressed={selecting && first ? checked : undefined}
         title={
           selecting
-            ? `选中 ${expression} 的全部 ${sprites.length} 张`
+            ? t('选中 {expression} 的全部 {count} 张', { expression, count: sprites.length })
             : first
-              ? `${expression}：${sprites.length} 张，点击管理`
-              : `上传 ${expression} 的立绘`
+              ? t('{expression}：{count} 张，点击管理', { expression, count: sprites.length })
+              : t('上传 {expression} 的立绘', { expression })
         }
         onClick={() => (selecting ? onSelect() : first ? onOpen() : input.current?.click())}
         onDragOver={(e) => {
@@ -351,7 +358,7 @@ function SpriteCell({
         accept="image/png,image/webp,image/gif,image/jpeg"
         multiple
         className="hidden"
-        aria-label={`上传 ${expression} 的立绘`}
+        aria-label={t('上传 {expression} 的立绘', { expression })}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? [])
           e.target.value = ''
@@ -416,11 +423,15 @@ function ExpressionDialog({
     setPicked(next)
   }
   return (
-    <Dialog open={!!expression} onClose={onClose} title={`${expression ?? ''} · ${sprites.length} 张`}>
+    <Dialog
+      open={!!expression}
+      onClose={onClose}
+      title={t('{expression} · {count} 张', { expression: expression ?? '', count: sprites.length })}
+    >
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <p className="flex-1 text-xs text-zinc-500">
-            同一个表情有多张时，VN 里会随机挑一张（可以在玩法预设里关掉随机）。点图片左上角的圆圈可以多选。
+            {t('同一个表情有多张时，VN 里会随机挑一张（可以在玩法预设里关掉随机）。点图片左上角的圆圈可以多选。')}
           </p>
           {sprites.length > 1 && (
             <Button
@@ -429,7 +440,7 @@ function ExpressionDialog({
               disabled={busy}
               onClick={() => setPicked(live.length === sprites.length ? new Set() : new Set(sprites.map((s) => s.id)))}
             >
-              {live.length === sprites.length ? '取消全选' : '全选'}
+              {live.length === sprites.length ? t('取消全选') : t('全选')}
             </Button>
           )}
           <Button
@@ -439,7 +450,8 @@ function ExpressionDialog({
             onClick={() => onDeleteMany(live.map((s) => s.id))}
           >
             <TrashIcon />
-            删除选中{live.length ? `（${live.length}）` : ''}
+            {t('删除选中')}
+            {live.length ? `（${live.length}）` : ''}
           </Button>
         </div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-3">
@@ -457,7 +469,7 @@ function ExpressionDialog({
               />
               <button
                 type="button"
-                aria-label="选中这张"
+                aria-label={t('选中这张')}
                 aria-pressed={picked.has(s.id)}
                 disabled={busy}
                 onClick={() => pick(s.id)}
@@ -470,11 +482,11 @@ function ExpressionDialog({
               </p>
               <IconButton
                 variant="danger"
-                label="删除这张"
+                label={t('删除这张')}
                 disabled={busy}
                 className="absolute top-1 right-1 bg-white/90 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus:opacity-100 dark:bg-zinc-900/90"
                 onClick={() => {
-                  if (confirm('删除这张立绘？')) onDelete(s.id)
+                  if (confirm(t('删除这张立绘？'))) onDelete(s.id)
                 }}
               >
                 <TrashIcon />
@@ -488,7 +500,7 @@ function ExpressionDialog({
             className="flex aspect-[3/4] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-300 text-xs text-zinc-400 hover:border-violet-400 hover:text-violet-600 dark:border-zinc-700"
           >
             <PlusIcon className="size-5" />
-            再加一张
+            {t('再加一张')}
           </button>
         </div>
         <input
@@ -497,7 +509,7 @@ function ExpressionDialog({
           accept="image/png,image/webp,image/gif,image/jpeg"
           multiple
           className="hidden"
-          aria-label="再加一张立绘"
+          aria-label={t('再加一张立绘')}
           onChange={(e) => {
             const files = Array.from(e.target.files ?? [])
             e.target.value = ''

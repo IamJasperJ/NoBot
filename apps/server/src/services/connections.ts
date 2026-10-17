@@ -9,6 +9,7 @@ import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { type ApiPresetRow, apiPresets } from '../db/schema'
 import { HttpError, notFound } from '../errors'
+import { t } from '../i18n'
 import { listModels } from '../llm/openai'
 import { SETTING_KEYS } from './settings'
 
@@ -47,14 +48,14 @@ export function listApiPresets(): ApiPresetDTO[] {
 
 export function getApiPresetRow(id: string): ApiPresetRow {
   const row = db.select().from(apiPresets).where(eq(apiPresets.id, id)).get()
-  if (!row) throw notFound('连接配置')
+  if (!row) throw notFound(t('连接配置'))
   return row
 }
 
 /** 会话没指定预设时用全局默认；默认也没有就报错，提示用户去配置 */
 export function resolveApiPreset(presetId: string | null): ApiPresetRow {
   const id = presetId ?? getSetting<string>(SETTING_KEYS.defaultApiPresetId)
-  if (!id) throw new HttpError(400, 'NO_API_PRESET', '还没有配置模型连接，请先在「连接」页添加一个')
+  if (!id) throw new HttpError(400, 'NO_API_PRESET', t('还没有配置模型连接，请先在「连接」页添加一个'))
   return getApiPresetRow(id)
 }
 
@@ -98,7 +99,7 @@ export async function testConnection(input: TestConnectionInput): Promise<TestCo
   const baseUrl = input.baseUrl ?? saved?.baseUrl
   // 表单里 Key 留空表示沿用已保存的 Key
   const apiKey = input.apiKey || saved?.apiKey || ''
-  if (!baseUrl) throw new HttpError(400, 'BAD_REQUEST', '缺少接口地址')
+  if (!baseUrl) throw new HttpError(400, 'BAD_REQUEST', t('缺少接口地址'))
   try {
     return { ok: true, models: await listModels(baseUrl, apiKey, input.headers ?? saved?.headers ?? {}) }
   } catch (e) {

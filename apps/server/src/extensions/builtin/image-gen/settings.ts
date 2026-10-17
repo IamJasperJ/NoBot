@@ -74,7 +74,7 @@ const shape = z
     interactiveMode: z.boolean().default(false),
     multimodalCaptioning: z.boolean().default(false),
     minimalProcessing: z.boolean().default(false),
-    messageTemplate: z.string().default('[{{char}} 发送了一张图片：{{prompt}}]'),
+    messageTemplate: z.string().default('[{{char}} sent an image: {{prompt}}]'),
     visibleFromButton: z.boolean().default(false),
     visibleFromTool: z.boolean().default(false),
     visibleFromInteractive: z.boolean().default(false),

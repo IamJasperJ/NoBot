@@ -1,3 +1,4 @@
+import { t } from '../../../i18n'
 import type { Settings } from './settings'
 import { workflowValidationError } from './workflow-validation'
 
@@ -56,7 +57,7 @@ export function workflowSource(settings: Settings): string {
   if (!settings.comfyWorkflowName) return defaultWorkflow
   if (settings.comfyWorkflowName === 'avatar') return avatarWorkflow
   const workflow = settings.comfyWorkflows.find((item) => item.name === settings.comfyWorkflowName)
-  if (!workflow) throw new Error(`找不到名为 ${settings.comfyWorkflowName} 的工作流`)
+  if (!workflow) throw new Error(t('找不到名为 {name} 的工作流', { name: settings.comfyWorkflowName }))
   return workflow.json
 }
 /** 先解析再逐项替换，确保提示词中的引号和占位符不被二次解释。 */

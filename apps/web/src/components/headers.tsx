@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { t } from '../i18n'
 import { PlusIcon, TrashIcon } from './icons'
 import { Button, cx, IconButton, inputClass } from './ui'
 
@@ -25,16 +26,16 @@ export function HeadersEditor({
       {rows.map(([name, v], index) => (
         <div key={index} className="flex items-center gap-1.5">
           <input
-            aria-label="请求头名称"
-            placeholder="名称，如 X-Api-Key"
+            aria-label={t('请求头名称')}
+            placeholder={t('名称，如 X-Api-Key')}
             className={cx(inputClass, 'h-8 w-[42%] shrink-0 px-2 py-0 font-mono text-xs')}
             value={name}
             disabled={disabled}
             onChange={(e) => emit(rows.map((row, i) => (i === index ? [e.target.value, row[1]] : row)))}
           />
           <input
-            aria-label="请求头的值"
-            placeholder="值"
+            aria-label={t('请求头的值')}
+            placeholder={t('值')}
             className={cx(inputClass, 'h-8 min-w-0 flex-1 px-2 py-0 font-mono text-xs')}
             value={v}
             disabled={disabled}
@@ -42,7 +43,7 @@ export function HeadersEditor({
           />
           <IconButton
             variant="danger"
-            label="删除这个请求头"
+            label={t('删除这个请求头')}
             disabled={disabled}
             onClick={() => emit(rows.filter((_, i) => i !== index))}
           >
@@ -52,7 +53,7 @@ export function HeadersEditor({
       ))}
       <Button size="sm" variant="ghost" disabled={disabled} onClick={() => setRows([...rows, ['', '']])}>
         <PlusIcon />
-        添加请求头
+        {t('添加请求头')}
       </Button>
     </div>
   )

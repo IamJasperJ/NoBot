@@ -1,3 +1,5 @@
+import { t } from '../../../i18n'
+
 /** 引擎没有报告偏移时，扫描首个语法错误，为工作流编辑器提供可定位的行列。 */
 function syntaxOffset(source: string): number {
   let cursor = 0
@@ -87,7 +89,7 @@ export function workflowValidationError(source: string): string {
   try {
     const value: unknown = JSON.parse(source)
     return !value || typeof value !== 'object' || Array.isArray(value)
-      ? 'ComfyUI 工作流必须是 API 格式的 JSON 对象'
+      ? t('ComfyUI 工作流必须是 API 格式的 JSON 对象')
       : ''
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
@@ -95,6 +97,6 @@ export function workflowValidationError(source: string): string {
     const before = source.slice(0, offset)
     const line = before.split('\n').length
     const column = offset - before.lastIndexOf('\n')
-    return `ComfyUI 工作流不是合法的 JSON（第 ${line} 行，第 ${column} 列）：${detail}`
+    return t('ComfyUI 工作流不是合法的 JSON（第 {line} 行，第 {column} 列）：{detail}', { line, column, detail })
   }
 }

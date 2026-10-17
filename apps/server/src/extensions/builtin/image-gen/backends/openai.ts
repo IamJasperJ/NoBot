@@ -1,4 +1,5 @@
 import { HttpError } from '../../../../errors'
+import { t } from '../../../../i18n'
 import { openaiRequestHeaders } from '../discovery'
 import { fitOpenaiSize } from '../options'
 import type { Settings } from '../settings'
@@ -37,10 +38,10 @@ function extraBody(settings: Settings): Record<string, unknown> {
   try {
     extra = JSON.parse(settings.openaiExtra)
   } catch {
-    throw new HttpError(400, 'IMAGE_EXTRA', '额外参数不是合法的 JSON')
+    throw new HttpError(400, 'IMAGE_EXTRA', t('额外参数不是合法的 JSON'))
   }
   if (!extra || typeof extra !== 'object' || Array.isArray(extra))
-    throw new HttpError(400, 'IMAGE_EXTRA', '额外参数必须是 JSON 对象')
+    throw new HttpError(400, 'IMAGE_EXTRA', t('额外参数必须是 JSON 对象'))
   return object(extra)
 }
 
@@ -138,7 +139,7 @@ async function viaImages(settings: Settings, prompt: string, width: number, heig
   const first = object(Array.isArray(body.data) ? body.data[0] : undefined)
   if (typeof first.b64_json === 'string' && first.b64_json) return new Uint8Array(Buffer.from(first.b64_json, 'base64'))
   if (typeof first.url === 'string') return imageBytes(first.url, signal)
-  throw new HttpError(502, 'IMAGE_EMPTY', '图片接口没有返回图片')
+  throw new HttpError(502, 'IMAGE_EMPTY', t('图片接口没有返回图片'))
 }
 
 async function viaChat(settings: Settings, prompt: string, width: number, height: number, signal: AbortSignal) {
@@ -156,7 +157,9 @@ async function viaChat(settings: Settings, prompt: string, width: number, height
   throw new HttpError(
     502,
     'IMAGE_EMPTY',
-    `聊天接口的回复里没有图片${text ? `，模型回复：${text}` : ''}。请确认这个模型支持图片输出`,
+    t('聊天接口的回复里没有图片{reply}。请确认这个模型支持图片输出', {
+      reply: text ? t('，模型回复：{text}', { text }) : '',
+    }),
   )
 }
 

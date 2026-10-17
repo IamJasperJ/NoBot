@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { t } from '../i18n'
 import { XIcon } from './icons'
 import { cx } from './ui'
 
@@ -16,7 +17,7 @@ export function TagInput({
   onChange,
   suggestions = [],
   disabled,
-  label = '标签',
+  label = t('标签'),
 }: {
   value: string[]
   onChange: (value: string[]) => void
@@ -51,7 +52,7 @@ export function TagInput({
             <span className="truncate">{tag}</span>
             <button
               type="button"
-              aria-label={`删除标签 ${tag}`}
+              aria-label={t('删除标签 {tag}', { tag })}
               disabled={disabled}
               className="-mr-1 rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-100 [&_svg]:size-3"
               onClick={() => onChange(value.filter((t) => t !== tag))}
@@ -63,7 +64,7 @@ export function TagInput({
         <input
           aria-label={label}
           className="h-6 min-w-24 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-zinc-400"
-          placeholder={value.length ? '' : '输入后按回车添加'}
+          placeholder={value.length ? '' : t('输入后按回车添加')}
           value={text}
           disabled={disabled}
           onFocus={() => setFocused(true)}

@@ -21,26 +21,6 @@ let directory: string
 const previousDataDir = process.env.DATA_DIR
 let png: Uint8Array
 
-beforeAll(async () => {
-  directory = await mkdtemp(join(tmpdir(), 'ai-parter-crud-'))
-  process.env.DATA_DIR = directory
-  const client = await import('../src/db/client')
-  sqlite = client.sqlite
-  client.initDatabase()
-  const { seedPlayPresets } = await import('../src/services/playPresets.builtin')
-  seedPlayPresets()
-  app = (await import('../src/app')).app
-  png = await sharp({ create: { width: 12, height: 18, channels: 3, background: '#ffccaa' } })
-    .png()
-    .toBuffer()
-})
-afterAll(async () => {
-  sqlite?.close()
-  if (previousDataDir === undefined) delete process.env.DATA_DIR
-  else process.env.DATA_DIR = previousDataDir
-  if (directory) await rm(directory, { recursive: true, force: true })
-})
-
 function request(path: string, method = 'GET', data?: unknown) {
   return app.request(`/api${path}`, {
     method,
@@ -73,11 +53,35 @@ async function error(path: string, method: string, status: number, code: string,
 }
 const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value))
 
-describe('后端 CRUD 接口', () => {
+describe.skipIf(!process.env.CRUD_TEST_CHILD)('后端 CRUD 接口', () => {
+  beforeAll(async () => {
+    directory = await mkdtemp(join(tmpdir(), 'ai-parter-crud-'))
+    process.env.DATA_DIR = directory
+    const client = await import('../src/db/client')
+    sqlite = client.sqlite
+    client.initDatabase()
+    const { seedPlayPresets } = await import('../src/services/playPresets.builtin')
+    seedPlayPresets()
+    app = (await import('../src/app')).app
+    png = await sharp({ create: { width: 12, height: 18, channels: 3, background: '#ffccaa' } })
+      .png()
+      .toBuffer()
+  })
+  afterAll(async () => {
+    sqlite?.close()
+    if (previousDataDir === undefined) delete process.env.DATA_DIR
+    else process.env.DATA_DIR = previousDataDir
+    if (directory) await rm(directory, { recursive: true, force: true })
+  })
+
   test('预设创建、读取、局部更新、复制、导入导出和默认项删除规则', async () => {
     const first = await json<PromptPresetDTO>('/presets', 'POST', { name: '中文预设', data: {} })
     expect(first.isDefault).toBe(true)
     expect(first.data.samplers.temperature).toBeNumber()
+    expect(first.data.prompts.find((prompt) => prompt.id === 'main')?.content).toContain(
+      'Write in the same language as the conversation.',
+    )
+    expect(first.data.utility.newChat).toBe('[Start a new conversation]')
     await error(`/presets/${first.id}`, 'DELETE', 400, 'LAST_PRESET')
     const copy = await json<PromptPresetDTO>(`/presets/${first.id}/duplicate`, 'POST')
     expect(copy.name).toBe('中文预设 副本')
@@ -99,6 +103,15 @@ describe('后端 CRUD 接口', () => {
     expect(imported.data).toEqual(first.data)
     const changed = { ...first.data, samplers: { ...first.data.samplers, temperature: 0.42 } }
     expect((await json<PromptPresetDTO>(`/presets/${first.id}`, 'PATCH', { data: changed })).data).toEqual(changed)
+    // 已保存的中文提示词在读取、复制和导入时都应保持原文。
+    changed.prompts = changed.prompts.map((prompt) =>
+      prompt.id === 'main' ? { ...prompt, content: '用户保存的中文提示词' } : prompt,
+    )
+    changed.utility = { ...changed.utility, newChat: '[用户自定义开场]' }
+    await json(`/presets/${first.id}`, 'PATCH', { data: changed })
+    const preserved = await json<PromptPresetDTO>(`/presets/${first.id}/duplicate`, 'POST')
+    expect(preserved.data).toEqual(changed)
+    await json(`/presets/${preserved.id}`, 'DELETE')
     await json(`/presets/${copy.id}`, 'DELETE')
     expect((await json<PromptPresetDTO>(`/presets/${first.id}`)).isDefault).toBe(true)
     await json(`/presets/${imported.id}`, 'DELETE')
@@ -457,3 +470,25 @@ describe('后端 CRUD 接口', () => {
     await error('/personas/missing/avatar', 'DELETE', 404, 'NOT_FOUND')
   })
 })
+
+// 本地化让底层校验也读取语言设置；隔离模块单例，避免其他测试提前加载数据库。
+if (!process.env.CRUD_TEST_CHILD) {
+  test('后端 CRUD 接口使用独立数据库进程', async () => {
+    const child = Bun.spawn([process.execPath, 'test', 'apps/server/test/crud.test.ts'], {
+      env: { ...process.env, CRUD_TEST_CHILD: '1' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const timeout = setTimeout(() => child.kill(), 20000)
+    try {
+      const [out, err, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ])
+      expect(code, `${out}\n${err}`).toBe(0)
+    } finally {
+      clearTimeout(timeout)
+    }
+  })
+}

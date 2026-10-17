@@ -3,6 +3,7 @@ import { and, desc, eq, lt, sql } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { generationLogs } from '../db/schema'
 import { notFound } from '../errors'
+import { t } from '../i18n'
 
 /**
  * 请求日志：每次调用模型都记一条（请求体、结果、错误、耗时），用来排查问题，
@@ -53,7 +54,7 @@ export function logError(where: string, err: unknown) {
     insertLog({
       kind: 'error',
       status: 'error',
-      summary: `${where}：${err instanceof Error ? err.message : String(err)}`,
+      summary: t('{where}：{error}', { where, error: err instanceof Error ? err.message : String(err) }),
       response: { stack: err instanceof Error ? err.stack : undefined },
     })
   } catch {
@@ -99,7 +100,7 @@ export function listLogs(opts: { chatId?: string; limit?: number }): GenerationL
 
 export function getLog(id: string): GenerationLogDTO {
   const r = db.select().from(generationLogs).where(eq(generationLogs.id, id)).get()
-  if (!r) throw notFound('日志')
+  if (!r) throw notFound(t('日志'))
   return { ...toSummary(r), request: r.request, response: r.response, report: r.report }
 }
 

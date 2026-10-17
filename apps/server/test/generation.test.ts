@@ -517,7 +517,7 @@ test('图片上传与生成全链路及发送限制', async () => {
   await generate(chat, { mode: 'send', text: '新图', images: [image.id] })
   const limited = model.requests.at(-1)!.messages
   expect(limited.filter((message) => Array.isArray(message.content))).toHaveLength(1)
-  expect(limited.some((message) => typeof message.content === 'string' && message.content.includes('[图片]'))).toBe(
+  expect(limited.some((message) => typeof message.content === 'string' && message.content.includes('[Image]'))).toBe(
     true,
   )
   await updatePreset((data) => ({ ...data, samplers: { ...data.samplers, inlineImages: false } }))

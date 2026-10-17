@@ -10,6 +10,7 @@ import { CheckIcon, RefreshIcon, TrashIcon } from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Menu, MenuEntry } from '../../components/menu'
 import { Button, Field, IconButton } from '../../components/ui'
+import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 
@@ -40,7 +41,7 @@ export function ConnectionsPage() {
   const [testing, setTesting] = useState(false)
   const baseline = original ? toDraft(original) : emptyDraft()
   const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(baseline)
-  const canLeave = () => !dirty || confirm('此连接有未保存的修改，是否放弃？')
+  const canLeave = () => !dirty || confirm(t('此连接有未保存的修改，是否放弃？'))
   const pick = (p: ApiPresetDTO | null, create = false) => {
     setOriginal(p ? { ...p } : null)
     setDraft(p ? toDraft(p) : create ? emptyDraft() : null)
@@ -80,8 +81,8 @@ export function ConnectionsPage() {
       })
       if (result.ok) {
         setModels([...new Set(result.models)])
-        toast.info(`连接成功，共 ${result.models.length} 个模型`)
-      } else toast.error(result.error || '连接失败')
+        toast.info(t('连接成功，共 {count} 个模型', { count: result.models.length }))
+      } else toast.error(result.error || t('连接失败'))
     } catch (e) {
       toast.error(errorMessage(e))
     } finally {
@@ -93,7 +94,7 @@ export function ConnectionsPage() {
   return (
     <ManagerLayout
       detailIn="panel"
-      title="连接"
+      title={t('连接')}
       showDetailOnMobile={!!draft}
       actions={
         <Button
@@ -102,19 +103,19 @@ export function ConnectionsPage() {
             if (canLeave()) pick(null, true)
           }}
         >
-          新建
+          {t('新建')}
         </Button>
       }
       list={
         <>
-          {query.isPending && <p className="p-3 text-sm text-zinc-500">加载中…</p>}
+          {query.isPending && <p className="p-3 text-sm text-zinc-500">{t('加载中…')}</p>}
           {query.isError && (
             <p role="alert" className="p-3 text-sm text-red-600">
               {errorMessage(query.error)}
             </p>
           )}
           {query.data?.length === 0 && (
-            <p className="p-3 text-sm text-zinc-500">还没有连接，点击「新建」填写接口和模型。</p>
+            <p className="p-3 text-sm text-zinc-500">{t('还没有连接，点击「新建」填写接口和模型。')}</p>
           )}
           {query.data?.map((p) => (
             <ListItem
@@ -127,7 +128,7 @@ export function ConnectionsPage() {
               <span className="truncate">{p.name}</span>
               {p.isDefault && (
                 <span className="shrink-0 rounded bg-violet-100 px-1.5 text-xs text-violet-700 dark:bg-violet-950 dark:text-violet-300">
-                  默认
+                  {t('默认')}
                 </span>
               )}
             </ListItem>
@@ -138,7 +139,7 @@ export function ConnectionsPage() {
         draft ? (
           <>
             <DetailHeader
-              title={original ? draft.name || '未命名连接' : '新建连接'}
+              title={original ? draft.name || t('未命名连接') : t('新建连接')}
               onBack={() => {
                 if (!locked && canLeave()) pick(null)
               }}
@@ -161,7 +162,7 @@ export function ConnectionsPage() {
                     : await api.createConnection(input)
                   pick(saved)
                   await refresh()
-                  toast.info('已保存连接')
+                  toast.info(t('已保存连接'))
                 })
               }}
             >
@@ -173,7 +174,7 @@ export function ConnectionsPage() {
                     variant="primary"
                     disabled={locked || !dirty || !draft.name.trim() || !draft.baseUrl.trim() || !draft.model.trim()}
                   >
-                    保存
+                    {t('保存')}
                   </Button>
                   <Button
                     size="sm"
@@ -184,7 +185,7 @@ export function ConnectionsPage() {
                       setModels([])
                     }}
                   >
-                    撤销修改
+                    {t('撤销修改')}
                   </Button>
                   {original && (
                     <div className="ml-auto">
@@ -196,11 +197,11 @@ export function ConnectionsPage() {
                               void run(async () => {
                                 await api.setDefaultConnection(original.id)
                                 await refresh()
-                                toast.info('已设为默认连接')
+                                toast.info(t('已设为默认连接'))
                               })
                             }
                           >
-                            设为默认
+                            {t('设为默认')}
                           </MenuEntry>
                         )}
                         <MenuEntry
@@ -209,7 +210,9 @@ export function ConnectionsPage() {
                           onClick={() => {
                             if (
                               confirm(
-                                `删除连接「${original.name}」？已保存的接口地址、密钥和模型配置及未保存的修改都会被删除。`,
+                                t('删除连接「{name}」？已保存的接口地址、密钥和模型配置及未保存的修改都会被删除。', {
+                                  name: original.name,
+                                }),
                               )
                             )
                               void run(async () => {
@@ -219,21 +222,21 @@ export function ConnectionsPage() {
                               })
                           }}
                         >
-                          删除
+                          {t('删除')}
                         </MenuEntry>
                       </Menu>
                     </div>
                   )}
                 </div>
                 <TextField
-                  label="名称"
-                  hint="为此连接起一个便于辨认的名字，例如服务商和用途。"
+                  label={t('名称')}
+                  hint={t('为此连接起一个便于辨认的名字，例如服务商和用途。')}
                   value={draft.name}
                   onChange={(name) => setDraft({ ...draft, name })}
                 />
                 <TextField
-                  label="接口地址"
-                  hint="OpenAI 兼容接口，一般以 /v1 结尾"
+                  label={t('接口地址')}
+                  hint={t('OpenAI 兼容接口，一般以 /v1 结尾')}
                   type="url"
                   value={draft.baseUrl}
                   onChange={(baseUrl) => {
@@ -245,8 +248,10 @@ export function ConnectionsPage() {
                   label="API Key"
                   hint={
                     original
-                      ? `已保存：${original.apiKeyMasked || '未设置密钥'}；留空则不修改。`
-                      : '填写服务商提供的 API Key；无需密钥的本地接口可以留空。'
+                      ? t('已保存：{maskedKey}；留空则不修改。', {
+                          maskedKey: original.apiKeyMasked || t('未设置密钥'),
+                        })
+                      : t('填写服务商提供的 API Key；无需密钥的本地接口可以留空。')
                   }
                   type="password"
                   value={draft.apiKey}
@@ -256,23 +261,25 @@ export function ConnectionsPage() {
                   }}
                 />
                 <Field
-                  label="模型"
-                  hint="可以从接口拉取全部模型后选择，也可以直接手填任意模型 ID；拉取使用当前表单的地址、密钥和请求头"
+                  label={t('模型')}
+                  hint={t(
+                    '可以从接口拉取全部模型后选择，也可以直接手填任意模型 ID；拉取使用当前表单的地址、密钥和请求头',
+                  )}
                 >
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
                       <Combobox
-                        label="模型"
+                        label={t('模型')}
                         value={draft.model}
                         options={models.map((model) => ({ value: model, label: model }))}
                         disabled={locked}
-                        placeholder="直接输入，或点右侧按钮拉取"
+                        placeholder={t('直接输入，或点右侧按钮拉取')}
                         onChange={(model) => setDraft({ ...draft, model })}
                       />
                     </div>
                     <IconButton
                       variant="outline"
-                      label={testing ? '测试中…' : '测试连接并拉取模型'}
+                      label={testing ? t('测试中…') : t('测试连接并拉取模型')}
                       disabled={locked || !draft.baseUrl.trim()}
                       onClick={() => void test()}
                     >
@@ -281,9 +288,11 @@ export function ConnectionsPage() {
                   </div>
                 </Field>
                 <div className="space-y-1.5">
-                  <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">额外请求头</span>
+                  <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">
+                    {t('额外请求头')}
+                  </span>
                   <p className="text-xs leading-relaxed text-zinc-500">
-                    发往这个连接的每个请求都会带上（聊天、拉取模型、图片生成复用连接时），例如反向代理鉴权
+                    {t('发往这个连接的每个请求都会带上（聊天、拉取模型、图片生成复用连接时），例如反向代理鉴权')}
                   </p>
                   <HeadersEditor
                     key={original?.id ?? 'new'}

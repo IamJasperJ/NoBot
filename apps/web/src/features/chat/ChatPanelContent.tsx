@@ -1,4 +1,5 @@
 import { type PointerEvent, useRef } from 'react'
+import { t } from '../../i18n'
 import { SIDEBAR_MAX, SIDEBAR_MIN, useAppearance } from '../../stores/appearance'
 import { useUi } from '../../stores/ui'
 import { Sidebar } from '../characters/Sidebar'
@@ -35,8 +36,8 @@ export function ResizeHandle() {
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="拖动调整侧栏宽度"
-      title="拖动调整宽度，双击恢复默认"
+      aria-label={t('拖动调整侧栏宽度')}
+      title={t('拖动调整宽度，双击恢复默认')}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

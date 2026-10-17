@@ -4,6 +4,7 @@ import { asc, eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { bookmarks, characters } from '../db/schema'
 import { notFound } from '../errors'
+import { t } from '../i18n'
 import { getChatRow, loadMessage, loadPath } from './chats'
 import { resolvePersona } from './context'
 
@@ -27,17 +28,17 @@ function toDTO(row: typeof bookmarks.$inferSelect): BookmarkDTO {
     message.role === 'user'
       ? persona.id
         ? persona.name
-        : (message.meta.name ?? '你')
+        : (message.meta.name ?? t('你'))
       : message.role === 'assistant'
         ? (character?.name ?? message.meta.name ?? '')
         : message.role === 'tool'
           ? (message.meta.toolName ?? '')
-          : '系统'
+          : t('系统')
   const chars = Array.from(plainText(message))
   const text = chars.length
     ? chars.slice(0, 60).join('') + (chars.length > 60 ? '…' : '')
     : message.meta.images?.length || message.meta.imageGen
-      ? '（图片）'
+      ? t('（图片）')
       : ''
   return {
     ...row,
@@ -60,12 +61,12 @@ export function listBookmarks(chatId: string): BookmarkDTO[] {
 export function createBookmark(chatId: string, input: CreateBookmarkInput): BookmarkDTO {
   getChatRow(chatId)
   const message = loadMessage(input.messageId)
-  if (message.chatId !== chatId) throw notFound('消息')
+  if (message.chatId !== chatId) throw notFound(t('消息'))
   const content = plainText(message)
   const name =
     input.name?.trim() ||
     Array.from(content).slice(0, 20).join('') ||
-    `书签 ${db.select().from(bookmarks).where(eq(bookmarks.chatId, chatId)).all().length + 1}`
+    t('书签 {n}', { n: db.select().from(bookmarks).where(eq(bookmarks.chatId, chatId)).all().length + 1 })
   const row = { id: newId(), chatId, messageId: message.id, name, createdAt: Date.now() }
   db.insert(bookmarks).values(row).run()
   return toDTO(row)
@@ -73,7 +74,7 @@ export function createBookmark(chatId: string, input: CreateBookmarkInput): Book
 
 function requireBookmark(id: string) {
   const row = db.select().from(bookmarks).where(eq(bookmarks.id, id)).get()
-  if (!row) throw notFound('书签')
+  if (!row) throw notFound(t('书签'))
   return row
 }
 

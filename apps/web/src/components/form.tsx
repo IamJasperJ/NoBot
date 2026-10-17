@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext, useId, useState } from 'react'
+import { t } from '../i18n'
 import { ChevronRightIcon, InfoIcon } from './icons'
 import { controlClass, cx, inputClass, selectClass } from './ui'
 
@@ -47,7 +48,7 @@ export function HintButton({ hint, open, onToggle }: { hint: string; open: boole
     <button
       type="button"
       title={hint}
-      aria-label="说明"
+      aria-label={t('说明')}
       aria-expanded={open}
       onClick={onToggle}
       className={cx(
@@ -89,7 +90,12 @@ export function DenseRow({
   const [open, setOpen] = useState(false)
   const title = (
     <span className={cx('flex min-w-0 items-center gap-0.5', !stack && denseLabelClass, labelClassName)}>
-      <label htmlFor={id} title={label} className="min-w-0 truncate text-[13px] text-zinc-700 dark:text-zinc-300">
+      {/* 最多两行：英文标签普遍比中文长，单行截断会看不全；两行仍放得进 36px 的行高 */}
+      <label
+        htmlFor={id}
+        title={label}
+        className="line-clamp-2 min-w-0 text-[13px] leading-tight break-words text-zinc-700 dark:text-zinc-300"
+      >
         {label}
       </label>
       {notImplemented && <NotImplementedDot />}
@@ -118,7 +124,7 @@ export function DenseRow({
 export function NotImplemented() {
   return (
     <span className="ml-1.5 shrink-0 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-      未实现
+      {t('未实现')}
     </span>
   )
 }
@@ -128,8 +134,8 @@ export function NotImplementedDot() {
   return (
     <span
       role="img"
-      aria-label="未实现"
-      title="未实现：可以先设置，以后生效"
+      aria-label={t('未实现')}
+      title={t('未实现：可以先设置，以后生效')}
       className="ml-1 inline-block size-1.5 shrink-0 rounded-full bg-amber-500"
     />
   )
@@ -436,7 +442,7 @@ export function NumberField({
             max={max}
             step={step}
             disabled={disabled}
-            aria-label={`${label}滑块`}
+            aria-label={t('{label}滑块', { label })}
             onChange={(e) => onChange(Number(e.target.value))}
           />
         )}
@@ -485,7 +491,7 @@ export function NumberField({
         max={max}
         step={step}
         disabled={disabled}
-        aria-label={`${label}滑块`}
+        aria-label={t('{label}滑块', { label })}
         onChange={(e) => onChange(Number(e.target.value))}
       />
       <Hint hint={hint} />
@@ -520,7 +526,7 @@ export function CheckGroupField<T extends string>({
             key={o.value}
             type="button"
             aria-pressed={on}
-            title={o.notImplemented ? `${o.label}（未实现，可以先勾选，以后生效）` : o.label}
+            title={o.notImplemented ? t('{label}（未实现，可以先勾选，以后生效）', { label: o.label }) : o.label}
             onClick={() => onChange(on ? value.filter((v) => v !== o.value) : [...value, o.value])}
             className={cx(
               'inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[13px] transition-colors disabled:opacity-50',
@@ -531,7 +537,7 @@ export function CheckGroupField<T extends string>({
           >
             {on && <span aria-hidden="true" className="size-1.5 rounded-full bg-violet-500" />}
             {o.label}
-            {o.notImplemented && <span className="text-[10px] text-amber-600 dark:text-amber-400">未实现</span>}
+            {o.notImplemented && <span className="text-[10px] text-amber-600 dark:text-amber-400">{t('未实现')}</span>}
           </button>
         )
       })}
@@ -565,7 +571,7 @@ export function ListField({
   return (
     <TextAreaField
       label={label}
-      {...(hint ? { hint: `${hint}（一行一个）` } : { hint: '一行一个' })}
+      {...(hint ? { hint: t('{hint}（一行一个）', { hint }) } : { hint: t('一行一个') })}
       {...(notImplemented ? { notImplemented } : {})}
       {...(disabled ? { disabled } : {})}
       {...(placeholder ? { placeholder } : {})}

@@ -118,18 +118,24 @@ export const utilityPromptsSchema = z.object({
   scenarioFormat: z.string().default('{{scenario}}'),
   personalityFormat: z.string().default('{{personality}}'),
   /** 群聊时放在最后，要求指定角色回复。留空则不发送 */
-  groupNudge: z.string().default('[接下来只以{{char}}的身份写一条回复。]'),
+  groupNudge: z
+    .string()
+    .default('[Write the next reply only as {{char}}. Write in the same language as the conversation.]'),
   /** 放在聊天记录之前，标记背景信息结束、对话开始。留空则不发送 */
-  newChat: z.string().default('[开始新的对话]'),
-  newGroupChat: z.string().default('[开始新的群聊。成员：{{group}}]'),
-  newExampleChat: z.string().default('[示例对话]'),
+  newChat: z.string().default('[Start a new conversation]'),
+  newGroupChat: z.string().default('[Start a new group conversation. Members: {{group}}]'),
+  newExampleChat: z.string().default('[Example conversation]'),
   /** 续写时放在最后的提示 */
-  continueNudge: z.string().default('[接着写下面这条消息，不要重复原文，直接从断开的地方继续：{{lastChatMessage}}]'),
+  continueNudge: z
+    .string()
+    .default(
+      '[Continue the following message from where it stopped without repeating it: {{lastChatMessage}}. Write in the same language as the conversation.]',
+    ),
   /** 代写时的提示 */
   impersonation: z
     .string()
     .default(
-      '[以{{user}}的视角写下{{user}}的下一条回复，参考聊天记录里{{user}}的写作风格。不要以{{char}}或系统的身份写，不要描写{{char}}的行动。]',
+      '[Write the next reply as {{user}}, from their perspective and in their writing style from the chat history. Do not write as {{char}} or the system, or describe actions by {{char}}. Write in the same language as the conversation.]',
     ),
   /** 输入框为空时直接发送，用这段文字代替空消息。留空则发送空消息 */
   sendIfEmpty: z.string().default(''),
@@ -179,9 +185,10 @@ export const behaviorSchema = z.object({
 })
 export type PresetBehavior = z.infer<typeof behaviorSchema>
 
+/** 默认主提示词（发给模型的提示词一律英文，见 AGENTS.md 语言规则） */
 export const DEFAULT_MAIN_PROMPT =
-  '你正在和{{user}}进行一场沉浸式角色扮演。你扮演{{char}}，只描写{{char}}的言行与内心，' +
-  '不要替{{user}}说话或做决定。保持人设一致，回复生动具体，推动情节发展。'
+  'You are in an immersive roleplay with {{user}}. Play {{char}}, describing only their words, actions, and thoughts. ' +
+  'Do not speak or make decisions for {{user}}. Stay in character, write vivid and concrete replies, and advance the story. Write in the same language as the conversation.'
 
 /** 新建预设时的默认 Prompt 顺序，和酒馆默认预设一致 */
 export function defaultPromptBlocks(): PromptBlock[] {

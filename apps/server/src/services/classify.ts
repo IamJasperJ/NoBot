@@ -3,6 +3,7 @@ import { EXPRESSIONS } from '@ai-parter/shared'
 import { eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { characters, messages, sprites } from '../db/schema'
+import { t } from '../i18n'
 import { buildRequestBody, chatCompletion } from '../llm/openai'
 import { getChatRow, loadPath } from './chats'
 import { getApiPresetRow, resolveApiPreset } from './connections'
@@ -96,9 +97,9 @@ export function classifyMessage(messageId: string): void {
           answer += chunk.text ?? ''
       }
       expression = extractExpressionLabel(answer, labels)
-      if (!expression) throw new Error('模型没有返回有效的表情标签')
+      if (!expression) throw new Error(t('模型没有返回有效的表情标签'))
     } catch (error) {
-      failure = error instanceof Error ? error.message : '情绪判断失败'
+      failure = error instanceof Error ? error.message : t('情绪判断失败')
     }
     insertLog({
       chatId: message.chatId,
@@ -107,7 +108,7 @@ export function classifyMessage(messageId: string): void {
       status: failure ? 'error' : 'ok',
       model,
       durationMs: Date.now() - started,
-      summary: `情绪判断：${failure ?? expression}`,
+      summary: t('情绪判断：{result}', { result: failure ?? expression ?? '' }),
       request,
       response: { answer, error: failure },
     })
@@ -128,5 +129,5 @@ export function classifyMessage(messageId: string): void {
       .where(eq(messages.id, messageId))
       .run()
   }
-  void run().catch((error) => logError('情绪判断后台任务', error))
+  void run().catch((error) => logError(t('情绪判断后台任务'), error))
 }

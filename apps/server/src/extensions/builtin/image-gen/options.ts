@@ -1,3 +1,4 @@
+import { t } from '../../../i18n'
 export interface Option {
   value: string
   label: string
@@ -11,7 +12,7 @@ export function isImageModel(name: string): boolean {
 export function imageModelOptions(names: string[]): Option[] {
   return [...new Set(names)]
     .sort((a, b) => Number(isImageModel(b)) - Number(isImageModel(a)) || a.localeCompare(b))
-    .map((value) => ({ value, label: value + (isImageModel(value) ? '（图片）' : '') }))
+    .map((value) => ({ value, label: value + (isImageModel(value) ? t('（图片）') : '') }))
 }
 const presets: [number, number, string][] = [
   [512, 512, '1:1，图标/头像'],

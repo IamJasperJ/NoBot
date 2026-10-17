@@ -1,14 +1,12 @@
 import {
   BUILTIN_PROMPTS,
   behaviorSchema,
-  defaultPromptBlocks,
   generationTypeSchema,
   type PresetData,
-  presetDataSchema,
   promptBlockSchema,
   samplerSchema,
-  utilityPromptsSchema,
 } from '@ai-parter/shared'
+import { DEFAULT_UTILITY_PROMPTS_EN, parsePresetWithEnglishDefaults } from '../prompt/defaults'
 import { object, readMap, requireObject, sanitize, strings, writeMap } from './utils'
 
 const samplerMap = {
@@ -91,7 +89,7 @@ function importPrompts(json: Record<string, unknown>): PresetData['prompts'] | u
     const builtin = Object.hasOwn(builtinMap, identifier) ? builtinMap[identifier] : undefined
     const source = prompts.get(identifier)
     if (!source && !builtin) return
-    const fallback = defaultPromptBlocks().find((p) => p.id === builtin)
+    const fallback = parsePresetWithEnglishDefaults({}).prompts.find((p) => p.id === builtin)
     if (!source && fallback) {
       result.push(
         sanitize(promptBlockSchema, {
@@ -125,7 +123,7 @@ function importPrompts(json: Record<string, unknown>): PresetData['prompts'] | u
 export function importSTPreset(json: unknown): PresetData {
   const input = requireObject(json)
   const extension = object(input.ai_parter)
-  return presetDataSchema.parse({
+  return parsePresetWithEnglishDefaults({
     samplers: sanitize(samplerSchema, {
       ...object(extension.samplers),
       ...readMap(input, samplerMap),
@@ -137,7 +135,12 @@ export function importSTPreset(json: unknown): PresetData {
       namesBehavior: typeof input.names_behavior === 'number' ? lookup(names, input.names_behavior) : undefined,
       postProcessing: lookup(processing, input.custom_prompt_post_processing),
     }),
-    utility: sanitize(utilityPromptsSchema, readMap(input, utilityMap)),
+    utility: {
+      ...DEFAULT_UTILITY_PROMPTS_EN,
+      ...Object.fromEntries(
+        Object.entries(readMap(input, utilityMap)).filter(([, value]) => typeof value === 'string'),
+      ),
+    },
     prompts: importPrompts(input),
   })
 }

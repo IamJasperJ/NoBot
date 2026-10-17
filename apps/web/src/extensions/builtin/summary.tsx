@@ -5,6 +5,7 @@ import { api as http } from '../../api/client'
 import { Toggle } from '../../components/form'
 import { BookIcon, ChevronRightIcon, EditIcon, RefreshIcon, TrashIcon } from '../../components/icons'
 import { Button, cx, IconButton, inputClass } from '../../components/ui'
+import { getLanguage, t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import type { ClientExtensionAPI } from '../types'
@@ -18,7 +19,9 @@ import type { ClientExtensionAPI } from '../types'
 export default function activate(ext: ClientExtensionAPI) {
   ext.registerSlot('chat.settings.sections', {
     id: 'memory',
-    title: '记忆（剧情总结）',
+    get title() {
+      return t('记忆（剧情总结）')
+    },
     order: 50,
     render: ({ chatId }) => <MemorySection key={chatId} chatId={chatId} ext={ext} />,
   })
@@ -41,11 +44,11 @@ function SummaryMark() {
     <button
       type="button"
       onClick={open}
-      title="剧情总结到这条消息为止，点击在会话设置里查看"
+      title={t('剧情总结到这条消息为止，点击在会话设置里查看')}
       className="mt-2 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-900/60"
     >
       <BookIcon className="size-3" />
-      剧情总结到这里
+      {t('剧情总结到这里')}
     </button>
   )
 }
@@ -83,7 +86,7 @@ function MemorySection({ chatId, ext }: { chatId: string; ext: ClientExtensionAP
       qc.setQueryData(stateKey(chatId), next)
       void qc.invalidateQueries({ queryKey: ['chat', chatId] })
       // 总结失败时后端不报错，而是记在 lastError 里（自动总结也是这样），这里按它提示
-      if (next.lastError) toast.error(`总结失败：${next.lastError}`)
+      if (next.lastError) toast.error(t('总结失败：{error}', { error: next.lastError }))
       else if (done) toast.info(done)
     } catch (e) {
       toast.error(errorMessage(e))
@@ -94,44 +97,49 @@ function MemorySection({ chatId, ext }: { chatId: string; ext: ClientExtensionAP
 
   if (state.isError) return <p className="text-xs text-red-600">{errorMessage(state.error)}</p>
   const s = state.data
-  if (!s) return <p className="text-xs text-zinc-400">加载中…</p>
+  if (!s) return <p className="text-xs text-zinc-400">{t('加载中…')}</p>
 
   return (
     <div className="space-y-3 text-[13px]">
       {/* 状态行 */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-zinc-500">
-          待总结 <b className="tabular-nums">{s.pending.messages}</b> 条 · 约{' '}
-          <span className="tabular-nums">{s.pending.tokens}</span> token
+          {t('待总结：')}
+          <b className="tabular-nums">{s.pending.messages}</b>
+          {t(' 条消息 · 约 ')}
+          <span className="tabular-nums">{s.pending.tokens}</span>
+          {t(' token')}
         </span>
         {s.running && (
           <span className="inline-flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400">
             <span className="size-3 animate-spin rounded-full border-2 border-violet-300 border-t-violet-600" />
-            正在总结…
+            {t('正在总结…')}
           </span>
         )}
         <Button
           size="sm"
           className="ml-auto"
           disabled={busy || s.running || !s.pending.messages}
-          onClick={() => void act(() => http.runSummary(chatId), '已更新剧情总结')}
+          onClick={() => void act(() => http.runSummary(chatId), t('已更新剧情总结'))}
         >
           <RefreshIcon />
-          立即总结
+          {t('立即总结')}
         </Button>
       </div>
+      {/* biome-ignore lint/a11y/noLabelWithoutControl: Toggle 内部提供表单控件，外层标签沿用原有点击范围 */}
       <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
         <Toggle
           checked={!s.frozen}
-          label="这个会话自动总结"
+          label={t('这个会话自动总结')}
           disabled={busy}
           onChange={(on) => void act(() => http.freezeSummary(chatId, !on))}
         />
-        这个会话自动总结{s.frozen && <span className="text-zinc-400">（已暂停）</span>}
+        {t('这个会话自动总结')}
+        {s.frozen && <span className="text-zinc-400">{t('（已暂停）')}</span>}
       </label>
       {s.lastError && (
         <p className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs break-words text-red-700 dark:bg-red-950/50 dark:text-red-300">
-          上次总结失败：{s.lastError}
+          {t('上次总结失败：{error}', { error: s.lastError })}
         </p>
       )}
 
@@ -139,21 +147,23 @@ function MemorySection({ chatId, ext }: { chatId: string; ext: ClientExtensionAP
         <SummaryCard
           entry={s.current}
           busy={busy}
-          onSave={(text) => act(() => http.editSummary(chatId, s.current!.messageId, text), '已保存总结')}
+          onSave={(text) => act(() => http.editSummary(chatId, s.current!.messageId, text), t('已保存总结'))}
           onDelete={() => {
-            if (confirm('删除这份总结？之前更早的总结会重新生效。'))
+            if (confirm(t('删除这份总结？之前更早的总结会重新生效。')))
               void act(() => http.deleteSummary(chatId, s.current!.messageId))
           }}
         />
       ) : (
-        <p className="text-xs text-zinc-400">当前分支还没有总结。聊到设定的条数会自动总结，也可以点「立即总结」。</p>
+        <p className="text-xs text-zinc-400">
+          {t('当前分支还没有总结。聊到设定的条数会自动总结，也可以点「立即总结」。')}
+        </p>
       )}
 
       {s.history.length > 0 && (
         <details className="group/history">
           <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-zinc-500 select-none [&::-webkit-details-marker]:hidden">
             <ChevronRightIcon className="size-3.5 transition-transform group-open/history:rotate-90" />
-            更早的总结（{s.history.length}）
+            {t('更早的总结（{count}）', { count: s.history.length })}
           </summary>
           <div className="mt-2 space-y-2">
             {s.history.map((entry) => (
@@ -162,9 +172,9 @@ function MemorySection({ chatId, ext }: { chatId: string; ext: ClientExtensionAP
                 entry={entry}
                 busy={busy}
                 muted
-                onSave={(text) => act(() => http.editSummary(chatId, entry.messageId, text), '已保存总结')}
+                onSave={(text) => act(() => http.editSummary(chatId, entry.messageId, text), t('已保存总结'))}
                 onDelete={() => {
-                  if (confirm('删除这份旧总结？')) void act(() => http.deleteSummary(chatId, entry.messageId))
+                  if (confirm(t('删除这份旧总结？'))) void act(() => http.deleteSummary(chatId, entry.messageId))
                 }}
               />
             ))}
@@ -189,7 +199,7 @@ function SummaryCard({
   onDelete: () => void
 }) {
   const [draft, setDraft] = useState<string | null>(null)
-  const time = new Date(entry.createdAt).toLocaleString('zh-CN', {
+  const time = new Date(entry.createdAt).toLocaleString(getLanguage() === 'en' ? 'en-US' : 'zh-CN', {
     month: 'numeric',
     day: 'numeric',
     hour: '2-digit',
@@ -206,20 +216,24 @@ function SummaryCard({
     >
       <div className="mb-1.5 flex items-center gap-1 text-[11px] text-zinc-500">
         <span className="min-w-0 flex-1 truncate" title={entry.preview}>
-          总结到：{entry.preview || '（空消息）'}
+          {t('总结到：{preview}', { preview: entry.preview || t('（空消息）') })}
         </span>
         <span className="shrink-0 tabular-nums">
-          {time} · {entry.auto ? '自动' : '手动'} · {entry.coveredCount} 条
+          {t('{time} · {source} · {count} 条', {
+            time: time,
+            source: entry.auto ? t('自动') : t('手动'),
+            count: entry.coveredCount,
+          })}
         </span>
       </div>
       {draft === null ? (
         <div className="group/card relative">
           <p className="leading-relaxed whitespace-pre-wrap">{entry.text}</p>
           <div className="mt-1 flex justify-end gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/card:opacity-100 md:focus-within:opacity-100">
-            <IconButton label="编辑总结" disabled={busy} onClick={() => setDraft(entry.text)}>
+            <IconButton label={t('编辑总结')} disabled={busy} onClick={() => setDraft(entry.text)}>
               <EditIcon />
             </IconButton>
-            <IconButton label="删除总结" variant="danger" disabled={busy} onClick={onDelete}>
+            <IconButton label={t('删除总结')} variant="danger" disabled={busy} onClick={onDelete}>
               <TrashIcon />
             </IconButton>
           </div>
@@ -227,7 +241,7 @@ function SummaryCard({
       ) : (
         <div className="space-y-2">
           <textarea
-            aria-label="编辑总结"
+            aria-label={t('编辑总结')}
             className={cx(inputClass, 'min-h-32 text-[13px]')}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -239,10 +253,10 @@ function SummaryCard({
               disabled={busy || !draft.trim()}
               onClick={() => void onSave(draft).then(() => setDraft(null))}
             >
-              保存
+              {t('保存')}
             </Button>
             <Button size="sm" onClick={() => setDraft(null)}>
-              取消
+              {t('取消')}
             </Button>
           </div>
         </div>

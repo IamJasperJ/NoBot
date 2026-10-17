@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { t } from '../i18n'
 import { denseControlClass, useDense } from './form'
 import { ChevronDownIcon } from './icons'
 import { controlClass, cx } from './ui'
@@ -100,7 +101,7 @@ export function Combobox({
       <button
         type="button"
         tabIndex={-1}
-        aria-label={`展开${label}候选`}
+        aria-label={t('展开{label}候选', { label })}
         disabled={disabled}
         className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
         onClick={() => {

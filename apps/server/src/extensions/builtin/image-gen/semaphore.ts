@@ -1,3 +1,4 @@
+import { t } from '../../../i18n'
 /** 图片接口共用先进先出队列；取消只移除本任务，不中断其他任务。 */
 export class Semaphore {
   private running = 0
@@ -24,7 +25,7 @@ export class Semaphore {
         },
         abort: () => {
           this.queue = this.queue.filter((item) => item !== entry)
-          reject(new Error('已取消'))
+          reject(new Error(t('已取消')))
           this.drain()
         },
         position,

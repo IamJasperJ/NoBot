@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import { paths } from '../env'
 import { HttpError } from '../errors'
+import { t } from '../i18n'
 
 /**
  * 头像文件的保存与读取。角色和人设共用：
@@ -29,7 +30,7 @@ export async function saveAvatar(id: string, bytes: Uint8Array): Promise<string>
       .webp({ quality: 82 })
       .toFile(join(paths.avatars, thumbFile(file)))
   } catch {
-    throw new HttpError(400, 'BAD_IMAGE', '无法识别的图片文件')
+    throw new HttpError(400, 'BAD_IMAGE', t('无法识别的图片文件'))
   }
   return file
 }
@@ -45,7 +46,8 @@ export const readAvatar = (avatarFile: string) => Bun.file(join(paths.avatars, a
 /** 从 multipart 表单里取出上传的文件，限制大小 */
 export async function readUpload(body: Record<string, unknown>, field = 'file', maxMB = 20): Promise<Uint8Array> {
   const file = body[field]
-  if (!(file instanceof File)) throw new HttpError(400, 'BAD_REQUEST', '请上传文件')
-  if (file.size > maxMB * 1024 * 1024) throw new HttpError(400, 'TOO_LARGE', `文件太大（上限 ${maxMB}MB）`)
+  if (!(file instanceof File)) throw new HttpError(400, 'BAD_REQUEST', t('请上传文件'))
+  if (file.size > maxMB * 1024 * 1024)
+    throw new HttpError(400, 'TOO_LARGE', t('文件太大（上限 {limit}MB）', { limit: maxMB }))
   return new Uint8Array(await file.arrayBuffer())
 }

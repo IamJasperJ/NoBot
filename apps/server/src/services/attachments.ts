@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { ulid } from 'ulid'
 import { paths } from '../env'
 import { HttpError } from '../errors'
+import { t } from '../i18n'
 
 const validId = (id: string) => /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(id)
 const imagePath = (id: string) => join(paths.attachments, `${id}.webp`)
@@ -16,7 +17,7 @@ export async function saveAttachment(bytes: Uint8Array): Promise<AttachmentDTO> 
   let height: number
   try {
     const metadata = await sharp(bytes).metadata()
-    if (!metadata.width || !metadata.height) throw new Error('图片格式不支持')
+    if (!metadata.width || !metadata.height) throw new Error(t('图片格式不支持'))
     width = metadata.width
     height = metadata.height
     buffer = await sharp(bytes)
@@ -25,7 +26,7 @@ export async function saveAttachment(bytes: Uint8Array): Promise<AttachmentDTO> 
       .webp()
       .toBuffer()
   } catch {
-    throw new HttpError(400, 'BAD_IMAGE', '无法识别的图片文件')
+    throw new HttpError(400, 'BAD_IMAGE', t('无法识别的图片文件'))
   }
   const id = ulid()
   const attachment = { id, url: `/api/assets/attachments/${id}.webp`, width, height }
@@ -36,9 +37,9 @@ export async function saveAttachment(bytes: Uint8Array): Promise<AttachmentDTO> 
 
 /** 生成入口同步检查全部附件，校验失败时不得插入用户消息。 */
 export function getAttachment(id: string): AttachmentDTO {
-  if (!validId(id)) throw new HttpError(400, 'BAD_ATTACHMENT', '图片附件不存在')
+  if (!validId(id)) throw new HttpError(400, 'BAD_ATTACHMENT', t('图片附件不存在'))
   try {
-    if (!statSync(imagePath(id)).isFile()) throw new Error('图片文件缺失')
+    if (!statSync(imagePath(id)).isFile()) throw new Error(t('图片文件缺失'))
     const data: unknown = JSON.parse(readFileSync(join(paths.attachments, `${id}.json`), 'utf8'))
     if (
       !data ||
@@ -48,10 +49,10 @@ export function getAttachment(id: string): AttachmentDTO {
       typeof data.width !== 'number' ||
       typeof data.height !== 'number'
     )
-      throw new Error('图片尺寸缺失')
+      throw new Error(t('图片尺寸缺失'))
     return { id, url: `/api/assets/attachments/${id}.webp`, width: data.width, height: data.height }
   } catch {
-    throw new HttpError(400, 'BAD_ATTACHMENT', '图片附件不存在')
+    throw new HttpError(400, 'BAD_ATTACHMENT', t('图片附件不存在'))
   }
 }
 
@@ -81,7 +82,7 @@ export async function resolveImages(messages: ChatMessage[], maxSize: number): P
 
 /** 日志保留多模态结构和附件标识，不保存体积庞大的 base64。 */
 export function redactImages(body: Record<string, unknown>, images: Map<string, string>): Record<string, unknown> {
-  const ids = new Map([...images].map(([id, url]) => [url, `[图片 ${id}]`]))
+  const ids = new Map([...images].map(([id, url]) => [url, t('[图片 {id}]', { id })]))
   return JSON.parse(
     JSON.stringify(body, (_key, value: unknown) => (typeof value === 'string' ? (ids.get(value) ?? value) : value)),
   ) as Record<string, unknown>

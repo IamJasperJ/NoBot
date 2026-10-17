@@ -357,22 +357,22 @@ export type CardVn = z.infer<typeof cardVnSchema>
  * 某个清单没启用或为空时，占位符替换成空串，所在行会被整行去掉。
  */
 export const DEFAULT_DIRECTIVE_TEMPLATES: Record<'shorthand' | 'xml', string> = {
-  shorthand: `[舞台指令]
-这是一个视觉小说式的对话，界面会根据你写的舞台指令显示立绘、切换场景。请在正文中按下面的格式书写，指令会对读者隐藏：
+  shorthand: `[Stage directives]
+This is a visual novel conversation. Stage directives in your response control character sprites and scenes and are hidden from the reader. Use the following formats in the body:
 {{vn_kinds}}
-可登场的角色：{{vn_cast}}
-可用的表情：{{vn_expressions}}
-可用的背景：{{vn_backgrounds}}
+Available characters: {{vn_cast}}
+Available expressions: {{vn_expressions}}
+Available backgrounds: {{vn_backgrounds}}
 {{vn_state}}
-不要解释这些指令，也不要写成代码块。`,
-  xml: `[舞台指令]
-这是一个视觉小说式的对话，界面会根据你写的舞台指令显示立绘、切换场景。请全部使用下面的 XML 标签书写，指令会对读者隐藏：
+Do not explain directives or put them in code blocks. Write in the same language as the conversation, including dialogue and narration.`,
+  xml: `[Stage directives]
+This is a visual novel conversation. Stage directives in your response control character sprites and scenes and are hidden from the reader. Use the following XML tags:
 {{vn_kinds}}
-可登场的角色：{{vn_cast}}
-可用的表情：{{vn_expressions}}
-可用的背景：{{vn_backgrounds}}
+Available characters: {{vn_cast}}
+Available expressions: {{vn_expressions}}
+Available backgrounds: {{vn_backgrounds}}
 {{vn_state}}
-不要解释这些标签，也不要写成代码块。`,
+Do not explain tags or put them in code blocks. Write in the same language as the conversation, including dialogue and narration.`,
 }
 
 /** 每种指令在两种风格下的写法说明，renderDirectiveInstructions 按启用的种类拼进 {{vn_kinds}} */

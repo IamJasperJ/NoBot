@@ -9,18 +9,19 @@ import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { lorebooks, type PersonaRow, personas } from '../db/schema'
 import { HttpError, notFound } from '../errors'
+import { t } from '../i18n'
 import { avatarUrl, deleteAvatar, saveAvatar } from '../lib/files'
 import { SETTING_KEYS } from './settings'
 
 function getRow(id: string): PersonaRow {
   const row = db.select().from(personas).where(eq(personas.id, id)).get()
-  if (!row) throw notFound('人设')
+  if (!row) throw notFound(t('人设'))
   return row
 }
 function toDTO(row: PersonaRow): PersonaDTO {
   return {
     id: row.id,
-    name: row.name,
+    name: row.id === getSetting<string>(SETTING_KEYS.builtinPersonaId) && row.name === '旅人' ? t('旅人') : row.name,
     description: row.description,
     lorebookId: row.lorebookId,
     avatarUrl: avatarUrl(row.avatarFile, row.updatedAt),
@@ -29,7 +30,7 @@ function toDTO(row: PersonaRow): PersonaDTO {
 }
 function checkBook(id: string | null | undefined) {
   if (id !== null && id !== undefined && !db.select().from(lorebooks).where(eq(lorebooks.id, id)).get())
-    throw notFound('世界书')
+    throw notFound(t('世界书'))
 }
 export function listPersonas(): PersonaDTO[] {
   return db.select().from(personas).orderBy(asc(personas.createdAt), asc(personas.id)).all().map(toDTO)
@@ -39,7 +40,7 @@ export function resolvePersona(id: string | null): PersonaRow {
   return (
     (target ? db.select().from(personas).where(eq(personas.id, target)).get() : undefined) ?? {
       id: '',
-      name: '旅人',
+      name: t('旅人'),
       description: '',
       avatarFile: null,
       lorebookId: null,
@@ -79,7 +80,7 @@ export async function deletePersona(id: string) {
   const row = getRow(id)
   db.transaction(() => {
     const remaining = listPersonas().filter((row) => row.id !== id)
-    if (!remaining.length) throw new HttpError(400, 'LAST_PERSONA', '不能删除最后一个人设')
+    if (!remaining.length) throw new HttpError(400, 'LAST_PERSONA', t('不能删除最后一个人设'))
     db.delete(personas).where(eq(personas.id, id)).run()
     if (getSetting(SETTING_KEYS.defaultPersonaId) === id) setSetting(SETTING_KEYS.defaultPersonaId, remaining[0]!.id)
   })

@@ -4,6 +4,7 @@ import { serveStatic } from 'hono/bun'
 import { app as api } from './app'
 import { bootstrap } from './bootstrap'
 import { env } from './env'
+import { t } from './i18n'
 
 await bootstrap()
 
@@ -16,7 +17,15 @@ if (env.isProd) server.use('/*', serveStatic({ root: env.webDist }))
 server.notFound((c) => {
   // 接口路径不存在：返回和其他错误一样的 JSON
   if (c.req.path.startsWith('/api/')) {
-    return c.json({ error: { code: 'NOT_FOUND', message: `接口不存在：${c.req.method} ${c.req.path}` } }, 404)
+    return c.json(
+      {
+        error: {
+          code: 'NOT_FOUND',
+          message: t('接口不存在：{method} {path}', { method: c.req.method, path: c.req.path }),
+        },
+      },
+      404,
+    )
   }
   // 其他路径交给前端处理，统一返回 index.html
   if (env.isProd) return c.html(Bun.file(join(env.webDist, 'index.html')).text())

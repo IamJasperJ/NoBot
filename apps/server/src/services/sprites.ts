@@ -8,11 +8,12 @@ import { db, newId } from '../db/client'
 import { characters, sprites } from '../db/schema'
 import { paths } from '../env'
 import { HttpError, notFound } from '../errors'
+import { t } from '../i18n'
 import { readZip } from '../lib/zip'
 
 type SpriteRow = typeof sprites.$inferSelect
 export function requireCharacter(id: string) {
-  if (!db.select({ id: characters.id }).from(characters).where(eq(characters.id, id)).get()) throw notFound('角色')
+  if (!db.select({ id: characters.id }).from(characters).where(eq(characters.id, id)).get()) throw notFound(t('角色'))
 }
 function dto(row: SpriteRow): SpriteDTO {
   const base = `/api/assets/sprites/${row.characterId}/${row.id}`
@@ -41,16 +42,16 @@ export function listSprites(characterId: string): SpriteDTO[] {
 export async function saveSprite(characterId: string, bytes: Uint8Array, outfit: string, expression: string) {
   requireCharacter(characterId)
   const names = updateSpriteInput.parse({ outfit, expression })
-  if (bytes.length > 20 * 1024 * 1024) throw new HttpError(400, 'TOO_LARGE', '单张立绘不能超过 20 MB')
+  if (bytes.length > 20 * 1024 * 1024) throw new HttpError(400, 'TOO_LARGE', t('单张立绘不能超过 20 MB'))
   let metadata: Metadata
   let thumbnail: Buffer
   try {
     metadata = await sharp(bytes).metadata()
     if (!['png', 'webp', 'gif', 'jpeg'].includes(metadata.format ?? '') || !metadata.width || !metadata.height)
-      throw new Error('不是支持的图片')
+      throw new Error(t('不是支持的图片'))
     thumbnail = await sharp(bytes).resize({ height: 256 }).webp().toBuffer()
   } catch {
-    throw new HttpError(400, 'BAD_IMAGE', '不是图片或不支持的图片格式')
+    throw new HttpError(400, 'BAD_IMAGE', t('不是图片或不支持的图片格式'))
   }
   const row: SpriteRow = {
     id: newId(),
@@ -93,12 +94,12 @@ export async function importSprites(
   for (const entry of entries) {
     const name = spriteNameFromPath(overrides ? entry.path.split(/[\\/]/).at(-1)! : entry.path)
     if (!overrides && !/\.(png|webp|gif|jpe?g)$/i.test(entry.path)) {
-      result.skipped.push(`${entry.path}：不是图片`)
+      result.skipped.push(t('{path}：不是图片', { path: entry.path }))
       continue
     }
     const expression = overrides?.expression ?? name?.expression
     if (!expression) {
-      result.skipped.push(`${entry.path}：无法从文件名判断表情，请在对应格子里上传`)
+      result.skipped.push(t('{path}：无法从文件名判断表情，请在对应格子里上传', { path: entry.path }))
       continue
     }
     try {
@@ -106,7 +107,9 @@ export async function importSprites(
         await saveSprite(characterId, entry.data, overrides?.outfit ?? (name?.outfit || rootOutfit), expression),
       )
     } catch (error) {
-      result.skipped.push(`${entry.path}：${error instanceof Error ? error.message : '导入失败'}`)
+      result.skipped.push(
+        t('{path}：{error}', { path: entry.path, error: error instanceof Error ? error.message : t('导入失败') }),
+      )
     }
   }
   return result
@@ -120,7 +123,7 @@ function findSprite(characterId: string, id: string) {
     .from(sprites)
     .where(and(eq(sprites.id, id), eq(sprites.characterId, characterId)))
     .get()
-  if (!row) throw notFound('立绘')
+  if (!row) throw notFound(t('立绘'))
   return row
 }
 export function updateSprite(characterId: string, id: string, input: unknown) {

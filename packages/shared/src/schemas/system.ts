@@ -1,3 +1,4 @@
+import { z } from 'zod'
 /**
  * 日志、扩展这类「系统」功能的类型。
  */
@@ -122,3 +123,11 @@ export interface ToolInfo {
   /** 来自哪个扩展，内置工具为 builtin */
   source: string
 }
+
+/** 界面语言（也决定后端返回给用户看的文字、以及没有对话上下文时模型的输出语言） */
+export const languageSchema = z.enum(['zh', 'en'])
+export type Language = z.infer<typeof languageSchema>
+
+/** 应用级的全局设置：GET / PUT /api/app-settings */
+export const appSettingsSchema = z.object({ language: languageSchema })
+export type AppSettings = z.infer<typeof appSettingsSchema>

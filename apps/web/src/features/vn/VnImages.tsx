@@ -2,6 +2,7 @@ import type { MessageDTO } from '@ai-parter/shared'
 import { useEffect, useRef, useState } from 'react'
 import { XIcon } from '../../components/icons'
 import { cx } from '../../components/ui'
+import { t } from '../../i18n'
 import { MessageMedia } from '../chat/MessageItem'
 
 /**
@@ -62,18 +63,18 @@ export function VnImageCard({
   return (
     <div
       role="dialog"
-      aria-label="图片"
+      aria-label={t('图片')}
       className={cx(
         'vn-image-card absolute z-20 max-h-[calc(100%-8rem)] overflow-y-auto rounded-2xl px-3 pt-2 pb-1',
         mobile ? 'inset-x-3 top-14' : 'top-14 right-3 w-[344px]',
       )}
     >
       <div className="flex h-7 items-center gap-2 text-xs">
-        <span className="flex-1 truncate font-medium opacity-70">{message.meta.name || '图片'}</span>
+        <span className="flex-1 truncate font-medium opacity-70">{message.meta.name || t('图片')}</span>
         <button
           type="button"
-          aria-label="收起图片"
-          title="收起图片"
+          aria-label={t('收起图片')}
+          title={t('收起图片')}
           className="flex size-7 items-center justify-center rounded-full opacity-60 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
           onClick={onClose}
         >

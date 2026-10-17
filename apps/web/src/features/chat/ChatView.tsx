@@ -5,6 +5,7 @@ import { flattenPages, keys, useCharacter, useChatPages, usePersonas, usePlayPre
 import { MenuIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
+import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
@@ -56,8 +57,11 @@ export function ChatView({ chatId }: { chatId: string }) {
     if (character.data) speakers[character.data.id] = { name: character.data.name, avatarUrl: character.data.avatarUrl }
     return {
       speakers,
-      fallback: { name: character.data?.name ?? group?.name ?? '角色', avatarUrl: character.data?.avatarUrl ?? null },
-      user: { name: persona?.name ?? '我', avatarUrl: persona?.avatarUrl ?? null },
+      fallback: {
+        name: character.data?.name ?? group?.name ?? t('角色'),
+        avatarUrl: character.data?.avatarUrl ?? null,
+      },
+      user: { name: persona?.name ?? t('我'), avatarUrl: persona?.avatarUrl ?? null },
       // 玩法预设开了舞台指令：消息里的指令要藏起来、台词按速记改写、显示选项
       stage: play?.directives.enabled
         ? {
@@ -92,7 +96,11 @@ export function ChatView({ chatId }: { chatId: string }) {
   // 换会话时退出多选
   useEffect(() => () => useChatOps.getState().stopSelect(), [chatId])
   if (pages.isError) {
-    return <div className="p-8 text-center text-sm text-zinc-500">会话加载失败：{errorMessage(pages.error)}</div>
+    return (
+      <div className="p-8 text-center text-sm text-zinc-500">
+        {t('会话加载失败：{error}', { error: errorMessage(pages.error) })}
+      </div>
+    )
   }
 
   const lastReply = messages.findLast((m) => m.role === 'assistant') ?? null
@@ -106,7 +114,7 @@ export function ChatView({ chatId }: { chatId: string }) {
       )}
       {/* 不再有顶部标题栏：会话设置、Prompt 预览在输入框左边的「+」菜单里。手机上保留一个打开抽屉的悬浮按钮 */}
       <IconButton
-        label="打开侧栏"
+        label={t('打开侧栏')}
         className="chat-float-button fixed top-3 left-3 z-20 size-9 rounded-full border border-zinc-200 bg-white/90 shadow-sm backdrop-blur md:hidden dark:border-zinc-700 dark:bg-zinc-900/90"
         onClick={() => setSidebarOpen(true)}
       >
@@ -118,7 +126,7 @@ export function ChatView({ chatId }: { chatId: string }) {
       ) : (
         <>
           {pages.isPending ? (
-            <div className="flex-1 p-8 text-center text-sm text-zinc-400">加载中…</div>
+            <div className="flex-1 p-8 text-center text-sm text-zinc-400">{t('加载中…')}</div>
           ) : (
             <MessageList
               chatId={chatId}

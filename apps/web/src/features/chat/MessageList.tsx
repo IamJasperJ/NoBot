@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CheckIcon } from '../../components/icons'
 import { cx } from '../../components/ui'
 import { useMobile } from '../../hooks/useMobile'
+import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
 import { useStreaming } from '../../stores/streaming'
 import { toast } from '../../stores/toast'
@@ -107,7 +108,7 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
       loadMore()
       return
     }
-    toast.error('当前分支上找不到这条消息')
+    toast.error(t('当前分支上找不到这条消息'))
     clearJump()
   }, [jump, messages, hasMore, loadingMore])
   useEffect(() => {
@@ -125,7 +126,7 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
   const items = virtualizer.getVirtualItems()
   return (
     <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      {loadingMore && <div className="py-2 text-center text-xs text-zinc-400">加载更早的消息…</div>}
+      {loadingMore && <div className="py-2 text-center text-xs text-zinc-400">{t('加载更早的消息…')}</div>}
       <div className="chat-column relative w-full" style={{ height: virtualizer.getTotalSize() }}>
         <div className="absolute inset-x-0 top-0" style={{ transform: `translateY(${items[0]?.start ?? 0}px)` }}>
           {items.map((item) => {
@@ -144,7 +145,7 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
                 {selecting && (
                   <button
                     type="button"
-                    aria-label={selected.includes(msg.id) ? '取消选中这条' : '选中这条（按住 Shift 选一段）'}
+                    aria-label={selected.includes(msg.id) ? t('取消选中这条') : t('选中这条（按住 Shift 选一段）')}
                     aria-pressed={selected.includes(msg.id)}
                     onClick={(e) => toggle(msg.id, e.shiftKey, order)}
                     className="absolute inset-0 z-10 flex cursor-pointer items-start justify-end p-3 pr-4"

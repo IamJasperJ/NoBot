@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { cx, inputClass } from '../../components/ui'
+import { t } from '../../i18n'
 
 interface ImagePromptPreview {
   prompt: string
@@ -25,7 +26,7 @@ const secondaryButton =
 export function ImagePromptDialog({
   review,
   react = React,
-  title = '生成前编辑提示词',
+  title = t('生成前编辑提示词'),
 }: {
   react?: typeof React
   /** 对话框标题；改已有图片的提示词时用「修改提示词，再生成一张」 */
@@ -46,10 +47,10 @@ export function ImagePromptDialog({
   const { source, model, width, height, workflow } = review.preview
   const summary = source
     ? [
-        `后端：${source === 'comfy' ? 'ComfyUI' : 'OpenAI 兼容接口'}`,
-        `模型：${model?.trim() || (source === 'comfy' ? '工作流默认' : '未设置')}`,
-        width && height ? `尺寸：${width}×${height}` : '',
-        source === 'comfy' && workflow ? `工作流：${workflow}` : '',
+        t('后端：{backend}', { backend: source === 'comfy' ? 'ComfyUI' : t('OpenAI 兼容接口') }),
+        t('模型：{model}', { model: model?.trim() || (source === 'comfy' ? t('工作流默认') : t('未设置')) }),
+        width && height ? t('尺寸：{width}×{height}', { width, height }) : '',
+        source === 'comfy' && workflow ? t('工作流：{workflow}', { workflow }) : '',
       ]
         .filter(Boolean)
         .join(' · ')
@@ -79,9 +80,9 @@ export function ImagePromptDialog({
       h(
         'label',
         { className: 'block space-y-1.5' },
-        h('span', { className: 'block text-[13px] font-medium' }, '正向提示词'),
+        h('span', { className: 'block text-[13px] font-medium' }, t('正向提示词')),
         h('textarea', {
-          'aria-label': '正向提示词',
+          'aria-label': t('正向提示词'),
           rows: 6,
           className: cx(inputClass, 'resize-y font-mono text-xs leading-relaxed'),
           value: prompt,
@@ -91,9 +92,9 @@ export function ImagePromptDialog({
       h(
         'label',
         { className: 'block space-y-1.5' },
-        h('span', { className: 'block text-[13px] font-medium' }, '负面提示词'),
+        h('span', { className: 'block text-[13px] font-medium' }, t('负面提示词')),
         h('textarea', {
-          'aria-label': '负面提示词',
+          'aria-label': t('负面提示词'),
           rows: 3,
           className: cx(inputClass, 'resize-y font-mono text-xs leading-relaxed'),
           value: negative,
@@ -103,7 +104,7 @@ export function ImagePromptDialog({
       h(
         'div',
         { className: 'flex justify-end gap-2' },
-        h('button', { type: 'button', className: secondaryButton, onClick: () => review.resolve(null) }, '取消'),
+        h('button', { type: 'button', className: secondaryButton, onClick: () => review.resolve(null) }, t('取消')),
         h(
           'button',
           {
@@ -112,7 +113,7 @@ export function ImagePromptDialog({
             disabled: !prompt.trim(),
             onClick: () => review.resolve({ prompt, negative }),
           },
-          '开始生成',
+          t('开始生成'),
         ),
       ),
     ),

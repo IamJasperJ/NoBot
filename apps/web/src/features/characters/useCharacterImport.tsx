@@ -4,14 +4,15 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys } from '../../api/queries'
 import { Button, Dialog } from '../../components/ui'
+import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 
 type Decision = { lorebook: CharacterImportLorebook; remember: boolean }
 type Pending = { preview: CharacterImportPreview; multiple: boolean }
-const options: { value: CharacterImportLorebook; label: string }[] = [
-  { value: 'link', label: '导入并关联到角色（推荐）' },
-  { value: 'import', label: '只导入世界书，不关联' },
-  { value: 'skip', label: '不导入世界书' },
+const options = (): { value: CharacterImportLorebook; label: string }[] => [
+  { value: 'link', label: t('导入并关联到角色（推荐）') },
+  { value: 'import', label: t('只导入世界书，不关联') },
+  { value: 'skip', label: t('不导入世界书') },
 ]
 
 /** 两个导入入口共用串行预读与确认，批量选择只在本次文件列表内生效。 */
@@ -68,7 +69,7 @@ export function useCharacterImport(onImported?: (character: CharacterDTO) => voi
             }
           }
           const character = await api.importCharacter(file, lorebook)
-          toast.info(`已导入「${character.name}」`)
+          toast.info(t('已导入「{name}」', { name: character.name }))
           if (mounted.current) onImported?.(character)
         } catch (error) {
           toast.error(`${file.name}：${errorMessage(error)}`)
@@ -90,16 +91,19 @@ export function useCharacterImport(onImported?: (character: CharacterDTO) => voi
   }
 
   const importDialog = (
-    <Dialog open={pending !== null} onClose={() => finish(null)} title="导入角色卡中的世界书">
+    <Dialog open={pending !== null} onClose={() => finish(null)} title={t('导入角色卡中的世界书')}>
       {pending && (
         <div className="space-y-4">
           <p className="break-words">
-            角色「{pending.preview.name}」内嵌世界书「{pending.preview.lorebook?.name}」，共{' '}
-            {pending.preview.lorebook?.entryCount} 个条目。
+            {t('角色「{characterName}」内嵌世界书「{lorebookName}」，共 {count} 个条目。', {
+              characterName: pending.preview.name,
+              lorebookName: pending.preview.lorebook?.name ?? '',
+              count: pending.preview.lorebook?.entryCount ?? '',
+            })}
           </p>
           <fieldset className="space-y-3">
-            <legend className="mb-2 text-sm font-medium">请选择世界书的处理方式</legend>
-            {options.map((option) => (
+            <legend className="mb-2 text-sm font-medium">{t('请选择世界书的处理方式')}</legend>
+            {options().map((option) => (
               <label key={option.value} className="flex items-center gap-2 text-sm">
                 <input
                   type="radio"
@@ -115,13 +119,13 @@ export function useCharacterImport(onImported?: (character: CharacterDTO) => voi
           {pending.multiple && (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-              后面的角色卡都这样处理
+              {t('后面的角色卡都这样处理')}
             </label>
           )}
           <div className="flex justify-end gap-2">
-            <Button onClick={() => finish(null)}>跳过这张角色卡</Button>
+            <Button onClick={() => finish(null)}>{t('跳过这张角色卡')}</Button>
             <Button variant="primary" onClick={() => finish({ lorebook: choice, remember })}>
-              确认导入
+              {t('确认导入')}
             </Button>
           </div>
         </div>

@@ -9,6 +9,8 @@ import { db, getSetting, setSetting } from '../db/client'
 import { settings } from '../db/schema'
 import { env } from '../env'
 import { HttpError, notFound } from '../errors'
+import { t } from '../i18n'
+import { translateMetadata, translateSettingsSchema } from '../i18n/metadata'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
 import imageGen from './builtin/image-gen'
@@ -44,13 +46,15 @@ function createApp(extension: Extension): Hono | undefined {
         error: {
           code: error instanceof HttpError ? error.code : 'INTERNAL',
           message:
-            error instanceof HttpError ? error.message : `服务器内部错误：${error.message || '扩展接口执行失败'}`,
+            error instanceof HttpError
+              ? error.message
+              : t('服务器内部错误：{error}', { error: error.message || t('扩展接口执行失败') }),
         },
       },
       error instanceof HttpError ? error.status : 500,
     ),
   )
-  app.notFound((c) => c.json({ error: { code: 'NOT_FOUND', message: '扩展接口不存在' } }, 404))
+  app.notFound((c) => c.json({ error: { code: 'NOT_FOUND', message: t('扩展接口不存在') } }, 404))
   extension.routes(app, {
     get settings() {
       return settingsOf(extension)
@@ -63,7 +67,8 @@ function createApp(extension: Extension): Hono | undefined {
 
 /** 内置扩展与本地扩展共用路由和上下文，重复标识在注册时立即报错。 */
 export function registerBuiltinExtension(extension: Extension) {
-  if (loaded.some((entry) => entry.extension.id === extension.id)) throw new Error(`扩展 id「${extension.id}」重复`)
+  if (loaded.some((entry) => entry.extension.id === extension.id))
+    throw new Error(t('扩展 id「{id}」重复', { id: extension.id }))
   loaded.push({ extension, source: 'builtin', app: createApp(extension) })
 }
 
@@ -84,11 +89,12 @@ const manifestSchema = z.object({
 
 /** 解析后的真实路径也必须在扩展目录内，避免软链接绕过目录检查。 */
 async function localFile(directory: string, file: string) {
-  if (isAbsolute(file) || file.includes('\\') || file.split('/').includes('..')) throw new Error('扩展文件路径不合法')
+  if (isAbsolute(file) || file.includes('\\') || file.split('/').includes('..'))
+    throw new Error(t('扩展文件路径不合法'))
   const root = await realpath(directory)
   const path = await realpath(resolve(root, file))
   const rel = relative(root, path)
-  if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('扩展文件必须位于自己的目录内')
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error(t('扩展文件必须位于自己的目录内'))
   return path
 }
 
@@ -115,25 +121,26 @@ export async function loadLocalExtensions() {
       const manifestFile = Bun.file(join(directory, 'manifest.json'))
       if (await manifestFile.exists()) {
         const raw: unknown = await manifestFile.json().catch(() => {
-          throw new Error('manifest.json 不是合法的 JSON')
+          throw new Error(t('manifest.json 不是合法的 JSON'))
         })
         const parsed = manifestSchema.safeParse(raw)
         if (!parsed.success) {
-          const fields = parsed.error.issues.map((issue) => issue.path.join('.') || '根对象').join('、')
-          throw new Error(`manifest.json 不合法：${fields} 字段缺失或格式错误`)
+          const fields = parsed.error.issues.map((issue) => issue.path.join('.') || t('根对象')).join('、')
+          throw new Error(t('manifest.json 不合法：{fields} 字段缺失或格式错误', { fields }))
         }
         manifest = parsed.data
         extension = manifest.server ? (await import(await localFile(directory, manifest.server))).default : manifest
-        if (!extension || typeof extension !== 'object') throw new Error('后端入口必须默认导出扩展对象')
+        if (!extension || typeof extension !== 'object') throw new Error(t('后端入口必须默认导出扩展对象'))
         extension = { ...extension, ...manifest }
       } else {
         const file = (await Bun.file(join(directory, 'index.ts')).exists()) ? 'index.ts' : 'index.js'
         if (!(await Bun.file(join(directory, file)).exists())) continue
         extension = (await import(await localFile(directory, file))).default
-        if (!extension?.id || !extension.name) throw new Error('默认导出必须是 defineExtension({ id, name, ... })')
+        if (!extension?.id || !extension.name) throw new Error(t('默认导出必须是 defineExtension({ id, name, ... })'))
       }
-      if (!/^[a-z0-9-]+$/.test(extension.id)) throw new Error('扩展 id 只能包含小写字母、数字和连字符')
-      if (loaded.some((l) => l.extension.id === extension.id)) throw new Error(`扩展 id「${extension.id}」重复`)
+      if (!/^[a-z0-9-]+$/.test(extension.id)) throw new Error(t('扩展 id 只能包含小写字母、数字和连字符'))
+      if (loaded.some((l) => l.extension.id === extension.id))
+        throw new Error(t('扩展 id「{id}」重复', { id: extension.id }))
       if (manifest?.client) await localFile(directory, manifest.client)
       if (manifest?.style) await localFile(directory, manifest.style)
       const entry: Loaded = { extension, source: 'local', manifest, directory }
@@ -168,17 +175,17 @@ function storageOf(id: string): ExtensionContext['storage'] {
 export async function extensionAsset(id: string, kind: 'client' | 'style') {
   const entry = loaded.find((l) => l.extension.id === id && isEnabled(l))
   const file = entry?.manifest?.[kind]
-  if (!entry?.directory || !file) throw notFound('扩展资源')
+  if (!entry?.directory || !file) throw notFound(t('扩展资源'))
   try {
     return Bun.file(await localFile(entry.directory, file))
   } catch {
-    throw notFound('扩展资源')
+    throw notFound(t('扩展资源'))
   }
 }
 
 export function forwardExtension(id: string, request: Request) {
   const entry = loaded.find((l) => l.extension.id === id && isEnabled(l))
-  if (!entry?.app) throw notFound('扩展接口')
+  if (!entry?.app) throw notFound(t('扩展接口'))
   const url = new URL(request.url)
   url.pathname = url.pathname.slice(`/api/ext/${id}`.length) || '/'
   return entry.app.fetch(new Request(url.toString(), request))
@@ -213,8 +220,8 @@ function toDTO(l: Loaded): ExtensionDTO {
   const e = l.extension
   return {
     id: e.id,
-    name: e.name,
-    description: e.description,
+    name: translateMetadata(e.name),
+    description: translateMetadata(e.description),
     version: e.version,
     source: l.source,
     author: l.manifest?.author ?? '',
@@ -226,7 +233,7 @@ function toDTO(l: Loaded): ExtensionDTO {
       tools: toolsOf(e, '').map((t) => t.name),
       hooks: Object.keys(e.hooks ?? {}),
     },
-    settingsSchema: e.settingsSchema ?? [],
+    settingsSchema: translateSettingsSchema(e.settingsSchema ?? []),
     settings: settingsOf(e),
     ...(l.loadError ? { loadError: l.loadError } : {}),
   }
@@ -236,7 +243,7 @@ export const listExtensions = () => loaded.map(toDTO)
 
 export function updateExtension(id: string, patch: { enabled?: boolean; settings?: Record<string, unknown> }) {
   const l = loaded.find((x) => x.extension.id === id)
-  if (!l) throw notFound('扩展')
+  if (!l) throw notFound(t('扩展'))
   if (patch.enabled !== undefined) setSetting(SETTING_KEYS.extensionsEnabled, { ...enabledMap(), [id]: patch.enabled })
   if (patch.settings) setSetting(SETTING_KEYS.extensionSettings(id), patch.settings)
   return toDTO(l)

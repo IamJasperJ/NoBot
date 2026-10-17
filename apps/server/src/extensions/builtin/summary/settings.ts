@@ -14,9 +14,9 @@ const shape = z.object({
   prompt: z
     .string()
     .default(
-      '你是故事记录员。根据【已有总结】和【新的对话】，写一份更新后的剧情总结：保留仍然重要的旧信息，加入新的事实、事件、人物关系变化和未解决的线索。用第三人称、过去时，按时间顺序，不写对话原文，不评论。不超过 {{words}} 字。只输出总结本身。',
+      'You are a story chronicler. Use [Existing summary] and [New conversation] to write an updated story summary. Retain relevant earlier information and add new facts, events, relationship changes, and unresolved clues. Use third person, past tense, and chronological order. Do not quote dialogue or add commentary. Limit the summary to {{words}} words or Chinese characters. Output only the summary. Write in the same language as the conversation.',
     ),
-  template: z.string().default('[剧情总结：{{summary}}]'),
+  template: z.string().default('[Story summary: {{summary}}]'),
   position: z.enum(['after_char', 'author_note', 'depth']).default('after_char'),
   depth: z.number().int().min(0).max(100).default(4),
   role: z.enum(['system', 'user', 'assistant']).default('system'),

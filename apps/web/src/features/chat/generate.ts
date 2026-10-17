@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { readError } from '../../api/client'
 import { applyNewMessage, markIdle, refreshChatState, replaceMessage, resetChat } from '../../api/queries'
 import { emitClientEvent } from '../../extensions/runtime'
+import { t } from '../../i18n'
 import { useStreaming } from '../../stores/streaming'
 import { toast } from '../../stores/toast'
 
@@ -23,7 +24,7 @@ const activeStreams = new Set<string>()
 export async function runGeneration(qc: QueryClient, chatId: string, input: GenerateInput | 'reconnect') {
   if (activeStreams.has(chatId)) {
     if (input === 'reconnect') return
-    throw new Error('这个会话正在生成中')
+    throw new Error(t('这个会话正在生成中'))
   }
   activeStreams.add(chatId)
   emitClientEvent({ type: 'generation:start', chatId })

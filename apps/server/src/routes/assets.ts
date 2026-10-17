@@ -2,23 +2,24 @@ import { join } from 'node:path'
 import { Hono } from 'hono'
 import { paths } from '../env'
 import { HttpError } from '../errors'
+import { t } from '../i18n'
 import { readAvatar } from '../lib/files'
 
 /** 头像文件。文件名只允许 ULID + 扩展名，防止 ../ 之类的路径穿越 */
 export const assetRoutes = new Hono().get('/avatars/:file', async (c) => {
   const name = c.req.param('file')
-  if (!/^[0-9A-Z]{26}\.(png|webp)$/.test(name)) throw new HttpError(400, 'BAD_REQUEST', '文件名不合法')
+  if (!/^[0-9A-Z]{26}\.(png|webp)$/.test(name)) throw new HttpError(400, 'BAD_REQUEST', t('文件名不合法'))
   const file = readAvatar(name)
-  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', '头像不存在')
+  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', t('头像不存在'))
   // 地址里带了 ?v=更新时间，内容变了地址就变，所以可以长期缓存
   return new Response(file, { headers: { 'Cache-Control': 'public, max-age=31536000, immutable' } })
 })
 
 assetRoutes.get('/attachments/:file', async (c) => {
   const name = c.req.param('file')
-  if (!/^[0-7][0-9A-HJKMNP-TV-Z]{25}\.webp$/.test(name)) throw new HttpError(400, 'BAD_REQUEST', '文件名不合法')
+  if (!/^[0-7][0-9A-HJKMNP-TV-Z]{25}\.webp$/.test(name)) throw new HttpError(400, 'BAD_REQUEST', t('文件名不合法'))
   const file = Bun.file(join(paths.attachments, name))
-  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', '图片不存在')
+  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', t('图片不存在'))
   return new Response(file, {
     headers: {
       'Content-Type': 'image/webp',
@@ -30,9 +31,9 @@ assetRoutes.get('/attachments/:file', async (c) => {
 assetRoutes.get('/backgrounds/:file', async (c) => {
   const name = c.req.param('file')
   if (!/^[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\.thumb\.webp|\.(?:webp|gif|mp4|webm))$/.test(name))
-    throw new HttpError(400, 'BAD_REQUEST', '文件名不合法')
+    throw new HttpError(400, 'BAD_REQUEST', t('文件名不合法'))
   const file = Bun.file(join(paths.backgrounds, name))
-  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', '背景不存在')
+  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', t('背景不存在'))
   const ext = name.split('.').pop()!
   const mime = { webp: 'image/webp', gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm' }[ext]!
   const headers = new Headers({
@@ -74,9 +75,9 @@ assetRoutes.get('/sprites/:characterId/:file', async (c) => {
     !/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(characterId) ||
     !/^[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\.thumb\.webp|\.(?:png|webp|gif|jpg))$/.test(name)
   )
-    throw new HttpError(400, 'BAD_REQUEST', '立绘路径不合法')
+    throw new HttpError(400, 'BAD_REQUEST', t('立绘路径不合法'))
   const file = Bun.file(join(paths.sprites, characterId, name))
-  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', '立绘不存在')
+  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', t('立绘不存在'))
   const mime = { png: 'image/png', webp: 'image/webp', gif: 'image/gif', jpg: 'image/jpeg' }[name.split('.').pop()!]!
   return new Response(file, {
     headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=31536000, immutable' },

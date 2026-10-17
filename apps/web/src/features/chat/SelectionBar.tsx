@@ -5,6 +5,7 @@ import { api } from '../../api/client'
 import { replaceMessage } from '../../api/queries'
 import { EyeIcon, EyeOffIcon, XIcon } from '../../components/icons'
 import { Button, IconButton } from '../../components/ui'
+import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
 import { errorMessage, toast } from '../../stores/toast'
 
@@ -28,7 +29,11 @@ export function SelectionBar({ chatId, messages }: { chatId: string; messages: M
       const changed = await api.excludeMessages(chatId, ids, excluded)
       for (const m of changed) replaceMessage(qc, chatId, m)
       // 后端会自动带上配对的工具调用，数量可能比选中的多
-      toast.info(`${excluded ? '已设为不发给模型' : '已恢复发送'}：${changed.length} 条`)
+      toast.info(
+        excluded
+          ? t('已设为不发给模型：{count} 条', { count: changed.length })
+          : t('已恢复发送：{count} 条', { count: changed.length }),
+      )
       stop()
     } catch (e) {
       toast.error(errorMessage(e))
@@ -40,9 +45,11 @@ export function SelectionBar({ chatId, messages }: { chatId: string; messages: M
   return (
     <div className="chat-column w-full px-3 pb-3 md:px-4">
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-violet-200 bg-violet-50/95 px-3 py-2 text-sm shadow-sm backdrop-blur dark:border-violet-900 dark:bg-violet-950/80">
-        <span className="font-medium text-violet-800 dark:text-violet-200">已选 {ids.length} 条</span>
+        <span className="font-medium text-violet-800 dark:text-violet-200">
+          {t('已选 {count} 条', { count: ids.length })}
+        </span>
         <span className="hidden text-xs text-violet-700/70 sm:inline dark:text-violet-300/70">
-          点消息选中，按住 Shift 选一段
+          {t('点消息选中，按住 Shift 选一段')}
         </span>
         <Button
           size="sm"
@@ -50,18 +57,18 @@ export function SelectionBar({ chatId, messages }: { chatId: string; messages: M
           onClick={() => setSelected(allSelected ? [] : messages.map((m) => m.id))}
           disabled={busy}
         >
-          {allSelected ? '全不选' : '全选已加载的'}
+          {allSelected ? t('全不选') : t('全选已加载的')}
         </Button>
         <div className="ml-auto flex items-center gap-1.5">
           <Button size="sm" disabled={busy || !ids.length} onClick={() => void apply(true)}>
             <EyeOffIcon />
-            不发给模型
+            {t('不发给模型')}
           </Button>
           <Button size="sm" disabled={busy || !ids.length} onClick={() => void apply(false)}>
             <EyeIcon />
-            恢复发送
+            {t('恢复发送')}
           </Button>
-          <IconButton label="退出多选" onClick={stop}>
+          <IconButton label={t('退出多选')} onClick={stop}>
             <XIcon />
           </IconButton>
         </div>

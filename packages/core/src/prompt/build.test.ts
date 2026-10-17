@@ -70,8 +70,8 @@ describe('预设与宏覆盖', () => {
     const value = input()
     const result = buildPrompt(value)
     expect(result.messages.map((message) => message.role)).toEqual(['system', 'user', 'assistant'])
-    expect(result.messages[0]!.content).toContain('你正在和小红')
-    expect(result.messages[0]!.content).toContain('你扮演小明')
+    expect(result.messages[0]!.content).toContain('You are in an immersive roleplay with 小红')
+    expect(result.messages[0]!.content).toContain('Play 小明')
     expect(result.messages[0]!.content).toContain('用户背景\n\n角色背景')
     expect(result.report.segments.map((segment) => segment.source)).toEqual([
       'main',
@@ -204,7 +204,15 @@ describe('示例对话', () => {
     value.speaker.fields.mes_example =
       '<START>开头\n{{USER}}：你好{{char}}\n下一行\n{{char}}: 好\n<start>小红: 问\n小明：答'
     expect(splitExamples(value.speaker.fields.mes_example)).toHaveLength(2)
-    expect(contents(value)).toEqual(['[示例对话]', '开头', '你好小明\n下一行', '好', '[示例对话]', '问', '答'])
+    expect(contents(value)).toEqual([
+      '[Example conversation]',
+      '开头',
+      '你好小明\n下一行',
+      '好',
+      '[Example conversation]',
+      '问',
+      '答',
+    ])
   })
   test('角色名自身带冒号时原始宏仍可识别', () => {
     const value = minimal()
@@ -355,8 +363,8 @@ describe('群聊', () => {
     const result = contents(value)
     expect(result).toContain('角色背景')
     expect(result.join('')).not.toContain('背景乙')
-    expect(result).toContain('[开始新的群聊。成员：小明、小李、静音]')
-    expect(result.at(-1)).toBe('[接下来只以小明的身份写一条回复。]')
+    expect(result).toContain('[Start a new group conversation. Members: 小明、小李、静音]')
+    expect(result.at(-1)).toBe('[Write the next reply only as 小明. Write in the same language as the conversation.]')
   })
   test('join 排除静音成员，保留静音发言者并合并示例', () => {
     const value = groupInput()
@@ -407,9 +415,9 @@ describe('生成模式和名字', () => {
     value.preset.behavior.assistantImpersonationPrefill = '{{user}}说'
     value.preset.behavior.assistantPrefill = '{{char}}说'
     let result = contents(value)
-    expect(result.at(-2)).toContain('以小红的视角')
+    expect(result.at(-2)).toContain('Write the next reply as 小红')
     expect(result.at(-1)).toBe('小红说')
-    expect(result.join('')).not.toContain('接下来只以')
+    expect(result.join('')).not.toContain('Write the next reply only as')
     value.type = 'normal'
     result = contents(value)
     expect(result.at(-1)).toBe('小明说')
@@ -454,7 +462,7 @@ describe('后处理与报告', () => {
         single_user: ['user'],
       }
       expect(result.messages.map((message) => message.role)).toEqual(roles[mode])
-      if (mode === 'strict') expect(result.messages[1]!.content).toBe('[开始]')
+      if (mode === 'strict') expect(result.messages[1]!.content).toBe('[Start]')
       if (mode === 'single_user') expect(result.messages[0]!.content).toBe('s1\n\ns2\n\n答一\n\n答二\n\ns3')
       expect(result.report.segments.map((segment) => segment.content)).toEqual(['s1', 's2', '答一', '答二', 's3'])
       expect(result.report.totalTokens).toBe(result.messages.reduce((total, m) => total + tokenCost(m.content), 0))
@@ -466,7 +474,7 @@ describe('后处理与报告', () => {
     value.preset.prompts = [custom('s1'), custom('s2'), custom('examples'), custom('s3')]
     value.preset.behavior.squashSystem = true
     value.speaker.fields.mes_example = '说明'
-    expect(contents(value)).toEqual(['s1\n\ns2', '[示例对话]', '说明', 's3'])
+    expect(contents(value)).toEqual(['s1\n\ns2', '[Example conversation]', '说明', 's3'])
   })
   test('single_user 丢弃所有名字与工具字段', () => {
     const value = minimal()
@@ -604,7 +612,7 @@ describe('图片组装', () => {
     value.preset.behavior.postProcessing = 'merge'
     const result = buildPrompt(value)
     expect(result.messages).toEqual([
-      { role: 'user', content: '看这里\n[图片]\n[图片]' },
+      { role: 'user', content: '看这里\n[Image]\n[Image]' },
       { role: 'user', content: '下一条' },
     ])
   })
@@ -617,7 +625,7 @@ describe('图片组装', () => {
       { ...history('v', 'user', ''), images: ['c'] },
     ]
     expect(buildPrompt(value).messages).toEqual([
-      { role: 'user', content: '旧图\n[图片]', images: ['b'] },
+      { role: 'user', content: '旧图\n[Image]', images: ['b'] },
       { role: 'user', content: '', images: ['c'] },
     ])
     value.preset.samplers.imageLimit = 0

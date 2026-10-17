@@ -24,6 +24,7 @@ import {
 import { Avatar, Button, cx, IconButton, inputClass } from '../../components/ui'
 import { emitClientEvent, hasListener, transformMessage, useExtensionsRuntime } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
+import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
@@ -74,7 +75,8 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
   const showTaskFrame = hasTaskFrame && imageIndex === images.length
   const imageAction = async (action: 'retry' | 'dismiss' | 'cancel', edited?: { prompt: string; negative: string }) => {
     if (saving) return
-    if (action === 'dismiss' && !images.length && !confirm('放弃后将删除这条消息及后面的所有分支，确定放弃？')) return
+    if (action === 'dismiss' && !images.length && !confirm(t('放弃后将删除这条消息及后面的所有分支，确定放弃？')))
+      return
     setSaving(true)
     try {
       const response = await fetch(`/api/ext/image-gen/${action}`, {
@@ -83,7 +85,7 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
         body: JSON.stringify({ messageId: msg.id, ...edited }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error?.message ?? '图片操作失败')
+      if (!response.ok) throw new Error(data.error?.message ?? t('图片操作失败'))
       if (data.message) replaceMessage(qc, chatId, data.message)
       if (data.deleted) await resetChat(qc, chatId)
     } catch (error) {
@@ -118,15 +120,15 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
   const frameStyle = { width: 'min(320px, 100%)', aspectRatio: ratio }
   const stageText =
     task?.stage === 'prompt'
-      ? '正在写提示词…'
+      ? t('正在写提示词…')
       : task?.stage === 'confirm'
-        ? '等待确认…'
+        ? t('等待确认…')
         : task?.stage === 'queued'
-          ? `排队中 · 第 ${task.queuePosition ?? 1} 位`
+          ? t('排队中 · 第 {position} 位', { position: task.queuePosition ?? 1 })
           : task?.stage === 'saving'
-            ? '保存中…'
-            : '生成中…'
-  const cancelled = task?.error === '已取消'
+            ? t('保存中…')
+            : t('生成中…')
+  const cancelled = task?.error === t('已取消')
   // 没有图片也没有图片任务的消息不渲染这一块，避免在正文上方留出空白
   if (!images.length && !task) return null
   return (
@@ -146,7 +148,7 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
                 >
                   <img
                     src={image.url}
-                    alt={`图片 ${index + 1}`}
+                    alt={t('图片 {index}', { index: index + 1 })}
                     loading="lazy"
                     className={cx('block object-contain', carousel ? 'h-auto w-full' : 'max-h-80 max-w-full')}
                     style={carousel ? undefined : { maxWidth: 'min(320px, 100%)' }}
@@ -175,7 +177,7 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
             </span>
           )}
           <Button size="sm" disabled={saving} onClick={() => void imageAction('cancel')}>
-            取消
+            {t('取消')}
           </Button>
         </div>
       )}
@@ -199,11 +201,11 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
           >
             {cancelled ? '⏹' : '!'}
           </span>
-          <strong className="text-sm">{cancelled ? '已取消' : '图片生成失败'}</strong>
+          <strong className="text-sm">{cancelled ? t('已取消') : t('图片生成失败')}</strong>
           {!cancelled && (
             <div className="w-full min-w-0">
               <p className={cx('text-xs break-words whitespace-pre-wrap opacity-90', !expandedError && 'line-clamp-3')}>
-                {task.error || '未知错误'}
+                {task.error || t('未知错误')}
               </p>
               {!!task.error && task.error.length > 60 && (
                 <button
@@ -211,7 +213,7 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
                   className="mt-1 text-xs underline underline-offset-2 opacity-70 hover:opacity-100"
                   onClick={() => setExpandedError(!expandedError)}
                 >
-                  {expandedError ? '收起' : '详情'}
+                  {expandedError ? t('收起') : t('详情')}
                 </button>
               )}
             </div>
@@ -221,13 +223,13 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
           )}
           <div className="flex flex-wrap justify-center gap-1.5">
             <Button size="sm" disabled={saving} onClick={() => void imageAction('retry')}>
-              重新生成
+              {t('重新生成')}
             </Button>
             <Button size="sm" disabled={saving} onClick={() => setEditingPrompt(true)}>
-              改提示词…
+              {t('改提示词…')}
             </Button>
             <Button size="sm" variant="ghost" disabled={saving} onClick={() => void imageAction('dismiss')}>
-              放弃
+              {t('放弃')}
             </Button>
           </div>
         </div>
@@ -236,7 +238,11 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
       <div className="flex min-h-8 flex-wrap items-center gap-0.5 text-xs text-zinc-500 transition-opacity [@media(hover:hover)]:opacity-50 [@media(hover:hover)]:group-hover/media:opacity-100 [@media(hover:hover)]:focus-within:opacity-100">
         {carousel && (count > 1 || canGenerateAlternative) && (
           <div className="mr-1 flex items-center rounded-lg">
-            <IconButton label="上一张图片" disabled={saving || imageIndex === 0} onClick={() => void switchImage(-1)}>
+            <IconButton
+              label={t('上一张图片')}
+              disabled={saving || imageIndex === 0}
+              onClick={() => void switchImage(-1)}
+            >
               <ChevronLeftIcon />
             </IconButton>
             <span className="min-w-8 text-center tabular-nums">{`${imageIndex + 1}/${count}`}</span>
@@ -245,7 +251,7 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
               const generate = atLast && !hasTaskFrame && canGenerateAlternative
               return (
                 <IconButton
-                  label={generate ? '生成备选图（保留现有图片，再生成一张）' : '下一张图片'}
+                  label={generate ? t('生成备选图（保留现有图片，再生成一张）') : t('下一张图片')}
                   disabled={saving || (atLast && !generate)}
                   onClick={() => void switchImage(1)}
                 >
@@ -274,7 +280,8 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
 
 /** 工具调用的结果：显示成一张紧凑的小卡片 */
 function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: string; text: string }) {
-  const label = msg.meta.toolName === 'roll_dice' ? '🎲 掷骰' : `🔧 ${msg.meta.toolName ?? '工具'}`
+  const label =
+    msg.meta.toolName === 'roll_dice' ? t('🎲 掷骰') : t('🔧 {toolName}', { toolName: msg.meta.toolName ?? t('工具') })
   return (
     <div className="px-4 py-1 pl-[68px]">
       <div className="inline-flex max-w-full items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -368,12 +375,12 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
 
   // 上移 / 下移：在原位置生成一条交换了顺序的新分支，原来的顺序还能左右切换回去
   const move = async (direction: 'up' | 'down') => {
-    if (editing !== null && editing !== msg.content && !confirm('移动会放弃这次没保存的修改，继续？')) return
+    if (editing !== null && editing !== msg.content && !confirm(t('移动会放弃这次没保存的修改，继续？'))) return
     try {
       await api.moveMessage(chatId, msg.id, direction)
       stopEdit()
       await resetChat(qc, chatId)
-      toast.info(`已${direction === 'up' ? '上移' : '下移'}，原来的顺序保留为另一个分支`)
+      toast.info(direction === 'up' ? t('已上移，原来的顺序保留为另一个分支') : t('已下移，原来的顺序保留为另一个分支'))
     } catch (e) {
       toast.error(errorMessage(e))
     }
@@ -391,10 +398,10 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
     try {
       if (bookmark) {
         await api.deleteBookmark(bookmark.id)
-        toast.info('已移除书签')
+        toast.info(t('已移除书签'))
       } else {
         const created = await api.createBookmark(chatId, msg.id)
-        toast.info(`已加书签「${created.name}」`)
+        toast.info(t('已加书签「{name}」', { name: created.name }))
       }
       await qc.invalidateQueries({ queryKey: keys.bookmarks(chatId) })
     } catch (e) {
@@ -403,7 +410,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
   }
 
   const remove = async () => {
-    if (!confirm('删除这条消息？它后面的所有分支也会一起删除。')) return
+    if (!confirm(t('删除这条消息？它后面的所有分支也会一起删除。'))) return
     try {
       await api.deleteMessage(msg.id)
       await resetChat(qc, chatId)
@@ -418,7 +425,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
       const owner = chat.groupId ? { groupId: chat.groupId } : { characterId: chat.characterId as string }
       await qc.invalidateQueries({ queryKey: keys.chats(owner) })
       useUi.getState().openChat(owner, chat.id)
-      toast.info('已创建分支会话')
+      toast.info(t('已创建分支会话'))
     } catch (e) {
       toast.error(errorMessage(e))
     }
@@ -436,19 +443,19 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
       <div className="message-box min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2 text-sm">
           <span className="font-semibold">{who.name}</span>
-          {msg.status === 'aborted' && <span className="text-xs text-zinc-400">已中止</span>}
+          {msg.status === 'aborted' && <span className="text-xs text-zinc-400">{t('已中止')}</span>}
           {msg.meta.excluded && (
             <span
-              title="这条消息不会发给模型（也不进总结）"
+              title={t('这条消息不会发给模型（也不进总结）')}
               className="inline-flex items-center gap-1 rounded-md bg-zinc-200/80 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
             >
               <EyeOffIcon className="size-3" />
-              不发送
+              {t('不发送')}
             </span>
           )}
           {bookmark && (
             <span
-              title={`书签：${bookmark.name}`}
+              title={t('书签：{name}', { name: bookmark.name })}
               className="inline-flex max-w-32 items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
             >
               <BookmarkIcon className="size-3 shrink-0" />
@@ -456,17 +463,19 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
             </span>
           )}
           {msg.meta.toolCalls && msg.meta.toolCalls.length > 0 && (
-            <span className="text-xs text-zinc-400">调用了 {msg.meta.toolCalls.map((c) => c.name).join('、')}</span>
+            <span className="text-xs text-zinc-400">
+              {t('调用了 {toolNames}', { toolNames: msg.meta.toolCalls.map((c) => c.name).join('、') })}
+            </span>
           )}
           {/* 操作按钮：鼠标移上来才显示；触屏设备上一直显示 */}
           {!isStreaming && editing === null && (
             <div className="ml-auto flex items-center opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:has-[details[open]]:opacity-100">
-              <IconButton label="编辑" onClick={startEdit} disabled={busy}>
+              <IconButton label={t('编辑')} onClick={startEdit} disabled={busy}>
                 <EditIcon />
               </IconButton>
               {canRegenerate && (
                 <IconButton
-                  label="重新生成"
+                  label={t('重新生成')}
                   onClick={() => run({ mode: 'regenerate', targetId: msg.id })}
                   disabled={busy}
                 >
@@ -483,41 +492,41 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
                   {canRegenerate && (
                     <MenuItem
                       icon={<ChevronRightIcon />}
-                      label="续写"
+                      label={t('续写')}
                       disabled={busy}
                       onClick={() => run({ mode: 'continue', targetId: msg.id })}
                     />
                   )}
-                  <MenuItem icon={<BranchIcon />} label="从这里开分支" disabled={busy} onClick={branch} />
+                  <MenuItem icon={<BranchIcon />} label={t('从这里开分支')} disabled={busy} onClick={branch} />
                   <MenuItem
                     icon={msg.meta.excluded ? <EyeIcon /> : <EyeOffIcon />}
-                    label={msg.meta.excluded ? '恢复发送' : '不发给模型'}
+                    label={msg.meta.excluded ? t('恢复发送') : t('不发给模型')}
                     onClick={() => void setExcluded(!msg.meta.excluded)}
                   />
                   <MenuItem
                     icon={<BookmarkIcon />}
-                    label={bookmark ? '移除书签' : '加书签'}
+                    label={bookmark ? t('移除书签') : t('加书签')}
                     onClick={() => void toggleBookmark()}
                   />
                   <MenuItem
                     icon={<ListCheckIcon />}
-                    label="多选…"
+                    label={t('多选…')}
                     onClick={() => useChatOps.getState().startSelect(chatId, msg.id)}
                   />
                   <MenuItem
                     icon={<CopyIcon />}
-                    label="复制文本"
-                    onClick={() => navigator.clipboard.writeText(msg.content).then(() => toast.info('已复制'))}
+                    label={t('复制文本')}
+                    onClick={() => navigator.clipboard.writeText(msg.content).then(() => toast.info(t('已复制')))}
                   />
                   {msg.meta.logId && (
                     <MenuItem
                       icon={<LogIcon />}
-                      label="查看请求"
+                      label={t('查看请求')}
                       onClick={() => useUi.getState().openView('logs', msg.meta.logId)}
                     />
                   )}
                   <Slot name="chat.message.actions" props={{ chatId, message: msg }} />
-                  <MenuItem icon={<TrashIcon />} label="删除" danger disabled={busy} onClick={remove} />
+                  <MenuItem icon={<TrashIcon />} label={t('删除')} danger disabled={busy} onClick={remove} />
                 </div>
               </details>
             </div>
@@ -528,7 +537,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
           <details className="group/reasoning mb-2 rounded-lg border border-zinc-200/80 bg-zinc-50 text-[13px] text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
             <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-1.5 select-none hover:text-zinc-700 dark:hover:text-zinc-300 [&::-webkit-details-marker]:hidden">
               <ChevronRightIcon className="size-3.5 transition-transform group-open/reasoning:rotate-90" />
-              {isStreaming && !text ? '思考中…' : '思考过程'}
+              {isStreaming && !text ? t('思考中…') : t('思考过程')}
             </summary>
             <div className="border-t border-zinc-200/80 px-3 py-2 leading-relaxed whitespace-pre-wrap dark:border-zinc-800">
               {reasoning}
@@ -543,17 +552,17 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
               (editingReasoning !== null ? (
                 <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/60">
                   <div className="mb-1 flex items-center text-xs text-zinc-500">
-                    <span className="flex-1">思考过程（清空后保存就删除）</span>
+                    <span className="flex-1">{t('思考过程（清空后保存就删除）')}</span>
                     <button
                       type="button"
                       className="rounded px-1.5 py-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800"
                       onClick={() => setEditingReasoning('')}
                     >
-                      清空
+                      {t('清空')}
                     </button>
                   </div>
                   <textarea
-                    aria-label="思考过程"
+                    aria-label={t('思考过程')}
                     className={`${inputClass} min-h-20 text-[13px]`}
                     value={editingReasoning}
                     onChange={(e) => setEditingReasoning(e.target.value)}
@@ -565,11 +574,11 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
                   className="text-xs text-zinc-500 underline-offset-2 hover:text-violet-600 hover:underline"
                   onClick={() => setEditingReasoning(msg.meta.reasoning ?? '')}
                 >
-                  {msg.meta.reasoning ? '编辑思考过程' : '+ 添加思考过程'}
+                  {msg.meta.reasoning ? t('编辑思考过程') : t('+ 添加思考过程')}
                 </button>
               ))}
             <textarea
-              aria-label="消息内容"
+              aria-label={t('消息内容')}
               className={`${inputClass} min-h-32`}
               value={editing}
               onChange={(e) => setEditing(e.target.value)}
@@ -578,16 +587,24 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
             />
             <div className="flex items-center gap-2">
               <Button variant="primary" onClick={saveEdit}>
-                保存
+                {t('保存')}
               </Button>
-              <Button onClick={stopEdit}>取消</Button>
+              <Button onClick={stopEdit}>{t('取消')}</Button>
               {/* 上移 / 下移（和酒馆一样放在编辑态）；带工具调用的消息不能移动 */}
               {!msg.meta.toolCalls?.length && (
                 <div className="ml-auto flex items-center gap-0.5">
-                  <IconButton label="上移（原顺序保留为另一个分支）" disabled={busy} onClick={() => void move('up')}>
+                  <IconButton
+                    label={t('上移（原顺序保留为另一个分支）')}
+                    disabled={busy}
+                    onClick={() => void move('up')}
+                  >
                     <ArrowUpIcon />
                   </IconButton>
-                  <IconButton label="下移（原顺序保留为另一个分支）" disabled={busy} onClick={() => void move('down')}>
+                  <IconButton
+                    label={t('下移（原顺序保留为另一个分支）')}
+                    disabled={busy}
+                    onClick={() => void move('down')}
+                  >
                     <ArrowDownIcon />
                   </IconButton>
                 </div>
@@ -608,20 +625,20 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
 
         {msg.status === 'error' && (
           <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            生成失败：{msg.meta.error}
+            {t('生成失败：{error}', { error: msg.meta.error ?? '' })}
           </div>
         )}
 
         {showSwipes && !isStreaming && (
           <div className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
-            <IconButton label="上一个回复" onClick={() => swipe(-1)} disabled={busy || msg.swipeIndex <= 1}>
+            <IconButton label={t('上一个回复')} onClick={() => swipe(-1)} disabled={busy || msg.swipeIndex <= 1}>
               <ChevronLeftIcon />
             </IconButton>
             <span className="tabular-nums">
               {msg.swipeIndex} / {msg.swipeCount}
             </span>
             <IconButton
-              label={msg.swipeIndex === msg.swipeCount ? '生成新回复' : '下一个回复'}
+              label={msg.swipeIndex === msg.swipeCount ? t('生成新回复') : t('下一个回复')}
               onClick={() => swipe(1)}
               disabled={busy || (msg.swipeIndex === msg.swipeCount && !canRegenerate)}
             >
@@ -681,7 +698,7 @@ function Choices({
   onPick: (text: string) => void
 }) {
   return (
-    <fieldset aria-label="选项" className="mt-3 grid gap-1.5">
+    <fieldset aria-label={t('选项')} className="mt-3 grid gap-1.5">
       {options.map((option, index) => (
         <button
           // 选项列表在消息定稿后不会再变，下标做 key 是安全的

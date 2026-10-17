@@ -8,6 +8,7 @@ import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
 import { useMobile } from '../../hooks/useMobile'
+import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -48,7 +49,7 @@ export function Composer({
   const addImages = (files: File[]) => {
     if (busy || sending) return
     const available = 10 - imagesRef.current.length
-    if (files.length > available) toast.info('每次最多附加 10 张图片')
+    if (files.length > available) toast.info(t('每次最多附加 10 张图片'))
     for (const file of files.slice(0, available)) {
       const key = crypto.randomUUID()
       updateImages([...imagesRef.current, { key }])
@@ -162,17 +163,17 @@ export function Composer({
               {item.attachment ? (
                 <img
                   src={item.attachment.url}
-                  alt={`待发送图片 ${index + 1}`}
+                  alt={t('待发送图片 {index}', { index: index + 1 })}
                   className="h-20 max-w-32 rounded object-contain"
                 />
               ) : (
                 <span role="status" className="block p-4 text-sm">
-                  上传中…
+                  {t('上传中…')}
                 </span>
               )}
               <button
                 type="button"
-                aria-label={`移除图片 ${index + 1}`}
+                aria-label={t('移除图片 {index}', { index: index + 1 })}
                 onClick={() => updateImages(imagesRef.current.filter((image) => image.key !== item.key))}
                 className="absolute top-0 right-0 rounded bg-zinc-900 px-1 text-white"
               >
@@ -195,37 +196,37 @@ export function Composer({
                 closeMenu()
                 fileRef.current?.click()
               }}
-              label={images.length >= 10 ? '附加图片（最多 10 张）' : '附加图片'}
+              label={images.length >= 10 ? t('附加图片（最多 10 张）') : t('附加图片')}
               disabled={sending || images.length >= 10}
             />
             <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
             <MenuButton
               onClick={() => trigger()}
-              label={group ? '按发言顺序让角色接着说' : '让角色接着说'}
+              label={group ? t('按发言顺序让角色接着说') : t('让角色接着说')}
               disabled={busy}
             />
             {group && (
               <>
-                <div className="px-3 pt-2 pb-1 text-xs text-zinc-400">点名发言</div>
+                <div className="px-3 pt-2 pb-1 text-xs text-zinc-400">{t('点名发言')}</div>
                 {group.members.map((m) => (
                   <MenuButton
                     key={m.characterId}
                     onClick={() => trigger(m.characterId)}
-                    label={`让 ${m.name} 说`}
+                    label={t('让 {name} 说', { name: m.name })}
                     disabled={busy}
                   />
                 ))}
                 <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
               </>
             )}
-            <MenuButton onClick={continueLast} label="续写最后一条回复" disabled={busy || !canContinue} />
-            <MenuButton onClick={impersonate} label="代写（AI 替我写一条）" disabled={busy} />
+            <MenuButton onClick={continueLast} label={t('续写最后一条回复')} disabled={busy || !canContinue} />
+            <MenuButton onClick={impersonate} label={t('代写（AI 替我写一条）')} disabled={busy} />
             <MenuButton
               onClick={() => {
                 closeMenu()
                 useChatOps.getState().startSelect(chatId)
               }}
-              label="选择消息（批量不发给模型）"
+              label={t('选择消息（批量不发给模型）')}
             />
             <Slot name="chat.composer.menu" props={{ chatId, setText, close: closeMenu }} />
             {/* 原来顶部标题栏里的按钮：会话设置、Prompt 预览、扩展加的按钮 */}
@@ -236,7 +237,7 @@ export function Composer({
                   closeMenu()
                   setVnMode(chatId, inVn ? 'chat' : 'vn')
                 }}
-                label={inVn ? '切到聊天视图' : '切到 VN 视图'}
+                label={inVn ? t('切到聊天视图') : t('切到 VN 视图')}
               />
             )}
             <MenuButton
@@ -244,14 +245,14 @@ export function Composer({
                 closeMenu()
                 togglePanel('settings')
               }}
-              label="会话设置"
+              label={t('会话设置')}
             />
             <MenuButton
               onClick={() => {
                 closeMenu()
                 togglePanel('preview')
               }}
-              label="Prompt 预览"
+              label={t('Prompt 预览')}
             />
             <div className="flex flex-wrap gap-1 px-2 empty:hidden">
               <Slot name="chat.header.actions" props={{ chatId }} />
@@ -288,12 +289,12 @@ export function Composer({
               addImages(files)
             }
           }}
-          placeholder={stopImpersonate ? '代写中…' : mobile ? '说点什么…' : '说点什么…（Shift+Enter 换行）'}
+          placeholder={stopImpersonate ? t('代写中…') : mobile ? t('说点什么…') : t('说点什么…（Shift+Enter 换行）')}
           className="max-h-[200px] min-w-0 flex-1 resize-none bg-transparent py-1 text-[15px] outline-none placeholder:text-zinc-400"
         />
         {busy ? (
           <IconButton
-            label="停止"
+            label={t('停止')}
             onClick={() =>
               stopImpersonate ? stopImpersonate() : api.abort(chatId).catch((e) => toast.error(errorMessage(e)))
             }
@@ -303,7 +304,7 @@ export function Composer({
           </IconButton>
         ) : (
           <IconButton
-            label="发送"
+            label={t('发送')}
             disabled={sending || images.some((item) => !item.attachment)}
             onClick={send}
             className="bg-violet-600 text-white hover:bg-violet-500 hover:text-white dark:text-white"

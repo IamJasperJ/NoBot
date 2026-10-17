@@ -15,6 +15,7 @@ import { type Context, Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import { HttpError } from '../errors'
+import { t } from '../i18n'
 import { validate } from '../lib/validate'
 import * as bookmarks from '../services/bookmarks'
 import * as chats from '../services/chats'
@@ -80,7 +81,7 @@ export const chatRoutes = new Hono()
   .get('/:id/stage', validate('query', z.object({ before: z.string() })), (c) => {
     const chatId = c.req.param('id')
     const message = chats.loadMessage(c.req.valid('query').before)
-    if (message.chatId !== chatId) throw new HttpError(404, 'NOT_FOUND', '消息不在这个会话里')
+    if (message.chatId !== chatId) throw new HttpError(404, 'NOT_FOUND', t('消息不在这个会话里'))
     return c.json({ stage: computeStage(chatId, chats.loadPath(message.parentId)) })
   })
   .patch('/:id', validate('json', updateChatInput), (c) =>
@@ -142,7 +143,7 @@ export const chatRoutes = new Hono()
   /** 刷新页面后重新接上正在进行的生成 */
   .get('/:id/stream', (c) => {
     const job = generation.getJob(c.req.param('id'))
-    if (!job) throw new HttpError(404, 'NO_JOB', '当前没有正在进行的生成')
+    if (!job) throw new HttpError(404, 'NO_JOB', t('当前没有正在进行的生成'))
     return streamJob(c, job)
   })
   .post('/:id/abort', (c) => {

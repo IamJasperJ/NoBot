@@ -1,5 +1,6 @@
 import { HttpError } from '../errors'
 import type { ExtensionHost } from '../extensions/types'
+import { t } from '../i18n'
 import { buildRequestBody, chatCompletion } from '../llm/openai'
 import { redactImages, resolveImages } from './attachments'
 import { getApiPresetRow } from './connections'
@@ -27,7 +28,7 @@ async function requestCompletion(
   try {
     const ctx = loadGenerationContext(opts.chatId, { requireConnection: !opts.connectionId })
     const connection = opts.connectionId ? getApiPresetRow(opts.connectionId) : ctx.connection
-    if (!connection) throw new HttpError(400, 'NO_CONNECTION', '没有可用的模型连接')
+    if (!connection) throw new HttpError(400, 'NO_CONNECTION', t('没有可用的模型连接'))
     model = opts.model || connection.model
     const prompt =
       'messages' in opts
@@ -70,7 +71,7 @@ async function requestCompletion(
     delete body.tool_choice
     if (opts.maxTokens !== undefined) body.max_tokens = opts.maxTokens
     request = avatar
-      ? { ...redactImages(body, images), messages: '[头像外貌提炼，图片数据已隐藏]' }
+      ? { ...redactImages(body, images), messages: t('[头像外貌提炼，图片数据已隐藏]') }
       : redactImages(body, images)
     let text = ''
     for await (const chunk of chatCompletion({

@@ -3,6 +3,7 @@ import { useId, useMemo, useState } from 'react'
 import { DenseRow, denseSelectClass, TextAreaField } from '../../components/form'
 import { EditIcon, PlusIcon, TrashIcon } from '../../components/icons'
 import { Button, cx, Dialog, IconButton, inputClass } from '../../components/ui'
+import { t } from '../../i18n'
 import type { ClientExtensionAPI } from '../types'
 
 /**
@@ -27,9 +28,9 @@ interface Style {
   negativePrompt: string
 }
 
-const BUILTIN_WORKFLOWS = [
-  { value: '', label: '内置默认' },
-  { value: 'avatar', label: '角色头像图生图' },
+const BUILTIN_WORKFLOWS = () => [
+  { value: '', label: t('内置默认') },
+  { value: 'avatar', label: t('角色头像图生图') },
 ]
 
 /** 内置占位符，顺序和酒馆一致 */
@@ -66,8 +67,8 @@ export function inspectWorkflow(json: string, custom: Placeholder[]) {
         const before = json.slice(0, position)
         const line = before.split('\n').length
         const column = position - before.lastIndexOf('\n')
-        error = `JSON 格式错误：第 ${line} 行第 ${column} 列附近`
-      } else error = `JSON 格式错误：${message}`
+        error = t('JSON 格式错误：第 {line} 行第 {column} 列附近', { line, column })
+      } else error = t('JSON 格式错误：{message}', { message })
     }
   }
   const used = (name: string) => json.includes(`"%${name}%"`)
@@ -88,7 +89,7 @@ function PlaceholderRow({ name, used }: { name: string; used: boolean }) {
     <li className="flex items-center gap-2 font-mono text-xs">
       <span
         role="img"
-        aria-label={used ? '已使用' : '未使用'}
+        aria-label={used ? t('已使用') : t('未使用')}
         className={cx(
           'flex size-4 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white',
           used ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600',
@@ -117,33 +118,39 @@ function WorkflowEditor({
   const [custom, setCustom] = useState<Placeholder[]>(placeholders)
   const inspection = useMemo(() => inspectWorkflow(json, custom), [json, custom])
   return (
-    <Dialog open onClose={onClose} title={`编辑工作流：${workflow.name}`} className="w-[min(1100px,calc(100vw-32px))]">
+    <Dialog
+      open
+      onClose={onClose}
+      title={t('编辑工作流：{name}', { name: workflow.name })}
+      className="w-[min(1100px,calc(100vw-32px))]"
+    >
       <div className="flex flex-col gap-4 md:flex-row">
         <div className="min-w-0 flex-1 space-y-1.5">
-          <span className="block text-[13px] font-medium">工作流（API 格式 JSON）</span>
+          <span className="block text-[13px] font-medium">{t('工作流（API 格式 JSON）')}</span>
           <textarea
-            aria-label="工作流 JSON"
+            aria-label={t('工作流 JSON')}
             spellCheck={false}
             wrap="off"
             className={cx(
               inputClass,
               'h-[55vh] resize-none overflow-auto font-mono text-xs leading-relaxed whitespace-pre',
             )}
-            placeholder={
-              '在 ComfyUI 里用「导出（API）」得到的 JSON 粘贴到这里，\n把要替换的值改成占位符，例如 "text": "%prompt%"'
-            }
+            placeholder={t(
+              '在 ComfyUI 里用「导出（API）」得到的 JSON 粘贴到这里，{newline}把要替换的值改成占位符，例如 "text": "%prompt%"',
+              { newline: '\n' },
+            )}
             value={json}
             onChange={(e) => setJson(e.target.value)}
           />
           {inspection.error ? (
             <p className="text-xs text-red-600">{inspection.error}</p>
           ) : (
-            <p className="text-xs text-zinc-500">占位符要带双引号，数字也一样，例如 "steps": "%steps%"</p>
+            <p className="text-xs text-zinc-500">{t('占位符要带双引号，数字也一样，例如 "steps": "%steps%"')}</p>
           )}
         </div>
         <aside className="w-full shrink-0 space-y-3 md:w-60">
           <div>
-            <h3 className="mb-2 text-[13px] font-medium">占位符</h3>
+            <h3 className="mb-2 text-[13px] font-medium">{t('占位符')}</h3>
             <ul className="space-y-1">
               {inspection.builtin.map((item) => (
                 <PlaceholderRow key={item.name} {...item} />
@@ -151,7 +158,7 @@ function WorkflowEditor({
             </ul>
           </div>
           <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800">
-            <h3 className="mb-2 text-[13px] font-medium">自定义占位符</h3>
+            <h3 className="mb-2 text-[13px] font-medium">{t('自定义占位符')}</h3>
             <div className="space-y-2">
               {custom.map((item, index) => {
                 const status = inspection.custom.find((c) => c.name === item.find.trim().replace(/^%|%$/g, ''))
@@ -162,11 +169,11 @@ function WorkflowEditor({
                         'size-2 shrink-0 rounded-full',
                         status?.used ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600',
                       )}
-                      title={status?.used ? '已使用' : '未使用'}
+                      title={status?.used ? t('已使用') : t('未使用')}
                     />
                     <input
-                      aria-label="查找"
-                      placeholder="名称"
+                      aria-label={t('查找')}
+                      placeholder={t('名称')}
                       className={cx(inputClass, 'h-8 w-20 px-2 py-0 font-mono text-xs')}
                       value={item.find}
                       onChange={(e) =>
@@ -174,8 +181,8 @@ function WorkflowEditor({
                       }
                     />
                     <input
-                      aria-label="替换"
-                      placeholder="替换为（支持 {{char}}）"
+                      aria-label={t('替换')}
+                      placeholder={t('替换为（支持 {{char}}）')}
                       className={cx(inputClass, 'h-8 min-w-0 flex-1 px-2 py-0 text-xs')}
                       value={item.replace}
                       onChange={(e) =>
@@ -184,7 +191,7 @@ function WorkflowEditor({
                     />
                     <IconButton
                       variant="danger"
-                      label="删除占位符"
+                      label={t('删除占位符')}
                       onClick={() => setCustom(custom.filter((_, i) => i !== index))}
                     >
                       <TrashIcon />
@@ -194,17 +201,17 @@ function WorkflowEditor({
               })}
               <Button size="sm" variant="ghost" onClick={() => setCustom([...custom, { find: '', replace: '' }])}>
                 <PlusIcon />
-                添加
+                {t('添加')}
               </Button>
             </div>
           </div>
         </aside>
       </div>
       <div className="mt-5 flex items-center justify-end gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-        <span className="mr-auto text-xs text-zinc-500">确定后还要点右上角「保存」才会写入设置</span>
-        <Button onClick={onClose}>取消</Button>
+        <span className="mr-auto text-xs text-zinc-500">{t('确定后还要点右上角「保存」才会写入设置')}</span>
+        <Button onClick={onClose}>{t('取消')}</Button>
         <Button variant="primary" disabled={!!inspection.error} onClick={() => onSave(json, custom)}>
-          确定
+          {t('确定')}
         </Button>
       </div>
     </Dialog>
@@ -243,14 +250,14 @@ export function WorkflowField({
   const placeholders = listOf<Placeholder>(settings.comfyCustomPlaceholders)
   const current = typeof settings.comfyWorkflowName === 'string' ? settings.comfyWorkflowName : ''
   const custom = workflows.find((w) => w.name === current)
-  const builtin = BUILTIN_WORKFLOWS.some((w) => w.value === current)
+  const builtin = BUILTIN_WORKFLOWS().some((w) => w.value === current)
   const [editing, setEditing] = useState<Workflow | null>(null)
   const update = (patch: Settings) => onSettingsChange({ ...settings, ...patch })
   const askName = (initial: string) => {
-    const name = prompt('工作流名称', initial)?.trim()
+    const name = prompt(t('工作流名称'), initial)?.trim()
     if (!name) return null
-    if (workflows.some((w) => w.name === name) || BUILTIN_WORKFLOWS.some((w) => w.label === name)) {
-      alert(`已经有名为「${name}」的工作流`)
+    if (workflows.some((w) => w.name === name) || BUILTIN_WORKFLOWS().some((w) => w.label === name)) {
+      alert(t('已经有名为「{name}」的工作流', { name }))
       return null
     }
     return name
@@ -258,7 +265,7 @@ export function WorkflowField({
   const inspection = custom ? inspectWorkflow(custom.json, placeholders) : null
   return (
     <div>
-      <DenseRow id={id} label="工作流" hint={hint} disabled={disabled}>
+      <DenseRow id={id} label={t('工作流')} hint={hint} disabled={disabled}>
         <select
           id={id}
           className={cx(denseSelectClass, 'min-w-0 flex-1')}
@@ -266,13 +273,13 @@ export function WorkflowField({
           disabled={disabled}
           onChange={(e) => update({ comfyWorkflowName: e.target.value })}
         >
-          {BUILTIN_WORKFLOWS.map((w) => (
+          {BUILTIN_WORKFLOWS().map((w) => (
             <option key={w.value} value={w.value}>
               {w.label}
             </option>
           ))}
           {workflows.length > 0 && (
-            <optgroup label="自定义">
+            <optgroup label={t('自定义')}>
               {workflows.map((w) => (
                 <option key={w.name} value={w.name}>
                   {w.name}
@@ -280,12 +287,12 @@ export function WorkflowField({
               ))}
             </optgroup>
           )}
-          {!builtin && !custom && <option value={current}>{current}（不存在）</option>}
+          {!builtin && !custom && <option value={current}>{t('{name}（不存在）', { name: current })}</option>}
         </select>
         <IconButton
           variant="outline"
           className="size-8"
-          label={builtin ? '内置工作流不能编辑，可以新建一个自定义工作流' : '编辑工作流'}
+          label={builtin ? t('内置工作流不能编辑，可以新建一个自定义工作流') : t('编辑工作流')}
           disabled={disabled || !custom}
           onClick={() => custom && setEditing(custom)}
         >
@@ -294,7 +301,7 @@ export function WorkflowField({
         <IconButton
           variant="outline"
           className="size-8"
-          label="新建工作流"
+          label={t('新建工作流')}
           disabled={disabled}
           onClick={() => {
             const name = askName('')
@@ -309,7 +316,7 @@ export function WorkflowField({
         <IconButton
           variant="outline"
           className="size-8"
-          label="重命名工作流"
+          label={t('重命名工作流')}
           disabled={disabled || !custom}
           onClick={() => {
             if (!custom) return
@@ -326,10 +333,10 @@ export function WorkflowField({
         <IconButton
           variant="outline"
           className="size-8"
-          label="删除工作流"
+          label={t('删除工作流')}
           disabled={disabled || !custom}
           onClick={() => {
-            if (!custom || !confirm(`删除工作流「${custom.name}」？`)) return
+            if (!custom || !confirm(t('删除工作流「{name}」？', { name: custom.name }))) return
             update({ comfyWorkflows: workflows.filter((w) => w.name !== custom.name), comfyWorkflowName: '' })
           }}
         >
@@ -342,16 +349,16 @@ export function WorkflowField({
             <span className="text-red-600">{inspection.error}</span>
           ) : custom?.json.trim() ? (
             <>
-              用到的占位符：
+              {t('用到的占位符：')}
               <span className="font-mono">
                 {inspection.builtin
                   .filter((p) => p.used)
                   .map((p) => p.name)
-                  .join('、') || '无'}
+                  .join('、') || t('无')}
               </span>
             </>
           ) : (
-            <span className="text-amber-600">这个工作流还是空的，点左边的编辑按钮粘贴 JSON</span>
+            <span className="text-amber-600">{t('这个工作流还是空的，点左边的编辑按钮粘贴 JSON')}</span>
           )}
         </p>
       )}
@@ -399,17 +406,17 @@ export function StyleField({
   const editStyle = (patch: Partial<Style>) =>
     update({ styles: styles.map((s, i) => (i === index ? { ...s, ...patch } : s)) })
   const askName = (initial: string) => {
-    const name = prompt('风格名称', initial)?.trim()
+    const name = prompt(t('风格名称'), initial)?.trim()
     if (!name) return null
     if (styles.some((s) => s.name === name)) {
-      alert(`已经有名为「${name}」的风格`)
+      alert(t('已经有名为「{name}」的风格', { name }))
       return null
     }
     return name
   }
   return (
     <div className="space-y-1">
-      <DenseRow id={id} label="风格" hint={hint} disabled={disabled}>
+      <DenseRow id={id} label={t('风格')} hint={hint} disabled={disabled}>
         <select
           id={id}
           className={cx(denseSelectClass, 'min-w-0 flex-1')}
@@ -422,15 +429,15 @@ export function StyleField({
               {s.name}
             </option>
           ))}
-          {!styles.length && <option value="">（还没有风格）</option>}
+          {!styles.length && <option value="">{t('（还没有风格）')}</option>}
         </select>
         <IconButton
           variant="outline"
           className="size-8"
-          label="以当前内容新建风格"
+          label={t('以当前内容新建风格')}
           disabled={disabled}
           onClick={() => {
-            const name = askName(style ? `${style.name} 副本` : '新风格')
+            const name = askName(style ? t('{name} 副本', { name: style.name }) : t('新风格'))
             if (!name) return
             const created: Style = {
               name,
@@ -446,7 +453,7 @@ export function StyleField({
         <IconButton
           variant="outline"
           className="size-8"
-          label="重命名风格"
+          label={t('重命名风格')}
           disabled={disabled || !style}
           onClick={() => {
             if (!style) return
@@ -459,10 +466,10 @@ export function StyleField({
         <IconButton
           variant="outline"
           className="size-8"
-          label="删除风格"
+          label={t('删除风格')}
           disabled={disabled || !style || styles.length <= 1}
           onClick={() => {
-            if (!style || !confirm(`删除风格「${style.name}」？`)) return
+            if (!style || !confirm(t('删除风格「{name}」？', { name: style.name }))) return
             const rest = styles.filter((_, i) => i !== index)
             update({ styles: rest, activeStyle: rest[0]?.name ?? '' })
           }}
@@ -473,8 +480,8 @@ export function StyleField({
       {style && (
         <>
           <TextAreaField
-            label="正向前缀"
-            hint="每次生成都加在最前面，常用于画风和质量词；可以写 {prompt} 指定生成提示词的插入位置"
+            label={t('正向前缀')}
+            hint={t('每次生成都加在最前面，常用于画风和质量词；可以写 {prompt} 指定生成提示词的插入位置')}
             rows={3}
             mono
             disabled={disabled}
@@ -482,7 +489,7 @@ export function StyleField({
             onChange={(promptPrefix) => editStyle({ promptPrefix })}
           />
           <TextAreaField
-            label="负面提示词"
+            label={t('负面提示词')}
             rows={4}
             mono
             disabled={disabled}
@@ -490,8 +497,8 @@ export function StyleField({
             onChange={(negativePrompt) => editStyle({ negativePrompt })}
           />
           <TextAreaField
-            label="正向后缀"
-            hint="加在生成提示词之后"
+            label={t('正向后缀')}
+            hint={t('加在生成提示词之后')}
             rows={2}
             mono
             disabled={disabled}
@@ -520,7 +527,7 @@ export async function postDraft(
   try {
     data = raw ? JSON.parse(raw) : {}
   } catch {
-    throw new Error(`HTTP ${response.status}：返回的不是 JSON`)
+    throw new Error(t('HTTP {status}：返回的不是 JSON', { status: response.status }))
   }
   if (!response.ok) throw new Error(data.error?.message ?? `HTTP ${response.status}`)
   return data
@@ -539,10 +546,10 @@ export function SettingsFooter({ api, settings }: { api: ClientExtensionAPI; set
         path === 'test'
           ? {
               ok: true,
-              text: `生成成功，用时 ${((data.durationMs ?? 0) / 1000).toFixed(1)} 秒`,
+              text: t('生成成功，用时 {seconds} 秒', { seconds: ((data.durationMs ?? 0) / 1000).toFixed(1) }),
               ...(data.image ? { image: data.image } : {}),
             }
-          : { ok: true, text: '连接成功' },
+          : { ok: true, text: t('连接成功') },
       )
     } catch (error) {
       setResult({ ok: false, text: error instanceof Error ? error.message : String(error) })
@@ -553,20 +560,24 @@ export function SettingsFooter({ api, settings }: { api: ClientExtensionAPI; set
   return (
     <div className="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="mr-auto text-sm font-semibold">测试</span>
+        <span className="mr-auto text-sm font-semibold">{t('测试')}</span>
         <Button size="sm" disabled={!!busy} onClick={() => void call('test-connection')}>
-          {busy === 'connect' ? '连接中…' : '测试连接'}
+          {busy === 'connect' ? t('连接中…') : t('测试连接')}
         </Button>
         <Button size="sm" variant="primary" disabled={!!busy} onClick={() => void call('test')}>
-          {busy === 'test' ? '生成中…' : '测试生成'}
+          {busy === 'test' ? t('生成中…') : t('测试生成')}
         </Button>
       </div>
-      <p className="text-xs text-zinc-500">使用当前表单里的设置（未保存的修改也会生效），不会插入任何会话</p>
+      <p className="text-xs text-zinc-500">{t('使用当前表单里的设置（未保存的修改也会生效），不会插入任何会话')}</p>
       {result && (
         <div className={cx('text-sm', result.ok ? 'text-emerald-600' : 'text-red-600')}>
           {result.text}
           {result.image && (
-            <img src={result.image.url} alt="测试生成的图片" className="mt-2 max-h-48 rounded-lg ring-1 ring-black/5" />
+            <img
+              src={result.image.url}
+              alt={t('测试生成的图片')}
+              className="mt-2 max-h-48 rounded-lg ring-1 ring-black/5"
+            />
           )}
         </div>
       )}

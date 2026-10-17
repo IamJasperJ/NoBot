@@ -11,10 +11,11 @@ import { asc, desc, eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { type LorebookEntryRow, type LorebookRow, lorebookEntries, lorebooks } from '../db/schema'
 import { HttpError, notFound } from '../errors'
+import { t } from '../i18n'
 
 function getRow(id: string) {
   const row = db.select().from(lorebooks).where(eq(lorebooks.id, id)).get()
-  if (!row) throw notFound('世界书')
+  if (!row) throw notFound(t('世界书'))
   return row
 }
 function rows(id: string) {
@@ -40,7 +41,7 @@ function entryDTO(row: LorebookEntryRow): LorebookEntryDTO {
 }
 function entryRow(id: string) {
   const row = db.select().from(lorebookEntries).where(eq(lorebookEntries.id, id)).get()
-  if (!row) throw notFound('世界书条目')
+  if (!row) throw notFound(t('世界书条目'))
   return row
 }
 function touch(id: string) {
@@ -124,7 +125,7 @@ export function reorderEntries(id: string, ids: string[]) {
       new Set(ids).size !== ids.length ||
       ids.some((id) => !entries.some((row) => row.id === id))
     ) {
-      throw new HttpError(400, 'BAD_REQUEST', '排序必须包含本世界书全部条目，且不能重复')
+      throw new HttpError(400, 'BAD_REQUEST', t('排序必须包含本世界书全部条目，且不能重复'))
     }
     ids.forEach((id, sort) => {
       db.update(lorebookEntries).set({ sort }).where(eq(lorebookEntries.id, id)).run()
@@ -136,7 +137,9 @@ export function importLorebook(bytes: Uint8Array, fileName: string): LorebookDTO
   try {
     const imported = importSTWorldInfo(JSON.parse(new TextDecoder().decode(bytes)))
     return db.transaction(() => {
-      const book = createLorebook({ name: imported.name?.trim() || fileName.replace(/\.[^.]+$/, '') || '导入世界书' })
+      const book = createLorebook({
+        name: imported.name?.trim() || fileName.replace(/\.[^.]+$/, '') || t('导入世界书'),
+      })
       imported.entries.forEach((entry) => {
         createEntry(book.id, entry)
       })
@@ -144,7 +147,7 @@ export function importLorebook(bytes: Uint8Array, fileName: string): LorebookDTO
     })
   } catch (error) {
     if (error instanceof SyntaxError || error instanceof STFormatError)
-      throw new HttpError(400, 'BAD_LOREBOOK', '无法解析世界书文件')
+      throw new HttpError(400, 'BAD_LOREBOOK', t('无法解析世界书文件'))
     throw error
   }
 }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HttpError } from '../errors'
+import { t } from '../i18n'
 import { readUpload } from '../lib/files'
 import { saveAttachment } from '../services/attachments'
 
@@ -10,7 +11,7 @@ export const attachmentRoutes = new Hono().post(
   bodyLimit({
     maxSize: 11 * 1024 * 1024,
     onError: () => {
-      throw new HttpError(400, 'TOO_LARGE', '文件太大（上限 10MB）')
+      throw new HttpError(400, 'TOO_LARGE', t('文件太大（上限 10MB）'))
     },
   }),
   async (c) => c.json(await saveAttachment(await readUpload(await c.req.parseBody(), 'file', 10))),

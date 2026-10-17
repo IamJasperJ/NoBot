@@ -146,7 +146,7 @@ export function postprocess(pieces: Piece[], behavior: PresetBehavior): ChatMess
     if (mode === 'strict') {
       const first = work.findIndex((piece) => piece.message.role !== 'system')
       if (first >= 0 && work[first]!.message.role !== 'user') {
-        work.splice(first, 0, { source: 'start', label: '开始提示', message: { role: 'user', content: '[开始]' } })
+        work.splice(first, 0, { source: 'start', label: '开始提示', message: { role: 'user', content: '[Start]' } })
       }
     }
   }

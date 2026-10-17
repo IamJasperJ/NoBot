@@ -27,7 +27,8 @@ import sharp from 'sharp'
 import { db, newId } from '../db/client'
 import { type CharacterRow, characterLorebooks, characters, lorebooks, personas } from '../db/schema'
 import { paths } from '../env'
-import { HttpError, notFound } from '../errors'
+import { cardParseMessage, HttpError, notFound } from '../errors'
+import { t } from '../i18n'
 import { readCharx } from '../lib/charx'
 import { avatarUrl, deleteAvatar, readAvatar, saveAvatar } from '../lib/files'
 import { createEntry, createLorebook, getLorebookWithEntries } from './lorebooks'
@@ -83,7 +84,7 @@ function fromFields(fields: CharacterFields) {
 }
 export function getCharacterRow(id: string): CharacterRow {
   const row = db.select().from(characters).where(eq(characters.id, id)).get()
-  if (!row) throw notFound('角色')
+  if (!row) throw notFound(t('角色'))
   return row
 }
 export function getCharacter(id: string): CharacterDTO {
@@ -113,9 +114,11 @@ export function listCharacters(): CharacterSummary[] {
   return db.select().from(characters).orderBy(desc(characters.updatedAt), desc(characters.id)).all().map(toSummary)
 }
 function checkRelations(bookIds: string[], personaId: string | null) {
-  if (new Set(bookIds).size !== bookIds.length) throw new HttpError(400, 'VALIDATION', '关联世界书不能重复')
-  for (const id of bookIds) if (!db.select().from(lorebooks).where(eq(lorebooks.id, id)).get()) throw notFound('世界书')
-  if (personaId !== null && !db.select().from(personas).where(eq(personas.id, personaId)).get()) throw notFound('人设')
+  if (new Set(bookIds).size !== bookIds.length) throw new HttpError(400, 'VALIDATION', t('关联世界书不能重复'))
+  for (const id of bookIds)
+    if (!db.select().from(lorebooks).where(eq(lorebooks.id, id)).get()) throw notFound(t('世界书'))
+  if (personaId !== null && !db.select().from(personas).where(eq(personas.id, personaId)).get())
+    throw notFound(t('人设'))
 }
 function replaceBooks(id: string, ids: string[]) {
   db.delete(characterLorebooks).where(eq(characterLorebooks.characterId, id)).run()
@@ -203,7 +206,7 @@ function parseImport(bytes: Uint8Array, includeBook = true) {
     book = includeBook && card.characterBook ? importSTWorldInfo(card.characterBook) : null
   } catch (error) {
     if (error instanceof CardParseError || error instanceof STFormatError)
-      throw new HttpError(400, 'BAD_CARD', `角色卡无法导入：${error.message}`)
+      throw new HttpError(400, 'BAD_CARD', t('角色卡无法导入：{error}', { error: cardParseMessage(error.message) }))
     throw error
   }
   return { card, book, charx }
@@ -216,7 +219,7 @@ export function previewCharacterImport(bytes: Uint8Array): CharacterImportPrevie
     spec: card.spec,
     hasAvatar: isPng(bytes) || !!charx?.avatar,
     lorebook: book
-      ? { name: book.name?.trim() || `${card.fields.name} 的世界书`, entryCount: book.entries.length }
+      ? { name: book.name?.trim() || t('{name} 的世界书', { name: card.fields.name }), entryCount: book.entries.length }
       : null,
   }
 }
@@ -233,7 +236,7 @@ export async function importCharacter(
     const imported = db.transaction(() => {
       const lorebookIds: string[] = []
       if (book) {
-        const created = createLorebook({ name: book.name?.trim() || `${card.fields.name} 的世界书` })
+        const created = createLorebook({ name: book.name?.trim() || t('{name} 的世界书', { name: card.fields.name }) })
         book.entries.forEach((entry) => {
           createEntry(created.id, entry)
         })
@@ -297,7 +300,7 @@ export async function setCharacterAvatar(id: string, bytes: Uint8Array): Promise
 export async function duplicateCharacter(id: string): Promise<CharacterDTO> {
   const row = getCharacterRow(id)
   const source = getCharacter(id)
-  const copy = createCharacter({ ...source, name: `${source.name} 副本` })
+  const copy = createCharacter({ ...source, name: t('{name} 副本', { name: source.name }) })
   try {
     if (row.avatarFile)
       await setCharacterAvatar(copy.id, new Uint8Array(await readAvatar(row.avatarFile).arrayBuffer()))

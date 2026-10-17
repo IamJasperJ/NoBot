@@ -1,20 +1,22 @@
 import type { AttachmentDTO, CharacterDTO, CharacterSummary, ChatPage, MessageDTO } from '@ai-parter/shared'
 import { createPortal } from 'react-dom'
 import { ImagePromptDialog } from '../../features/chat/ImagePromptDialog'
+import { t } from '../../i18n'
 import type { ClientExtensionAPI } from '../types'
 import { SettingsFooter, StyleField, WorkflowField } from './imageGenSettings'
 
-export const imageModes = [
-  ['character', '角色（全身）'],
-  ['face', '角色（脸部特写）'],
-  ['user', '用户（人设）'],
-  ['scene', '当前场景'],
-  ['last', '最后一条消息'],
-  ['message', '指定消息'],
-  ['raw_last', '最后一条消息原文'],
-  ['background', '背景'],
-  ['free', '自由描述…'],
-] as const
+export const imageModes = () =>
+  [
+    ['character', t('角色（全身）')],
+    ['face', t('角色（脸部特写）')],
+    ['user', t('用户（人设）')],
+    ['scene', t('当前场景')],
+    ['last', t('最后一条消息')],
+    ['message', t('指定消息')],
+    ['raw_last', t('最后一条消息原文')],
+    ['background', t('背景')],
+    ['free', t('自由描述…')],
+  ] as const
 const buttonClass = 'rounded px-3 py-1.5 text-left text-sm hover:bg-zinc-500/10 disabled:opacity-50'
 interface Preview {
   snapshotId: string
@@ -46,7 +48,7 @@ export default function activate(api: ClientExtensionAPI) {
         : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
     )
     const data = await response.json()
-    if (!response.ok) throw new Error(data.error?.message ?? `图片接口 HTTP ${response.status}`)
+    if (!response.ok) throw new Error(data.error?.message ?? t('图片接口 HTTP {status}', { status: response.status }))
     return data as {
       message?: MessageDTO
       background?: unknown
@@ -77,11 +79,11 @@ export default function activate(api: ClientExtensionAPI) {
     for (const listener of listeners) listener()
   }
   async function generate(chatId: string, mode: string, extra: Record<string, unknown> = {}) {
-    const name = imageModes.find(([key]) => key === mode)?.[1] ?? mode
+    const name = imageModes().find(([key]) => key === mode)?.[1] ?? mode
     countRequest(chatId, 1)
     try {
       const settings = await api.getSettings()
-      if (settings.async === false || mode === 'background') api.toast.info(`正在生成：${name}…`)
+      if (settings.async === false || mode === 'background') api.toast.info(t('正在生成：{name}…', { name }))
       let confirmed: Record<string, unknown> = {}
       if (settings.editBeforeGenerate === true) {
         const response = await api.fetchServer('prompt', {
@@ -90,7 +92,7 @@ export default function activate(api: ClientExtensionAPI) {
           body: JSON.stringify({ chatId, mode, ...extra }),
         })
         const preview = (await response.json()) as Preview & { error?: { message: string } }
-        if (!response.ok) throw new Error(preview.error?.message ?? '提示词预览失败')
+        if (!response.ok) throw new Error(preview.error?.message ?? t('提示词预览失败'))
         const id = preview.snapshotId
         const edited = await new Promise<{ prompt: string; negative: string } | null>((resolve) => {
           reviews.set(id, { chatId, preview, resolve })
@@ -102,10 +104,10 @@ export default function activate(api: ClientExtensionAPI) {
         confirmed = { ...edited, snapshotId: id }
       }
       const data = await request('generate', { chatId, mode, ...extra, ...confirmed })
-      if (data.background) api.toast.info('已生成背景并设为聊天背景')
+      if (data.background) api.toast.info(t('已生成背景并设为聊天背景'))
       await refresh(chatId, !!data.background)
     } catch (error) {
-      api.toast.error(`${name}生成失败：${errorText(error)}`)
+      api.toast.error(t('{name}生成失败：{error}', { name, error: errorText(error) }))
     } finally {
       countRequest(chatId, -1)
     }
@@ -185,8 +187,8 @@ export default function activate(api: ClientExtensionAPI) {
         'button',
         {
           type: 'button',
-          title: '生成图片',
-          'aria-label': '生成图片',
+          title: t('生成图片'),
+          'aria-label': t('生成图片'),
           'aria-expanded': open,
           className:
             'relative inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800',
@@ -216,7 +218,7 @@ export default function activate(api: ClientExtensionAPI) {
             {
               className:
                 'absolute -top-1 -right-1 flex min-w-4 h-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] text-white',
-              'aria-label': `进行中的图片任务：${count}`,
+              'aria-label': t('进行中的图片任务：{count}', { count }),
             },
             count,
           ),
@@ -225,8 +227,8 @@ export default function activate(api: ClientExtensionAPI) {
         h(
           'div',
           { className: menuClass },
-          h('div', { className: 'px-3 py-1 text-xs text-zinc-500' }, '生成图片'),
-          ...imageModes
+          h('div', { className: 'px-3 py-1 text-xs text-zinc-500' }, t('生成图片')),
+          ...imageModes()
             .filter(([key]) => key !== 'message')
             .flatMap(([key, name]) => {
               if ((key === 'character' || key === 'face') && members.length)
@@ -242,7 +244,9 @@ export default function activate(api: ClientExtensionAPI) {
                         void generate(chatId, key, { characterId: member.characterId })
                       },
                     },
-                    `画 ${member.name}${key === 'face' ? '（脸部特写）' : '（全身）'}`,
+                    key === 'face'
+                      ? t('画 {name}（脸部特写）', { name: member.name })
+                      : t('画 {name}（全身）', { name: member.name }),
                   ),
                 )
               return [
@@ -266,11 +270,11 @@ export default function activate(api: ClientExtensionAPI) {
       free &&
         h(
           'div',
-          { className: `${menuClass} flex flex-col gap-2 p-2`, role: 'dialog', 'aria-label': '自由描述' },
+          { className: `${menuClass} flex flex-col gap-2 p-2`, role: 'dialog', 'aria-label': t('自由描述') },
           h('input', {
             autoFocus: true,
             className: 'rounded border border-zinc-500/30 bg-transparent px-2 py-1 text-sm',
-            placeholder: '以 ! 开头则直接作为提示词',
+            placeholder: t('以 ! 开头则直接作为提示词'),
             value: input,
             onChange: (event: { target: { value: string } }) => setInput(event.target.value),
             onKeyDown: (event: { key: string; nativeEvent: { isComposing: boolean }; preventDefault: () => void }) => {
@@ -281,14 +285,14 @@ export default function activate(api: ClientExtensionAPI) {
             },
           }),
           h('textarea', {
-            'aria-label': '本次负面提示词',
-            placeholder: '负面提示词（可选）',
+            'aria-label': t('本次负面提示词'),
+            placeholder: t('负面提示词（可选）'),
             value: negative,
             onChange: (event: { target: { value: string } }) => setNegative(event.target.value),
             className: 'rounded border bg-transparent p-2',
           }),
-          h('span', { className: 'text-xs text-zinc-500' }, '以 ! 开头则直接作为提示词'),
-          h('button', { type: 'button', className: buttonClass, disabled: !input.trim(), onClick: submit }, '生成'),
+          h('span', { className: 'text-xs text-zinc-500' }, t('以 ! 开头则直接作为提示词')),
+          h('button', { type: 'button', className: buttonClass, disabled: !input.trim(), onClick: submit }, t('生成')),
         ),
     )
   }
@@ -313,7 +317,7 @@ export default function activate(api: ClientExtensionAPI) {
           messageId: message.id,
           index: message.meta.imageIndex ?? (message.meta.images?.length ?? 1) - 1,
         })
-        api.toast.info('已生成背景并设为聊天背景')
+        api.toast.info(t('已生成背景并设为聊天背景'))
         await refresh(chatId, true)
       } catch (error) {
         api.toast.error(errorText(error))
@@ -349,7 +353,7 @@ export default function activate(api: ClientExtensionAPI) {
             'button',
             { type: 'button', className: mediaButton, disabled: pending, onClick: background },
             icon('M3 5h18v14H3zM3 15l5-5 4 4 3-3 6 6'),
-            '设为聊天背景',
+            t('设为聊天背景'),
           ),
           h(
             'button',
@@ -357,17 +361,17 @@ export default function activate(api: ClientExtensionAPI) {
               type: 'button',
               className: mediaButton,
               disabled: pending,
-              title: '修改这张图的提示词，再生成一张（现有图片保留，可以左右切换）',
+              title: t('修改这张图的提示词，再生成一张（现有图片保留，可以左右切换）'),
               onClick: () => setEditing(true),
             },
             icon('M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'),
-            '修改提示词',
+            t('修改提示词'),
           ),
         ),
       editing &&
         h(ImagePromptDialog, {
           react: R,
-          title: '修改提示词，再生成一张',
+          title: t('修改提示词，再生成一张'),
           review: {
             preview: { prompt: task.prompt ?? '', negative: task.negative ?? '' },
             resolve: (edited: { prompt: string; negative: string } | null) => {
@@ -393,7 +397,7 @@ export default function activate(api: ClientExtensionAPI) {
       setBusy(true)
       try {
         await save({ extensions: { ...character.extensions, sd_character_prompt: { positive, negative } } })
-        api.toast.info('已保存角色图片提示词')
+        api.toast.info(t('已保存角色图片提示词'))
       } catch (error) {
         api.toast.error(errorText(error))
       } finally {
@@ -406,9 +410,9 @@ export default function activate(api: ClientExtensionAPI) {
       h(
         'label',
         null,
-        '角色外貌提示词（英文关键词，会加在生成提示词前面，可以写 LoRA 如 <lora:xxx:0.8>）',
+        t('角色外貌提示词（英文关键词，会加在生成提示词前面，可以写 LoRA 如 <lora:xxx:0.8>）'),
         h('textarea', {
-          'aria-label': '角色外貌提示词',
+          'aria-label': t('角色外貌提示词'),
           className: 'mt-1 w-full rounded border bg-transparent p-2',
           rows: 4,
           value: positive,
@@ -418,16 +422,16 @@ export default function activate(api: ClientExtensionAPI) {
       h(
         'label',
         null,
-        '角色负面提示词',
+        t('角色负面提示词'),
         h('textarea', {
-          'aria-label': '角色负面提示词',
+          'aria-label': t('角色负面提示词'),
           className: 'mt-1 w-full rounded border bg-transparent p-2',
           rows: 3,
           value: negative,
           onChange: (event: { target: { value: string } }) => setNegative(event.target.value),
         }),
       ),
-      h('button', { type: 'button', className: buttonClass, disabled: busy, onClick: submit }, '保存图片提示词'),
+      h('button', { type: 'button', className: buttonClass, disabled: busy, onClick: submit }, t('保存图片提示词')),
     )
   }
   function Gallery() {
@@ -476,10 +480,10 @@ export default function activate(api: ClientExtensionAPI) {
     async function background(item: GalleryImage) {
       try {
         const current = api.getChatId()
-        if (!current) throw new Error('请先打开要设置背景的会话')
+        if (!current) throw new Error(t('请先打开要设置背景的会话'))
         await request('gallery-background', { chatId: current, messageId: item.messageId, imageId: item.image.id })
         await refresh(current, true)
-        api.toast.info('已设为当前聊天背景')
+        api.toast.info(t('已设为当前聊天背景'))
       } catch (error) {
         api.toast.error(errorText(error))
       }
@@ -487,11 +491,11 @@ export default function activate(api: ClientExtensionAPI) {
     return h(
       'div',
       { className: 'space-y-4 p-4' },
-      h('h2', { className: 'text-lg font-semibold' }, '图库'),
+      h('h2', { className: 'text-lg font-semibold' }, t('图库')),
       h(
         'select',
         {
-          'aria-label': '图库角色',
+          'aria-label': t('图库角色'),
           value: characterId,
           className: 'rounded border bg-transparent p-2',
           onChange: (event: { target: { value: string } }) => {
@@ -530,9 +534,9 @@ export default function activate(api: ClientExtensionAPI) {
             className: buttonClass,
             onClick: () => setOffset(Math.max(0, offset - 40)),
           },
-          '上一页',
+          t('上一页'),
         ),
-        h('span', null, `共 ${total} 张`),
+        h('span', null, t('共 {total} 张', { total })),
         h(
           'button',
           {
@@ -541,7 +545,7 @@ export default function activate(api: ClientExtensionAPI) {
             className: buttonClass,
             onClick: () => setOffset(offset + 40),
           },
-          '下一页',
+          t('下一页'),
         ),
       ),
       selected &&
@@ -551,17 +555,21 @@ export default function activate(api: ClientExtensionAPI) {
             'div',
             {
               role: 'dialog',
-              'aria-label': '图片详情',
+              'aria-label': t('图片详情'),
               className: 'fixed inset-0 z-50 overflow-auto bg-black/80 p-6 text-white',
             },
-            h('button', { type: 'button', className: buttonClass, onClick: () => setSelected(undefined) }, '关闭'),
+            h('button', { type: 'button', className: buttonClass, onClick: () => setSelected(undefined) }, t('关闭')),
             h('img', { src: selected.image.url, alt: selected.prompt, className: 'mx-auto max-h-[70vh] max-w-full' }),
             h('p', { className: 'my-4 break-words' }, selected.prompt),
-            h('a', { href: selected.image.url, download: `${selected.image.id}.webp`, className: buttonClass }, '下载'),
+            h(
+              'a',
+              { href: selected.image.url, download: `${selected.image.id}.webp`, className: buttonClass },
+              t('下载'),
+            ),
             h(
               'button',
               { type: 'button', className: buttonClass, onClick: () => background(selected) },
-              '设为聊天背景',
+              t('设为聊天背景'),
             ),
             h(
               'button',
@@ -572,17 +580,26 @@ export default function activate(api: ClientExtensionAPI) {
                   void api.openChat(selected.chatId).catch((error) => api.toast.error(errorText(error)))
                 },
               },
-              '跳到消息所在会话',
+              t('跳到消息所在会话'),
             ),
           ),
           document.body,
         ),
     )
   }
-  api.registerPage({ id: 'gallery', label: '图库', icon: '🖼', render: () => h(Gallery) })
+  api.registerPage({
+    id: 'gallery',
+    get label() {
+      return t('图库')
+    },
+    icon: '🖼',
+    render: () => h(Gallery),
+  })
   api.registerSlot('character.editor.sections', {
     id: 'image-prompts',
-    title: '图片生成',
+    get title() {
+      return t('图片生成')
+    },
     render: (props) => h(CharacterSection, { ...props, key: props.character.id }),
   })
   const unsubscribe = api.on('image:swipe-next', (event) => {
@@ -602,7 +619,7 @@ export default function activate(api: ClientExtensionAPI) {
           className: buttonClass,
           onClick: () => generate(chatId, 'message', { messageId: message.id }),
         },
-        '为这条消息生成图片',
+        t('为这条消息生成图片'),
       ),
   })
   api.registerSlot('chat.message.media', { id: 'media', render: (props) => h(Media, props) })

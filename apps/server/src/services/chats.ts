@@ -27,6 +27,7 @@ import {
 } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { emitServerEvent } from '../extensions/registry'
+import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
 import { deleteBackground, getBackgroundSettings, requireBackground } from './backgrounds'
 import { isGenerating } from './generation'
@@ -96,7 +97,7 @@ export function loadPath(startId: string | null, limit = Number.MAX_SAFE_INTEGER
 /** 取单条消息（带 swipe 信息） */
 export function loadMessage(id: string): MessageDTO {
   const msg = loadPath(id, 1)[0]
-  if (!msg) throw notFound('消息')
+  if (!msg) throw notFound(t('消息'))
   return msg
 }
 
@@ -158,7 +159,7 @@ function toDTO(row: ChatRow): ChatDTO {
 /** 群组信息（会话页需要成员的名字和头像来显示发言人） */
 export function loadGroupDTO(groupId: string): GroupDTO {
   const g = db.select().from(groups).where(eq(groups.id, groupId)).get()
-  if (!g) throw notFound('群组')
+  if (!g) throw notFound(t('群组'))
   const members = db
     .select({ member: groupMembers, character: characters })
     .from(groupMembers)
@@ -187,7 +188,7 @@ export function loadGroupDTO(groupId: string): GroupDTO {
 
 export function getChatRow(id: string): ChatRow {
   const row = db.select().from(chats).where(eq(chats.id, id)).get()
-  if (!row) throw notFound('会话')
+  if (!row) throw notFound(t('会话'))
   return row
 }
 
@@ -217,7 +218,7 @@ export function createChat(input: CreateChatInput): ChatDTO {
 
   if (characterId) {
     const character = db.select().from(characters).where(eq(characters.id, characterId)).get()
-    if (!character) throw notFound('角色')
+    if (!character) throw notFound(t('角色'))
     const greetings = [character.firstMes, ...character.alternateGreetings].filter((g) => g.trim())
     db.transaction((tx) => {
       tx.insert(chats)
@@ -314,7 +315,7 @@ export function getChatPage(chatId: string, opts: { before?: string; limit?: num
   let start = chat.activeLeafId
   if (opts.before) {
     const before = db.select().from(messages).where(eq(messages.id, opts.before)).get()
-    if (!before || before.chatId !== chatId) throw notFound('消息')
+    if (!before || before.chatId !== chatId) throw notFound(t('消息'))
     start = before.parentId
   }
 
@@ -399,7 +400,7 @@ function loadTree(chatId: string) {
 export function swipe(chatId: string, messageId: string, direction: -1 | 1): string | null {
   const nodes = loadTree(chatId)
   const node = nodes.find((n) => n.id === messageId)
-  if (!node) throw notFound('消息')
+  if (!node) throw notFound(t('消息'))
   const children = buildChildrenMap(nodes)
   const target = siblingOf(children, node, direction)
   if (!target) return null
@@ -416,7 +417,7 @@ export function swipe(chatId: string, messageId: string, direction: -1 | 1): str
 export function branchChat(chatId: string, messageId: string): ChatDTO {
   const chat = getChatRow(chatId)
   const target = db.select().from(messages).where(eq(messages.id, messageId)).get()
-  if (!target || target.chatId !== chatId) throw notFound('消息')
+  if (!target || target.chatId !== chatId) throw notFound(t('消息'))
   const path = loadPath(messageId)
   const now = Date.now()
   const newChatId = newId()
@@ -426,7 +427,7 @@ export function branchChat(chatId: string, messageId: string): ChatDTO {
       .values({
         ...chat,
         id: newChatId,
-        title: `${chat.title}（分支）`,
+        title: t('{title}（分支）', { title: chat.title }),
         activeLeafId: null,
         createdAt: now,
         updatedAt: now,
@@ -443,8 +444,8 @@ export function branchChat(chatId: string, messageId: string): ChatDTO {
 
 export function editMessage(messageId: string, content: string, reasoning?: string): MessageDTO {
   const row = db.select().from(messages).where(eq(messages.id, messageId)).get()
-  if (!row) throw notFound('消息')
-  if (row.status === 'streaming') throw new HttpError(409, 'BUSY', '这条消息还在生成中，不能编辑')
+  if (!row) throw notFound(t('消息'))
+  if (row.status === 'streaming') throw new HttpError(409, 'BUSY', t('这条消息还在生成中，不能编辑'))
   const meta = applyStageParse(row.chatId, row, content)
   if (reasoning !== undefined) {
     if (reasoning.trim()) meta.reasoning = reasoning
@@ -460,8 +461,8 @@ export function editMessage(messageId: string, content: string, reasoning?: stri
  */
 export function deleteMessage(messageId: string) {
   const row = db.select().from(messages).where(eq(messages.id, messageId)).get()
-  if (!row) throw notFound('消息')
-  if (row.status === 'streaming') throw new HttpError(409, 'BUSY', '这条消息还在生成中，请先停止生成')
+  if (!row) throw notFound(t('消息'))
+  if (row.status === 'streaming') throw new HttpError(409, 'BUSY', t('这条消息还在生成中，请先停止生成'))
   const chat = getChatRow(row.chatId)
   const nodes = loadTree(row.chatId)
   const removed = new Set(collectSubtree(buildChildrenMap(nodes), messageId))
@@ -488,7 +489,7 @@ export function updateMessageImageIndex(messageId: string, imageIndex: number): 
     const message = loadMessage(messageId)
     const extra = ['pending', 'error'].includes(message.meta.imageGen?.status ?? '') ? 1 : 0
     if (!Number.isInteger(imageIndex) || imageIndex < 0 || imageIndex >= (message.meta.images?.length ?? 0) + extra)
-      throw new HttpError(400, 'VALIDATION', '图片序号超出范围')
+      throw new HttpError(400, 'VALIDATION', t('图片序号超出范围'))
     db.update(messages)
       .set({ meta: { ...message.meta, imageIndex } })
       .where(eq(messages.id, messageId))
@@ -529,8 +530,8 @@ function copyPath(
 export function activateMessage(chatId: string, messageId: string): string {
   getChatRow(chatId)
   const nodes = loadTree(chatId)
-  if (!nodes.some((m) => m.id === messageId)) throw notFound('消息')
-  if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', '正在生成，稍后再切换')
+  if (!nodes.some((m) => m.id === messageId)) throw notFound(t('消息'))
+  if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', t('正在生成，稍后再切换'))
   const leafId = findLatestLeaf(buildChildrenMap(nodes), messageId)
   db.update(chats).set({ activeLeafId: leafId, updatedAt: Date.now() }).where(eq(chats.id, chatId)).run()
   return leafId
@@ -540,18 +541,18 @@ export function moveMessage(chatId: string, messageId: string, direction: 'up' |
   const chat = getChatRow(chatId)
   const path = loadPath(chat.activeLeafId)
   let index = path.findIndex((m) => m.id === messageId)
-  if (index < 0) throw new HttpError(400, 'NOT_ON_PATH', '只能移动当前分支上的消息')
+  if (index < 0) throw new HttpError(400, 'NOT_ON_PATH', t('只能移动当前分支上的消息'))
   if (direction === 'down') {
-    if (index === path.length - 1) throw new HttpError(400, 'CANNOT_MOVE', '已经是最后一条')
+    if (index === path.length - 1) throw new HttpError(400, 'CANNOT_MOVE', t('已经是最后一条'))
     index++
   }
   const x = path[index]!
   const p = path[index - 1]
-  if (!p) throw new HttpError(400, 'CANNOT_MOVE', '已经是第一条')
+  if (!p) throw new HttpError(400, 'CANNOT_MOVE', t('已经是第一条'))
   if ([x, p].some((m) => m.role === 'tool' || m.meta.toolCalls))
-    throw new HttpError(400, 'CANNOT_MOVE', '工具调用和结果不能移动')
+    throw new HttpError(400, 'CANNOT_MOVE', t('工具调用和结果不能移动'))
   if (isGenerating(chatId) || [x, p].some((m) => m.status === 'streaming'))
-    throw new HttpError(409, 'GENERATING', '正在生成，稍后再移动')
+    throw new HttpError(409, 'GENERATING', t('正在生成，稍后再移动'))
   return db.transaction((tx) => {
     const leafId = copyPath(tx, chatId, p.parentId, [x, p, ...path.slice(index + 1)])!
     tx.update(chats).set({ activeLeafId: leafId, updatedAt: Date.now() }).where(eq(chats.id, chatId)).run()
@@ -563,7 +564,7 @@ export function excludeMessages(chatId: string, input: ExcludeMessagesInput): Me
   getChatRow(chatId)
   const rows = db.select().from(messages).where(eq(messages.chatId, chatId)).all()
   const byId = new Map(rows.map((m) => [m.id, m]))
-  for (const id of input.messageIds) if (!byId.has(id)) throw notFound('消息')
+  for (const id of input.messageIds) if (!byId.has(id)) throw notFound(t('消息'))
   const children = buildChildrenMap(rows)
   const selected = new Set(input.messageIds)
   for (const id of input.messageIds) {

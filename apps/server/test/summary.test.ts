@@ -58,7 +58,7 @@ test('剧情总结：素材、增量、注入、分支、自动、编辑、并�
       async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         const body = JSON.parse(String(init?.body)) as (typeof requests)[number]
         requests.push(body)
-        const summary = body.messages.some((m) => m.content.includes('故事记录员'))
+        const summary = body.messages.some((m) => m.content.includes('story chronicler'))
         if (summary && hold) await hold
         if (summary && fail) return Response.json({ error: { message: '模拟失败' } }, { status: 503 })
         return Response.json({
@@ -158,9 +158,10 @@ test('剧情总结：素材、增量、注入、分支、自动、编辑、并�
     expect(result.current?.auto).toBe(false)
     const body = requests.at(-1)!
     expect(body.messages.map((m) => m.role)).toEqual(['system', 'user'])
-    expect(body.messages[0]?.content).toContain('300 字')
-    expect(body.messages[1]?.content).toContain('【已有总结】\n（无）')
-    expect(body.messages[1]?.content).toContain('【新的对话】')
+    expect(body.messages[0]?.content).toContain('300 words or Chinese characters')
+    expect(body.messages[0]?.content).toContain('Write in the same language as the conversation.')
+    expect(body.messages[1]?.content).toContain('[Existing summary]\n(none)')
+    expect(body.messages[1]?.content).toContain('[New conversation]')
     expect(body.messages[1]?.content).toContain('旅人：出发')
     expect(body.messages[1]?.content).toContain('角色甲：')
     expect(body.messages[1]?.content).not.toContain('<scene>')
@@ -176,7 +177,7 @@ test('剧情总结：素材、增量、注入、分支、自动、编辑、并�
     expect(result.current?.messageId).toBe(c)
     expect(result.current?.coveredCount).toBe(2)
     expect(result.history[0]?.messageId).toBe(b)
-    expect(requests.at(-1)?.messages[1]?.content).toContain('【已有总结】\n总结1')
+    expect(requests.at(-1)?.messages[1]?.content).toContain('[Existing summary]\n总结1')
     expect(requests.at(-1)?.messages[1]?.content).not.toContain('旅人：出发')
     const oldTime = result.current!.createdAt
     await json('/ext/summary/entry', 'PATCH', { chatId: chat.id, messageId: c, text: '自定义总结' })
@@ -187,7 +188,7 @@ test('剧情总结：素材、增量、注入、分支、自动、编辑、并�
       coveredCount: 2,
     })
     let prompt = await preview(chat.id)
-    expect(prompt.messages.some((m) => m.content.includes('[剧情总结：自定义总结]'))).toBe(true)
+    expect(prompt.messages.some((m) => m.content.includes('[Story summary: 自定义总结]'))).toBe(true)
     expect(prompt.report.segments.some((s) => s.source === 'summary')).toBe(true)
     await settings({ position: 'depth', depth: 1, role: 'user', template: '记忆{{summary}}' })
     prompt = await preview(chat.id)
@@ -207,7 +208,7 @@ test('剧情总结：素材、增量、注入、分支、自动、编辑、并�
     expect((await state(chat.id)).current?.messageId).toBe(c)
     await json(`/chats/${chat.id}/swipe`, 'POST', { messageId: c, direction: 1 })
     expect((await state(chat.id)).current?.messageId).toBe(b)
-    expect((await preview(chat.id)).messages.some((m) => m.content.includes('[剧情总结：总结1]'))).toBe(true)
+    expect((await preview(chat.id)).messages.some((m) => m.content.includes('[Story summary: 总结1]'))).toBe(true)
     await json('/ext/summary/entry', 'DELETE', { chatId: chat.id, messageId: b })
     expect((await state(chat.id)).current).toBeNull()
     const other = await create()

@@ -6,6 +6,7 @@ import { keys, useCharacters, useChats, useGroups } from '../../api/queries'
 import { PlusIcon, TrashIcon, UploadIcon, UsersIcon } from '../../components/icons'
 import { Avatar, Button, cx, IconButton } from '../../components/ui'
 import { Slot } from '../../extensions/Slot'
+import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { GroupDialog } from '../groups/GroupDialog'
@@ -30,7 +31,7 @@ function ChatList({ owner }: { owner: Owner }) {
   }
 
   const remove = async (c: ChatSummary) => {
-    if (!confirm(`删除会话「${c.title}」？所有消息都会被删除。`)) return
+    if (!confirm(t('删除会话「{title}」？所有消息都会被删除。', { title: c.title }))) return
     try {
       await api.deleteChat(c.id)
       if (c.id === chatId) openChat(owner, null)
@@ -58,7 +59,7 @@ function ChatList({ owner }: { owner: Owner }) {
             {c.title}
           </button>
           <IconButton
-            label="删除会话"
+            label={t('删除会话')}
             className="size-7 opacity-0 group-hover:opacity-100 max-md:opacity-100"
             onClick={() => remove(c)}
           >
@@ -71,7 +72,7 @@ function ChatList({ owner }: { owner: Owner }) {
         onClick={create}
         className="flex w-full items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-violet-600 hover:bg-zinc-200/60 dark:text-violet-400 dark:hover:bg-zinc-800/60"
       >
-        <PlusIcon width={15} height={15} /> 新建会话
+        <PlusIcon width={15} height={15} /> {t('新建会话')}
       </button>
     </div>
   )
@@ -89,16 +90,16 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
-      <header className="flex h-14 shrink-0 items-center px-4 font-semibold tracking-tight">聊天</header>
+      <header className="flex h-14 shrink-0 items-center px-4 font-semibold tracking-tight">{t('聊天')}</header>
 
       <div className="flex gap-2 px-3 pb-2">
         <Button className="flex-1" onClick={() => fileRef.current?.click()} disabled={importing}>
           <UploadIcon width={16} height={16} />
-          {importing ? '导入中…' : '导入角色卡'}
+          {importing ? t('导入中…') : t('导入角色卡')}
         </Button>
-        <Button onClick={() => setGroupDialog(true)} title="新建群聊">
+        <Button onClick={() => setGroupDialog(true)} title={t('新建群聊')}>
           <UsersIcon width={16} height={16} />
-          群聊
+          {t('群聊')}
         </Button>
         <input
           ref={fileRef}
@@ -117,7 +118,7 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-2 pb-4">
         {groups.data && groups.data.length > 0 && (
           <>
-            <div className="px-2 pt-2 pb-1 text-xs font-medium text-zinc-500">群聊</div>
+            <div className="px-2 pt-2 pb-1 text-xs font-medium text-zinc-500">{t('群聊')}</div>
             {groups.data.map((g) => (
               <div key={g.id}>
                 <button
@@ -140,13 +141,13 @@ export function Sidebar() {
                 {g.id === groupId && <ChatList owner={{ groupId: g.id }} />}
               </div>
             ))}
-            <div className="px-2 pt-3 pb-1 text-xs font-medium text-zinc-500">角色</div>
+            <div className="px-2 pt-3 pb-1 text-xs font-medium text-zinc-500">{t('角色')}</div>
           </>
         )}
 
         {characters.data?.length === 0 && (
           <p className="px-2 py-6 text-center text-sm text-zinc-500">
-            还没有角色，导入一张酒馆角色卡（PNG 或 JSON）试试
+            {t('还没有角色，导入一张酒馆角色卡（PNG 或 JSON）试试')}
           </p>
         )}
         {characters.data?.map((c) => (

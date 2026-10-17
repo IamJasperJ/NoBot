@@ -2,7 +2,7 @@
 // 图片：POST /v1/images/generations，延迟 1.5 秒返回 64×64 PNG；提示词含 FAIL 时返回 500
 // ComfyUI：POST /prompt、GET /history/<id>、GET /view、GET /object_info/CheckpointLoaderSimple（路径不加 /v1）
 // 用法：bun scripts/mock-llm.ts  （端口 3999；连接里填 http://127.0.0.1:3999/v1，Key 填 sk-test）
-// 规则：最后一条消息是背景起名请求（只输出 JSON：{"name"…）时，回答固定的 {"name":"模拟背景",…}；
+// 规则：最后一条消息是背景起名请求（Output only JSON: {"name"…）时，回答固定的 {"name":"模拟背景",…}；
 //      system 提示词是情绪判断（含 following labels:）时，回答被判断消息里出现的标签；
 //      最后一条用户消息含「VN」时，回复一段带舞台指令（场景、上台、台词速记、<state>、<choices>）的内容，
 //      说话人固定是「艾莉丝」；
@@ -105,16 +105,16 @@ Bun.serve({
       ? (classifyLabels.find((label) => String(lastUser).toLowerCase().includes(label)) ?? classifyLabels[0])
       : null
     // 背景起名请求：回答固定的 JSON
-    const nameRequest = String(msgs.at(-1)?.content ?? '').includes('只输出 JSON：{"name"')
+    const nameRequest = String(msgs.at(-1)?.content ?? '').includes('Output only JSON: {"name"')
     const summaryRequest =
-      msgs.some((m) => m.role === 'system' && String(m.content).includes('故事记录员')) ||
-      String(msgs.at(-1)?.content).includes('【新的对话】')
+      msgs.some((m) => m.role === 'system' && String(m.content).includes('story chronicler')) ||
+      String(msgs.at(-1)?.content).includes('[New conversation]')
     const summaryMessage = String(msgs.at(-1)?.content ?? '')
-    const summaryIndex = summaryMessage.indexOf('【新的对话】')
+    const summaryIndex = summaryMessage.indexOf('[New conversation]')
     const summaryText =
       summaryIndex < 0
         ? '（无）'
-        : Array.from(summaryMessage.slice(summaryIndex + '【新的对话】'.length))
+        : Array.from(summaryMessage.slice(summaryIndex + '[New conversation]'.length))
             .slice(0, 30)
             .join('')
     const reply = summaryRequest

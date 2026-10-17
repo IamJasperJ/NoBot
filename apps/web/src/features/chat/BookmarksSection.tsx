@@ -7,6 +7,7 @@ import { Section } from '../../components/form'
 import { BranchIcon, CheckIcon, EditIcon, TrashIcon, XIcon } from '../../components/icons'
 import { cx, IconButton, inputClass } from '../../components/ui'
 import { useMobile } from '../../hooks/useMobile'
+import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -35,7 +36,7 @@ export function BookmarksSection({
         await api.activateMessage(chatId, b.messageId)
         await resetChat(qc, chatId)
         void refresh()
-        toast.info('已切换到书签所在的分支')
+        toast.info(t('已切换到书签所在的分支'))
       }
       useChatOps.getState().jumpTo(chatId, b.messageId)
       // 手机上设置面板盖住了聊天，跳转后关掉它
@@ -55,7 +56,7 @@ export function BookmarksSection({
     }
   }
   const remove = async (b: BookmarkDTO) => {
-    if (!confirm(`删除书签「${b.name}」？（消息不会被删除）`)) return
+    if (!confirm(t('删除书签「{name}」？（消息不会被删除）', { name: b.name }))) return
     try {
       await api.deleteBookmark(b.id)
       await refresh()
@@ -68,16 +69,16 @@ export function BookmarksSection({
       const chat = await api.branch(chatId, b.messageId)
       await qc.invalidateQueries({ queryKey: keys.chats(owner) })
       useUi.getState().openChat(owner, chat.id)
-      toast.info('已从书签开出新会话')
+      toast.info(t('已从书签开出新会话'))
     } catch (e) {
       toast.error(errorMessage(e))
     }
   }
 
   return (
-    <Section title="书签" description="在消息的 ⋯ 菜单里「加书签」。点书签跳过去，不在当前分支时会先切过去">
+    <Section title={t('书签')} description={t('在消息的 ⋯ 菜单里「加书签」。点书签跳过去，不在当前分支时会先切过去')}>
       {list.length === 0 ? (
-        <p className="text-xs text-zinc-400">还没有书签。</p>
+        <p className="text-xs text-zinc-400">{t('还没有书签。')}</p>
       ) : (
         <ul className="space-y-1">
           {list.map((b) => (
@@ -88,7 +89,7 @@ export function BookmarksSection({
               {renaming?.id === b.id ? (
                 <div className="flex min-w-0 flex-1 items-center gap-1">
                   <input
-                    aria-label="书签名字"
+                    aria-label={t('书签名字')}
                     className={cx(inputClass, 'h-8 text-[13px]')}
                     value={renaming.name}
                     maxLength={60}
@@ -100,10 +101,10 @@ export function BookmarksSection({
                     // biome-ignore lint/a11y/noAutofocus: 点了改名就该直接能输入
                     autoFocus
                   />
-                  <IconButton label="保存名字" onClick={() => void rename()}>
+                  <IconButton label={t('保存名字')} onClick={() => void rename()}>
                     <CheckIcon />
                   </IconButton>
-                  <IconButton label="取消改名" onClick={() => setRenaming(null)}>
+                  <IconButton label={t('取消改名')} onClick={() => setRenaming(null)}>
                     <XIcon />
                   </IconButton>
                 </div>
@@ -112,14 +113,14 @@ export function BookmarksSection({
                   <button
                     type="button"
                     onClick={() => void go(b)}
-                    title="跳到这条消息"
+                    title={t('跳到这条消息')}
                     className="min-w-0 flex-1 rounded-md px-1.5 py-0.5 text-left"
                   >
                     <span className="flex items-center gap-1.5">
                       <span className="truncate text-[13px] font-medium">{b.name}</span>
                       {!b.onPath && (
                         <span className="shrink-0 rounded bg-zinc-100 px-1 text-[10px] text-zinc-500 dark:bg-zinc-800">
-                          其他分支
+                          {t('其他分支')}
                         </span>
                       )}
                     </span>
@@ -129,13 +130,13 @@ export function BookmarksSection({
                     </span>
                   </button>
                   <div className="flex shrink-0 items-center opacity-100 transition-opacity md:opacity-0 md:group-hover/bm:opacity-100 md:focus-within:opacity-100">
-                    <IconButton label="改名" onClick={() => setRenaming({ id: b.id, name: b.name })}>
+                    <IconButton label={t('改名')} onClick={() => setRenaming({ id: b.id, name: b.name })}>
                       <EditIcon />
                     </IconButton>
-                    <IconButton label="从这里开分支（复制成新会话）" onClick={() => void branch(b)}>
+                    <IconButton label={t('从这里开分支（复制成新会话）')} onClick={() => void branch(b)}>
                       <BranchIcon />
                     </IconButton>
-                    <IconButton label="删除书签" variant="danger" onClick={() => void remove(b)}>
+                    <IconButton label={t('删除书签')} variant="danger" onClick={() => void remove(b)}>
                       <TrashIcon />
                     </IconButton>
                   </div>

@@ -1,5 +1,31 @@
-import { DEFAULT_DIRECTIVE_TEMPLATES, DIRECTIVE_KIND_GUIDES } from '@ai-parter/shared'
+import { DEFAULT_DIRECTIVE_TEMPLATES, type DirectiveKind } from '@ai-parter/shared'
 import type { InstructionsInput } from './index'
+
+/** 默认指令说明模板以 shared 契约为准（英文，保留解析器依赖的标签、属性和台词速记标点；编辑器的「填入默认模板」也用它） */
+export { DEFAULT_DIRECTIVE_TEMPLATES }
+
+const commonGuides = {
+  cast: '- Enter: <show who="name" at="left|center|right" />; exit: <hide who="name" />.',
+  scene:
+    '- Change scene: <scene bg="background name" place="location" time="time" />. Only emit when the scene actually changes.',
+  choices:
+    '- When the player needs to choose, end the reply with 2–4 options:\n<choices>\n- Option one\n- Option two\n</choices>',
+  cg: '- Request an illustration for a key scene with <cg prompt="English image description" />. Use sparingly.',
+}
+const DIRECTIVE_KIND_GUIDES: Record<'shorthand' | 'xml', Partial<Record<DirectiveKind, string>>> = {
+  shorthand: {
+    ...commonGuides,
+    expression:
+      '- Put each line of dialogue on its own line: 名字[表情]：「台词」 (name[expression]：「dialogue」), e.g. Alice[joy]：「Welcome back!」. Omit [expression] when unchanged.',
+    state:
+      '- Put state changes at the end of the reply:\n<state>\npath = value\npath += number\npath -= number\n</state>',
+  },
+  xml: {
+    ...commonGuides,
+    expression: '- Dialogue: <say who="name" expr="expression">dialogue</say>. Write narration as plain text.',
+    state: '- Put state changes at the end of the reply:\n<state>\npath = value\npath += number\n</state>',
+  },
+}
 
 export function renderDirectiveInstructions(input: InstructionsInput): string {
   const list = (kind: 'cast' | 'expressions' | 'backgrounds', values: string[]): string =>
@@ -14,16 +40,16 @@ export function renderDirectiveInstructions(input: InstructionsInput): string {
         field?.type === 'meter'
           ? `${field.min ?? 0}–${field.max ?? '∞'}`
           : field?.type === 'number'
-            ? '数字'
+            ? 'number'
             : field?.type === 'list'
-              ? '列表'
+              ? 'list'
               : ''
       const rule = field?.rule ?? (Object.hasOwn(input.rules, path) ? input.rules[path] : '')
-      let line = `- ${path}：${[type, rule].filter(Boolean).join('，')}`
+      let line = `- ${path}：${[type, rule].filter(Boolean).join(', ')}`
       if (input.valuesInPrompt && Object.hasOwn(input.vars, path)) {
         const value = input.vars[path]
         const rendered = typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value))
-        line += `${type || rule ? '；' : ''}当前 ${rendered}`
+        line += `${type || rule ? '; ' : ''}current: ${rendered}`
       }
       state.push(line)
     }
@@ -37,7 +63,7 @@ export function renderDirectiveInstructions(input: InstructionsInput): string {
     vn_expressions: list('expressions', input.expressions),
     vn_backgrounds: list('backgrounds', input.backgrounds),
     vn_state: state.length
-      ? `状态变量（名称：取值范围，更新规则${input.valuesInPrompt ? '；当前值' : ''}）：\n${state.join('\n')}`
+      ? `State variables (name: range, update rule${input.valuesInPrompt ? '; current value' : ''}):\n${state.join('\n')}`
       : '',
   }
   return (input.template || DEFAULT_DIRECTIVE_TEMPLATES[input.style])

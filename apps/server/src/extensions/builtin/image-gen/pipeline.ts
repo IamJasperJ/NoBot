@@ -2,8 +2,10 @@ import { join } from 'node:path'
 import type { ImageGenMeta } from '@ai-parter/shared'
 import { paths } from '../../../env'
 import { HttpError } from '../../../errors'
+import { t } from '../../../i18n'
 import { getAttachment } from '../../../services/attachments'
 import { deleteMessage, getChatRow, loadMessage, loadPath } from '../../../services/chats'
+import { getLanguage } from '../../../services/settings'
 import { computeStage } from '../../../services/stage'
 import type { ToolResult } from '../../../tools'
 import type { ExtensionContext } from '../../types'
@@ -37,14 +39,14 @@ const previews = new Map<string, { expires: number; snapshot: Snapshot }>()
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 function validate(settings: Settings) {
   if (settings.source === 'openai' && (!settings.openaiBaseUrl.trim() || !settings.openaiModel.trim()))
-    throw new HttpError(400, 'IMAGE_CONFIG', '请先配置图片接口地址和模型')
+    throw new HttpError(400, 'IMAGE_CONFIG', t('请先配置图片接口地址和模型'))
   if (settings.source === 'comfy' && !settings.comfyUrl.trim())
-    throw new HttpError(400, 'IMAGE_CONFIG', '请先配置 ComfyUI 地址')
+    throw new HttpError(400, 'IMAGE_CONFIG', t('请先配置 ComfyUI 地址'))
 }
 async function appendImage(ctx: Context, chatId: string, message: Parameters<Context['host']['appendMessage']>[1]) {
   const deadline = Date.now() + 600000
   do {
-    if (Date.now() >= deadline) throw new Error('等待文本生成结束超时，请稍后再试')
+    if (Date.now() >= deadline) throw new Error(t('等待文本生成结束超时，请稍后再试'))
     await ctx.host.waitIdle(chatId, deadline - Date.now())
   } while (ctx.host.isGenerating(chatId))
   return ctx.host.appendMessage(chatId, message)
@@ -59,17 +61,17 @@ function prepare(ctx: Context, input: GenerateInput) {
     info.characters.find((c) => !c.muted) ??
     info.characters[0]
   if (!character || (input.characterId && !info.characters.some((c) => c.id === input.characterId)))
-    throw new HttpError(400, 'IMAGE_CHARACTER', '会话中没有这个角色')
+    throw new HttpError(400, 'IMAGE_CHARACTER', t('会话中没有这个角色'))
   let text = input.input ?? ''
   if (input.mode === 'message') {
-    if (!input.messageId) throw new HttpError(400, 'IMAGE_MESSAGE', '请指定消息')
+    if (!input.messageId) throw new HttpError(400, 'IMAGE_MESSAGE', t('请指定消息'))
     const message = loadMessage(input.messageId)
-    if (message.chatId !== input.chatId) throw new HttpError(400, 'IMAGE_MESSAGE', '指定消息不属于这个会话')
+    if (message.chatId !== input.chatId) throw new HttpError(400, 'IMAGE_MESSAGE', t('指定消息不属于这个会话'))
     text = message.content
   } else if (input.mode === 'last' || input.mode === 'raw_last')
     text = [...info.messages].reverse().find((m) => m.content.trim())?.content ?? ''
   if (input.prompt === undefined && ['free', 'last', 'raw_last', 'message'].includes(input.mode) && !text.trim())
-    throw new HttpError(400, 'IMAGE_INPUT', '没有可用于生成图片的描述')
+    throw new HttpError(400, 'IMAGE_INPUT', t('没有可用于生成图片的描述'))
   return { info, character, text }
 }
 interface Snapshot {
@@ -142,7 +144,7 @@ async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: AbortSigna
     }
     const template = settings[`tpl_${input.mode}`]
     const instruction = avatar
-      ? `请详细描述图中角色的外貌，输出英文逗号分隔的关键词，以 ${input.mode === 'face' ? 'close-up portrait' : 'full body portrait'} 开头。`
+      ? `Describe the appearance of the character in the image in detail. Output English comma-separated keywords, starting with ${input.mode === 'face' ? 'close-up portrait' : 'full body portrait'}.`
       : replaceTemplate(typeof template === 'string' ? template : (templates[input.mode] ?? ''), {
           char: prepared.character.name,
           user: prepared.info.persona.name,
@@ -160,7 +162,7 @@ async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: AbortSigna
     })
   }
   if (!cleanPrompt(text, settings.minimalProcessing))
-    throw new HttpError(502, 'IMAGE_PROMPT', '模型没有返回可用的图片提示词')
+    throw new HttpError(502, 'IMAGE_PROMPT', t('模型没有返回可用的图片提示词'))
   if (input.mode === 'free') {
     const sd = prepared.character.extensions.sd_character_prompt as
       | { positive?: unknown; negative?: unknown }
@@ -189,8 +191,8 @@ export async function promptPreview(ctx: Context, input: GenerateInput) {
     model: snapshot.settings.source === 'openai' ? snapshot.settings.openaiModel : snapshot.settings.comfyCheckpoint,
     workflow:
       snapshot.settings.comfyWorkflowName === 'avatar'
-        ? '角色头像图生图'
-        : snapshot.settings.comfyWorkflowName || '内置默认',
+        ? t('角色头像图生图')
+        : snapshot.settings.comfyWorkflowName || t('内置默认'),
   }
 }
 function safeSnapshot(settings: Settings) {
@@ -212,8 +214,8 @@ function safeError(error: unknown, settings: Settings) {
   } catch {
     /* 无效请求头本身不包含在错误里。 */
   }
-  for (const secret of secrets) if (secret) text = text.replaceAll(secret, '[鉴权信息]')
-  return text.replace(/[A-Za-z0-9+/=]{100,}/g, '[图片数据]')
+  for (const secret of secrets) if (secret) text = text.replaceAll(secret, t('[鉴权信息]'))
+  return text.replace(/[A-Za-z0-9+/=]{100,}/g, t('[图片数据]'))
 }
 export async function renderImage(
   ctx: Context,
@@ -247,7 +249,7 @@ export async function renderImage(
       status: 'ok',
       model: settings.source === 'openai' ? settings.openaiModel : settings.comfyCheckpoint,
       durationMs: Date.now() - started,
-      summary: `${settings.source}：${prompt.slice(0, 60)}`,
+      summary: t('{source}：{prompt}', { source: settings.source, prompt: prompt.slice(0, 60) }),
       request,
       response: { byteLength: bytes.length },
     })
@@ -258,10 +260,10 @@ export async function renderImage(
       kind: 'image',
       status: 'error',
       durationMs: Date.now() - started,
-      summary: `${settings.source}：${prompt.slice(0, 60)}`,
+      summary: t('{source}：{prompt}', { source: settings.source, prompt: prompt.slice(0, 60) }),
       request,
       response: {
-        error: signal?.aborted ? '已取消' : safeError(error, settings),
+        error: signal?.aborted ? t('已取消') : safeError(error, settings),
       },
     })
     throw error
@@ -278,7 +280,12 @@ export async function nameBackground(
   const chat = getChatRow(chatId)
   const stage = computeStage(chatId, loadPath(chat.activeLeafId))
   const sceneName = stage?.scene.backgroundId === null ? stage.scene.bg?.trim() : undefined
-  let name = sceneName || `${characterName} 背景 ${new Date().toLocaleString('zh-CN')}`
+  let name =
+    sceneName ||
+    t('{name} 背景 {time}', {
+      name: characterName,
+      time: new Date().toLocaleString(getLanguage() === 'en' ? 'en-US' : 'zh-CN'),
+    })
   let description = ''
   try {
     const reply = await ctx.host.quietPrompt({
@@ -287,11 +294,11 @@ export async function nameBackground(
       maxTokens: 120,
       connectionId: settings.promptConnectionId || undefined,
       model: settings.promptModel || undefined,
-      instruction: `下面是一张背景图的画面描述。给它起一个 2–10 个字的中文名字（地点 + 必要的时间或氛围，比如「黄昏的酒馆」），再用一句不超过 40 个字的中文描述画面。只输出 JSON：{"name": "...", "description": "..."}
-画面描述：${prompt}`,
+      instruction: `The following describes a background image. Give it a short name (2–10 words or Chinese characters), using the location plus any necessary time or mood, such as "Tavern at dusk". Describe the image in one sentence of at most 40 words or Chinese characters. Write in ${getLanguage() === 'en' ? 'English' : 'Chinese'}. Output only JSON: {"name": "...", "description": "..."}
+Image description: ${prompt}`,
     })
     const start = reply.indexOf('{')
-    if (start < 0) throw new Error('模型没有返回 JSON')
+    if (start < 0) throw new Error(t('模型没有返回 JSON'))
     let value: unknown
     // 逐个尝试右括号，兼容代码围栏及描述字符串里的花括号，仍只读取第一个对象。
     for (let end = reply.indexOf('}', start + 1); end >= 0; end = reply.indexOf('}', end + 1)) {
@@ -302,10 +309,10 @@ export async function nameBackground(
         // 字符串内的右括号或嵌套对象尚未构成完整 JSON，继续向后找。
       }
     }
-    if (!value || typeof value !== 'object') throw new Error('模型返回的 JSON 无效')
+    if (!value || typeof value !== 'object') throw new Error(t('模型返回的 JSON 无效'))
     if (!sceneName) {
       if (!('name' in value) || typeof value.name !== 'string' || !value.name.trim()) {
-        throw new Error('模型返回的名字为空')
+        throw new Error(t('模型返回的名字为空'))
       }
       name = value.name.trim()
     }
@@ -313,7 +320,12 @@ export async function nameBackground(
       description = Array.from(value.description.trim()).slice(0, 40).join('')
     }
   } catch (error) {
-    ctx.host.log({ chatId, kind: 'image', status: 'error', summary: `背景起名失败：${safeError(error, settings)}` })
+    ctx.host.log({
+      chatId,
+      kind: 'image',
+      status: 'error',
+      summary: t('背景起名失败：{error}', { error: safeError(error, settings) }),
+    })
   }
   return { name, description }
 }
@@ -347,12 +359,12 @@ function caption(snapshot: Snapshot) {
 }
 export function cancel(ctx: Context, messageId: string) {
   const controller = tasks.get(messageId)
-  if (!controller) throw new HttpError(400, 'IMAGE_TASK', '没有可取消的图片任务')
-  controller.abort(new Error('已取消'))
+  if (!controller) throw new HttpError(400, 'IMAGE_TASK', t('没有可取消的图片任务'))
+  controller.abort(new Error(t(t('已取消'))))
   const message = loadMessage(messageId)
   return {
     message: ctx.host.updateMessageMeta(messageId, {
-      imageGen: { ...message.meta.imageGen!, status: 'error', error: '已取消' },
+      imageGen: { ...message.meta.imageGen!, status: 'error', error: t('已取消') },
       imageIndex: message.meta.images?.length ?? 0,
     }),
   }
@@ -367,7 +379,7 @@ export async function generate(ctx: Context, input: GenerateInput) {
       preview.snapshot.input.chatId !== input.chatId ||
       preview.snapshot.input.mode !== input.mode
     )
-      throw new HttpError(400, 'IMAGE_PREVIEW', '提示词预览已过期，请重新生成预览')
+      throw new HttpError(400, 'IMAGE_PREVIEW', t('提示词预览已过期，请重新生成预览'))
     snapshot = structuredClone(preview.snapshot)
     previews.delete(input.snapshotId)
   } else snapshot = await freeze(ctx, input)
@@ -456,7 +468,7 @@ export async function generate(ctx: Context, input: GenerateInput) {
       if (tasks.get(pending.id) !== controller) return { message: pending }
       return {
         message: ctx.host.updateMessageMeta(pending.id, {
-          imageGen: { ...meta, status: 'error', error: controller.signal.aborted ? '已取消' : errorText(error) },
+          imageGen: { ...meta, status: 'error', error: controller.signal.aborted ? t('已取消') : errorText(error) },
           imageIndex: 0,
         }),
       }
@@ -479,7 +491,7 @@ export async function generate(ctx: Context, input: GenerateInput) {
 export function dismiss(ctx: Context, messageId: string) {
   const message = loadMessage(messageId)
   if (message.meta.imageGen?.status !== 'error')
-    throw new HttpError(409, 'IMAGE_DISMISS', '只能放弃失败或已取消的图片任务')
+    throw new HttpError(409, 'IMAGE_DISMISS', t('只能放弃失败或已取消的图片任务'))
   // 取消后的异步请求可能还在收尾，撤销任务所有权，避免它重新写回已放弃的框。
   tasks.delete(messageId)
   if (!message.meta.images?.length) {
@@ -503,8 +515,8 @@ export async function retry(
   const message = loadMessage(messageId)
   const old = message.meta.imageGen
   if (tasks.has(messageId) || retryLocks.has(messageId) || old?.status === 'pending')
-    throw new HttpError(409, 'IMAGE_BUSY', '这张图片正在重新生成')
-  if (!old) throw new HttpError(400, 'IMAGE_RETRY', '这条消息没有可重试的图片任务')
+    throw new HttpError(409, 'IMAGE_BUSY', t('这张图片正在重新生成'))
+  if (!old) throw new HttpError(400, 'IMAGE_RETRY', t('这条消息没有可重试的图片任务'))
   retryLocks.add(messageId)
   const controller = new AbortController()
   tasks.set(messageId, controller)
@@ -553,7 +565,7 @@ export async function retry(
     try {
       let prompt = meta.prompt
       if (!prompt) {
-        if (!snapshot) throw new Error('缺少原始生成描述，请重新发起图片生成')
+        if (!snapshot) throw new Error(t('缺少原始生成描述，请重新发起图片生成'))
         snapshot = await writePrompt(ctx, { ...snapshot, settings }, controller.signal)
         prompt = snapshot.prompt
       }
@@ -598,7 +610,7 @@ export async function retry(
       if (tasks.get(messageId) !== controller) return { message: pending }
       const result = {
         message: ctx.host.updateMessageMeta(messageId, {
-          imageGen: { ...meta, status: 'error', error: controller.signal.aborted ? '已取消' : errorText(error) },
+          imageGen: { ...meta, status: 'error', error: controller.signal.aborted ? t('已取消') : errorText(error) },
           imageIndex: loadMessage(messageId).meta.images?.length ?? 0,
         }),
       }
@@ -617,13 +629,13 @@ export async function retry(
 export async function toBackground(ctx: Context, messageId: string, index: number, chatId?: string) {
   const message = loadMessage(messageId)
   const image = message.meta.images?.[index]
-  if (!image) throw new HttpError(400, 'IMAGE_MISSING', '这条消息没有指定的图片')
+  if (!image) throw new HttpError(400, 'IMAGE_MISSING', t('这条消息没有指定的图片'))
   getAttachment(image.id)
   return await background(
     ctx,
     chatId ?? message.chatId,
     new Uint8Array(await Bun.file(join(paths.attachments, `${image.id}.webp`)).arrayBuffer()),
-    message.meta.name ?? '图片',
+    message.meta.name ?? t('图片'),
     resolveImageConnection(parseSettings(ctx.settings)),
     message.meta.imageGen?.prompt ?? '',
   )
@@ -644,7 +656,7 @@ export async function testImage(ctx: Context) {
 export async function runImageTool(ctx: ExtensionContext, args: Record<string, unknown>): Promise<ToolResult> {
   let meta: ImageGenMeta = { status: 'error', mode: 'tool' }
   try {
-    if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new Error('图片提示词不能为空')
+    if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new Error(t('图片提示词不能为空'))
     const snapshot = await freeze(ctx, { chatId: ctx.chatId, mode: 'character', prompt: args.prompt })
     const { settings, prepared } = snapshot
     let size = dimensions(settings, args.orientation === 'landscape', 'tool')
@@ -698,24 +710,24 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
         if (args.as_background === true) {
           await background(ctx, ctx.chatId, bytes, prepared.character.name, settings, combined.prompt)
           if (messageId) ctx.host.updateMessageMeta(messageId, { imageGen: { ...meta, status: 'done' } })
-          return { content: '已生成并设为聊天背景。' }
+          return { content: 'Image generated and set as the chat background.' }
         }
         const image = await ctx.host.saveImage(bytes)
         controller.signal.throwIfAborted()
         const result = {
-          content: '图片已生成并展示给用户。',
+          content: 'Image generated and shown to the user.',
           meta: { images: [image], imageIndex: 0, imageGen: { ...meta, status: 'done' as const } },
         }
         if (messageId) ctx.host.updateMessageMeta(messageId, result.meta)
         return result
       } catch (error) {
         const result = {
-          content: `图片生成失败：${errorText(error)}`,
+          content: 'Image generation failed. The user can inspect the error and retry.',
           meta: {
             imageGen: {
               ...meta,
               status: 'error' as const,
-              error: controller.signal.aborted ? '已取消' : errorText(error),
+              error: controller.signal.aborted ? t('已取消') : errorText(error),
             },
           },
         }
@@ -728,7 +740,8 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
     if (!settings.async) return await run()
     let started = false
     return {
-      content: '图片正在生成，完成后会自动展示给用户，你不需要等待，继续写回复即可。',
+      content:
+        'The image is being generated and will be shown to the user automatically. Continue your reply without waiting.',
       meta: { imageGen: meta },
       onSaved(messageId) {
         if (started) return
@@ -738,7 +751,7 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
     }
   } catch (error) {
     return {
-      content: `图片生成失败：${errorText(error)}`,
+      content: 'Image generation failed. The user can inspect the error and retry.',
       meta: { imageGen: { ...meta, status: 'error', error: errorText(error) } },
     }
   }

@@ -26,6 +26,7 @@ import {
 import { Button, cx, IconButton } from '../../components/ui'
 import { useExtensionsRuntime } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
+import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 
@@ -44,15 +45,15 @@ function defaults(fields: ExtensionSettingField[]): Record<string, unknown> {
   )
 }
 
-const regexHints: Record<string, string> = {
-  name: '给规则起一个容易辨认的名称，便于以后查找。',
-  find: '填写要查找的文字，或使用 /正则表达式/标志（例如 /星号/g）。',
-  replace: '填写替换后的文字；留空可删除匹配内容，正则分组可用 $1 引用。',
-  input: '在用户消息保存前执行替换，会改变保存的用户消息。',
-  output: '在 AI 回复保存前执行替换，会改变保存的回复。',
-  prompt: '在发送给模型前替换用户和助手消息，不改变聊天记录。',
-  enabled: '开启后执行这条规则，关闭可保留规则而暂停执行。',
-}
+const regexHints = (): Record<string, string> => ({
+  name: t('给规则起一个容易辨认的名称，便于以后查找。'),
+  find: t('填写要查找的文字，或使用 /正则表达式/标志（例如 /星号/g）。'),
+  replace: t('填写替换后的文字；留空可删除匹配内容，正则分组可用 $1 引用。'),
+  input: t('在用户消息保存前执行替换，会改变保存的用户消息。'),
+  output: t('在 AI 回复保存前执行替换，会改变保存的回复。'),
+  prompt: t('在发送给模型前替换用户和助手消息，不改变聊天记录。'),
+  enabled: t('开启后执行这条规则，关闭可保留规则而暂停执行。'),
+})
 
 type EditorProps = {
   fields: ExtensionSettingField[]
@@ -73,7 +74,7 @@ function visible(field: ExtensionSettingField, values: Record<string, unknown>):
 
 /** 设置项的说明：只用扩展自己写的说明（正则替换扩展有内置说明），不再自动生成「填写某某的文字」这类废话 */
 function hintOf(field: ExtensionSettingField, extensionId: string): string | undefined {
-  return field.hint || (extensionId === 'regex' ? regexHints[field.key] : undefined) || undefined
+  return field.hint || (extensionId === 'regex' ? regexHints()[field.key] : undefined) || undefined
 }
 
 export function SettingsEditor(props: EditorProps) {
@@ -151,7 +152,7 @@ function SettingsForm({ fields, values, onChange, disabled, extensionId, setting
           <Button
             variant="ghost"
             size="sm"
-            aria-label="切换全部分组"
+            aria-label={t('切换全部分组')}
             onClick={() =>
               changeCollapsed({
                 ...collapsed,
@@ -160,7 +161,7 @@ function SettingsForm({ fields, values, onChange, disabled, extensionId, setting
             }
           >
             <ChevronDownIcon className={allCollapsed ? '' : 'rotate-180'} />
-            {allCollapsed ? '全部展开' : '全部收起'}
+            {allCollapsed ? t('全部展开') : t('全部收起')}
           </Button>
         </div>
       )}
@@ -188,7 +189,11 @@ function SettingsForm({ fields, values, onChange, disabled, extensionId, setting
                 <span className="block text-sm font-semibold">{heading.label}</span>
                 {heading.hint && <span className="mt-0.5 block text-xs text-zinc-500">{heading.hint}</span>}
               </span>
-              {closed && <span className="shrink-0 text-xs text-zinc-400 tabular-nums">{shown.length} 项</span>}
+              {closed && (
+                <span className="shrink-0 text-xs text-zinc-400 tabular-nums">
+                  {t('{count} 项', { count: shown.length })}
+                </span>
+              )}
               <ChevronRightIcon
                 className={cx('size-4 shrink-0 text-zinc-400 transition-transform', !closed && 'rotate-90')}
               />
@@ -247,7 +252,9 @@ function CustomField({
           }}
         />
       ) : (
-        <p className="text-xs text-zinc-400">「{field.label}」需要扩展的前端部分来显示（扩展前端未加载）</p>
+        <p className="text-xs text-zinc-400">
+          {t('「{label}」需要扩展的前端部分来显示（扩展前端未加载）', { label: field.label })}
+        </p>
       )}
     </div>
   )
@@ -363,7 +370,7 @@ function SecretToggle({ shown, onToggle, disabled }: { shown: boolean; onToggle:
     <IconButton
       variant="outline"
       className={denseIconClass}
-      label={shown ? '隐藏' : '显示'}
+      label={shown ? t('隐藏') : t('显示')}
       aria-pressed={shown}
       disabled={disabled}
       onClick={onToggle}
@@ -448,7 +455,7 @@ function SettingControl({
           >
             {(field.options.some((option) => option.value === '')
               ? field.options
-              : [{ value: '', label: '请选择' }, ...field.options]
+              : [{ value: '', label: t('请选择') }, ...field.options]
             ).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -594,10 +601,10 @@ function SettingsList({
             variant="ghost"
             size="sm"
             className="ml-auto -my-1 h-7 px-2 text-xs"
-            aria-label={`切换全部${field.label}`}
+            aria-label={t('切换全部{label}', { label: field.label })}
             onClick={() => setExpanded(items.map(() => !allExpanded))}
           >
-            {allExpanded ? '全部收起' : '全部展开'}
+            {allExpanded ? t('全部收起') : t('全部展开')}
           </Button>
         )}
       </div>
@@ -638,15 +645,15 @@ function SettingsList({
                       typeof title === 'string' && title.trim() ? 'font-medium' : 'text-zinc-400 italic',
                     )}
                   >
-                    {typeof title === 'string' && title.trim() ? title : '（未命名）'}
+                    {typeof title === 'string' && title.trim() ? title : t('（未命名）')}
                   </span>
                 </button>
                 <div className="flex shrink-0 items-center opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                  <IconButton label="上移" disabled={disabled || index === 0} onClick={() => move(index, -1)}>
+                  <IconButton label={t('上移')} disabled={disabled || index === 0} onClick={() => move(index, -1)}>
                     <ArrowUpIcon />
                   </IconButton>
                   <IconButton
-                    label="下移"
+                    label={t('下移')}
                     disabled={disabled || index === items.length - 1}
                     onClick={() => move(index, 1)}
                   >
@@ -654,10 +661,17 @@ function SettingsList({
                   </IconButton>
                   <IconButton
                     variant="danger"
-                    label={`删除${field.label}第 ${index + 1} 项`}
+                    label={t('删除{label}第 {index} 项', { label: field.label, index: index + 1 })}
                     disabled={disabled}
                     onClick={() => {
-                      if (confirm(`确定删除「${field.label}」的第 ${index + 1} 项及其全部设置吗？保存后生效。`)) {
+                      if (
+                        confirm(
+                          t('确定删除「{label}」的第 {index} 项及其全部设置吗？保存后生效。', {
+                            label: field.label,
+                            index: index + 1,
+                          }),
+                        )
+                      ) {
                         setExpanded(items.flatMap((_, i) => (i === index ? [] : [!!expanded[i]])))
                         onChange(items.filter((_, i) => i !== index))
                       }
@@ -685,7 +699,7 @@ function SettingsList({
         <button
           type="button"
           disabled={disabled}
-          aria-label="添加一项"
+          aria-label={t('添加一项')}
           onClick={add}
           className={cx(
             'flex h-9 w-full items-center gap-2 px-3 text-[13px] text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-violet-600 disabled:opacity-50 dark:hover:bg-zinc-800/40',
@@ -693,7 +707,7 @@ function SettingsList({
           )}
         >
           <PlusIcon className="size-4" />
-          {items.length === 0 ? `还没有${field.label}，点这里添加` : '添加一项'}
+          {items.length === 0 ? t('还没有{label}，点这里添加', { label: field.label }) : t('添加一项')}
         </button>
       </div>
     </div>
@@ -736,7 +750,7 @@ function RemoteOptionsField({
       const path = field.optionsSource ?? ''
       const url = new URL(`/api/ext/${encodeURIComponent(extensionId)}/${path.replace(/^\/+/, '')}`, location.origin)
       if (!url.pathname.startsWith(`/api/ext/${encodeURIComponent(extensionId)}/`))
-        throw new Error('候选接口路径不合法')
+        throw new Error(t('候选接口路径不合法'))
       // 草稿放在请求体里（可能含整份工作流 JSON，放进网址会超长）；候选列表跟随当前会话的连接
       const chatId = useUi.getState().chatId
       const response = await fetch(url, {
@@ -750,9 +764,9 @@ function RemoteOptionsField({
       try {
         data = raw ? JSON.parse(raw) : null
       } catch {
-        throw new Error(`拉取候选失败（HTTP ${response.status}，返回的不是 JSON）`)
+        throw new Error(t('拉取候选失败（HTTP {status}，返回的不是 JSON）', { status: response.status }))
       }
-      if (data === null) throw new Error(`拉取候选失败（HTTP ${response.status}，没有返回内容）`)
+      if (data === null) throw new Error(t('拉取候选失败（HTTP {status}，没有返回内容）', { status: response.status }))
       const body = recordOf(data)
       if (!response.ok || !Array.isArray(body.options)) {
         const detail = recordOf(body.error)
@@ -761,17 +775,17 @@ function RemoteOptionsField({
             ? detail.message
             : typeof body.error === 'string'
               ? body.error
-              : '拉取候选失败',
+              : t('拉取候选失败'),
         )
       }
       const fetched = body.options.map((option: unknown) => {
         const item = recordOf(option)
-        if (typeof item.value !== 'string' || typeof item.label !== 'string') throw new Error('候选数据格式不正确')
+        if (typeof item.value !== 'string' || typeof item.label !== 'string') throw new Error(t('候选数据格式不正确'))
         return { value: item.value, label: item.label }
       })
       if (!request.signal.aborted) {
         setOptions(fetched)
-        if (manual) toast.info(`已拉取 ${fetched.length} 个候选`)
+        if (manual) toast.info(t('已拉取 {count} 个候选', { count: fetched.length }))
       }
     } catch (e) {
       if (!request.signal.aborted) {
@@ -795,7 +809,7 @@ function RemoteOptionsField({
     ).values(),
   ]
   if (field.type === 'select' && value && !choices.some((option) => option.value === value))
-    choices.push({ value, label: `${value}（自定义）` })
+    choices.push({ value, label: t('{value}（自定义）', { value }) })
   const id = useId()
   return (
     <div className={cx('min-w-0', (!!attachments || (field.type === 'string' && !!field.secret)) && 'col-span-full')}>
@@ -810,7 +824,7 @@ function RemoteOptionsField({
           >
             {(choices.some((option) => option.value === '')
               ? choices
-              : [{ value: '', label: '请选择' }, ...choices]
+              : [{ value: '', label: t('请选择') }, ...choices]
             ).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -826,7 +840,7 @@ function RemoteOptionsField({
             onChange={onChange}
             options={choices}
             disabled={disabled}
-            placeholder={field.placeholder ?? (choices.length ? '选择或直接输入' : '直接输入，或点右侧按钮拉取')}
+            placeholder={field.placeholder ?? (choices.length ? t('选择或直接输入') : t('直接输入，或点右侧按钮拉取'))}
             secret={!!field.secret && !shown}
           />
         )}
@@ -840,7 +854,7 @@ function RemoteOptionsField({
             className={denseIconClass}
             disabled={disabled || loading}
             onClick={() => void load(true)}
-            label={`拉取${field.label}`}
+            label={t('拉取{label}', { label: field.label })}
           >
             <RefreshIcon className={loading ? 'animate-spin' : ''} />
           </IconButton>
@@ -849,7 +863,7 @@ function RemoteOptionsField({
       {error && (
         // 自动拉取失败时多个字段会同时报同一个错，这里只给一行简短提示，完整原因悬停可见（手动拉取会弹出完整错误）
         <p className="truncate pb-1 pl-38 text-xs text-amber-600 dark:text-amber-400" title={error}>
-          未能拉取候选，可直接手填或点右侧按钮重试
+          {t('未能拉取候选，可直接手填或点右侧按钮重试')}
         </p>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { HttpError } from '../../../../errors'
+import { t } from '../../../../i18n'
 
 export async function imageFetch(url: string, init: RequestInit = {}): Promise<Response> {
   try {
@@ -7,16 +8,16 @@ export async function imageFetch(url: string, init: RequestInit = {}): Promise<R
       throw new HttpError(
         502,
         'IMAGE_HTTP',
-        `图片接口 HTTP ${response.status}：${(await response.text()).slice(0, 200)}`,
+        t('图片接口 HTTP {status}：{error}', { status: response.status, error: (await response.text()).slice(0, 200) }),
       )
     return response
   } catch (error) {
     if (error instanceof HttpError) throw error
-    if (init.signal?.aborted) throw new HttpError(502, 'IMAGE_TIMEOUT', '图片接口请求超时')
+    if (init.signal?.aborted) throw new HttpError(502, 'IMAGE_TIMEOUT', t('图片接口请求超时'))
     throw new HttpError(
       502,
       'IMAGE_NETWORK',
-      `图片接口请求失败：${error instanceof Error ? error.message : String(error)}`,
+      t('图片接口请求失败：{error}', { error: error instanceof Error ? error.message : String(error) }),
     )
   }
 }
@@ -27,6 +28,6 @@ export async function jsonResponse(response: Response): Promise<Record<string, u
   try {
     return object(await response.json())
   } catch {
-    throw new HttpError(502, 'IMAGE_JSON', '图片接口返回的不是合法的 JSON')
+    throw new HttpError(502, 'IMAGE_JSON', t('图片接口返回的不是合法的 JSON'))
   }
 }

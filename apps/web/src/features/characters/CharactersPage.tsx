@@ -18,6 +18,7 @@ import { Menu, MenuDivider, MenuEntry } from '../../components/menu'
 import { TagInput, tagShape } from '../../components/tags'
 import { Avatar, Button, controlClass, cx, IconButton } from '../../components/ui'
 import { Slot } from '../../extensions/Slot'
+import { getLanguage, t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { AvatarUpload, CountedArea, CountedText, moveItem, useAction } from './editor'
@@ -38,7 +39,7 @@ export function CharactersPage() {
   const { busy, run } = useAction()
   const select = (id: string | null) => {
     if (id === selected) return
-    if (busy || importing || editorBusy.current || (dirty.current && !confirm('有未保存的修改，是否放弃？'))) return
+    if (busy || importing || editorBusy.current || (dirty.current && !confirm(t('有未保存的修改，是否放弃？')))) return
     dirty.current = false
     setSelected(id)
   }
@@ -47,9 +48,9 @@ export function CharactersPage() {
   }, [focusId])
   const detail = useCharacter(selected)
   const create = () => {
-    if (editorBusy.current || (dirty.current && !confirm('有未保存的修改，是否放弃？'))) return
+    if (editorBusy.current || (dirty.current && !confirm(t('有未保存的修改，是否放弃？')))) return
     void run(async () => {
-      const created = await api.createCharacter({ name: '新角色' })
+      const created = await api.createCharacter({ name: t('新角色') })
       await qc.invalidateQueries({ queryKey: keys.characters })
       dirty.current = false
       setSelected(created.id)
@@ -57,15 +58,15 @@ export function CharactersPage() {
   }
   return (
     <ManagerLayout
-      title="角色"
+      title={t('角色')}
       showDetailOnMobile={selected !== null}
       actions={
         <>
           <Button disabled={busy || importing} onClick={create}>
-            新建
+            {t('新建')}
           </Button>
           <Button disabled={busy || importing} onClick={() => importInput.current?.click()}>
-            {importing ? '导入中…' : '导入'}
+            {importing ? t('导入中…') : t('导入')}
           </Button>
           {importDialog}
           <input
@@ -88,8 +89,8 @@ export function CharactersPage() {
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-zinc-400" />
             <input
               className={cx(controlClass, 'pl-8')}
-              placeholder="搜索角色（名字或标签）"
-              aria-label="搜索角色"
+              placeholder={t('搜索角色（名字或标签）')}
+              aria-label={t('搜索角色')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -98,11 +99,11 @@ export function CharactersPage() {
             <TagFilter characters={characters.data} selected={tagFilter} onChange={setTagFilter} />
           )}
           {characters.isPending ? (
-            <p className="p-3 text-sm text-zinc-500">加载中…</p>
+            <p className="p-3 text-sm text-zinc-500">{t('加载中…')}</p>
           ) : characters.isError ? (
             <p className="p-3 text-sm text-red-600">{errorMessage(characters.error)}</p>
           ) : characters.data.length === 0 ? (
-            <p className="p-3 text-sm text-zinc-500">点击「新建」或「导入」添加第一个角色。</p>
+            <p className="p-3 text-sm text-zinc-500">{t('点击「新建」或「导入」添加第一个角色。')}</p>
           ) : (
             (() => {
               const query = search.trim().toLocaleLowerCase()
@@ -124,7 +125,7 @@ export function CharactersPage() {
                   </ListItem>
                 ))
               ) : (
-                <p className="p-3 text-sm text-zinc-500">没有匹配的角色。</p>
+                <p className="p-3 text-sm text-zinc-500">{t('没有匹配的角色。')}</p>
               )
             })()
           )}
@@ -133,12 +134,12 @@ export function CharactersPage() {
       detail={
         !selected ? null : detail.isPending ? (
           <>
-            <DetailHeader title="角色" onBack={() => select(null)} />
-            <p className="p-4">加载中…</p>
+            <DetailHeader title={t('角色')} onBack={() => select(null)} />
+            <p className="p-4">{t('加载中…')}</p>
           </>
         ) : detail.isError ? (
           <>
-            <DetailHeader title="角色" onBack={() => select(null)} />
+            <DetailHeader title={t('角色')} onBack={() => select(null)} />
             <p className="p-4">{errorMessage(detail.error)}</p>
           </>
         ) : (
@@ -182,7 +183,7 @@ export function CharacterEditor({
   const { busy, run } = useAction()
   const dirty = JSON.stringify(draft) !== JSON.stringify(original)
   const allTags = [...new Set((useCharacters().data ?? []).flatMap((c) => c.tags))].sort((a, b) =>
-    a.localeCompare(b, 'zh-CN'),
+    a.localeCompare(b, getLanguage() === 'en' ? 'en-US' : 'zh-CN'),
   )
   useEffect(() => {
     onDirty(dirty, busy)
@@ -202,7 +203,7 @@ export function CharacterEditor({
       setDraft(structuredClone(result))
       setOriginal(structuredClone(result))
       await refresh()
-      toast.info('角色已保存')
+      toast.info(t('角色已保存'))
     })
   const area = (
     key:
@@ -226,7 +227,7 @@ export function CharacterEditor({
         onBack={onBack}
         actions={
           <div className="flex items-center gap-1.5">
-            {dirty && <span className="mr-1 hidden text-xs text-amber-600 sm:inline">未保存</span>}
+            {dirty && <span className="mr-1 hidden text-xs text-amber-600 sm:inline">{t('未保存')}</span>}
             <Button
               size="sm"
               variant="ghost"
@@ -235,13 +236,13 @@ export function CharacterEditor({
                 setDraft(structuredClone(original))
               }}
             >
-              撤销修改
+              {t('撤销修改')}
             </Button>
             <Button
               size="sm"
               disabled={busy}
               onClick={() => {
-                if (dirty && !confirm('有未保存的修改，是否放弃并开始聊天？')) return
+                if (dirty && !confirm(t('有未保存的修改，是否放弃并开始聊天？'))) return
                 void run(async () => {
                   const chat = await api.createChat({ characterId: character.id })
                   useUi.getState().openView('chat')
@@ -250,17 +251,17 @@ export function CharacterEditor({
               }}
             >
               <ChatIcon />
-              开始聊天
+              {t('开始聊天')}
             </Button>
             <Button size="sm" variant="primary" disabled={busy || !dirty || !draft.name.trim()} onClick={save}>
-              保存
+              {t('保存')}
             </Button>
             <Menu>
               <MenuEntry
                 icon={<CopyIcon />}
                 disabled={busy}
                 onClick={() => {
-                  if (dirty && !confirm('复制使用已保存的角色，有未保存的修改，是否放弃并继续？')) return
+                  if (dirty && !confirm(t('复制使用已保存的角色，有未保存的修改，是否放弃并继续？'))) return
                   void run(async () => {
                     const copy = await api.duplicateCharacter(character.id)
                     await refresh()
@@ -268,13 +269,13 @@ export function CharacterEditor({
                   })
                 }}
               >
-                复制
+                {t('复制')}
               </MenuEntry>
               <MenuEntry icon={<DownloadIcon />} onClick={() => api.exportCharacter(character.id, 'png')}>
-                导出 PNG
+                {t('导出 PNG')}
               </MenuEntry>
               <MenuEntry icon={<DownloadIcon />} onClick={() => api.exportCharacter(character.id, 'json')}>
-                导出 JSON
+                {t('导出 JSON')}
               </MenuEntry>
               <MenuDivider />
               <MenuEntry
@@ -282,7 +283,7 @@ export function CharacterEditor({
                 danger
                 disabled={busy}
                 onClick={() => {
-                  if (confirm(`确定删除「${original.name}」？它的所有会话也会一起删除。`))
+                  if (confirm(t('确定删除「{name}」？它的所有会话也会一起删除。', { name: original.name })))
                     void run(async () => {
                       await api.deleteCharacter(character.id)
                       await refresh()
@@ -290,7 +291,7 @@ export function CharacterEditor({
                     })
                 }}
               >
-                删除
+                {t('删除')}
               </MenuEntry>
             </Menu>
           </div>
@@ -312,42 +313,44 @@ export function CharacterEditor({
         />
         <div className="grid gap-4 sm:grid-cols-2">
           <CountedText
-            label="名字"
-            hint="角色在列表和对话中显示的名字。"
+            label={t('名字')}
+            hint={t('角色在列表和对话中显示的名字。')}
             value={draft.name}
             onChange={(v) => patch('name', v)}
           />
           <div className="space-y-1.5 sm:col-span-2">
-            <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">标签</span>
+            <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">{t('标签')}</span>
             <TagInput value={draft.tags} suggestions={allTags} onChange={(v) => patch('tags', v)} />
-            <p className="text-xs text-zinc-500">导入酒馆角色卡时自动带上卡里的标签；在角色列表里可以按标签筛选</p>
+            <p className="text-xs text-zinc-500">
+              {t('导入酒馆角色卡时自动带上卡里的标签；在角色列表里可以按标签筛选')}
+            </p>
           </div>
           <CountedText
-            label="作者"
-            hint="记录角色卡作者的名字。"
+            label={t('作者')}
+            hint={t('记录角色卡作者的名字。')}
             value={draft.creator}
             onChange={(v) => patch('creator', v)}
           />
           <CountedText
-            label="版本"
-            hint="记录角色卡版本，方便区分修订。"
+            label={t('版本')}
+            hint={t('记录角色卡版本，方便区分修订。')}
             value={draft.character_version}
             onChange={(v) => patch('character_version', v)}
           />
         </div>
-        <Section title="基础设定">
-          {area('description', '描述', '介绍角色的外貌、背景和身份。', 8)}
-          {area('personality', '性格', '描述角色的性格与行为习惯。')}
-          {area('scenario', '场景', '设定对话发生的地点和背景。')}
-          {area('first_mes', '开场白', '新建会话时角色发出的第一条消息。', 6)}
+        <Section title={t('基础设定')}>
+          {area('description', t('描述'), t('介绍角色的外貌、背景和身份。'), 8)}
+          {area('personality', t('性格'), t('描述角色的性格与行为习惯。'))}
+          {area('scenario', t('场景'), t('设定对话发生的地点和背景。'))}
+          {area('first_mes', t('开场白'), t('新建会话时角色发出的第一条消息。'), 6)}
           <div className="space-y-3">
-            <p className="text-sm font-medium">备选开场白</p>
-            <p className="text-xs text-zinc-500">新建会话时可以左右滑动切换开场白</p>
+            <p className="text-sm font-medium">{t('备选开场白')}</p>
+            <p className="text-xs text-zinc-500">{t('新建会话时可以左右滑动切换开场白')}</p>
             {draft.alternate_greetings.map((greeting, index) => (
               <div key={index} className="space-y-2">
                 <CountedArea
-                  label={`备选开场白 ${index + 1}`}
-                  hint="提供另一种开始对话的方式。"
+                  label={t('备选开场白 {index}', { index: index + 1 })}
+                  hint={t('提供另一种开始对话的方式。')}
                   value={greeting}
                   onChange={(value) =>
                     patch(
@@ -365,33 +368,35 @@ export function CharacterEditor({
                     )
                   }
                 >
-                  删除此开场白
+                  {t('删除此开场白')}
                 </Button>
               </div>
             ))}
-            <Button onClick={() => patch('alternate_greetings', [...draft.alternate_greetings, ''])}>添加开场白</Button>
+            <Button onClick={() => patch('alternate_greetings', [...draft.alternate_greetings, ''])}>
+              {t('添加开场白')}
+            </Button>
           </div>
         </Section>
-        <Section title="进阶设定">
+        <Section title={t('进阶设定')}>
           {area(
             'mes_example',
-            '对话示例',
-            '用 <START> 分隔示例，以 {{user}}: / {{char}}: 为前缀，示范角色的说话风格。',
+            t('对话示例'),
+            t('用 <START> 分隔示例，以 {{user}}: / {{char}}: 为前缀，示范角色的说话风格。'),
             8,
           )}
-          {area('system_prompt', '主提示词', '填写后会替代预设里的主提示词，可用 {{original}} 引用原文')}
+          {area('system_prompt', t('主提示词'), t('填写后会替代预设里的主提示词，可用 {{original}} 引用原文'))}
           {area(
             'post_history_instructions',
-            '历史后指令',
-            '填写后会替代预设里的历史后指令，可用 {{original}} 引用原文',
+            t('历史后指令'),
+            t('填写后会替代预设里的历史后指令，可用 {{original}} 引用原文'),
           )}
-          {area('creator_notes', '作者说明', '只给人看，不发给模型')}
+          {area('creator_notes', t('作者说明'), t('只给人看，不发给模型'))}
         </Section>
-        <Section title="角色备注" description="对应酒馆的 Character's Note，按深度插入聊天记录。">
-          {area('characterNote', '备注内容', '把需要持续提醒模型的设定插入聊天记录。')}
+        <Section title={t('角色备注')} description={t("对应酒馆的 Character's Note，按深度插入聊天记录。")}>
+          {area('characterNote', t('备注内容'), t('把需要持续提醒模型的设定插入聊天记录。'))}
           <NumberField
-            label="插入深度"
-            hint="从最新消息向前数，0 表示放在聊天记录末尾。"
+            label={t('插入深度')}
+            hint={t('从最新消息向前数，0 表示放在聊天记录末尾。')}
             value={draft.characterNoteDepth}
             min={0}
             max={Number.MAX_SAFE_INTEGER}
@@ -399,21 +404,21 @@ export function CharacterEditor({
             onChange={(v) => patch('characterNoteDepth', Math.round(v))}
           />
           <SelectField<PromptRole>
-            label="备注身份"
-            hint="选择这段备注以系统、用户或助手身份发送。"
+            label={t('备注身份')}
+            hint={t('选择这段备注以系统、用户或助手身份发送。')}
             value={draft.characterNoteRole}
             options={[
-              { value: 'system', label: '系统' },
-              { value: 'user', label: '用户' },
-              { value: 'assistant', label: '助手' },
+              { value: 'system', label: t('系统') },
+              { value: 'user', label: t('用户') },
+              { value: 'assistant', label: t('助手') },
             ]}
             onChange={(v) => patch('characterNoteRole', v)}
           />
         </Section>
-        <Section title="群聊">
+        <Section title={t('群聊')}>
           <NumberField
-            label="发言积极度"
-            hint="群聊里没被点名时开口的概率"
+            label={t('发言积极度')}
+            hint={t('群聊里没被点名时开口的概率')}
             value={draft.talkativeness}
             min={0}
             max={1}
@@ -421,16 +426,16 @@ export function CharacterEditor({
             onChange={(v) => patch('talkativeness', v)}
           />
         </Section>
-        <Section title="关联">
-          <p className="text-sm font-medium">关联世界书</p>
-          <p className="text-xs text-zinc-500">第一本是导出角色卡时嵌入的主世界书</p>
+        <Section title={t('关联')}>
+          <p className="text-sm font-medium">{t('关联世界书')}</p>
+          <p className="text-xs text-zinc-500">{t('第一本是导出角色卡时嵌入的主世界书')}</p>
           {draft.lorebookIds.map((id, i) => (
             <div key={id} className="flex flex-wrap items-center gap-2">
               <span className="min-w-0 flex-1 break-words">
-                {i + 1}. {lorebooks.data?.find((b) => b.id === id)?.name ?? '世界书不可用'}
+                {i + 1}. {lorebooks.data?.find((b) => b.id === id)?.name ?? t('世界书不可用')}
               </span>
               <IconButton
-                label="上移"
+                label={t('上移')}
                 className="shrink-0"
                 disabled={i === 0}
                 onClick={() => patch('lorebookIds', moveItem(draft.lorebookIds, i, -1))}
@@ -438,7 +443,7 @@ export function CharacterEditor({
                 <ChevronLeftIcon className="rotate-90" />
               </IconButton>
               <IconButton
-                label="下移"
+                label={t('下移')}
                 className="shrink-0"
                 disabled={i === draft.lorebookIds.length - 1}
                 onClick={() => patch('lorebookIds', moveItem(draft.lorebookIds, i, 1))}
@@ -453,21 +458,21 @@ export function CharacterEditor({
                   )
                 }
               >
-                移除
+                {t('移除')}
               </Button>
             </div>
           ))}
           {lorebooks.isPending ? (
-            <p>加载中…</p>
+            <p>{t('加载中…')}</p>
           ) : lorebooks.isError ? (
             <p>{errorMessage(lorebooks.error)}</p>
           ) : (
             <SelectField
-              label="添加世界书"
-              hint="按添加顺序关联世界书，可在上方调整优先顺序。"
+              label={t('添加世界书')}
+              hint={t('按添加顺序关联世界书，可在上方调整优先顺序。')}
               value=""
               options={[
-                { value: '', label: '选择要添加的世界书' },
+                { value: '', label: t('选择要添加的世界书') },
                 ...lorebooks.data
                   .filter((b) => !draft.lorebookIds.includes(b.id))
                   .map((b) => ({ value: b.id, label: b.name })),
@@ -478,16 +483,16 @@ export function CharacterEditor({
             />
           )}
           {personas.isPending ? (
-            <p>加载中…</p>
+            <p>{t('加载中…')}</p>
           ) : personas.isError ? (
             <p>{errorMessage(personas.error)}</p>
           ) : (
             <SelectField
-              label="默认人设"
-              hint="使用此角色新建会话时，优先选择这个用户人设。"
+              label={t('默认人设')}
+              hint={t('使用此角色新建会话时，优先选择这个用户人设。')}
               value={draft.defaultPersonaId ?? ''}
               options={[
-                { value: '', label: '使用全局默认人设' },
+                { value: '', label: t('使用全局默认人设') },
                 ...personas.data.map((p) => ({ value: p.id, label: p.name })),
               ]}
               onChange={(id) => patch('defaultPersonaId', id || null)}
@@ -529,7 +534,9 @@ function TagFilter({
   const [expanded, setExpanded] = useState(false)
   const counts = new Map<string, number>()
   for (const c of characters) for (const tag of c.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
-  const tags = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+  const tags = [...counts.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], getLanguage() === 'en' ? 'en-US' : 'zh-CN'),
+  )
   if (!tags.length) return null
   const visible = expanded ? tags : tags.slice(0, 10)
   return (
@@ -561,7 +568,7 @@ function TagFilter({
           className="h-6 px-1.5 text-xs text-zinc-500 hover:text-zinc-900"
           onClick={() => setExpanded(!expanded)}
         >
-          {expanded ? '收起' : `更多 ${tags.length - 10}`}
+          {expanded ? t('收起') : t('更多 {count}', { count: tags.length - 10 })}
         </button>
       )}
       {selected.length > 0 && (
@@ -570,7 +577,7 @@ function TagFilter({
           className="h-6 px-1.5 text-xs text-violet-600 hover:underline"
           onClick={() => onChange([])}
         >
-          清除筛选
+          {t('清除筛选')}
         </button>
       )}
     </div>

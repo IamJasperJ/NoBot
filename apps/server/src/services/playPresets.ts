@@ -3,6 +3,8 @@ import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { chats, playPresets } from '../db/schema'
 import { HttpError, notFound } from '../errors'
+import { t } from '../i18n'
+import { translateMetadata } from '../i18n/metadata'
 import { builtinDefinition } from './playPresets.builtin'
 import { SETTING_KEYS } from './settings'
 
@@ -16,7 +18,7 @@ export function listPlayPresets(): PlayPresetDTO[] {
     .map((row) => ({
       id: row.id,
       builtin: row.builtinKey !== null,
-      name: row.name,
+      name: row.name === builtinDefinition(row.builtinKey)?.name ? translateMetadata(row.name) : row.name,
       data: playPresetDataSchema.parse(row.data),
       updatedAt: row.updatedAt,
       isDefault: row.id === defaultId,
@@ -24,7 +26,7 @@ export function listPlayPresets(): PlayPresetDTO[] {
 }
 export function getPlayPreset(id: string): PlayPresetDTO {
   const preset = listPlayPresets().find((row) => row.id === id)
-  if (!preset) throw notFound('玩法预设')
+  if (!preset) throw notFound(t('玩法预设'))
   return preset
 }
 export function createPlayPreset(input: PlayPresetInput): PlayPresetDTO {
@@ -56,7 +58,7 @@ export function deletePlayPreset(id: string) {
   db.transaction(() => {
     const preset = getPlayPreset(id)
     const remaining = listPlayPresets().filter((row) => row.id !== id)
-    if (!remaining.length) throw new HttpError(400, 'LAST_PLAY_PRESET', '不能删除最后一个玩法预设')
+    if (!remaining.length) throw new HttpError(400, 'LAST_PLAY_PRESET', t('不能删除最后一个玩法预设'))
     db.update(chats).set({ playPresetId: null }).where(eq(chats.playPresetId, id)).run()
     db.delete(playPresets).where(eq(playPresets.id, id)).run()
     if (preset.isDefault) setSetting(SETTING_KEYS.defaultPlayPresetId, remaining[0]!.id)
@@ -68,14 +70,14 @@ export function setDefaultPlayPreset(id: string) {
 }
 export function duplicatePlayPreset(id: string) {
   const preset = getPlayPreset(id)
-  return createPlayPreset({ name: `${preset.name} 副本`, data: preset.data })
+  return createPlayPreset({ name: t('{name} 副本', { name: preset.name }), data: preset.data })
 }
 /** 内置预设恢复成内置默认（名字和全部设置）。用户自己建的预设不能重置 */
 export function resetPlayPreset(id: string): PlayPresetDTO {
   getPlayPreset(id)
   const row = db.select({ key: playPresets.builtinKey }).from(playPresets).where(eq(playPresets.id, id)).get()
   const def = builtinDefinition(row?.key ?? null)
-  if (!def) throw new HttpError(400, 'NOT_BUILTIN', '只有内置预设可以重置')
+  if (!def) throw new HttpError(400, 'NOT_BUILTIN', t('只有内置预设可以重置'))
   db.update(playPresets)
     .set({ name: def.name, data: def.build(), updatedAt: Date.now() })
     .where(eq(playPresets.id, id))
@@ -89,18 +91,18 @@ export function getDefaultPlayPresetId(): string | undefined {
 }
 export function getDefault() {
   const id = getDefaultPlayPresetId()
-  if (!id) throw notFound('玩法预设')
+  if (!id) throw notFound(t('玩法预设'))
   return getPlayPreset(id)
 }
 export function importJson(bytes: Uint8Array) {
   try {
     const value: unknown = JSON.parse(new TextDecoder().decode(bytes))
     if (!value || typeof value !== 'object' || !('type' in value) || value.type !== 'ai-parter-play-preset')
-      throw new Error('格式错误')
+      throw new Error(t('格式错误'))
     const parsed = playPresetInput.parse(value)
     return createPlayPreset(parsed)
   } catch {
-    throw new HttpError(400, 'BAD_PLAY_PRESET', '无法解析玩法预设文件')
+    throw new HttpError(400, 'BAD_PLAY_PRESET', t('无法解析玩法预设文件'))
   }
 }
 export function exportJson(id: string) {

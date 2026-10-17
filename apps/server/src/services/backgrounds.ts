@@ -13,6 +13,7 @@ import { db, getSetting, newId, setSetting } from '../db/client'
 import { backgrounds } from '../db/schema'
 import { paths } from '../env'
 import { HttpError, notFound } from '../errors'
+import { t } from '../i18n'
 import { SETTING_KEYS } from './settings'
 
 function toDTO(row: typeof backgrounds.$inferSelect): BackgroundDTO {
@@ -28,7 +29,7 @@ function toDTO(row: typeof backgrounds.$inferSelect): BackgroundDTO {
 
 export function requireBackground(id: string) {
   const row = db.select().from(backgrounds).where(eq(backgrounds.id, id)).get()
-  if (!row) throw notFound('背景')
+  if (!row) throw notFound(t('背景'))
   return row
 }
 
@@ -80,7 +81,7 @@ export async function saveBackground(
       thumb = await sharp(original).resize(320, 320, { fit: 'inside', withoutEnlargement: true }).webp().toBuffer()
     }
   } catch {
-    throw new HttpError(400, 'BAD_IMAGE', '无法识别的图片文件')
+    throw new HttpError(400, 'BAD_IMAGE', t('无法识别的图片文件'))
   }
   const row = {
     id: newId(),
@@ -112,7 +113,7 @@ export function updateBackground(id: string, input: UpdateBackgroundInput): Back
   requireBackground(id)
   const parsed = updateBackgroundInput.parse(input)
   if (!Object.values(parsed).some((value) => value !== undefined)) {
-    throw new HttpError(400, 'BAD_REQUEST', '请至少提供一个要修改的字段')
+    throw new HttpError(400, 'BAD_REQUEST', t('请至少提供一个要修改的字段'))
   }
   db.update(backgrounds).set(parsed).where(eq(backgrounds.id, id)).run()
   return toDTO(requireBackground(id))
@@ -157,16 +158,16 @@ export function detectBackgroundMime(bytes: Uint8Array): string {
 
 export function checkBackgroundSize(size: number, mime: string) {
   const limit = mime.startsWith('video/') ? 100 : 20
-  if (size > limit * 1024 * 1024) throw new HttpError(413, 'TOO_LARGE', `文件太大（上限 ${limit}MB）`)
+  if (size > limit * 1024 * 1024) throw new HttpError(413, 'TOO_LARGE', t('文件太大（上限 {limit}MB）', { limit }))
 }
 
 /** 下载时逐块限流，避免缺少 Content-Length 的响应无限占用内存。 */
 export async function importBackgroundUrl(input: { url: string; name?: string }): Promise<BackgroundDTO> {
   const url = new URL(input.url)
-  if (!['http:', 'https:'].includes(url.protocol)) throw new HttpError(400, 'BAD_URL', '只允许 http/https 网址')
+  if (!['http:', 'https:'].includes(url.protocol)) throw new HttpError(400, 'BAD_URL', t('只允许 http/https 网址'))
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(30_000) })
-    if (!response.ok || !response.body) throw new HttpError(400, 'DOWNLOAD_FAILED', '下载背景失败')
+    if (!response.ok || !response.body) throw new HttpError(400, 'DOWNLOAD_FAILED', t('下载背景失败'))
     const reader = response.body.getReader()
     const chunks: Uint8Array[] = []
     let size = 0
@@ -183,13 +184,13 @@ export async function importBackgroundUrl(input: { url: string; name?: string })
     } finally {
       await reader.cancel()
     }
-    const filename = decodeURIComponent(url.pathname.split('/').pop() || '网址背景').replace(/\.[^.]+$/, '')
+    const filename = decodeURIComponent(url.pathname.split('/').pop() || t('网址背景')).replace(/\.[^.]+$/, '')
     return await saveBackground(Buffer.concat(chunks), {
-      name: input.name ?? (filename || '网址背景'),
+      name: input.name ?? (filename || t('网址背景')),
       source: 'upload',
     })
   } catch (error) {
     if (error instanceof HttpError) throw error
-    throw new HttpError(400, 'DOWNLOAD_FAILED', '下载背景失败或超时')
+    throw new HttpError(400, 'DOWNLOAD_FAILED', t('下载背景失败或超时'))
   }
 }

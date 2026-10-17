@@ -1,9 +1,11 @@
-import { GENERATION_TYPE_LABELS, type GenerationType, type PromptSegment } from '@ai-parter/shared'
+import type { GenerationType, PromptSegment } from '@ai-parter/shared'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../api/client'
 import { RefreshIcon, XIcon } from '../../components/icons'
 import { cx, IconButton, selectClass } from '../../components/ui'
+import { t } from '../../i18n'
+import { generationTypeLabels } from '../../i18n-labels'
 import { errorMessage } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 
@@ -32,7 +34,7 @@ function Segment({ s }: { s: PromptSegment }) {
       <div className="mb-1 flex items-center gap-2 text-xs text-zinc-500">
         <span className="font-medium">{s.label}</span>
         <span>{s.role}</span>
-        {s.depth !== undefined && <span>深度 {s.depth}</span>}
+        {s.depth !== undefined && <span>{t('深度 {depth}', { depth: s.depth })}</span>}
         <span className="ml-auto tabular-nums">{s.tokens} token</span>
       </div>
       {/* 折叠时裁成 4 行；用 overflow: clip 而不是 line-clamp，避免 WebKit 下滚动被这块吃掉（见日志页的说明） */}
@@ -64,8 +66,8 @@ export function PromptPreview({ chatId }: { chatId: string }) {
   return (
     <aside className="flex h-full w-full flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 dark:border-zinc-800">
-        <div className="min-w-0 flex-1 truncate font-semibold" title="Prompt 预览">
-          Prompt 预览
+        <div className="min-w-0 flex-1 truncate font-semibold" title={t('Prompt 预览')}>
+          {t('Prompt 预览')}
         </div>
         <select
           className={cx(selectClass, 'h-8 max-w-28 shrink-0')}
@@ -74,35 +76,55 @@ export function PromptPreview({ chatId }: { chatId: string }) {
         >
           {TYPES.map((t) => (
             <option key={t} value={t}>
-              {GENERATION_TYPE_LABELS[t]}
+              {generationTypeLabels()[t]}
             </option>
           ))}
         </select>
-        <IconButton label="刷新" onClick={() => void preview.refetch()}>
+        <IconButton label={t('刷新')} onClick={() => void preview.refetch()}>
           <RefreshIcon />
         </IconButton>
-        <IconButton label="返回会话列表" onClick={() => setPreviewOpen(false)}>
+        <IconButton label={t('返回会话列表')} onClick={() => setPreviewOpen(false)}>
           <XIcon />
         </IconButton>
       </header>
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
-        {preview.isPending && <div className="text-sm text-zinc-400">组装中…</div>}
+        {preview.isPending && <div className="text-sm text-zinc-400">{t('组装中…')}</div>}
         {preview.isError && <div className="text-sm text-red-500">{errorMessage(preview.error)}</div>}
         {report && (
           <>
             <div className="rounded-lg bg-violet-50 px-3 py-2 text-sm dark:bg-violet-950/50">
-              共 <b className="tabular-nums">{report.totalTokens}</b> / {report.budget} token · 历史保留{' '}
-              {report.historyKept} / {report.historyTotal} 条
-              {report.excludedCount ? ` · 已排除 ${report.excludedCount} 条` : ''} · {preview.data?.messages.length}{' '}
-              条消息
+              {t('共 ')}
+              <b className="tabular-nums">{report.totalTokens}</b>{' '}
+              {report.excludedCount
+                ? t(
+                    '/ {budget} token · 历史保留 {historyKept} / {historyTotal} 条 · 已排除 {excludedCount} 条 · {messageCount} 条消息',
+                    {
+                      budget: report.budget,
+                      historyKept: report.historyKept,
+                      historyTotal: report.historyTotal,
+                      excludedCount: report.excludedCount,
+                      messageCount: preview.data?.messages.length ?? '',
+                    },
+                  )
+                : t('/ {budget} token · 历史保留 {historyKept} / {historyTotal} 条 · {messageCount} 条消息', {
+                    budget: report.budget,
+                    historyKept: report.historyKept,
+                    historyTotal: report.historyTotal,
+                    messageCount: preview.data?.messages.length ?? '',
+                  })}
             </div>
             {report.omittedToolCalls > 0 && (
-              <div className="text-sm text-zinc-500">省略了 {report.omittedToolCalls} 条未启用工具的调用记录</div>
+              <div className="text-sm text-zinc-500">
+                {t('省略了 {count} 条未启用工具的调用记录', { count: report.omittedToolCalls })}
+              </div>
             )}
             {wi.length > 0 && (
               <details className="rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
                 <summary className="cursor-pointer select-none">
-                  世界书：插入 {wi.filter((w) => w.activated).length} / 扫描 {wi.length} 条
+                  {t('世界书：插入 {inserted} / 扫描 {scanned} 条', {
+                    inserted: wi.filter((w) => w.activated).length,
+                    scanned: wi.length,
+                  })}
                 </summary>
                 <ul className="mt-2 space-y-1">
                   {wi.map((w) => (
@@ -110,7 +132,7 @@ export function PromptPreview({ chatId }: { chatId: string }) {
                       <span className={w.activated ? 'text-emerald-600' : 'text-zinc-400'}>
                         {w.activated ? '✓' : '·'}
                       </span>
-                      <span className="min-w-0 flex-1 truncate">{w.comment || '（无备注）'}</span>
+                      <span className="min-w-0 flex-1 truncate">{w.comment || t('（无备注）')}</span>
                       <span className="shrink-0 text-xs text-zinc-500">{w.activated ? w.reason : w.skippedReason}</span>
                     </li>
                   ))}

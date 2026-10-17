@@ -29,20 +29,21 @@ import { PersonasPage } from './features/personas/PersonasPage'
 import { PresetsPage } from './features/presets/PresetsPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { useMobile } from './hooks/useMobile'
+import { t } from './i18n'
 import { useAppearance } from './stores/appearance'
 import { useToasts } from './stores/toast'
 import { useUi, type View } from './stores/ui'
 
-const NAV: { view: View; label: string; icon: ReactNode }[] = [
-  { view: 'chat', label: '聊天', icon: <ChatIcon /> },
-  { view: 'characters', label: '角色', icon: <UsersIcon /> },
-  { view: 'lorebooks', label: '世界书', icon: <BookIcon /> },
-  { view: 'presets', label: '生成预设', icon: <SlidersIcon /> },
-  { view: 'connections', label: '连接', icon: <PlugIcon /> },
-  { view: 'personas', label: '人设', icon: <UserIcon /> },
-  { view: 'backgrounds', label: '背景', icon: <ImageIcon /> },
-  { view: 'extensions', label: '扩展', icon: <PuzzleIcon /> },
-  { view: 'logs', label: '日志', icon: <LogIcon /> },
+const NAV = (): { view: View; label: string; icon: ReactNode }[] => [
+  { view: 'chat', label: t('聊天'), icon: <ChatIcon /> },
+  { view: 'characters', label: t('角色'), icon: <UsersIcon /> },
+  { view: 'lorebooks', label: t('世界书'), icon: <BookIcon /> },
+  { view: 'presets', label: t('生成预设'), icon: <SlidersIcon /> },
+  { view: 'connections', label: t('连接'), icon: <PlugIcon /> },
+  { view: 'personas', label: t('人设'), icon: <UserIcon /> },
+  { view: 'backgrounds', label: t('背景'), icon: <ImageIcon /> },
+  { view: 'extensions', label: t('扩展'), icon: <PuzzleIcon /> },
+  { view: 'logs', label: t('日志'), icon: <LogIcon /> },
 ]
 
 /** 最左侧的图标导航。项目多时可以滚动；「设置」固定在最下面 */
@@ -87,9 +88,9 @@ function NavRail({
         floating && 'md:shadow-xl',
       )}
     >
-      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">{NAV.map(item)}</div>
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">{NAV().map(item)}</div>
       <div className="mt-1 border-t border-zinc-200 pt-1 dark:border-zinc-800">
-        {item({ view: 'settings', label: '设置', icon: <SettingsIcon /> })}
+        {item({ view: 'settings', label: t('设置'), icon: <SettingsIcon /> })}
       </div>
     </nav>
   )
@@ -101,14 +102,14 @@ function Welcome() {
   const characters = useCharacters()
   const { openView, setSidebarOpen } = useUi()
 
-  let tip = '在左侧选一个角色或群聊，然后新建会话'
+  let tip = t('在左侧选一个角色或群聊，然后新建会话')
   let action: { label: string; run: () => void } | null = null
   if (connections.data?.length === 0) {
-    tip = '第一步：添加一个模型连接（OpenAI 兼容，比如 DeepSeek、OpenRouter）'
-    action = { label: '去添加连接', run: () => openView('connections') }
+    tip = t('第一步：添加一个模型连接（OpenAI 兼容，比如 DeepSeek、OpenRouter）')
+    action = { label: t('去添加连接'), run: () => openView('connections') }
   } else if (characters.data?.length === 0) {
-    tip = '第二步：导入一张酒馆角色卡（PNG 或 JSON），或者新建一个角色'
-    action = { label: '去角色页', run: () => openView('characters') }
+    tip = t('第二步：导入一张酒馆角色卡（PNG 或 JSON），或者新建一个角色')
+    action = { label: t('去角色页'), run: () => openView('characters') }
   }
 
   return (
@@ -117,7 +118,7 @@ function Welcome() {
         className="flex h-14 shrink-0 items-center pr-3 md:hidden"
         style={{ paddingLeft: 'calc(var(--panel-offset) + 0.75rem)' }}
       >
-        <IconButton label="打开侧栏" onClick={() => setSidebarOpen(true)}>
+        <IconButton label={t('打开侧栏')} onClick={() => setSidebarOpen(true)}>
           <MenuIcon />
         </IconButton>
       </header>
@@ -242,7 +243,7 @@ export function App() {
       {sidebarOpen && (
         <button
           type="button"
-          aria-label="关闭侧栏"
+          aria-label={t('关闭侧栏')}
           className="fixed inset-0 z-20 bg-black/40 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />

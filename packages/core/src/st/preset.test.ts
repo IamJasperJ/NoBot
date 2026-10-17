@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { defaultPromptBlocks, presetDataSchema, promptBlockSchema } from '@ai-parter/shared'
+import { presetDataSchema, promptBlockSchema } from '@ai-parter/shared'
+import { parsePresetWithEnglishDefaults } from '../prompt/defaults'
 import { exportSTPreset, importSTPreset, STFormatError } from './index'
 
 const preset = {
@@ -166,7 +167,7 @@ describe('酒馆预设', () => {
       prompt_order: [{ order: pairs.map(([identifier]) => ({ identifier, enabled: true })) }],
     })
     expect(data.prompts.map((p) => p.id)).toEqual(pairs.map(([, id]) => id))
-    expect(data.prompts[0]?.content).toBe(defaultPromptBlocks()[0]?.content)
+    expect(data.prompts[0]?.content).toBe(parsePresetWithEnglishDefaults({}).prompts[0]?.content)
     const out = exportSTPreset(data)
     expect(out.prompts).toEqual(
       data.prompts.map((p, i) => ({
@@ -261,7 +262,7 @@ describe('酒馆预设', () => {
   })
 
   test('空对象和损坏字段默认值、异常结构与危险属性名', () => {
-    const defaults = presetDataSchema.parse({})
+    const defaults = parsePresetWithEnglishDefaults({})
     expect(importSTPreset({})).toEqual(defaults)
     expect(
       importSTPreset({

@@ -11,6 +11,7 @@ import {
 } from '@ai-parter/shared'
 import { z } from 'zod'
 import { HttpError, notFound } from '../../../errors'
+import { t } from '../../../i18n'
 import { listModels } from '../../../llm/openai'
 import { getChatRow, loadMessage, loadPath } from '../../../services/chats'
 import { getApiPresetRow, listApiPresets, resolveApiPreset } from '../../../services/connections'
@@ -78,14 +79,14 @@ async function summarize(ctx: Context, chatId: string, auto: boolean) {
   getChatRow(chatId)
   if (running.has(chatId)) {
     if (auto) return
-    throw new HttpError(409, 'BUSY', '正在总结')
+    throw new HttpError(409, 'BUSY', t('正在总结'))
   }
   running.add(chatId)
   try {
     const data = material(chatId)
     if (!data.candidates.length) {
       if (auto) return
-      throw new HttpError(400, 'NOTHING_TO_SUMMARIZE', '没有新的内容可以总结')
+      throw new HttpError(400, 'NOTHING_TO_SUMMARIZE', t('没有新的内容可以总结'))
     }
     const settings = parseSettings(ctx.settings)
     let selected = settings.maxMessages > 0 ? data.candidates.slice(0, settings.maxMessages) : data.candidates
@@ -108,22 +109,22 @@ async function summarize(ctx: Context, chatId: string, auto: boolean) {
         settings.mode === 'transcript'
           ? await ctx.host.complete({
               ...opts,
-              summary: '剧情总结',
+              summary: t('剧情总结'),
               messages: [
                 { role: 'system', content: prompt },
                 {
                   role: 'user',
-                  content: `【已有总结】\n${data.current?.text || '（无）'}\n\n【新的对话】\n${selected.map((m) => m.line).join('\n\n')}`,
+                  content: `[Existing summary]\n${data.current?.text || '(none)'}\n\n[New conversation]\n${selected.map((m) => m.line).join('\n\n')}`,
                 },
               ],
             })
           : await ctx.host.quietPrompt({
               ...opts,
               includeHistory: true,
-              instruction: prompt + (data.current ? `\n\n【已有总结】\n${data.current.text}` : ''),
+              instruction: prompt + (data.current ? `\n\n[Existing summary]\n${data.current.text}` : ''),
             })
       ).trim()
-      if (!text) throw new Error('模型返回了空总结')
+      if (!text) throw new Error(t('模型返回了空总结'))
       const target = selected.at(-1)!.message.id
       // 请求期间消息可能被删除；不能把旧结果写到另一条消息上。
       if (!loadPath(target, 1).length) return
@@ -138,7 +139,7 @@ async function summarize(ctx: Context, chatId: string, auto: boolean) {
         chatId,
         kind: 'extension',
         status: 'error',
-        summary: '剧情总结失败',
+        summary: t('剧情总结失败'),
         response: { error: message },
       })
     }
@@ -149,8 +150,8 @@ async function summarize(ctx: Context, chatId: string, auto: boolean) {
 function entry(chatId: string, messageId: string) {
   getChatRow(chatId)
   const message = loadMessage(messageId)
-  if (message.chatId !== chatId) throw notFound('消息')
-  if (!message.meta.summary) throw notFound('总结')
+  if (message.chatId !== chatId) throw notFound(t('消息'))
+  if (!message.meta.summary) throw notFound(t('总结'))
   return message
 }
 export default defineExtension({
@@ -168,7 +169,7 @@ export default defineExtension({
         {
           error: {
             code: error instanceof HttpError ? error.code : invalid ? 'BAD_REQUEST' : 'INTERNAL',
-            message: error instanceof HttpError ? error.message : invalid ? '总结参数不合法' : '总结接口执行失败',
+            message: error instanceof HttpError ? error.message : invalid ? t('总结参数不合法') : t('总结接口执行失败'),
           },
         },
         error instanceof HttpError ? error.status : invalid ? 400 : 500,
@@ -200,7 +201,10 @@ export default defineExtension({
     })
     app.post('/connections', (c) =>
       c.json({
-        options: [{ value: '', label: '跟随会话' }, ...listApiPresets().map((m) => ({ value: m.id, label: m.name }))],
+        options: [
+          { value: '', label: t('跟随会话') },
+          ...listApiPresets().map((m) => ({ value: m.id, label: m.name })),
+        ],
       }),
     )
     app.post('/models', async (c) => {
@@ -248,7 +252,7 @@ export default defineExtension({
           ...(input.injections ?? []),
           {
             id: 'summary',
-            label: '剧情总结',
+            label: t('剧情总结'),
             content: settings.template.replaceAll('{{summary}}', current.meta.summary.text),
             position: settings.position,
             depth: settings.position === 'author_note' ? input.chat.authorNoteDepth : settings.depth,

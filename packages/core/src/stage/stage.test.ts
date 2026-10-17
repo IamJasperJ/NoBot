@@ -422,11 +422,11 @@ describe('初始化、schema 与说明模板', () => {
   test.each(['shorthand', 'xml'] as const)('默认说明风格 %s、清单和状态格式', (style) => {
     const result = renderDirectiveInstructions({ ...input, style })
     expect(result).toContain(style === 'shorthand' ? '名字[表情]' : '<say who=')
-    expect(result).toContain('可登场的角色：甲、乙')
-    expect(result).toContain('可用的表情：joy')
-    expect(result).toContain('可用的背景：夜')
+    expect(result).toContain('Available characters: 甲、乙')
+    expect(result).toContain('Available expressions: joy')
+    expect(result).toContain('Available backgrounds: 夜')
     expect(result).toContain(
-      '状态变量（名称：取值范围，更新规则；当前值）：\n- 艾莉丝.好感：0–100，温柔对待 +1~3；当前 35\n- 金币：数字，花费减少\n- 背包：当前 ["短剑"]',
+      'State variables (name: range, update rule; current value):\n- 艾莉丝.好感：0–100, 温柔对待 +1~3; current: 35\n- 金币：number, 花费减少\n- 背包：current: ["短剑"]',
     )
     expect(result).not.toContain('被覆盖')
     expect(result).not.toContain('{{')
@@ -443,11 +443,11 @@ describe('初始化、schema 与说明模板', () => {
       }),
     ).toBe('保留')
     const result = renderDirectiveInstructions({ ...input, valuesInPrompt: false })
-    expect(result).not.toContain('当前')
-    expect(result).toContain('0–100，温柔对待 +1~3')
-    expect(renderDirectiveInstructions({ ...input, schema: {}, vars: {} })).not.toContain('状态变量')
-    expect(renderDirectiveInstructions({ ...input, kinds: ['cast', 'expression'] }).indexOf('角色登场')).toBeLessThan(
-      renderDirectiveInstructions({ ...input, kinds: ['cast', 'expression'] }).indexOf('台词单独成行'),
+    expect(result).not.toContain('current:')
+    expect(result).toContain('0–100, 温柔对待 +1~3')
+    expect(renderDirectiveInstructions({ ...input, schema: {}, vars: {} })).not.toContain('State variables')
+    expect(renderDirectiveInstructions({ ...input, kinds: ['cast', 'expression'] }).indexOf('Enter:')).toBeLessThan(
+      renderDirectiveInstructions({ ...input, kinds: ['cast', 'expression'] }).indexOf('Put each line of dialogue'),
     )
   })
 })

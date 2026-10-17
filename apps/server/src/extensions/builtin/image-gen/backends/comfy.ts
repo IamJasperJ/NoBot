@@ -1,4 +1,5 @@
 import { HttpError } from '../../../../errors'
+import { t } from '../../../../i18n'
 import { comfyCapabilities, comfyHeaders } from '../discovery'
 import type { Settings } from '../settings'
 import { buildWorkflow } from '../workflow'
@@ -25,14 +26,18 @@ export async function generateComfy(
       body: JSON.stringify({ prompt: buildWorkflow(settings, prompt, width, height), client_id: crypto.randomUUID() }),
     }),
   )
-  if (typeof posted.prompt_id !== 'string') throw new HttpError(502, 'COMFY_ID', 'ComfyUI 没有返回任务编号')
+  if (typeof posted.prompt_id !== 'string') throw new HttpError(502, 'COMFY_ID', t('ComfyUI 没有返回任务编号'))
   while (!signal.aborted) {
     const history = await jsonResponse(
       await imageFetch(`${base}/history/${encodeURIComponent(posted.prompt_id)}`, { signal, headers }),
     )
     const task = object(history[posted.prompt_id])
     if (object(task.status).status_str === 'error')
-      throw new HttpError(502, 'COMFY_FAILED', `ComfyUI 执行失败：${JSON.stringify(task.status).slice(0, 200)}`)
+      throw new HttpError(
+        502,
+        'COMFY_FAILED',
+        t('ComfyUI 执行失败：{error}', { error: JSON.stringify(task.status).slice(0, 200) }),
+      )
     for (const output of Object.values(object(task.outputs))) {
       const images = object(output).images
       const image = object(Array.isArray(images) ? images[0] : undefined)
@@ -58,5 +63,5 @@ export async function generateComfy(
       if (signal.aborted) cancelWait()
     })
   }
-  throw new HttpError(502, 'COMFY_TIMEOUT', 'ComfyUI 生成超时')
+  throw new HttpError(502, 'COMFY_TIMEOUT', t('ComfyUI 生成超时'))
 }

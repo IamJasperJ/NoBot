@@ -5,6 +5,7 @@ import { keys, useAutoBackground, useBackgroundSettings, useBackgrounds, useChat
 import { TextAreaField, TextField } from '../../components/form'
 import { EditIcon, LinkIcon, SearchIcon, TrashIcon, UploadIcon, WandIcon } from '../../components/icons'
 import { Button, controlClass, cx, Dialog, IconButton, selectClass } from '../../components/ui'
+import { getLanguage, t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 
@@ -36,7 +37,9 @@ export function BackgroundsPage() {
     .filter((b) => !chatId || scope === 'all' || b.chatId === null || b.chatId === chatId)
     .filter((b) => `${b.name} ${b.description}`.toLocaleLowerCase().includes(keyword))
     .sort((a, b) =>
-      sort === 'name' ? a.name.localeCompare(b.name, 'zh-CN') : b.createdAt - a.createdAt || b.id.localeCompare(a.id),
+      sort === 'name'
+        ? a.name.localeCompare(b.name, getLanguage() === 'en' ? 'en-US' : 'zh-CN')
+        : b.createdAt - a.createdAt || b.id.localeCompare(a.id),
     )
   const current = list.find((b) => b.id === selected)
   const globalId = settings.data?.globalId
@@ -65,14 +68,14 @@ export function BackgroundsPage() {
   return (
     <div className="flex h-full min-w-0 flex-col">
       <header className="flex h-14 shrink-0 items-center gap-1 border-b border-zinc-200 px-3 dark:border-zinc-800">
-        <h1 className="mr-auto font-semibold">背景</h1>
+        <h1 className="mr-auto font-semibold">{t('背景')}</h1>
         {chatId && (
           <IconButton
-            label={auto.isPending ? '正在让模型挑选…' : '自动选择：让模型挑一张最适合当前场景的背景'}
+            label={auto.isPending ? t('正在让模型挑选…') : t('自动选择：让模型挑一张最适合当前场景的背景')}
             disabled={busy || auto.isPending}
             onClick={() => {
               auto.mutate(chatId, {
-                onSuccess: ({ background }) => toast.info(`已选择：${background.name}`),
+                onSuccess: ({ background }) => toast.info(t('已选择：{name}', { name: background.name })),
                 onError: (error) => toast.error(errorMessage(error)),
               })
             }}
@@ -80,12 +83,12 @@ export function BackgroundsPage() {
             <WandIcon className={auto.isPending ? 'animate-pulse' : ''} />
           </IconButton>
         )}
-        <IconButton label="从网址添加" disabled={busy} onClick={() => setImporting(true)}>
+        <IconButton label={t('从网址添加')} disabled={busy} onClick={() => setImporting(true)}>
           <LinkIcon />
         </IconButton>
         <Button size="sm" variant="primary" className="ml-1" disabled={busy} onClick={() => input.current?.click()}>
           <UploadIcon />
-          {busy ? '处理中…' : '上传'}
+          {busy ? t('处理中…') : t('上传')}
         </Button>
         <input
           ref={input}
@@ -107,7 +110,7 @@ export function BackgroundsPage() {
                   toast.error(`${file.name}：${errorMessage(error)}`)
                 }
               }
-              toast.info(`上传完成：${uploaded}/${files.length} 张背景`)
+              toast.info(t('上传完成：{uploaded}/{total} 张背景', { uploaded, total: files.length }))
             })
           }}
         />
@@ -117,8 +120,8 @@ export function BackgroundsPage() {
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-zinc-400" />
           <input
             className={cx(controlClass, 'pl-8')}
-            placeholder="搜索名字或描述"
-            aria-label="搜索背景"
+            placeholder={t('搜索名字或描述')}
+            aria-label={t('搜索背景')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -128,8 +131,8 @@ export function BackgroundsPage() {
             <div className="flex min-w-0 flex-1 gap-1 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800">
               {(
                 [
-                  ['usable', '本会话可用'],
-                  ['all', '全部'],
+                  ['usable', t('本会话可用')],
+                  ['all', t('全部')],
                 ] as const
               ).map(([value, label]) => (
                 <button
@@ -138,8 +141,8 @@ export function BackgroundsPage() {
                   aria-pressed={scope === value}
                   title={
                     value === 'usable'
-                      ? '公共背景 + 本会话生成的背景，舞台和自动选择只在这里面挑'
-                      : '包括其他会话生成的背景'
+                      ? t('公共背景 + 本会话生成的背景，舞台和自动选择只在这里面挑')
+                      : t('包括其他会话生成的背景')
                   }
                   onClick={() => setScope(value)}
                   className={cx(
@@ -156,45 +159,49 @@ export function BackgroundsPage() {
           )}
           <select
             className={cx(selectClass, 'h-8 w-20 shrink-0 text-xs')}
-            aria-label="排序"
+            aria-label={t('排序')}
             value={sort}
             onChange={(e) => setSort(e.target.value as 'latest' | 'name')}
           >
-            <option value="latest">最新</option>
-            <option value="name">名字</option>
+            <option value="latest">{t('最新')}</option>
+            <option value="name">{t('名字')}</option>
           </select>
         </div>
 
         {/* 当前生效的背景：固定的聊天背景 > 舞台 > 本聊天 > 全局 */}
         <div className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white text-[13px] dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900/40">
           {stageBg?.bg && (
-            <div className="flex min-h-10 items-center gap-2 px-3 py-1.5" title="模型用场景指令切换的背景">
-              <span className="w-12 shrink-0 text-zinc-500">舞台</span>
+            <div className="flex min-h-10 items-center gap-2 px-3 py-1.5" title={t('模型用场景指令切换的背景')}>
+              <span className="w-12 shrink-0 text-zinc-500">{t('舞台')}</span>
               <span
                 className={cx('min-w-0 flex-1 truncate', overridden ? 'text-zinc-400 line-through' : 'font-medium')}
               >
-                {stageName ?? <span className="font-normal text-zinc-400">「{stageBg.bg}」没有匹配的背景</span>}
+                {stageName ?? (
+                  <span className="font-normal text-zinc-400">
+                    {t('「{scene}」没有匹配的背景', { scene: stageBg.bg })}
+                  </span>
+                )}
               </span>
               {overridden && (
                 <Button
                   size="sm"
                   variant="ghost"
                   className="-mr-1.5 h-7 shrink-0 px-2 text-xs"
-                  title="取消固定，背景重新跟随舞台切换"
+                  title={t('取消固定，背景重新跟随舞台切换')}
                   disabled={busy}
                   onClick={() => chatId && void run(() => api.updateChat(chatId, { backgroundPinned: false }))}
                 >
-                  跟随舞台
+                  {t('跟随舞台')}
                 </Button>
               )}
             </div>
           )}
           {chatId && (
             <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
-              <span className="w-12 shrink-0 text-zinc-500">本聊天</span>
+              <span className="w-12 shrink-0 text-zinc-500">{t('本聊天')}</span>
               <span className="min-w-0 flex-1 truncate font-medium">
                 {list.find((b) => b.id === chat?.backgroundId)?.name ?? (
-                  <span className="font-normal text-zinc-400">跟随全局</span>
+                  <span className="font-normal text-zinc-400">{t('跟随全局')}</span>
                 )}
               </span>
               {chat?.backgroundId && stageBg?.bg && (
@@ -204,8 +211,8 @@ export function BackgroundsPage() {
                   disabled={busy}
                   title={
                     chat.backgroundPinned
-                      ? '已固定：舞台换场景时不切换背景。点一下取消固定'
-                      : '固定后舞台换场景时不切换背景（手动覆盖模型选的场景）'
+                      ? t('已固定：舞台换场景时不切换背景。点一下取消固定')
+                      : t('固定后舞台换场景时不切换背景（手动覆盖模型选的场景）')
                   }
                   onClick={() => void run(() => api.updateChat(chatId, { backgroundPinned: !chat.backgroundPinned }))}
                   className={cx(
@@ -215,7 +222,7 @@ export function BackgroundsPage() {
                       : 'border-zinc-200 text-zinc-500 hover:text-zinc-800 dark:border-zinc-700',
                   )}
                 >
-                  {chat.backgroundPinned ? '已固定' : '固定'}
+                  {chat.backgroundPinned ? t('已固定') : t('固定')}
                 </button>
               )}
               {chat?.backgroundId && (
@@ -228,15 +235,17 @@ export function BackgroundsPage() {
                     void run(() => api.updateChat(chatId, { backgroundId: null, backgroundPinned: false }))
                   }
                 >
-                  清除
+                  {t('清除')}
                 </Button>
               )}
             </div>
           )}
           <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
-            <span className="w-12 shrink-0 text-zinc-500">全局</span>
+            <span className="w-12 shrink-0 text-zinc-500">{t('全局')}</span>
             <span className="min-w-0 flex-1 truncate font-medium">
-              {list.find((b) => b.id === globalId)?.name ?? <span className="font-normal text-zinc-400">无</span>}
+              {list.find((b) => b.id === globalId)?.name ?? (
+                <span className="font-normal text-zinc-400">{t('无')}</span>
+              )}
             </span>
           </div>
         </div>
@@ -254,14 +263,14 @@ export function BackgroundsPage() {
                 </p>
                 <p className="mt-0.5 text-xs text-zinc-500">
                   {current.chatId === null
-                    ? '公共背景'
+                    ? t('公共背景')
                     : current.chatId === chatId
-                      ? '本会话生成'
-                      : '其他会话生成（本会话的舞台不会选到它）'}
+                      ? t('本会话生成')
+                      : t('其他会话生成（本会话的舞台不会选到它）')}
                 </p>
               </div>
               <IconButton
-                label="编辑名字和描述"
+                label={t('编辑名字和描述')}
                 onClick={() => {
                   setName(current.name)
                   setDescription(current.description)
@@ -272,9 +281,9 @@ export function BackgroundsPage() {
               </IconButton>
               <IconButton
                 variant="danger"
-                label="删除"
+                label={t('删除')}
                 onClick={() => {
-                  if (confirm(`确定删除背景「${current.name}」？使用它的会话将跟随全局背景。`))
+                  if (confirm(t('确定删除背景「{name}」？使用它的会话将跟随全局背景。', { name: current.name })))
                     void run(async () => {
                       await api.deleteBackground(current.id)
                       setSelected(null)
@@ -290,7 +299,7 @@ export function BackgroundsPage() {
                 current.description ? 'text-zinc-600 dark:text-zinc-300' : 'text-zinc-400',
               )}
             >
-              {current.description || '没有描述。模型挑背景时会看到名字和描述，点右上角编辑补上。'}
+              {current.description || t('没有描述。模型挑背景时会看到名字和描述，点右上角编辑补上。')}
             </p>
             <div className="grid min-w-0 grid-cols-2 gap-2">
               <Button
@@ -309,11 +318,13 @@ export function BackgroundsPage() {
                   void run(async () => {
                     await api.updateChat(chatId, { backgroundId: current.id, backgroundPinned: pin })
                     if (pin)
-                      toast.info('已用于本聊天并固定：舞台换场景时不再切换背景。在「舞台」一行点「跟随舞台」可以恢复')
+                      toast.info(
+                        t('已用于本聊天并固定：舞台换场景时不再切换背景。在「舞台」一行点「跟随舞台」可以恢复'),
+                      )
                   })
                 }}
               >
-                {chat?.backgroundId === current.id ? '取消本聊天' : '用于本聊天'}
+                {chat?.backgroundId === current.id ? t('取消本聊天') : t('用于本聊天')}
               </Button>
               <Button
                 size="sm"
@@ -323,17 +334,17 @@ export function BackgroundsPage() {
                   void run(() => api.setBackgroundSettings({ globalId: globalId === current.id ? null : current.id }))
                 }
               >
-                {globalId === current.id ? '取消全局' : '设为全局'}
+                {globalId === current.id ? t('取消全局') : t('设为全局')}
               </Button>
               {current.chatId !== null && (
                 <Button
                   size="sm"
                   variant="ghost"
                   className="col-span-2 min-w-0"
-                  title="设为公共后，所有会话的舞台和自动选择都能选到它"
+                  title={t('设为公共后，所有会话的舞台和自动选择都能选到它')}
                   onClick={() => void run(() => api.updateBackground(current.id, { chatId: null }))}
                 >
-                  设为公共背景
+                  {t('设为公共背景')}
                 </Button>
               )}
             </div>
@@ -341,13 +352,13 @@ export function BackgroundsPage() {
         )}
 
         {backgrounds.isPending ? (
-          <p className="text-sm text-zinc-500">加载中…</p>
+          <p className="text-sm text-zinc-500">{t('加载中…')}</p>
         ) : backgrounds.isError ? (
           <p className="text-sm text-red-600">{errorMessage(backgrounds.error)}</p>
         ) : list.length === 0 ? (
-          <p className="py-10 text-center text-sm text-zinc-400">还没有背景，点右上角「上传」</p>
+          <p className="py-10 text-center text-sm text-zinc-400">{t('还没有背景，点右上角「上传」')}</p>
         ) : filtered.length === 0 ? (
-          <p className="py-6 text-center text-sm text-zinc-400">没有匹配的背景</p>
+          <p className="py-6 text-center text-sm text-zinc-400">{t('没有匹配的背景')}</p>
         ) : (
           <div className="grid grid-cols-2 gap-3">
             {filtered.map((b) => {
@@ -389,22 +400,26 @@ export function BackgroundsPage() {
                     )}
                     <div className="absolute inset-x-1.5 top-1.5 flex flex-wrap gap-1 text-[10px] leading-4 font-medium text-white">
                       {chat?.backgroundId === b.id && (
-                        <span className="rounded bg-violet-600/90 px-1.5 shadow-sm">本聊天</span>
+                        <span className="rounded bg-violet-600/90 px-1.5 shadow-sm">{t('本聊天')}</span>
                       )}
                       {stageBg?.backgroundId === b.id && (
-                        <span className="rounded bg-emerald-600/90 px-1.5 shadow-sm">舞台</span>
+                        <span className="rounded bg-emerald-600/90 px-1.5 shadow-sm">{t('舞台')}</span>
                       )}
-                      {globalId === b.id && <span className="rounded bg-zinc-900/75 px-1.5 shadow-sm">全局</span>}
+                      {globalId === b.id && (
+                        <span className="rounded bg-zinc-900/75 px-1.5 shadow-sm">{t('全局')}</span>
+                      )}
                     </div>
                     <div className="absolute right-1.5 bottom-1.5 left-1.5 flex justify-end gap-1 text-[10px] leading-4 font-medium text-white">
-                      {foreign && <span className="mr-auto rounded bg-black/55 px-1.5 backdrop-blur-sm">其他会话</span>}
+                      {foreign && (
+                        <span className="mr-auto rounded bg-black/55 px-1.5 backdrop-blur-sm">{t('其他会话')}</span>
+                      )}
                       {b.chatId !== null && b.chatId === chatId && (
-                        <span className="mr-auto rounded bg-black/55 px-1.5 backdrop-blur-sm">本会话</span>
+                        <span className="mr-auto rounded bg-black/55 px-1.5 backdrop-blur-sm">{t('本会话')}</span>
                       )}
                       {b.source === 'generated' && (
                         <span className="rounded bg-black/55 px-1.5 backdrop-blur-sm">AI</span>
                       )}
-                      {b.animated && <span className="rounded bg-black/55 px-1.5 backdrop-blur-sm">动态</span>}
+                      {b.animated && <span className="rounded bg-black/55 px-1.5 backdrop-blur-sm">{t('动态')}</span>}
                     </div>
                   </div>
                   <p className="mt-1.5 truncate text-xs" title={b.name}>
@@ -416,7 +431,7 @@ export function BackgroundsPage() {
           </div>
         )}
       </div>
-      <Dialog open={importing} onClose={() => setImporting(false)} title="从网址添加背景">
+      <Dialog open={importing} onClose={() => setImporting(false)} title={t('从网址添加背景')}>
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -429,18 +444,18 @@ export function BackgroundsPage() {
               setImporting(false)
               setUrl('')
               setImportName('')
-              toast.info('背景已添加')
+              toast.info(t('背景已添加'))
             })
           }}
         >
-          <TextField label="背景网址（http/https）" value={url} onChange={setUrl} />
-          <TextField label="名称（可选）" value={importName} onChange={setImportName} />
+          <TextField label={t('背景网址（http/https）')} value={url} onChange={setUrl} />
+          <TextField label={t('名称（可选）')} value={importName} onChange={setImportName} />
           <Button type="submit" variant="primary" disabled={busy || !url.trim()}>
-            {busy ? '添加中…' : '添加'}
+            {busy ? t('添加中…') : t('添加')}
           </Button>
         </form>
       </Dialog>
-      <Dialog open={editing && !!current} onClose={() => setEditing(false)} title="编辑背景">
+      <Dialog open={editing && !!current} onClose={() => setEditing(false)} title={t('编辑背景')}>
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -453,20 +468,20 @@ export function BackgroundsPage() {
           }}
         >
           <TextField
-            label="名字"
-            hint="模型用场景指令换背景时按名字匹配，写地点最好用（比如「黄昏的酒馆」）"
+            label={t('名字')}
+            hint={t('模型用场景指令换背景时按名字匹配，写地点最好用（比如「黄昏的酒馆」）')}
             value={name}
             onChange={setName}
           />
           <TextAreaField
-            label="描述"
-            hint="一句话描述画面：地点、时间、氛围。会和名字一起出现在给模型的背景清单里"
+            label={t('描述')}
+            hint={t('一句话描述画面：地点、时间、氛围。会和名字一起出现在给模型的背景清单里')}
             rows={3}
             value={description}
             onChange={setDescription}
           />
           <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
-            保存
+            {t('保存')}
           </Button>
         </form>
       </Dialog>

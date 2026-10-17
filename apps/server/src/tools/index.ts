@@ -52,19 +52,20 @@ export function rollExpression(expr: string, random: () => number = Math.random)
 
 const rollDice: ToolDefinition = {
   name: 'roll_dice',
-  description: '掷骰子。跑团中需要随机判定（攻击、检定、伤害等）时必须调用，不要自己编造结果。',
+  description:
+    'Roll dice. You must call this tool for random RPG outcomes (attacks, checks, damage, etc.); never invent results.',
   parameters: {
     type: 'object',
     properties: {
-      expression: { type: 'string', description: '骰子表达式，如 1d20、2d6+3、1d100' },
-      reason: { type: 'string', description: '这次掷骰的目的，如「力量检定」' },
+      expression: { type: 'string', description: 'Dice expression, e.g. 1d20, 2d6+3, 1d100' },
+      reason: { type: 'string', description: 'Purpose of the roll, e.g. a Strength check' },
     },
     required: ['expression'],
   },
   run(args) {
     const expr = String(args.expression ?? '')
     const result = rollExpression(expr)
-    if (!result) return { content: `骰子表达式「${expr}」不合法，请用类似 1d20、2d6+3 的格式` }
+    if (!result) return { content: `Invalid dice expression "${expr}". Use a format such as 1d20 or 2d6+3.` }
     const reason = args.reason ? `（${String(args.reason)}）` : ''
     const detail = result.rolls.join('、') + (result.bonus ? `，${result.bonus > 0 ? '+' : ''}${result.bonus}` : '')
     return { content: `${expr}${reason} = ${result.total}（${detail}）` }
@@ -73,38 +74,40 @@ const rollDice: ToolDefinition = {
 
 const getTime: ToolDefinition = {
   name: 'get_current_time',
-  description: '获取现实世界的当前日期和时间。',
+  description: 'Get the current real-world date and time.',
   parameters: { type: 'object', properties: {} },
-  run: () => ({ content: new Date().toLocaleString('zh-CN', { dateStyle: 'full', timeStyle: 'short' }) }),
+  run: () => ({ content: new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' }) }),
 }
 
 const getState: ToolDefinition = {
   name: 'get_chat_state',
-  description: '读取当前会话保存的状态变量（如角色 HP、背包、任务进度）。',
+  description: 'Read saved state variables for the current chat (e.g. character HP, inventory, quest progress).',
   parameters: { type: 'object', properties: {} },
   run: (_args, ctx) => ({
-    content: Object.keys(ctx.vars).length > 0 ? JSON.stringify(ctx.vars, null, 2) : '当前没有任何状态变量',
+    content:
+      Object.keys(ctx.vars).length > 0 ? JSON.stringify(ctx.vars, null, 2) : 'No state variables are currently saved.',
   }),
 }
 
 const setState: ToolDefinition = {
   name: 'set_chat_state',
-  description: '设置会话状态变量，用于记录 HP、背包、金币、任务进度等需要长期保持的数值。value 为 null 时删除该变量。',
+  description:
+    'Set persistent chat state variables such as HP, inventory, gold, or quest progress. Set value to null to delete the variable.',
   parameters: {
     type: 'object',
     properties: {
-      key: { type: 'string', description: '变量名，如「旅人.HP」「背包」' },
-      value: { description: '新的值，可以是数字、文本、列表或对象；null 表示删除' },
+      key: { type: 'string', description: 'Variable name, e.g. Traveler.HP or inventory' },
+      value: { description: 'New value: a number, text, list, or object; null deletes the variable' },
     },
     required: ['key', 'value'],
   },
   run(args, ctx) {
     const key = String(args.key ?? '').trim()
-    if (!key) return { content: '变量名不能为空' }
+    if (!key) return { content: 'Variable name cannot be empty.' }
     const before = ctx.vars[key]
     const value = args.value ?? null
     return {
-      content: `${key}：${before === undefined ? '（无）' : JSON.stringify(before)} → ${value === null ? '（已删除）' : JSON.stringify(value)}`,
+      content: `${key}：${before === undefined ? '(none)' : JSON.stringify(before)} → ${value === null ? '(deleted)' : JSON.stringify(value)}`,
       varsPatch: { [key]: value },
     }
   },
@@ -150,20 +153,20 @@ export async function runTool(
   disabled: string[] = [],
 ): Promise<ToolResult> {
   // 模型偶尔会调用没提供给它的工具，关闭的工具一律拒绝执行
-  if (disabled.includes(name)) return { content: `工具 ${name} 已被关闭` }
+  if (disabled.includes(name)) return { content: `Tool ${name} is disabled.` }
   const found = availableTools(ctx.chatId).find(({ tool }) => tool.name === name)
-  if (!found) return { content: `没有名为 ${name} 的工具` }
+  if (!found) return { content: `No tool named ${name} exists.` }
   let args: Record<string, unknown> = {}
   try {
     const parsed = rawArgs.trim() ? JSON.parse(rawArgs) : {}
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed
   } catch {
-    return { content: `工具参数不是合法的 JSON：${rawArgs.slice(0, 200)}` }
+    return { content: `Tool arguments are not valid JSON: ${rawArgs.slice(0, 200)}` }
   }
   try {
     return await found.tool.run(args, ctx)
   } catch (e) {
-    return { content: `工具执行出错：${e instanceof Error ? e.message : String(e)}` }
+    return { content: `Tool execution failed (${e instanceof Error ? e.name : 'unknown error'}).` }
   }
 }
 

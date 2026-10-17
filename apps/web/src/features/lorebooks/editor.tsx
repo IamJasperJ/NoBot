@@ -1,5 +1,6 @@
 import { type RefObject, useEffect } from 'react'
 import { Button } from '../../components/ui'
+import { t } from '../../i18n'
 
 export type LeaveGuard = RefObject<() => boolean>
 
@@ -7,7 +8,7 @@ export const isDifferent = (a: unknown, b: unknown) => JSON.stringify(a) !== JSO
 
 export function useLeaveGuard(guard: LeaveGuard, dirty: boolean, pending: boolean) {
   useEffect(() => {
-    guard.current = () => !pending && (!dirty || confirm('有未保存的修改，确定放弃这些修改吗？'))
+    guard.current = () => !pending && (!dirty || confirm(t('有未保存的修改，确定放弃这些修改吗？')))
     return () => {
       guard.current = () => true
     }
@@ -37,10 +38,10 @@ export function SaveActions({
   return (
     <div className="flex shrink-0 gap-1">
       <Button variant="primary" disabled={!dirty || pending} onClick={save}>
-        保存
+        {t('保存')}
       </Button>
       <Button disabled={!dirty || pending} onClick={reset}>
-        撤销修改
+        {t('撤销修改')}
       </Button>
     </div>
   )

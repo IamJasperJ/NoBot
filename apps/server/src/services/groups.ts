@@ -3,11 +3,12 @@ import { asc, desc, eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { characters, groupMembers, groups } from '../db/schema'
 import { HttpError, notFound } from '../errors'
+import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
 
 export function getGroup(id: string): GroupDTO {
   const row = db.select().from(groups).where(eq(groups.id, id)).get()
-  if (!row) throw notFound('群组')
+  if (!row) throw notFound(t('群组'))
   const members = db
     .select({ character: characters, muted: groupMembers.muted })
     .from(groupMembers)
@@ -44,9 +45,9 @@ export function listGroups(): GroupDTO[] {
 }
 function replaceMembers(id: string, members: NonNullable<GroupInput['members']>) {
   if (new Set(members.map((member) => member.characterId)).size !== members.length)
-    throw new HttpError(400, 'VALIDATION', '群组成员不能重复')
+    throw new HttpError(400, 'VALIDATION', t('群组成员不能重复'))
   for (const member of members) {
-    if (!db.select().from(characters).where(eq(characters.id, member.characterId)).get()) throw notFound('角色')
+    if (!db.select().from(characters).where(eq(characters.id, member.characterId)).get()) throw notFound(t('角色'))
   }
   db.delete(groupMembers).where(eq(groupMembers.groupId, id)).run()
   members.forEach((member, position) => {

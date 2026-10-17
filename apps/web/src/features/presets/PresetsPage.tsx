@@ -8,6 +8,7 @@ import { CheckIcon, CopyIcon, DownloadIcon, TrashIcon } from '../../components/i
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Menu, MenuDivider, MenuEntry } from '../../components/menu'
 import { Button, controlClass } from '../../components/ui'
+import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { BehaviorEditor } from './BehaviorEditor'
@@ -29,7 +30,7 @@ export function PresetsPage() {
   const [tab, setTab] = useState<'samplers' | 'prompts' | 'utility' | 'behavior'>('samplers')
   const fileInput = useRef<HTMLInputElement>(null)
   const dirty = !!draft && !!original && JSON.stringify(draft) !== JSON.stringify(toDraft(original))
-  const canLeave = () => !dirty || confirm('此预设有未保存的修改，是否放弃？')
+  const canLeave = () => !dirty || confirm(t('此预设有未保存的修改，是否放弃？'))
   const pick = (p: PromptPresetDTO | null) => {
     setOriginal(p ? structuredClone(p) : null)
     setDraft(p ? toDraft(p) : null)
@@ -58,7 +59,7 @@ export function PresetsPage() {
   const create = () => {
     if (!canLeave()) return
     void run(async () => {
-      const saved = await api.createPreset({ name: '新预设', data: presetDataSchema.parse({}) })
+      const saved = await api.createPreset({ name: t('新预设'), data: presetDataSchema.parse({}) })
       pick(saved)
       await refresh()
     })
@@ -69,12 +70,12 @@ export function PresetsPage() {
   const current = query.data?.find((p) => p.id === original?.id) ?? original
   return (
     <ManagerLayout
-      title="生成预设"
+      title={t('生成预设')}
       showDetailOnMobile={!!draft}
       actions={
         <>
           <Button disabled={busy} onClick={create}>
-            新建
+            {t('新建')}
           </Button>
           <Button
             disabled={busy}
@@ -82,14 +83,14 @@ export function PresetsPage() {
               fileInput.current?.click()
             }}
           >
-            导入
+            {t('导入')}
           </Button>
           <input
             ref={fileInput}
             type="file"
             accept=".json"
             className="hidden"
-            aria-label="导入酒馆预设"
+            aria-label={t('导入酒馆预设')}
             onChange={(event) => {
               const file = event.target.files?.[0]
               event.target.value = ''
@@ -98,7 +99,7 @@ export function PresetsPage() {
                   const saved = await api.importPreset(file)
                   pick(saved)
                   await refresh()
-                  toast.info('已导入预设')
+                  toast.info(t('已导入预设'))
                 })
             }}
           />
@@ -106,14 +107,14 @@ export function PresetsPage() {
       }
       list={
         <>
-          {query.isPending && <p className="p-3 text-sm text-zinc-500">加载中…</p>}
+          {query.isPending && <p className="p-3 text-sm text-zinc-500">{t('加载中…')}</p>}
           {query.isError && (
             <p role="alert" className="p-3 text-sm text-red-600">
               {errorMessage(query.error)}
             </p>
           )}
           {query.data?.length === 0 && (
-            <p className="p-3 text-sm text-zinc-500">还没有预设，点击「新建」或「导入」开始。</p>
+            <p className="p-3 text-sm text-zinc-500">{t('还没有预设，点击「新建」或「导入」开始。')}</p>
           )}
           {query.data?.map((p) => (
             <ListItem
@@ -126,7 +127,7 @@ export function PresetsPage() {
               <span className="truncate">{p.name}</span>
               {p.isDefault && (
                 <span className="shrink-0 rounded bg-violet-100 px-1.5 text-xs text-violet-700 dark:bg-violet-950 dark:text-violet-300">
-                  默认
+                  {t('默认')}
                 </span>
               )}
             </ListItem>
@@ -139,8 +140,8 @@ export function PresetsPage() {
             <DetailHeader
               title={
                 <input
-                  aria-label="预设名称"
-                  title="预设名称：用于在列表中辨认这组生成设置"
+                  aria-label={t('预设名称')}
+                  title={t('预设名称：用于在列表中辨认这组生成设置')}
                   className={`${controlClass} h-8 max-w-md min-w-0 font-semibold`}
                   value={draft.name}
                   disabled={busy}
@@ -158,7 +159,7 @@ export function PresetsPage() {
                     disabled={busy || !dirty}
                     onClick={() => setDraft(toDraft(original))}
                   >
-                    撤销修改
+                    {t('撤销修改')}
                   </Button>
                   <Button
                     size="sm"
@@ -168,7 +169,7 @@ export function PresetsPage() {
                       void run(async () => {
                         const parsed = presetDataSchema.safeParse(draft.data)
                         if (!parsed.success) {
-                          toast.error('预设参数无效，请检查数字范围和 Prompt 设置')
+                          toast.error(t('预设参数无效，请检查数字范围和 Prompt 设置'))
                           return
                         }
                         const saved = await api.updatePreset(original.id, {
@@ -177,11 +178,11 @@ export function PresetsPage() {
                         })
                         pick(saved)
                         await refresh()
-                        toast.info('已保存')
+                        toast.info(t('已保存'))
                       })
                     }
                   >
-                    保存
+                    {t('保存')}
                   </Button>
                   <Menu>
                     {!current?.isDefault && (
@@ -192,11 +193,11 @@ export function PresetsPage() {
                           void run(async () => {
                             await api.setDefaultPreset(original.id)
                             await refresh()
-                            toast.info('已设为默认预设')
+                            toast.info(t('已设为默认预设'))
                           })
                         }
                       >
-                        设为默认
+                        {t('设为默认')}
                       </MenuEntry>
                     )}
                     <MenuEntry
@@ -211,10 +212,10 @@ export function PresetsPage() {
                           })
                       }}
                     >
-                      复制
+                      {t('复制')}
                     </MenuEntry>
                     <MenuEntry icon={<DownloadIcon />} disabled={busy} onClick={() => api.exportPreset(original.id)}>
-                      导出
+                      {t('导出')}
                     </MenuEntry>
                     <MenuDivider />
                     <MenuEntry
@@ -222,7 +223,7 @@ export function PresetsPage() {
                       danger
                       disabled={busy}
                       onClick={() => {
-                        if (confirm(`删除预设「${original.name}」？该预设及未保存的修改都会被删除。`))
+                        if (confirm(t('删除预设「{name}」？该预设及未保存的修改都会被删除。', { name: original.name })))
                           void run(async () => {
                             await api.deletePreset(original.id)
                             pick(null)
@@ -230,7 +231,7 @@ export function PresetsPage() {
                           })
                       }}
                     >
-                      删除
+                      {t('删除')}
                     </MenuEntry>
                   </Menu>
                 </div>
@@ -242,10 +243,10 @@ export function PresetsPage() {
                   value={tab}
                   onChange={setTab}
                   tabs={[
-                    { id: 'samplers', label: '参数' },
-                    { id: 'prompts', label: 'Prompt 管理器' },
-                    { id: 'utility', label: '辅助提示词' },
-                    { id: 'behavior', label: '行为' },
+                    { id: 'samplers', label: t('参数') },
+                    { id: 'prompts', label: t('Prompt 管理器') },
+                    { id: 'utility', label: t('辅助提示词') },
+                    { id: 'behavior', label: t('行为') },
                   ]}
                 />
               </div>

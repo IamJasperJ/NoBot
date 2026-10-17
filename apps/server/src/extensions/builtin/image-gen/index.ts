@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { HttpError } from '../../../errors'
+import { t } from '../../../i18n'
 import { listApiPresets } from '../../../services/connections'
 import { defineExtension, draftBody, draftChatId, parseSettingsDraft } from '../../types'
 import { matchInteractive } from './composition'
@@ -38,7 +39,7 @@ export default defineExtension({
         {
           error: {
             code: 'IMAGE_ERROR',
-            message: error instanceof z.ZodError ? '图片生成参数不合法，请检查输入和扩展设置' : error.message,
+            message: error instanceof z.ZodError ? t('图片生成参数不合法，请检查输入和扩展设置') : error.message,
           },
         },
         error instanceof z.ZodError ? 400 : 502,
@@ -65,7 +66,7 @@ export default defineExtension({
       const { loadMessage } = await import('../../../services/chats')
       const message = loadMessage(body.messageId)
       const index = message.meta.images?.findIndex((image) => image.id === body.imageId) ?? -1
-      if (index < 0) throw new HttpError(400, 'IMAGE_MISSING', '这条消息没有指定的图片')
+      if (index < 0) throw new HttpError(400, 'IMAGE_MISSING', t('这条消息没有指定的图片'))
       return c.json(await toBackground(ctx, body.messageId, index, body.chatId))
     })
     app.post('/to-background', async (c) => {
@@ -119,8 +120,8 @@ export default defineExtension({
     app.post('/comfy/workflows', async (c) =>
       c.json({
         options: [
-          { value: '', label: '内置默认' },
-          { value: 'avatar', label: '角色头像图生图' },
+          { value: '', label: t('内置默认') },
+          { value: 'avatar', label: t('角色头像图生图') },
           ...parseSettings(await parseSettingsDraft(c, ctx.settings))
             .comfyWorkflows.filter(
               (item, index, items) =>
@@ -178,7 +179,7 @@ export default defineExtension({
             chatId: event.message.chatId,
             kind: 'image',
             status: 'error',
-            summary: `交互模式生成失败：${error instanceof Error ? error.message : String(error)}`,
+            summary: t('交互模式生成失败：{error}', { error: error instanceof Error ? error.message : String(error) }),
           }),
         )
     },
@@ -189,11 +190,14 @@ export default defineExtension({
           {
             name: 'generate_image',
             description:
-              '生成一张图片展示给用户。当用户要求看图、或者故事里出现特别值得展示的画面时调用。不要频繁调用。',
+              'Generate an image to show the user. Call when the user asks for an image or a story scene is particularly worth illustrating. Use sparingly.',
             parameters: {
               type: 'object',
               properties: {
-                prompt: { type: 'string', description: '英文逗号分隔的关键词，描述画面里能看到的东西' },
+                prompt: {
+                  type: 'string',
+                  description: 'English comma-separated keywords describing visible elements in the image',
+                },
                 orientation: { type: 'string', enum: ['portrait', 'landscape', 'square'], default: 'portrait' },
                 as_background: { type: 'boolean' },
               },

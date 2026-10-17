@@ -1,6 +1,7 @@
 import type {
   ApiPresetDTO,
   ApiPresetInput,
+  AppSettings,
   AttachmentDTO,
   BackgroundDTO,
   BackgroundSettings,
@@ -47,6 +48,7 @@ import type {
   UpdateSpriteInput,
   WorldInfoSettings,
 } from '@ai-parter/shared'
+import { t } from '../i18n'
 
 /** 后端返回的错误。message 是可以直接展示给用户的中文提示 */
 export class ApiRequestError extends Error {
@@ -64,7 +66,7 @@ export async function readError(res: Response): Promise<ApiRequestError> {
   const data = await res.json().catch(() => null)
   return new ApiRequestError(
     data?.error?.code ?? 'HTTP',
-    data?.error?.message ?? `请求失败（${res.status}）`,
+    data?.error?.message ?? t('请求失败（{status}）', { status: res.status }),
     res.status,
   )
 }
@@ -278,6 +280,10 @@ export const api = {
     request<SummaryStateDTO>('DELETE', '/ext/summary/entry', { chatId, messageId }),
   freezeSummary: (chatId: string, frozen: boolean) =>
     request<SummaryStateDTO>('POST', '/ext/summary/freeze', { chatId, frozen }),
+
+  // ---- 应用设置（界面语言等） ----
+  getAppSettings: () => request<AppSettings>('GET', '/app-settings'),
+  updateAppSettings: (input: AppSettings) => request<AppSettings>('PUT', '/app-settings', input),
 
   // ---- 书签 ----
   listBookmarks: (chatId: string) => request<BookmarkDTO[]>('GET', `/chats/${chatId}/bookmarks`),

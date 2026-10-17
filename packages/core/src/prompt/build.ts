@@ -491,7 +491,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     const images = message.images ?? []
     const kept = imageCounts.get(message) ?? 0
     if (kept) output.images = images.slice(images.length - kept)
-    output.content = [output.content, ...Array<string>(images.length - kept).fill('[图片]')].filter(Boolean).join('\n')
+    output.content = [output.content, ...Array<string>(images.length - kept).fill('[Image]')].filter(Boolean).join('\n')
     if (!continuation) output = applyName(output, message.name, behavior, group !== null)
     return {
       source: 'history',

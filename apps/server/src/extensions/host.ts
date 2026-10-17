@@ -3,6 +3,7 @@ import { decodeTime } from 'ulid'
 import { db, newId } from '../db/client'
 import { characters, chats, groupMembers, messages, personas } from '../db/schema'
 import { HttpError } from '../errors'
+import { t } from '../i18n'
 import { readAvatar as avatarFile, avatarUrl } from '../lib/files'
 import { saveAttachment } from '../services/attachments'
 import { saveBackground } from '../services/backgrounds'
@@ -78,7 +79,7 @@ export function createExtensionHost(emit: (event: ServerEvent) => void): Extensi
       updateChat(chatId, { backgroundId })
     },
     appendMessage(chatId, message) {
-      if (isGenerating(chatId)) throw new HttpError(409, 'BUSY', '会话正在生成，请稍后再试')
+      if (isGenerating(chatId)) throw new HttpError(409, 'BUSY', t('会话正在生成，请稍后再试'))
       const id = newId()
       db.transaction((tx) => {
         const chat = getChatRow(chatId)
@@ -137,7 +138,7 @@ export function createExtensionHost(emit: (event: ServerEvent) => void): Extensi
       const deadline = Date.now() + timeoutMs
       while (isGenerating(chatId)) {
         const remaining = deadline - Date.now()
-        if (remaining <= 0) throw new HttpError(408, 'WAIT_IDLE_TIMEOUT', '等待文本生成结束超时，请稍后再试')
+        if (remaining <= 0) throw new HttpError(408, 'WAIT_IDLE_TIMEOUT', t('等待文本生成结束超时，请稍后再试'))
         await Bun.sleep(Math.min(300, remaining))
       }
     },

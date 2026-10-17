@@ -1,4 +1,5 @@
 import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef } from 'react'
+import { t } from '../i18n'
 import { XIcon } from './icons'
 
 /** 通用小组件：按钮、图标按钮、头像、对话框、表单字段 */
@@ -177,7 +178,7 @@ export function Dialog({
         <div className="flex max-h-[85dvh] flex-col">
           <header className="flex items-center justify-between border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
             <h2 className="font-semibold">{title}</h2>
-            <IconButton label="关闭" onClick={onClose}>
+            <IconButton label={t('关闭')} onClick={onClose}>
               <XIcon />
             </IconButton>
           </header>

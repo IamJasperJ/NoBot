@@ -11,8 +11,9 @@ import type {
 import { eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { chats, messages } from '../db/schema'
-import { HttpError, notFound } from '../errors'
+import { HttpError, notFound, promptBudgetMessage } from '../errors'
 import { emitServerEvent, runTransform } from '../extensions/registry'
+import { t } from '../i18n'
 import { buildRequestBody, chatCompletion } from '../llm/openai'
 import { enabledToolNames, runTool, toOpenAITools } from '../tools'
 import { getAttachment, redactImages, resolveImages } from './attachments'
@@ -132,7 +133,7 @@ function pickSpeakers(
  * 真正调用模型在后台异步进行。
  */
 export function startGeneration(chatId: string, input: GenerateInput): Job {
-  if (jobs.has(chatId)) throw new HttpError(409, 'BUSY', '这个会话正在生成中，请先等它结束或点停止')
+  if (jobs.has(chatId)) throw new HttpError(409, 'BUSY', t('这个会话正在生成中，请先等它结束或点停止'))
   backfillStage(chatId)
   const ctx = loadGenerationContext(chatId, { requireConnection: true })
   const leafId = ctx.chat.activeLeafId
@@ -151,9 +152,9 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
     }
     case 'regenerate': {
       const target = db.select().from(messages).where(eq(messages.id, input.targetId)).get()
-      if (!target || target.chatId !== chatId) throw notFound('消息')
+      if (!target || target.chatId !== chatId) throw notFound(t('消息'))
       if (target.role !== 'assistant' || !target.parentId) {
-        throw new HttpError(400, 'BAD_REQUEST', '只能重新生成角色的回复')
+        throw new HttpError(400, 'BAD_REQUEST', t('只能重新生成角色的回复'))
       }
       plan = {
         type: 'regenerate',
@@ -165,9 +166,9 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
     }
     case 'continue': {
       const target = loadMessage(input.targetId)
-      if (target.chatId !== chatId) throw notFound('消息')
+      if (target.chatId !== chatId) throw notFound(t('消息'))
       if (target.role !== 'assistant' || target.id !== leafId) {
-        throw new HttpError(400, 'BAD_REQUEST', '只能续写当前最后一条角色回复')
+        throw new HttpError(400, 'BAD_REQUEST', t('只能续写当前最后一条角色回复'))
       }
       plan = {
         type: 'continue',
@@ -184,7 +185,8 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
         speakers: pickSpeakers(ctx, leafId, false, input.speakerId),
         continueTarget: null,
       }
-      if (plan.speakers.length === 0) throw new HttpError(400, 'NO_SPEAKER', '没有可以发言的角色（成员都被静音了？）')
+      if (plan.speakers.length === 0)
+        throw new HttpError(400, 'NO_SPEAKER', t('没有可以发言的角色（成员都被静音了？）'))
       break
     }
   }
@@ -204,7 +206,8 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
     try {
       buildPrompt(preflight.input)
     } catch (error) {
-      if (error instanceof PromptBudgetError) throw new HttpError(400, 'PROMPT_TOO_LONG', error.message)
+      if (error instanceof PromptBudgetError)
+        throw new HttpError(400, 'PROMPT_TOO_LONG', promptBudgetMessage(error.message))
       throw error
     }
   }
@@ -296,7 +299,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
             try {
               await result.onSaved(toolId)
             } catch (error) {
-              logError('扩展工具保存回调', error)
+              logError(t('扩展工具保存回调'), error)
             }
           }
         }
@@ -335,7 +338,7 @@ async function generateOne(
   step: StepInput,
 ): Promise<{ message: MessageDTO; toolCalls: ToolCall[]; error?: GenerateEvent }> {
   const connection = ctx.connection
-  if (!connection) throw new HttpError(400, 'NO_API_PRESET', '还没有配置模型连接')
+  if (!connection) throw new HttpError(400, 'NO_API_PRESET', t('还没有配置模型连接'))
   const speaker = (ctx.members.find((m) => m.id === step.speakerId) ?? ctx.members[0]) as PromptCharacter
   const started = Date.now()
   const enabledTools = enabledToolNames(job.chatId, ctx.preset.samplers)
@@ -451,7 +454,9 @@ async function generateOne(
     model: connection.model,
     durationMs: meta.durationMs,
     summary:
-      status === 'error' ? (meta.error ?? '') : `${speaker.name}：${generated.slice(0, 60).replace(/\s+/g, ' ')}`,
+      status === 'error'
+        ? (meta.error ?? '')
+        : t('{name}：{text}', { name: speaker.name, text: generated.slice(0, 60).replace(/\s+/g, ' ') }),
     request: requestBody,
     response: {
       content: generated,
@@ -536,7 +541,7 @@ export async function* impersonate(chatId: string, signal: AbortSignal): AsyncGe
       status,
       model: connection.model,
       durationMs: Date.now() - started,
-      summary: status === 'error' ? error : `代写：${text.slice(0, 60)}`,
+      summary: status === 'error' ? error : t('代写：{text}', { text: text.slice(0, 60) }),
       request: redactImages(body, images),
       response: { content: text },
       report,

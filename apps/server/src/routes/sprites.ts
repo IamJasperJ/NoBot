@@ -2,6 +2,7 @@ import { updateSpriteInput } from '@ai-parter/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { HttpError } from '../errors'
+import { t } from '../i18n'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'
 import * as service from '../services/sprites'
@@ -13,10 +14,10 @@ export const spriteRoutes = new Hono()
     const fields = updateSpriteInput.parse({ outfit: body.outfit, expression: body.expression })
     const files = Array.isArray(body.files) ? body.files : [body.files]
     if (!files.length || files.some((file) => !(file instanceof File)))
-      throw new HttpError(400, 'BAD_REQUEST', '请上传立绘文件')
+      throw new HttpError(400, 'BAD_REQUEST', t('请上传立绘文件'))
     const entries = []
     for (const file of files as File[]) {
-      if (file.size > 20 * 1024 * 1024) throw new HttpError(400, 'TOO_LARGE', '单张立绘不能超过 20 MB')
+      if (file.size > 20 * 1024 * 1024) throw new HttpError(400, 'TOO_LARGE', t('单张立绘不能超过 20 MB'))
       entries.push({ path: file.name, data: new Uint8Array(await file.arrayBuffer()) })
     }
     return c.json(await service.importSprites(c.req.param('id')!, entries, fields))
@@ -39,6 +40,6 @@ export const spriteRoutes = new Hono()
   })
   .delete('/', async (c) => {
     const outfit = c.req.query('outfit')
-    if (outfit === undefined) throw new HttpError(400, 'BAD_REQUEST', '请指定要删除的服装')
+    if (outfit === undefined) throw new HttpError(400, 'BAD_REQUEST', t('请指定要删除的服装'))
     return c.json(await service.deleteOutfit(c.req.param('id')!, outfit))
   })

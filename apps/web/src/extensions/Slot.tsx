@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { Section } from '../components/form'
+import { t } from '../i18n'
 import { slotProps, useExtensionsRuntime } from './runtime'
 import type { SlotName, SlotProps } from './types'
 
@@ -10,7 +11,7 @@ export class ExtensionBoundary extends Component<{ id: string; children: ReactNo
   }
   render() {
     return this.state.failed ? (
-      <span className="text-xs text-red-500">扩展 {this.props.id} 出错</span>
+      <span className="text-xs text-red-500">{t('扩展 {name} 出错', { name: this.props.id })}</span>
     ) : (
       this.props.children
     )
@@ -60,6 +61,6 @@ export function ExtensionPage({ view }: { view: string }) {
       </div>
     </div>
   ) : (
-    <p className="p-6 text-sm text-zinc-500">扩展页面不存在或已停用</p>
+    <p className="p-6 text-sm text-zinc-500">{t('扩展页面不存在或已停用')}</p>
   )
 }

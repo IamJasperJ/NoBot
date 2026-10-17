@@ -4,6 +4,7 @@ import {
   type HistoryMessage,
   PromptBudgetError,
   type PromptCharacter,
+  parsePresetWithEnglishDefaults,
   type ScanEntry,
 } from '@ai-parter/core'
 import { renderDirectiveInstructions, toDisplayText } from '@ai-parter/core/stage'
@@ -16,7 +17,6 @@ import {
   type MessageRole,
   type PresetData,
   type PromptPreview,
-  presetDataSchema,
 } from '@ai-parter/shared'
 import { asc, eq, inArray } from 'drizzle-orm'
 import { db, getSetting } from '../db/client'
@@ -32,8 +32,9 @@ import {
   personas,
   promptPresets,
 } from '../db/schema'
-import { HttpError, notFound } from '../errors'
+import { HttpError, notFound, promptBudgetMessage } from '../errors'
 import { collectMacros, runAfterPrompt, runBeforePrompt } from '../extensions/registry'
+import { t } from '../i18n'
 import { enabledToolNames } from '../tools'
 import { backgroundsForChat } from './backgrounds'
 import { computeVars, getChatRow, loadGroupDTO, loadPath } from './chats'
@@ -95,10 +96,10 @@ function resolvePreset(chat: ChatRow): PresetData {
   )
   for (const id of ids) {
     const row = db.select().from(promptPresets).where(eq(promptPresets.id, id)).get()
-    if (row) return presetDataSchema.parse(row.data)
+    if (row) return parsePresetWithEnglishDefaults(row.data)
   }
   const any = db.select().from(promptPresets).orderBy(asc(promptPresets.createdAt)).get()
-  return presetDataSchema.parse(any?.data ?? {})
+  return parsePresetWithEnglishDefaults(any?.data ?? {})
 }
 
 export function resolvePersona(chat: ChatRow) {
@@ -106,7 +107,7 @@ export function resolvePersona(chat: ChatRow) {
   const row = id ? db.select().from(personas).where(eq(personas.id, id)).get() : undefined
   return row
     ? { id: row.id, name: row.name, description: row.description, lorebookId: row.lorebookId }
-    : { id: null, name: '旅人', description: '', lorebookId: null }
+    : { id: null, name: t('旅人'), description: '', lorebookId: null }
 }
 
 /**
@@ -194,10 +195,10 @@ export function loadGenerationContext(chatId: string, opts: { requireConnection:
         return row ? toPromptCharacter(row, m.muted) : null
       })
       .filter((x): x is PromptCharacter => x !== null)
-    if (members.length === 0) throw new HttpError(400, 'EMPTY_GROUP', '这个群聊没有任何成员')
+    if (members.length === 0) throw new HttpError(400, 'EMPTY_GROUP', t('这个群聊没有任何成员'))
   } else {
     const row = chat.characterId ? db.select().from(characters).where(eq(characters.id, chat.characterId)).get() : null
-    if (!row) throw notFound('角色')
+    if (!row) throw notFound(t('角色'))
     members = [toPromptCharacter(row)]
   }
 
@@ -263,7 +264,7 @@ export function toHistory(ctx: GenerationContext, leafId: string | null): Histor
         !m.content && m.meta.imageGen?.caption
           ? m.meta.imageGen.caption
           : !m.content && m.role !== 'user' && m.role !== 'tool' && (m.meta.imageGen || m.meta.images?.length)
-            ? `（发送了一张图片${m.meta.imageGen?.prompt ? `：${m.meta.imageGen.prompt}` : ''}）`
+            ? `(Sent an image${m.meta.imageGen?.prompt ? `: ${m.meta.imageGen.prompt}` : ''})`
             : preset.directives.enabled && m.role === 'assistant' && !keep.has(m.id)
               ? toDisplayText(m.content, { knownNames, narratorNames: [preset.trpg.gmName], speaker: 'plain' })
               : m.content,
@@ -271,7 +272,7 @@ export function toHistory(ctx: GenerationContext, leafId: string | null): Histor
         m.role === 'user'
           ? ctx.persona.name
           : m.role === 'tool'
-            ? (m.meta.toolName ?? '工具')
+            ? (m.meta.toolName ?? 'tool')
             : ((m.speakerId && names.get(m.speakerId)) ?? m.meta.name ?? ctx.members[0]?.name ?? ''),
       speakerId: m.speakerId,
       ...(m.role === 'user' && m.meta.images?.length ? { images: m.meta.images.map((image) => image.id) } : {}),
@@ -295,7 +296,7 @@ export interface AssembleOptions {
 /** 组装一次 Prompt：扩展前置钩子 → buildPrompt → 扩展后置钩子 */
 export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptPreview & { input: BuildInput } {
   const speaker = ctx.members.find((m) => m.id === opts.speakerId) ?? ctx.members[0]
-  if (!speaker) throw new HttpError(400, 'NO_SPEAKER', '找不到发言的角色')
+  if (!speaker) throw new HttpError(400, 'NO_SPEAKER', t('找不到发言的角色'))
   const history = toHistory(ctx, opts.leafId)
   if (opts.pending) {
     history.push({
@@ -361,7 +362,7 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
     input.injections = [
       {
         id: 'stage',
-        label: '舞台指令',
+        label: t('舞台指令'),
         role: 'system',
         content,
         position: play.directives.position,
@@ -377,7 +378,7 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
     const finalMessages: ChatMessage[] = runAfterPrompt(messages, ctx.chat.id)
     return { messages: finalMessages, report, input }
   } catch (e) {
-    if (e instanceof PromptBudgetError) throw new HttpError(400, 'PROMPT_TOO_LONG', e.message)
+    if (e instanceof PromptBudgetError) throw new HttpError(400, 'PROMPT_TOO_LONG', promptBudgetMessage(e.message))
     throw e
   }
 }

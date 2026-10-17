@@ -1,3 +1,4 @@
+import { t } from '../../../i18n'
 import { getChatRow } from '../../../services/chats'
 import { getApiPresetRow, resolveApiPreset } from '../../../services/connections'
 import { imageFetch, jsonResponse, object } from './backends/http'
@@ -49,7 +50,7 @@ function parseHeaders(text: string, label: string): Record<string, string> {
   try {
     parsed = JSON.parse(text)
   } catch {
-    throw new Error(`${label}额外请求头不是合法的 JSON`)
+    throw new Error(t('{label}额外请求头不是合法的 JSON', { label }))
   }
   if (
     !parsed ||
@@ -57,11 +58,11 @@ function parseHeaders(text: string, label: string): Record<string, string> {
     Array.isArray(parsed) ||
     Object.values(parsed).some((v) => typeof v !== 'string')
   )
-    throw new Error(`${label}额外请求头必须是字符串值的 JSON 对象`)
+    throw new Error(t('{label}额外请求头必须是字符串值的 JSON 对象', { label }))
   return parsed as Record<string, string>
 }
 export const comfyHeaders = (settings: Settings) => parseHeaders(settings.comfyHeaders, 'ComfyUI ')
-export const openaiHeaders = (settings: Settings) => parseHeaders(settings.openaiHeaders, '图片接口')
+export const openaiHeaders = (settings: Settings) => parseHeaders(settings.openaiHeaders, t('图片接口'))
 /** 用 Headers 合并，保证大小写不同的 Authorization 也能覆盖默认鉴权。 */
 export function openaiRequestHeaders(settings: Settings): Headers {
   const headers = new Headers({ 'Content-Type': 'application/json', Authorization: `Bearer ${settings.openaiApiKey}` })
@@ -107,7 +108,9 @@ export function comfyCapabilities(settings: Settings): Promise<Capabilities> {
     }
   })().catch((error) => {
     if (cache.get(url)?.promise === promise) cache.delete(url)
-    throw new Error(`ComfyUI 能力发现失败：${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(
+      t('ComfyUI 能力发现失败：{error}', { error: error instanceof Error ? error.message : String(error) }),
+    )
   })
   cache.set(url, { expires: Date.now() + 60000, headers: headerKey, promise })
   return promise
@@ -121,5 +124,5 @@ export async function testConnection(settings: Settings) {
         signal: AbortSignal.timeout(30000),
       }),
     )
-  return { ok: true, message: '连接成功' }
+  return { ok: true, message: t('连接成功') }
 }

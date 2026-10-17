@@ -1,5 +1,6 @@
 import type { ChatMessage, SamplerSettings, ToolCall } from '@ai-parter/shared'
 import { parseSSE } from '@ai-parter/shared'
+import { t } from '../i18n'
 
 /**
  * OpenAI 兼容接口的客户端。DeepSeek、OpenRouter、各类中转站都走这里。
@@ -58,7 +59,7 @@ export function buildRequestBody(opts: {
           { type: 'text', text: message.content },
           ...images.map((id) => {
             const url = opts.images?.get(id)
-            if (!url) throw new LlmError('BAD_ATTACHMENT', '图片附件尚未解析')
+            if (!url) throw new LlmError('BAD_ATTACHMENT', t('图片附件尚未解析'))
             return { type: 'image_url', image_url: { url, detail: s.imageDetail } }
           }),
         ],
@@ -88,7 +89,7 @@ export function buildRequestBody(opts: {
       const extra = JSON.parse(s.extraBody)
       if (extra && typeof extra === 'object' && !Array.isArray(extra)) Object.assign(body, extra)
     } catch {
-      throw new LlmError('BAD_EXTRA_BODY', '生成预设里的「额外请求参数」不是合法的 JSON 对象')
+      throw new LlmError('BAD_EXTRA_BODY', t('生成预设里的「额外请求参数」不是合法的 JSON 对象'))
     }
   }
   return body
@@ -123,14 +124,19 @@ async function toLlmError(res: Response): Promise<LlmError> {
   detail = String(detail).slice(0, 500)
 
   const hint: Record<number, string> = {
-    400: '请求被拒绝，可能是参数或模型不支持',
-    401: 'API Key 无效或已过期',
-    403: '没有权限访问这个模型',
-    404: '接口地址或模型名不存在',
-    429: '请求太频繁或额度用完了',
+    400: t('请求被拒绝，可能是参数或模型不支持'),
+    401: t('API Key 无效或已过期'),
+    403: t('没有权限访问这个模型'),
+    404: t('接口地址或模型名不存在'),
+    429: t('请求太频繁或额度用完了'),
   }
-  const base = hint[res.status] ?? (res.status >= 500 ? '模型服务暂时不可用' : '请求失败')
-  return new LlmError(`HTTP_${res.status}`, detail ? `${base}（${res.status}）：${detail}` : `${base}（${res.status}）`)
+  const base = hint[res.status] ?? (res.status >= 500 ? t('模型服务暂时不可用') : t('请求失败'))
+  return new LlmError(
+    `HTTP_${res.status}`,
+    detail
+      ? t('{base}（{status}）：{detail}', { base, status: res.status, detail })
+      : t('{base}（{status}）', { base, status: res.status }),
+  )
 }
 
 /** fetch 本身失败（断网、域名错误、被中止） */
@@ -143,7 +149,10 @@ function toNetworkError(e: unknown, url: string): Error {
       return url
     }
   })()
-  return new LlmError('NETWORK', `无法连接到 ${host}：${e instanceof Error ? e.message : String(e)}`)
+  return new LlmError(
+    'NETWORK',
+    t('无法连接到 {host}：{error}', { host, error: e instanceof Error ? e.message : String(e) }),
+  )
 }
 
 function mapUsage(usage: any): StreamChunk['usage'] {
@@ -189,12 +198,16 @@ export async function* chatCompletion(req: CompletionRequest): AsyncGenerator<St
     throw toNetworkError(e, url)
   }
   if (!res.ok) throw await toLlmError(res)
-  if (!res.body) throw new LlmError('EMPTY', '模型接口没有返回内容')
+  if (!res.body) throw new LlmError('EMPTY', t('模型接口没有返回内容'))
 
   // 非流式（或接口不支持流式、直接返回了 JSON）
   if (!req.body.stream || res.headers.get('content-type')?.includes('application/json')) {
     const json: any = await res.json()
-    if (json?.error) throw new LlmError('UPSTREAM', `模型返回错误：${json.error.message ?? JSON.stringify(json.error)}`)
+    if (json?.error)
+      throw new LlmError(
+        'UPSTREAM',
+        t('模型返回错误：{error}', { error: json.error.message ?? JSON.stringify(json.error) }),
+      )
     const choice = json?.choices?.[0]
     const acc = new ToolCallAccumulator()
     if (Array.isArray(choice?.message?.tool_calls)) acc.add(choice.message.tool_calls)
@@ -219,7 +232,10 @@ export async function* chatCompletion(req: CompletionRequest): AsyncGenerator<St
       continue // 有的中转站会混入非 JSON 的行，跳过
     }
     if (json?.error) {
-      throw new LlmError('UPSTREAM', `模型返回错误：${json.error.message ?? JSON.stringify(json.error)}`)
+      throw new LlmError(
+        'UPSTREAM',
+        t('模型返回错误：{error}', { error: json.error.message ?? JSON.stringify(json.error) }),
+      )
     }
     const choice = json?.choices?.[0]
     const delta = choice?.delta ?? {}

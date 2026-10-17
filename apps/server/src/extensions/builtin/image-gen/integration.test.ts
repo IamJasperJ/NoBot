@@ -37,6 +37,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     const { loadMessage, getChatRow } = await import('../../../services/chats')
     const { listLogs, getLog } = await import('../../../services/logs')
     const { listBackgrounds } = await import('../../../services/backgrounds')
+    const { setAppSettings } = await import('../../../services/settings')
     const { availableTools, runTool } = await import('../../../tools')
     const { createExtensionHost } = await import('../../host')
     const host = createExtensionHost(() => {})
@@ -355,6 +356,17 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     expect(getChatRow(chat.id).activeLeafId).toBe(beforeBackground)
     await json('/ext/image-gen/to-background', { messageId: error.id })
     expect(listBackgrounds()).toHaveLength(2)
+    // 起名请求不带对话历史，输出语言必须跟随界面设置。
+    for (const [language, expected] of [
+      ['en', 'English'],
+      ['zh', 'Chinese'],
+    ] as const) {
+      setAppSettings({ language })
+      await json('/ext/image-gen/to-background', { messageId: error.id })
+      const request = chatRequests.at(-1) as { messages: { content: string }[] }
+      expect(request.messages.at(-1)?.content).toContain(`Write in ${expected}.`)
+      expect(request.messages.at(-1)?.content).toContain('Output only JSON:')
+    }
     const testResult = await json<{ image: { width: number }; durationMs: number }>('/ext/image-gen/test', {})
     expect(testResult.image.width).toBe(64)
     expect(testResult.durationMs).toBeGreaterThanOrEqual(0)
@@ -394,7 +406,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     expect(
       (await runTool('generate_image', '{"prompt":"scenery","as_background":true}', { chatId: chat.id, vars: {} }))
         .content,
-    ).toBe('已生成并设为聊天背景。')
+    ).toBe('Image generated and set as the chat background.')
     configure({ openaiBaseUrl: '' })
     expect(
       (await runTool('generate_image', '{"prompt":"cat"}', { chatId: chat.id, vars: {} })).meta?.imageGen?.status,
@@ -612,7 +624,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     })
     expect(confirmed.message.meta.imageGen).toMatchObject({
       hidden: true,
-      caption: '[画师 发送了一张图片：1girl, blue hair]',
+      caption: '[画师 sent an image: 1girl, blue hair]',
       negative: 'bad style, red identity, once',
     })
     expect(confirmed.message.meta.imageGen?.seed).toBeGreaterThanOrEqual(0)
@@ -727,10 +739,10 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     })
     expect(visibleImage.message.meta.imageGen).toMatchObject({
       hidden: false,
-      caption: '[画师 发送了一张图片：visible cat]',
+      caption: '[画师 sent an image: visible cat]',
     })
     const hiddenTool = await runTool('generate_image', '{"prompt":"cat"}', { chatId: chat.id, vars: {} })
-    expect(hiddenTool.meta?.imageGen).toMatchObject({ hidden: true, caption: '[画师 发送了一张图片：cat]' })
+    expect(hiddenTool.meta?.imageGen).toMatchObject({ hidden: true, caption: '[画师 sent an image: cat]' })
     configure({ visibleFromButton: false })
     configure({
       source: 'comfy',

@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import * as React from 'react'
 import { create } from 'zustand'
 import { api } from '../api/client'
+import { t } from '../i18n'
 import { errorMessage, toast } from '../stores/toast'
 import { useUi, type View } from '../stores/ui'
 import { BUILTIN_CLIENTS } from './builtin'
@@ -40,7 +41,7 @@ function remove(id: string) {
     try {
       entry.cleanup?.()
     } catch (e) {
-      toast.error(`扩展 ${id} 清理失败：${errorMessage(e)}`)
+      toast.error(t('扩展 {id} 清理失败：{error}', { id, error: errorMessage(e) }))
     }
     entry.style?.remove()
     running.delete(id)
@@ -86,7 +87,7 @@ function makeAPI(id: string, entry: Running, queryClient: QueryClient): ClientEx
       // 固定同源和扩展前缀，拒绝 URL、查询之外的目录跳转。
       const url = new URL(`/api/ext/${id}/${path.replace(/^\/+/, '')}`, location.origin)
       if (url.origin !== location.origin || !url.pathname.startsWith(`/api/ext/${id}/`)) {
-        return Promise.reject(new Error('扩展接口路径不合法'))
+        return Promise.reject(new Error(t('扩展接口路径不合法')))
       }
       return fetch(url, init)
     },
@@ -97,6 +98,10 @@ function makeAPI(id: string, entry: Running, queryClient: QueryClient): ClientEx
       }))
       add('slots', {
         ...contribution,
+        // 保留内置扩展的动态标题，切换语言后读取时再翻译。
+        get title() {
+          return contribution.title
+        },
         slot,
         order: contribution.order ?? 100,
         extensionId: id,
@@ -108,7 +113,13 @@ function makeAPI(id: string, entry: Running, queryClient: QueryClient): ClientEx
       useExtensionsRuntime.setState((s) => ({
         pages: s.pages.filter((x) => !(x.extensionId === id && x.id === page.id)),
       }))
-      add('pages', { ...page, extensionId: id })
+      add('pages', {
+        ...page,
+        get label() {
+          return page.label
+        },
+        extensionId: id,
+      })
     },
     registerMessageTransform: (fn) => add('transforms', { fn, extensionId: id }),
     on: (type, handler) => {
@@ -137,13 +148,13 @@ async function activate(extension: ExtensionDTO, queryClient: QueryClient) {
     } else if (extension.client.script) {
       const path = `/api/extensions/${id}/client.js`
       const module = await import(/* @vite-ignore */ path)
-      if (typeof module.default !== 'function') throw new Error('前端入口必须默认导出 activate 函数')
+      if (typeof module.default !== 'function') throw new Error(t('前端入口必须默认导出 activate 函数'))
       const cleanup = await (module.default as ActivateFn)(makeAPI(id, entry, queryClient))
       if (typeof cleanup === 'function') entry.cleanup = cleanup
     }
   } catch (e) {
     remove(id)
-    toast.error(`扩展 ${extension.name} 加载失败：${errorMessage(e)}`)
+    toast.error(t('扩展 {name} 加载失败：{error}', { name: extension.name, error: errorMessage(e) }))
   }
 }
 
@@ -168,7 +179,7 @@ export function loadExtensions(queryClient: QueryClient, reloadId?: string) {
           await activate(extension, queryClient)
       }
     } catch (e) {
-      toast.error(`扩展列表加载失败：${errorMessage(e)}`)
+      toast.error(t('扩展列表加载失败：{error}', { error: errorMessage(e) }))
     }
   })
   return queue
@@ -180,7 +191,7 @@ export function emitClientEvent(event: ClientEvent) {
     try {
       listener.handler(event)
     } catch (e) {
-      toast.error(`扩展 ${listener.extensionId} 事件出错：${errorMessage(e)}`)
+      toast.error(t('扩展 {id} 事件出错：{error}', { id: listener.extensionId, error: errorMessage(e) }))
     }
   }
 }

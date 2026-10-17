@@ -15,6 +15,7 @@ import {
 } from '../../components/icons'
 import { cx } from '../../components/ui'
 import { useMobile } from '../../hooks/useMobile'
+import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useVn } from '../../stores/vn'
 import { Composer } from '../chat/Composer'
@@ -136,7 +137,7 @@ export function VnView({
       {/* 点画面推进；隐藏界面时点一下恢复 */}
       <button
         type="button"
-        aria-label={hidden ? '显示界面' : '下一句'}
+        aria-label={hidden ? t('显示界面') : t('下一句')}
         className="absolute inset-0 z-0 cursor-default"
         onClick={() => (hidden ? setHidden(false) : player.advance())}
       />
@@ -163,7 +164,7 @@ export function VnView({
           )}
           <div className="ml-auto flex items-center gap-1">
             {images.latest && (
-              <VnButton label={images.open ? '收起图片' : '图片'} active={images.open} onClick={images.toggle}>
+              <VnButton label={images.open ? t('收起图片') : t('图片')} active={images.open} onClick={images.toggle}>
                 <ImageIcon />
                 {(images.pending || images.unread) && (
                   <span
@@ -176,27 +177,27 @@ export function VnView({
                 )}
               </VnButton>
             )}
-            <VnButton label="回想" active={backlog} onClick={() => setBacklog(!backlog)}>
+            <VnButton label={t('回想')} active={backlog} onClick={() => setBacklog(!backlog)}>
               <LogIcon />
             </VnButton>
             <VnButton
-              label={player.auto ? '停止自动播放' : '自动播放'}
+              label={player.auto ? t('停止自动播放') : t('自动播放')}
               active={player.auto}
               onClick={() => player.setAuto(!player.auto)}
             >
               <span className="text-[11px] font-semibold">AUTO</span>
             </VnButton>
             <VnButton
-              label={play.dialog.skipReadOnly ? '快进（只跳过读过的）' : '快进'}
+              label={play.dialog.skipReadOnly ? t('快进（只跳过读过的）') : t('快进')}
               active={player.skip}
               onClick={() => player.setSkip(!player.skip)}
             >
               <span className="text-[11px] font-semibold">SKIP</span>
             </VnButton>
-            <VnButton label="隐藏界面（点画面恢复）" onClick={() => setHidden(true)}>
+            <VnButton label={t('隐藏界面（点画面恢复）')} onClick={() => setHidden(true)}>
               <EyeOffIcon />
             </VnButton>
-            <VnButton label="回到聊天视图" onClick={() => setMode(chatId, 'chat')}>
+            <VnButton label={t('回到聊天视图')} onClick={() => setMode(chatId, 'chat')}>
               <XIcon />
             </VnButton>
           </div>
@@ -259,13 +260,17 @@ export function VnView({
               <p className="leading-relaxed whitespace-pre-wrap">{text}</p>
             ) : (
               <p className="text-sm opacity-60">
-                {player.streaming ? '……' : current ? '这条回复没有可演出的内容' : '还没有角色回复，在下面说点什么吧'}
+                {player.streaming
+                  ? '……'
+                  : current
+                    ? t('这条回复没有可演出的内容')
+                    : t('还没有角色回复，在下面说点什么吧')}
               </p>
             )}
             {showSwipes && current && (
               <div className="pointer-events-auto absolute bottom-1 left-3 flex items-center text-[11px] md:left-5">
                 <SwipeButton
-                  label={current.parentId === null ? '上一个开场白' : '上一个回复'}
+                  label={current.parentId === null ? t('上一个开场白') : t('上一个回复')}
                   disabled={current.swipeIndex <= 1}
                   onClick={() => void swipe(-1)}
                 >
@@ -278,9 +283,9 @@ export function VnView({
                   label={
                     current.swipeIndex < current.swipeCount
                       ? current.parentId === null
-                        ? '下一个开场白'
-                        : '下一个回复'
-                      : '生成新回复'
+                        ? t('下一个开场白')
+                        : t('下一个回复')
+                      : t('生成新回复')
                   }
                   disabled={current.swipeIndex === current.swipeCount && !canRegenerate}
                   onClick={() => void swipe(1)}
@@ -288,19 +293,19 @@ export function VnView({
                   <ChevronRightIcon />
                 </SwipeButton>
                 {canRegenerate && (
-                  <SwipeButton label="重新生成（保留现有回复，再写一个）" onClick={regenerate}>
+                  <SwipeButton label={t('重新生成（保留现有回复，再写一个）')} onClick={regenerate}>
                     <RefreshIcon />
                   </SwipeButton>
                 )}
               </div>
             )}
             <div className="absolute right-4 bottom-2 flex items-center gap-2 text-[11px] opacity-60">
-              {player.streaming && <span>生成中…</span>}
+              {player.streaming && <span>{t('生成中…')}</span>}
               {player.canBack && (
                 <button
                   type="button"
-                  title="回退（看上一句，或上一条回复）"
-                  aria-label="回退"
+                  title={t('回退（看上一句，或上一条回复）')}
+                  aria-label={t('回退')}
                   onClick={player.back}
                   className="pointer-events-auto -my-1 flex size-6 items-center justify-center rounded-full hover:bg-white/15 [&_svg]:size-3.5"
                 >
@@ -328,7 +333,7 @@ export function VnView({
                 className="vn-chip rounded-full px-4 py-1.5 text-sm"
                 onClick={() => player.followLatest()}
               >
-                正在重演旧的回复，回到最新
+                {t('正在重演旧的回复，回到最新')}
               </button>
             </div>
           ) : ended || busy ? (
@@ -344,7 +349,7 @@ export function VnView({
                 className="vn-chip flex items-center gap-1 rounded-full px-3 py-1 text-xs"
                 onClick={() => player.jumpToEnd()}
               >
-                跳到这条的结尾
+                {t('跳到这条的结尾')}
                 <ChevronRightIcon className="size-3.5" />
               </button>
             </div>
@@ -454,13 +459,13 @@ function Backlog({
   return (
     <div className="absolute inset-0 z-30 flex justify-end">
       {/* 点抽屉外面的暗处关闭 */}
-      <button type="button" aria-label="关闭回想" className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div role="dialog" aria-label="回想" className="vn-backlog relative flex h-full w-full max-w-xl flex-col">
+      <button type="button" aria-label={t('关闭回想')} className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div role="dialog" aria-label={t('回想')} className="vn-backlog relative flex h-full w-full max-w-xl flex-col">
         <div className="flex h-12 shrink-0 items-center gap-2 border-b border-white/10 px-4">
-          <h2 className="flex-1 font-semibold">回想</h2>
+          <h2 className="flex-1 font-semibold">{t('回想')}</h2>
           <button
             type="button"
-            aria-label="关闭回想"
+            aria-label={t('关闭回想')}
             className="vn-chip flex size-8 items-center justify-center rounded-full"
             onClick={onClose}
           >
@@ -489,15 +494,15 @@ function Backlog({
                       onClick={() => onReplay(m.id)}
                     >
                       <RefreshIcon className="size-3" />
-                      从这里重演
+                      {t('从这里重演')}
                     </button>
                   )}
                 </div>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{body || '（图片或空内容）'}</p>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{body || t('（图片或空内容）')}</p>
               </div>
             )
           })}
-          {list.length === 0 && <p className="text-sm opacity-60">还没有对话。</p>}
+          {list.length === 0 && <p className="text-sm opacity-60">{t('还没有对话。')}</p>}
         </div>
       </div>
     </div>

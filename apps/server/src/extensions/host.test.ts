@@ -129,7 +129,7 @@ test('扩展宿主：消息、静默请求、内置路由、动态工具及保�
     await expect(host.quietPrompt({ chatId: chat.id, instruction: '无连接' })).rejects.toThrow()
 
     const ctx = loadGenerationContext(chat.id, { requireConnection: false })
-    expect(toHistory(ctx, first.id).at(-1)).toMatchObject({ content: '（发送了一张图片：月光森林）' })
+    expect(toHistory(ctx, first.id).at(-1)).toMatchObject({ content: '(Sent an image: 月光森林)' })
     host.updateMessageMeta(first.id, { images: [image] })
     expect(toHistory(ctx, first.id).at(-1)?.images).toBeUndefined()
     host.updateMessageMeta(first.id, { imageGen: { mode: 'last', status: 'done', caption: '森林里的月光' } })
@@ -178,7 +178,7 @@ test('扩展宿主：消息、静默请求、内置路由、动态工具及保�
     host.updateMessageMeta(pending.id, { imageGen: { mode: 'last', status: 'error' } })
     expect(toHistory(ctx, pending.id).some((m) => m.id === pending.id)).toBe(false)
     host.updateMessageMeta(pending.id, { images: [image] })
-    expect(toHistory(ctx, pending.id).at(-1)?.content).toBe('（发送了一张图片）')
+    expect(toHistory(ctx, pending.id).at(-1)?.content).toBe('(Sent an image)')
     const tool = host.appendMessage(chat.id, { role: 'tool', content: '工具结果', meta: { images: [image] } })
     expect(toHistory(ctx, tool.id).at(-1)).toMatchObject({ role: 'tool', content: '工具结果' })
     expect(toHistory(ctx, tool.id).at(-1)?.images).toBeUndefined()

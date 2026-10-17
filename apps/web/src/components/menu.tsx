@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef } from 'react'
+import { t } from '../i18n'
 import { DotsIcon } from './icons'
 import { cx } from './ui'
 
@@ -7,7 +8,7 @@ import { cx } from './ui'
  * 低频操作（复制、导出、删除……）放这里，标题栏只留最常用的一两个按钮。
  */
 export function Menu({
-  label = '更多操作',
+  label = t('更多操作'),
   children,
   align = 'right',
 }: {

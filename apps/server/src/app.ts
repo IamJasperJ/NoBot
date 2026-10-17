@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { HttpError } from './errors'
 import { forwardExtension } from './extensions/registry'
+import { t } from './i18n'
+import { appSettingsRoutes } from './routes/app-settings'
 import { assetRoutes } from './routes/assets'
 import { attachmentRoutes } from './routes/attachments'
 import { backgroundRoutes } from './routes/backgrounds'
@@ -46,7 +48,7 @@ app.onError((err, c) => {
   if (err instanceof HttpError) return c.json({ error: { code: err.code, message: err.message } }, err.status)
   console.error(err)
   logError(`${c.req.method} ${c.req.path}`, err)
-  return c.json({ error: { code: 'INTERNAL', message: `服务器内部错误：${err.message}` } }, 500)
+  return c.json({ error: { code: 'INTERNAL', message: t('服务器内部错误：{error}', { error: err.message }) } }, 500)
 })
 
 app.get('/health', (c) => c.json({ ok: true }))
@@ -63,6 +65,7 @@ app.route('/chats', chatRoutes)
 app.route('/bookmarks', bookmarkRoutes)
 app.route('/messages', messageRoutes)
 app.route('/logs', logRoutes)
+app.route('/app-settings', appSettingsRoutes)
 app.route('/extensions', extensionRoutes)
 app.route('/assets', assetRoutes).route('/attachments', attachmentRoutes)
 

@@ -1,6 +1,7 @@
 import { type ComponentProps, useRef, useState } from 'react'
 import { TextAreaField, TextField } from '../../components/form'
 import { Avatar, Button } from '../../components/ui'
+import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 
 export function CountedText(props: ComponentProps<typeof TextField>) {
@@ -11,7 +12,7 @@ export function CountedArea(props: ComponentProps<typeof TextAreaField>) {
   return (
     <div>
       <TextAreaField {...props} />
-      <p className="mt-1 text-xs text-zinc-500">估算字数：{props.value.length}</p>
+      <p className="mt-1 text-xs text-zinc-500">{t('估算字数：{count}', { count: props.value.length })}</p>
     </div>
   )
 }
@@ -34,20 +35,20 @@ export function AvatarUpload({
         type="button"
         disabled={disabled}
         onClick={() => input.current?.click()}
-        aria-label="上传头像"
-        title="点击更换头像"
+        aria-label={t('上传头像')}
+        title={t('点击更换头像')}
         className="group relative shrink-0 rounded-full ring-1 ring-black/5 disabled:opacity-60 dark:ring-white/10"
       >
         <Avatar name={name} url={url} size={64} />
         <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-          更换
+          {t('更换')}
         </span>
       </button>
       <div className="min-w-0 space-y-1">
         <Button size="sm" disabled={disabled} onClick={() => input.current?.click()}>
-          上传头像
+          {t('上传头像')}
         </Button>
-        <p className="text-xs text-zinc-500">支持任意图片格式，上传后立即生效</p>
+        <p className="text-xs text-zinc-500">{t('支持任意图片格式，上传后立即生效')}</p>
       </div>
       <input
         ref={input}

@@ -1,4 +1,4 @@
-import { presetDataSchema } from '@ai-parter/shared'
+import { parsePresetWithEnglishDefaults } from '@ai-parter/core'
 import { db, getSetting, initDatabase, newId, setSetting } from './db/client'
 import { personas, promptPresets } from './db/schema'
 import { loadLocalExtensions } from './extensions/registry'
@@ -19,6 +19,7 @@ export async function bootstrap() {
     const id = existing?.id ?? newId()
     if (!existing) {
       db.insert(personas).values({ id, name: '旅人', description: '', createdAt: now, updatedAt: now }).run()
+      setSetting(SETTING_KEYS.builtinPersonaId, id)
     }
     setSetting(SETTING_KEYS.defaultPersonaId, id)
   }
@@ -29,8 +30,9 @@ export async function bootstrap() {
     const id = existing?.id ?? newId()
     if (!existing) {
       db.insert(promptPresets)
-        .values({ id, name: '默认预设', data: presetDataSchema.parse({}), createdAt: now, updatedAt: now })
+        .values({ id, name: '默认预设', data: parsePresetWithEnglishDefaults({}), createdAt: now, updatedAt: now })
         .run()
+      setSetting(SETTING_KEYS.builtinPromptPresetId, id)
     }
     setSetting(SETTING_KEYS.defaultPromptPresetId, id)
   }

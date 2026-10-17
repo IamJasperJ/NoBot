@@ -27,6 +27,8 @@ export interface ChatDTO extends ChatSummary {
   lorebookIds: string[]
   /** 聊天背景（背景库里的 id），为空则用全局背景 */
   backgroundId: string | null
+  /** 固定聊天背景：为 true 且有聊天背景时，它优先于舞台背景（用户手动覆盖模型选的场景） */
+  backgroundPinned: boolean
   /** 玩法预设（VN 模式），为空则用角色卡指定的预设或全局默认 */
   playPresetId: string | null
   createdAt: number
@@ -71,6 +73,7 @@ export const updateChatInput = z.object({
   authorNoteRole: z.enum(['system', 'user', 'assistant']).optional(),
   lorebookIds: z.array(z.string()).optional(),
   backgroundId: z.string().nullable().optional(),
+  backgroundPinned: z.boolean().optional(),
   playPresetId: z.string().nullable().optional(),
 })
 export type UpdateChatInput = z.infer<typeof updateChatInput>

@@ -14,11 +14,20 @@ import type {
 import { createChatInput } from '@ai-parter/shared'
 import { asc, desc, eq, inArray } from 'drizzle-orm'
 import { db, getSetting, newId, sqlite } from '../db/client'
-import { type ChatRow, characters, chatLorebooks, chats, groupMembers, groups, messages } from '../db/schema'
+import {
+  backgrounds,
+  type ChatRow,
+  characters,
+  chatLorebooks,
+  chats,
+  groupMembers,
+  groups,
+  messages,
+} from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { emitServerEvent } from '../extensions/registry'
 import { avatarUrl } from '../lib/files'
-import { requireBackground } from './backgrounds'
+import { deleteBackground, getBackgroundSettings, requireBackground } from './backgrounds'
 import { getPlayPreset } from './playPresets'
 import { SETTING_KEYS } from './settings'
 import { applyStageParse, backfillStage, computeStage, initialVars, resolvePlayPreset } from './stage'
@@ -130,6 +139,7 @@ function toDTO(row: ChatRow): ChatDTO {
   return {
     ...toSummary(row),
     backgroundId: row.backgroundId,
+    backgroundPinned: row.backgroundPinned,
     personaId: row.personaId,
     activeLeafId: row.activeLeafId,
     apiPresetId: row.apiPresetId,
@@ -340,8 +350,35 @@ export function updateChat(chatId: string, input: UpdateChatInput): ChatDTO {
   return toDTO(getChatRow(chatId))
 }
 
-export function deleteChat(chatId: string) {
-  db.delete(chats).where(eq(chats.id, chatId)).run()
+export async function deleteChat(chatId: string) {
+  const disposable: string[] = []
+  db.transaction(() => {
+    const owned = db.select().from(backgrounds).where(eq(backgrounds.chatId, chatId)).all()
+    const globalId = getBackgroundSettings().globalId
+    const referenced = new Set(
+      db
+        .select({ id: chats.id, backgroundId: chats.backgroundId })
+        .from(chats)
+        .all()
+        .filter((chat) => chat.id !== chatId)
+        .map((chat) => chat.backgroundId),
+    )
+    for (const background of owned) {
+      if (background.id !== globalId && !referenced.has(background.id)) disposable.push(background.id)
+    }
+    // 先解除归属，文件清理失败也不能阻止会话删除。
+    db.update(backgrounds).set({ chatId: null }).where(eq(backgrounds.chatId, chatId)).run()
+    db.delete(chats).where(eq(chats.id, chatId)).run()
+  })
+  await Promise.all(
+    disposable.map(async (id) => {
+      try {
+        await deleteBackground(id)
+      } catch (error) {
+        console.error('删除会话背景失败', id, error)
+      }
+    }),
+  )
 }
 
 /** 读出整个会话的树结构（只要 id 和 parent_id，很轻） */

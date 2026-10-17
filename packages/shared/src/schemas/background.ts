@@ -5,11 +5,19 @@ import { z } from 'zod'
  * - 背景库：上传或生成的背景图片，文件在 data/assets/backgrounds/
  * - 全局背景：所有会话默认使用（存在 settings 表）
  * - 聊天背景：单个会话覆盖全局背景（chats.background_id）
- * 显示时：聊天背景 > 全局背景 > 无背景。
+ * - 舞台背景（VN 模式）：模型用 <scene bg> 指令切换的背景
+ * 显示时：固定的聊天背景 > 舞台背景 > 聊天背景 > 全局背景 > 无背景（「固定」见 ChatDTO.backgroundPinned）。
+ *
+ * 范围：背景库是共用的，但图片生成扩展生成的背景属于生成它的会话（chatId）。
+ * 舞台匹配、给模型的背景清单、自动选择都只看「公共背景 + 本会话生成的」，不会选到别的会话生成的背景。
  */
 export interface BackgroundDTO {
   id: string
   name: string
+  /** 一句话描述画面（地点、时间、氛围），和名字一起出现在给模型的背景清单里；可以为空 */
+  description: string
+  /** 生成它的会话；null 表示公共背景（用户上传、从网址导入，或手动设为公共） */
+  chatId: string | null
   /** 原图地址（已转成 webp，最长边不超过 3840） */
   url: string
   /** 缩略图地址（最长边 320），背景库列表用 */
@@ -40,7 +48,10 @@ export const autoBackgroundInput = z.object({
 })
 
 export const updateBackgroundInput = z.object({
-  name: z.string().trim().min(1),
+  name: z.string().trim().min(1).optional(),
+  description: z.string().trim().max(200).optional(),
+  /** 只能传 null：把会话生成的背景设为公共 */
+  chatId: z.null().optional(),
 })
 export type UpdateBackgroundInput = z.infer<typeof updateBackgroundInput>
 

@@ -25,8 +25,11 @@ const secondaryButton =
 export function ImagePromptDialog({
   review,
   react = React,
+  title = '生成前编辑提示词',
 }: {
   react?: typeof React
+  /** 对话框标题；改已有图片的提示词时用「修改提示词，再生成一张」 */
+  title?: string
   review: { preview: ImagePromptPreview; resolve: (value: { prompt: string; negative: string } | null) => void }
 }) {
   const R = react
@@ -62,7 +65,7 @@ export function ImagePromptDialog({
       {
         role: 'dialog',
         'aria-modal': true,
-        'aria-label': '生成前编辑提示词',
+        'aria-label': title,
         className:
           'flex max-h-[calc(100dvh-32px)] w-full max-w-2xl flex-col gap-4 overflow-y-auto rounded-2xl bg-white p-5 text-zinc-900 shadow-xl dark:bg-zinc-900 dark:text-zinc-100',
         onClick: (event: { stopPropagation: () => void }) => event.stopPropagation(),
@@ -70,7 +73,7 @@ export function ImagePromptDialog({
       h(
         'div',
         { className: 'space-y-1' },
-        h('h2', { className: 'font-semibold' }, '生成前编辑提示词'),
+        h('h2', { className: 'font-semibold' }, title),
         summary && h('p', { className: 'text-xs text-zinc-500' }, summary),
       ),
       h(

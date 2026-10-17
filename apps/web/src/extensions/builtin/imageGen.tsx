@@ -294,8 +294,19 @@ export default function activate(api: ClientExtensionAPI) {
   }
   function Media({ chatId, message }: { chatId: string; message: MessageDTO }) {
     const pending = message.meta.imageGen?.status === 'pending'
+    const [editing, setEditing] = R.useState(false)
     // 占位框的刷新由聊天页统一负责（有 pending 图片时每 2 秒刷新会话），这里不再单独轮询
     if (!message.meta.imageGen) return null
+    const task = message.meta.imageGen
+    // 改提示词重新生成：保留现有图片，用新提示词再生成一张追加在后面（和「生成备选图」一样）
+    const regenerate = async (edited: { prompt: string; negative: string }) => {
+      try {
+        await request('retry', { messageId: message.id, append: true, ...edited })
+        await refresh(chatId)
+      } catch (error) {
+        api.toast.error(errorText(error))
+      }
+    }
     const background = async () => {
       try {
         await request('to-background', {
@@ -340,7 +351,31 @@ export default function activate(api: ClientExtensionAPI) {
             icon('M3 5h18v14H3zM3 15l5-5 4 4 3-3 6 6'),
             '设为聊天背景',
           ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: mediaButton,
+              disabled: pending,
+              title: '修改这张图的提示词，再生成一张（现有图片保留，可以左右切换）',
+              onClick: () => setEditing(true),
+            },
+            icon('M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'),
+            '修改提示词',
+          ),
         ),
+      editing &&
+        h(ImagePromptDialog, {
+          react: R,
+          title: '修改提示词，再生成一张',
+          review: {
+            preview: { prompt: task.prompt ?? '', negative: task.negative ?? '' },
+            resolve: (edited: { prompt: string; negative: string } | null) => {
+              setEditing(false)
+              if (edited) void regenerate(edited)
+            },
+          },
+        }),
     )
   }
   function CharacterSection({

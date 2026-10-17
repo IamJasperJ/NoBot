@@ -73,9 +73,9 @@ export const chatRoutes = new Hono()
   .patch('/:id', validate('json', updateChatInput), (c) =>
     c.json(chats.updateChat(c.req.param('id'), c.req.valid('json'))),
   )
-  .delete('/:id', (c) => {
+  .delete('/:id', async (c) => {
     generation.abortGeneration(c.req.param('id'))
-    chats.deleteChat(c.req.param('id'))
+    await chats.deleteChat(c.req.param('id'))
     return c.json({ ok: true })
   })
   .post('/:id/swipe', validate('json', swipeInput), (c) => {

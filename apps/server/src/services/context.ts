@@ -22,7 +22,6 @@ import { asc, eq, inArray } from 'drizzle-orm'
 import { db, getSetting } from '../db/client'
 import {
   type ApiPresetRow,
-  backgrounds,
   type CharacterRow,
   type ChatRow,
   characterLorebooks,
@@ -36,6 +35,7 @@ import {
 import { HttpError, notFound } from '../errors'
 import { collectMacros, runAfterPrompt, runBeforePrompt } from '../extensions/registry'
 import { enabledToolNames } from '../tools'
+import { backgroundsForChat } from './backgrounds'
 import { computeVars, getChatRow, loadGroupDTO, loadPath } from './chats'
 import { resolveApiPreset } from './connections'
 import { getWorldInfoSettings, SETTING_KEYS } from './settings'
@@ -347,11 +347,11 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
         ...new Set([...ctx.members.map((member) => member.name), ...(stage?.cast.map((actor) => actor.name) ?? [])]),
       ],
       expressions: [...EXPRESSIONS, ...play.sprites.customExpressions],
-      backgrounds: db
-        .select()
-        .from(backgrounds)
-        .all()
-        .map((row) => row.name),
+      backgrounds: backgroundsForChat(ctx.chat.id).map((row) => {
+        const chars = Array.from(row.description)
+        const description = chars.length > 40 ? `${chars.slice(0, 40).join('')}…` : row.description
+        return description ? `${row.name}（${description}）` : row.name
+      }),
       schema: resolveStateSchema(ctx.chat.id, play),
       rules: init.rules,
       vars: computeVars(path, init.vars),

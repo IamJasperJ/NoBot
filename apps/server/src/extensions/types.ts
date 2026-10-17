@@ -72,7 +72,10 @@ export interface ExtensionHost {
     signal?: AbortSignal
   }): Promise<string>
   saveImage(bytes: Uint8Array): Promise<AttachmentDTO>
-  saveBackground(bytes: Uint8Array, opts: { name: string; source: 'upload' | 'generated' }): Promise<BackgroundDTO>
+  saveBackground(
+    bytes: Uint8Array,
+    opts: { name: string; source: 'upload' | 'generated'; chatId?: string; description?: string },
+  ): Promise<BackgroundDTO>
   setChatBackground(chatId: string, backgroundId: string | null): void
   /** 追加消息并切换叶子；生成期间拒绝追加。 */
   appendMessage(

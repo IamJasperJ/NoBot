@@ -17,6 +17,8 @@ test('背景库展示视频缩略图、GIF 缩略图、动态角标和最新排�
     width: 640,
     height: 480,
     source: 'upload',
+    description: '',
+    chatId: null,
     mime: 'image/webp',
     animated: false,
     createdAt: 1,

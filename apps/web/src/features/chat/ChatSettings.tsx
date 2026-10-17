@@ -22,7 +22,8 @@ import { useUi } from '../../stores/ui'
 import { GroupDialog } from '../groups/GroupDialog'
 import { runGeneration } from './generate'
 
-type Draft = Required<Omit<UpdateChatInput, 'title' | 'backgroundId'>> & { title: string }
+// 背景和固定开关在背景页里即时保存，不进会话设置的草稿
+type Draft = Required<Omit<UpdateChatInput, 'title' | 'backgroundId' | 'backgroundPinned'>> & { title: string }
 
 function toDraft(page: ChatPage): Draft {
   const c = page.chat
@@ -179,12 +180,18 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
               {background?.name ?? '跟随全局'}
             </span>
           </div>
-          {page.stage?.scene.bg && (
+          {page.stage?.scene.bg && page.chat.backgroundPinned && page.chat.backgroundId ? (
             <p className="text-xs text-zinc-500">
-              现在生效的是舞台背景：
-              {backgrounds.data?.find((b) => b.id === page.stage?.scene.backgroundId)?.name ??
-                `「${page.stage.scene.bg}」（没有匹配的背景，暂用上面的）`}
+              已固定：舞台换场景时不切换背景。可以在背景页的「舞台」一行点「跟随舞台」恢复。
             </p>
+          ) : (
+            page.stage?.scene.bg && (
+              <p className="text-xs text-zinc-500">
+                现在生效的是舞台背景：
+                {backgrounds.data?.find((b) => b.id === page.stage?.scene.backgroundId)?.name ??
+                  `「${page.stage.scene.bg}」（没有匹配的背景，暂用上面的）`}
+              </p>
+            )
           )}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={() => useUi.getState().openView('backgrounds')}>

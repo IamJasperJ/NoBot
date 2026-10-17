@@ -39,6 +39,7 @@ import type {
   TestConnectionInput,
   TestConnectionResult,
   ToolInfo,
+  UpdateBackgroundInput,
   UpdateChatInput,
   UpdateSpriteInput,
   WorldInfoSettings,
@@ -108,7 +109,9 @@ export const api = {
     if (name !== undefined) form.append('name', name)
     return request<BackgroundDTO>('POST', '/backgrounds', form)
   },
-  renameBackground: (id: string, name: string) => request<BackgroundDTO>('PATCH', `/backgrounds/${enc(id)}`, { name }),
+  /** 改名字、描述，或者把会话生成的背景设为公共（chatId: null） */
+  updateBackground: (id: string, input: UpdateBackgroundInput) =>
+    request<BackgroundDTO>('PATCH', `/backgrounds/${enc(id)}`, input),
   deleteBackground: (id: string) => request<Ok>('DELETE', `/backgrounds/${enc(id)}`),
   getBackgroundSettings: () => request<BackgroundSettings>('GET', '/backgrounds/settings'),
   setBackgroundSettings: (input: BackgroundSettings) =>

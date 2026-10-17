@@ -4,9 +4,10 @@ import {
   type BackgroundDTO,
   type BackgroundSettings,
   backgroundSettingsInput,
+  type UpdateBackgroundInput,
   updateBackgroundInput,
 } from '@ai-parter/shared'
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, isNull, or } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { backgrounds } from '../db/schema'
@@ -35,12 +36,26 @@ export function listBackgrounds(): BackgroundDTO[] {
   return db.select().from(backgrounds).orderBy(desc(backgrounds.createdAt), desc(backgrounds.id)).all().map(toDTO)
 }
 
+/** 舞台与模型只看公共背景及当前会话的背景。 */
+export function backgroundsForChat(chatId: string): BackgroundDTO[] {
+  return db
+    .select()
+    .from(backgrounds)
+    .where(or(isNull(backgrounds.chatId), eq(backgrounds.chatId, chatId)))
+    .orderBy(desc(backgrounds.createdAt), desc(backgrounds.id))
+    .all()
+    .map(toDTO)
+}
+
 /** 上传与图片生成共用此入口，持久化尺寸以旋转、缩放后的文件为准。 */
 export async function saveBackground(
   bytes: Uint8Array,
-  opts: { name: string; source: 'upload' | 'generated' },
+  opts: { name: string; source: 'upload' | 'generated'; chatId?: string; description?: string },
 ): Promise<BackgroundDTO> {
-  const { name } = updateBackgroundInput.parse(opts)
+  const { name, description = '' } = updateBackgroundInput.required({ name: true }).parse({
+    name: opts.name,
+    description: opts.description,
+  })
   const mime = detectBackgroundMime(bytes)
   checkBackgroundSize(bytes.length, mime)
   let original: Uint8Array = bytes
@@ -67,7 +82,17 @@ export async function saveBackground(
   } catch {
     throw new HttpError(400, 'BAD_IMAGE', '无法识别的图片文件')
   }
-  const row = { id: newId(), name, width, height, source: opts.source, mime, createdAt: Date.now() }
+  const row = {
+    id: newId(),
+    name,
+    description,
+    chatId: opts.chatId ?? null,
+    width,
+    height,
+    source: opts.source,
+    mime,
+    createdAt: Date.now(),
+  }
   const files = [
     join(paths.backgrounds, `${row.id}.${extension(row.mime)}`),
     join(paths.backgrounds, `${row.id}.thumb.webp`),
@@ -83,10 +108,13 @@ export async function saveBackground(
   return toDTO(row)
 }
 
-export function renameBackground(id: string, name: string): BackgroundDTO {
+export function updateBackground(id: string, input: UpdateBackgroundInput): BackgroundDTO {
   requireBackground(id)
-  const input = updateBackgroundInput.parse({ name })
-  db.update(backgrounds).set(input).where(eq(backgrounds.id, id)).run()
+  const parsed = updateBackgroundInput.parse(input)
+  if (!Object.values(parsed).some((value) => value !== undefined)) {
+    throw new HttpError(400, 'BAD_REQUEST', '请至少提供一个要修改的字段')
+  }
+  db.update(backgrounds).set(parsed).where(eq(backgrounds.id, id)).run()
   return toDTO(requireBackground(id))
 }
 

@@ -3,7 +3,8 @@ import type { ImageGenMeta } from '@ai-parter/shared'
 import { paths } from '../../../env'
 import { HttpError } from '../../../errors'
 import { getAttachment } from '../../../services/attachments'
-import { deleteMessage, loadMessage } from '../../../services/chats'
+import { deleteMessage, getChatRow, loadMessage, loadPath } from '../../../services/chats'
+import { computeStage } from '../../../services/stage'
 import type { ToolResult } from '../../../tools'
 import type { ExtensionContext } from '../../types'
 import { generateComfy } from './backends/comfy'
@@ -266,10 +267,69 @@ export async function renderImage(
     throw error
   }
 }
-async function background(ctx: Context, chatId: string, bytes: Uint8Array, name: string) {
+/** 场景名优先保证舞台立即匹配；模型起名失败只影响元数据，不影响出图。 */
+export async function nameBackground(
+  ctx: Pick<Context, 'host'>,
+  chatId: string,
+  settings: Settings,
+  prompt: string,
+  characterName: string,
+) {
+  const chat = getChatRow(chatId)
+  const stage = computeStage(chatId, loadPath(chat.activeLeafId))
+  const sceneName = stage?.scene.backgroundId === null ? stage.scene.bg?.trim() : undefined
+  let name = sceneName || `${characterName} 背景 ${new Date().toLocaleString('zh-CN')}`
+  let description = ''
+  try {
+    const reply = await ctx.host.quietPrompt({
+      chatId,
+      includeHistory: false,
+      maxTokens: 120,
+      connectionId: settings.promptConnectionId || undefined,
+      model: settings.promptModel || undefined,
+      instruction: `下面是一张背景图的画面描述。给它起一个 2–10 个字的中文名字（地点 + 必要的时间或氛围，比如「黄昏的酒馆」），再用一句不超过 40 个字的中文描述画面。只输出 JSON：{"name": "...", "description": "..."}
+画面描述：${prompt}`,
+    })
+    const start = reply.indexOf('{')
+    if (start < 0) throw new Error('模型没有返回 JSON')
+    let value: unknown
+    // 逐个尝试右括号，兼容代码围栏及描述字符串里的花括号，仍只读取第一个对象。
+    for (let end = reply.indexOf('}', start + 1); end >= 0; end = reply.indexOf('}', end + 1)) {
+      try {
+        value = JSON.parse(reply.slice(start, end + 1))
+        break
+      } catch {
+        // 字符串内的右括号或嵌套对象尚未构成完整 JSON，继续向后找。
+      }
+    }
+    if (!value || typeof value !== 'object') throw new Error('模型返回的 JSON 无效')
+    if (!sceneName) {
+      if (!('name' in value) || typeof value.name !== 'string' || !value.name.trim()) {
+        throw new Error('模型返回的名字为空')
+      }
+      name = value.name.trim()
+    }
+    if ('description' in value && typeof value.description === 'string') {
+      description = Array.from(value.description.trim()).slice(0, 40).join('')
+    }
+  } catch (error) {
+    ctx.host.log({ chatId, kind: 'image', status: 'error', summary: `背景起名失败：${safeError(error, settings)}` })
+  }
+  return { name, description }
+}
+async function background(
+  ctx: Context,
+  chatId: string,
+  bytes: Uint8Array,
+  name: string,
+  settings: Settings,
+  prompt: string,
+) {
+  const metadata = await nameBackground(ctx, chatId, settings, prompt, name)
   const saved = await ctx.host.saveBackground(bytes, {
     source: 'generated',
-    name: `${name} 背景 ${new Date().toLocaleString('zh-CN')}`,
+    chatId,
+    ...metadata,
   })
   ctx.host.setChatBackground(chatId, saved.id)
   return { background: saved }
@@ -369,7 +429,7 @@ export async function generate(ctx: Context, input: GenerateInput) {
       stage('saving')
       if (input.mode === 'background') {
         controller.signal.throwIfAborted()
-        return await background(ctx, input.chatId, bytes, prepared.character.name)
+        return await background(ctx, input.chatId, bytes, prepared.character.name, settings, snapshot.prompt!)
       }
       await pendingReady
       const image = await ctx.host.saveImage(bytes)
@@ -564,6 +624,8 @@ export async function toBackground(ctx: Context, messageId: string, index: numbe
     chatId ?? message.chatId,
     new Uint8Array(await Bun.file(join(paths.attachments, `${image.id}.webp`)).arrayBuffer()),
     message.meta.name ?? '图片',
+    resolveImageConnection(parseSettings(ctx.settings)),
+    message.meta.imageGen?.prompt ?? '',
   )
 }
 export async function testImage(ctx: Context) {
@@ -634,7 +696,7 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
         )
         stage('saving')
         if (args.as_background === true) {
-          await background(ctx, ctx.chatId, bytes, prepared.character.name)
+          await background(ctx, ctx.chatId, bytes, prepared.character.name, settings, combined.prompt)
           if (messageId) ctx.host.updateMessageMeta(messageId, { imageGen: { ...meta, status: 'done' } })
           return { content: '已生成并设为聊天背景。' }
         }

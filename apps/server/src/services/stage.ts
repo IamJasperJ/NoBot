@@ -18,7 +18,8 @@ import {
 } from '@ai-parter/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db } from '../db/client'
-import { backgrounds, characters, groupMembers, messages } from '../db/schema'
+import { characters, groupMembers, messages } from '../db/schema'
+import { backgroundsForChat } from './backgrounds'
 import { computeVars, getChatRow, loadPath } from './chats'
 import { loadLore, resolvePersona } from './context'
 import { getDefault, listPlayPresets } from './playPresets'
@@ -93,7 +94,7 @@ export function computeStage(chatId: string, path: { meta: MessageMeta }[]) {
   const stage = foldStage(path.map((message) => message.meta.stage?.ops ?? []))
   const normalize = (name: string) => name.trim().toLowerCase()
   const bg = normalize(stage.scene.bg ?? '')
-  const library = db.select().from(backgrounds).all()
+  const library = backgroundsForChat(chatId)
   const match = bg
     ? (library.find((row) => normalize(row.name) === bg) ??
       library

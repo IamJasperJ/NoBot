@@ -10,13 +10,14 @@ import { bodyLimit } from 'hono/body-limit'
 import { HttpError } from '../errors'
 import { matchBackground } from '../services/background-match'
 import {
+  backgroundsForChat,
   deleteBackground,
   getBackgroundSettings,
   importBackgroundUrl,
   listBackgrounds,
-  renameBackground,
   saveBackground,
   setBackgroundSettings,
+  updateBackground,
 } from '../services/backgrounds'
 import { updateChat } from '../services/chats'
 import { quietPrompt } from '../services/quiet-prompt'
@@ -39,7 +40,7 @@ export const backgroundRoutes = new Hono()
       if (!(file instanceof File)) throw new HttpError(400, 'BAD_REQUEST', '请选择背景文件')
       const name = typeof body.name === 'string' ? body.name : file.name.replace(/\.[^.]+$/, '')
       const parsed = updateBackgroundInput.safeParse({ name })
-      if (!parsed.success) throw new HttpError(400, 'BAD_REQUEST', '背景名称不能为空')
+      if (!parsed.success || !parsed.data.name) throw new HttpError(400, 'BAD_REQUEST', '背景名称不能为空')
       return c.json(
         await saveBackground(new Uint8Array(await file.arrayBuffer()), { name: parsed.data.name, source: 'upload' }),
       )
@@ -49,12 +50,12 @@ export const backgroundRoutes = new Hono()
     c.json(await importBackgroundUrl(c.req.valid('json'))),
   )
   .post('/auto', zValidator('json', autoBackgroundInput), async (c) => {
-    const list = listBackgrounds()
-    if (!list.length) throw new HttpError(400, 'EMPTY_BACKGROUNDS', '背景库是空的')
     const { chatId } = c.req.valid('json')
+    const list = backgroundsForChat(chatId)
+    if (!list.length) throw new HttpError(400, 'EMPTY_BACKGROUNDS', '背景库是空的')
     const reply = await quietPrompt({
       chatId,
-      instruction: `忽略之前的格式要求。从下面的列表中选出最适合当前场景的地点，只输出列表里的名字，不要输出其他任何文字：\n${list.map((b) => `- ${b.name}`).join('\n')}`,
+      instruction: `忽略之前的格式要求。从下面的列表中选出最适合当前场景的地点，只输出列表里的名字，不要输出其他任何文字：\n${list.map((b) => `- ${b.name}：${b.description}`).join('\n')}`,
     })
     const background = matchBackground(list, reply)
     if (!background) throw new HttpError(400, 'EMPTY_REPLY', '模型没有选择背景')
@@ -66,7 +67,7 @@ export const backgroundRoutes = new Hono()
     c.json(setBackgroundSettings(c.req.valid('json'))),
   )
   .patch('/:id', zValidator('json', updateBackgroundInput), (c) =>
-    c.json(renameBackground(c.req.param('id'), c.req.valid('json').name)),
+    c.json(updateBackground(c.req.param('id'), c.req.valid('json'))),
   )
   .delete('/:id', async (c) => {
     await deleteBackground(c.req.param('id'))

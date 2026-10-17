@@ -11,7 +11,7 @@ import type {
   PromptRole,
 } from '@ai-parter/shared'
 import { sql } from 'drizzle-orm'
-import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { type AnySQLiteColumn, index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
  * 数据库表结构，和设计文档「数据模型」「第二阶段架构」两节对应。
@@ -152,6 +152,9 @@ export const groupMembers = sqliteTable(
 export const backgrounds = sqliteTable('backgrounds', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  // 会话删除前由业务判断删除还是转为公共；其他级联删除也不能连带丢失图片。
+  chatId: text('chat_id').references((): AnySQLiteColumn => chats.id, { onDelete: 'set null' }),
   width: integer('width').notNull(),
   height: integer('height').notNull(),
   source: text('source').$type<'upload' | 'generated'>().notNull(),
@@ -169,6 +172,7 @@ export const chats = sqliteTable(
     /** 群聊的群组；单人会话为空 */
     groupId: text('group_id').references(() => groups.id, { onDelete: 'cascade' }),
     backgroundId: text('background_id').references(() => backgrounds.id, { onDelete: 'set null' }),
+    backgroundPinned: integer('background_pinned', { mode: 'boolean' }).notNull().default(false),
     personaId: text('persona_id').references(() => personas.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     /** 当前分支的叶子节点。不加外键：删除消息时由业务代码负责更新它 */

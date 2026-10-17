@@ -57,6 +57,13 @@
       "when": 1792200208284,
       "tag": "0007_sturdy_skreet",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792203993746,
+      "tag": "0008_tired_namora",
+      "breakpoints": true
     }
   ]
 }

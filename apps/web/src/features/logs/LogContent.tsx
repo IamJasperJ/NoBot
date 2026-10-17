@@ -33,10 +33,25 @@ export function CollapsibleContent({ content }: { content: string }) {
   const collapsible = content.length > 300 || content.split(/\r\n|\r|\n/).length > 6
   return (
     <div className="min-w-0 space-y-2">
+      {/*
+        折叠时只显示 6 行（leading-6 × 6 = 9rem）。不用 line-clamp：它会把文字块设成 overflow: hidden，
+        里面藏着几千像素的全文，Safari / WebKit 下触控板滚动经过这里会被它吃掉，整页滚不动。
+        overflow: clip 只裁剪显示，不会变成可滚动区域
+      */}
       <div
-        className={cx('whitespace-pre-wrap break-words text-sm leading-6', collapsible && !expanded && 'line-clamp-6')}
+        className={cx(
+          'relative whitespace-pre-wrap break-words text-sm leading-6',
+          collapsible && !expanded && 'max-h-36',
+        )}
+        style={collapsible && !expanded ? { overflow: 'clip' } : undefined}
       >
         {content || '（空内容）'}
+        {collapsible && !expanded && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-transparent dark:from-zinc-950"
+          />
+        )}
       </div>
       {collapsible && (
         <Button aria-expanded={expanded} variant="ghost" onClick={() => setExpanded(!expanded)}>

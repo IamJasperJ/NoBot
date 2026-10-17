@@ -10,7 +10,7 @@ describe('日志内容展开', () => {
     for (const content of ['', '短消息', '字'.repeat(300), Array(6).fill('一行').join('\n')]) {
       const html = render(content)
       expect(html).not.toContain('展开全文')
-      expect(html).not.toContain('line-clamp-6')
+      expect(html).not.toContain('max-h-36')
       expect(html).toContain(content || '（空内容）')
     }
   })
@@ -20,7 +20,7 @@ describe('日志内容展开', () => {
       const html = render(content)
       expect(html).toContain('展开全文')
       expect(html).toContain('aria-expanded="false"')
-      expect(html).toContain('line-clamp-6')
+      expect(html).toContain('max-h-36')
     }
   })
 })

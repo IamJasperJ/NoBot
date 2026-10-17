@@ -35,7 +35,13 @@ function Segment({ s }: { s: PromptSegment }) {
         {s.depth !== undefined && <span>深度 {s.depth}</span>}
         <span className="ml-auto tabular-nums">{s.tokens} token</span>
       </div>
-      <div className={cx('text-sm whitespace-pre-wrap', !open && 'line-clamp-4')}>{s.content}</div>
+      {/* 折叠时裁成 4 行；用 overflow: clip 而不是 line-clamp，避免 WebKit 下滚动被这块吃掉（见日志页的说明） */}
+      <div
+        className={cx('text-sm leading-5 whitespace-pre-wrap', !open && 'max-h-20')}
+        style={open ? undefined : { overflow: 'clip' }}
+      >
+        {s.content}
+      </div>
     </button>
   )
 }

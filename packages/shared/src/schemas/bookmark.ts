@@ -7,6 +7,10 @@ import type { MessageRole } from './message'
  */
 export interface BookmarkDTO {
   id: string
+  /** bookmark：普通书签；save：VN 存档（带舞台快照，用来画存档缩略图） */
+  kind: 'bookmark' | 'save'
+  /** 存档时的舞台快照；普通书签为 null */
+  snapshot: SaveSnapshot | null
   chatId: string
   messageId: string
   name: string
@@ -22,6 +26,27 @@ export interface BookmarkDTO {
   /** 这条消息是否在当前激活路径上（不在时，跳转前要先切换分支） */
   onPath: boolean
 }
+
+/** 存档时的舞台快照（存档列表里画缩略图、显示场景和摘要） */
+export interface SaveSnapshot {
+  /** 当时的背景（舞台匹配到的背景优先，其次会话背景）；没有为 null */
+  backgroundUrl: string | null
+  /** 台上的演员（最多 3 个，说话人 / 最后说话的人在前），立绘按当时的表情挑好 */
+  actors: { name: string; characterId: string | null; spriteUrl: string | null; avatarUrl: string | null }[]
+  place: string | null
+  time: string | null
+  /** 存档那条消息的摘要（去掉舞台指令，前 60 个字） */
+  text: string
+  /** HUD 里常驻（pin）的变量，存档时的值：[显示名, 值的文字] */
+  vars: [string, string][]
+}
+
+/** VN 存档：POST /api/chats/:id/saves。messageId 不传 = 当前激活叶子；name 不传 = 「存档 n」+ 场景名 */
+export const createSaveInput = z.object({
+  messageId: z.string().optional(),
+  name: z.string().trim().max(60).optional(),
+})
+export type CreateSaveInput = z.infer<typeof createSaveInput>
 
 export const createBookmarkInput = z.object({
   messageId: z.string(),

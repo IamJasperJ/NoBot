@@ -3,11 +3,13 @@ import {
   branchInput,
   createBookmarkInput,
   createChatInput,
+  createSaveInput,
   excludeMessagesInput,
   type GenerateEvent,
   generateInput,
   generationTypeSchema,
   moveMessageInput,
+  setVarsInput,
   swipeInput,
   updateChatInput,
 } from '@ai-parter/shared'
@@ -21,7 +23,7 @@ import * as bookmarks from '../services/bookmarks'
 import * as chats from '../services/chats'
 import { assemble, loadGenerationContext } from '../services/context'
 import * as generation from '../services/generation'
-import { computeStage } from '../services/stage'
+import { computeStage, initialVars } from '../services/stage'
 
 /** 把一个生成任务的事件流推给浏览器，直到任务结束或浏览器断开 */
 function streamJob(c: Context, job: NonNullable<ReturnType<typeof generation.getJob>>) {
@@ -86,7 +88,8 @@ export const chatRoutes = new Hono()
     const chatId = c.req.param('id')
     const message = chats.loadMessage(c.req.valid('query').before)
     if (message.chatId !== chatId) throw new HttpError(404, 'NOT_FOUND', t('消息不在这个会话里'))
-    return c.json({ stage: computeStage(chatId, chats.loadPath(message.parentId)) })
+    const path = chats.loadPath(message.parentId)
+    return c.json({ stage: computeStage(chatId, path), vars: chats.computeVars(path, initialVars(chatId).vars) })
   })
   .patch('/:id', validate('json', updateChatInput), (c) =>
     c.json(chats.updateChat(c.req.param('id'), c.req.valid('json'))),
@@ -100,11 +103,19 @@ export const chatRoutes = new Hono()
   .post('/:id/bookmarks', validate('json', createBookmarkInput), (c) =>
     c.json(bookmarks.createBookmark(c.req.param('id'), c.req.valid('json'))),
   )
+  .post('/:id/vars', validate('json', setVarsInput), (c) =>
+    c.json(chats.setVars(c.req.param('id'), c.req.valid('json'))),
+  )
+  .post('/:id/saves', validate('json', createSaveInput), (c) =>
+    c.json(bookmarks.createSave(c.req.param('id'), c.req.valid('json'))),
+  )
   .post('/:id/exclude', validate('json', excludeMessagesInput), (c) =>
     c.json(chats.excludeMessages(c.req.param('id'), c.req.valid('json'))),
   )
   .post('/:id/activate', validate('json', activateMessageInput), (c) =>
-    c.json({ leafId: chats.activateMessage(c.req.param('id'), c.req.valid('json').messageId) }),
+    c.json({
+      leafId: chats.activateMessage(c.req.param('id'), c.req.valid('json').messageId, c.req.valid('json').exact),
+    }),
   )
   .post('/:id/move', validate('json', moveMessageInput), (c) => {
     const { messageId, direction } = c.req.valid('json')

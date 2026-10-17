@@ -307,7 +307,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
   // 编辑态里的思考过程：null 表示没有展开编辑（保存时不动它）
   const [editingReasoning, setEditingReasoning] = useState<string | null>(null)
   const bookmarks = useBookmarks(chatId)
-  const bookmark = bookmarks.data?.find((b) => b.messageId === msg.id)
+  const bookmark = bookmarks.data?.find((b) => b.messageId === msg.id && b.kind === 'bookmark')
 
   if (msg.role === 'tool')
     return <ToolMessage msg={msg} chatId={chatId} text={transformMessage(msg.content, msg, transforms)} />

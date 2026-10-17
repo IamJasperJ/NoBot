@@ -252,6 +252,40 @@ body {
   color: rgb(244 244 245);
   border-color: rgb(255 255 255 / 10%);
 }
+/* VN 状态面板：和对话框同一套深色半透明 */
+.vn-hud {
+  background: rgb(15 15 20 / 62%);
+  color: rgb(245 245 245);
+  border: 1px solid rgb(255 255 255 / 12%);
+  backdrop-filter: blur(8px);
+}
+/* 数值变化的飘字：往上飘一点再淡出 */
+.vn-delta {
+  animation: vn-delta 1.6s ease-out forwards;
+}
+@keyframes vn-delta {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vn-delta {
+    animation: none;
+  }
+}
 .vn-caret {
   animation: vn-caret 0.9s ease-in-out infinite;
   font-size: 0.7em;

@@ -1,5 +1,9 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  '还没有消息，没法修改变量': 'There are no messages yet, so variables cannot be edited',
+  '正在生成，稍后再修改变量': 'Generation is in progress. Edit variables after it finishes',
+  '还没有消息，没法存档': 'There are no messages yet, so a save cannot be created',
+  '存档 {n}': 'Save {n}',
   // 错误与资源
   '{what}不存在': '{what} does not exist',
   '固定提示词超出预算 {over} token（预算 {budget} token）':

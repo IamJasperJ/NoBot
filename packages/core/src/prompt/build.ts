@@ -95,7 +95,9 @@ export interface BuildInput {
    */
   history: HistoryMessage[]
   /** 已挂载的全部世界书条目，以及全局激活设置 */
-  lore: { entries: ScanEntry[]; settings: WorldInfoSettings }
+  lore: { entries: ScanEntry[]; settings: WorldInfoSettings; scanText?: string }
+  /** 状态阶段用于内置 stage 宏，与世界书扫描开关无关。 */
+  stages?: Record<string, string>
   chat: {
     id: string
     /** 当前叶子 id，参与随机种子 */
@@ -213,6 +215,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     seed: `${input.chat.id}|${input.chat.leafId ?? ''}`,
     now: input.now,
     extra: input.macros,
+    stages: input.stages,
     outlets: Object.create(null) as Record<string, string>,
   }
   const macro = (text: string, original?: string) =>
@@ -250,6 +253,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   // 【1】世界书只扫描一次，扫描报告直接交给预览；包装后的 outlet 供后续宏引用。
   const scanned = scanWorldInfo({
     entries: input.lore.entries,
+    scanText: input.lore.scanText,
     settings: input.lore.settings,
     history: promptHistory.filter((message) => message.role === 'user' || message.role === 'assistant'),
     type: input.type,

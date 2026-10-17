@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { GroupDTO } from './group'
 import type { MessageDTO } from './message'
-import type { StageState } from './stage'
+import type { StageState, StateSchema } from './stage'
 
 export interface ChatSummary {
   id: string
@@ -51,6 +51,8 @@ export interface ChatPage {
   stage: StageState | null
   /** 实际生效的玩法预设 id（会话指定 > 角色卡指定 > 默认） */
   playPresetId: string
+  /** 生效的状态定义（玩法预设和角色卡按「状态 schema 来源」合并后的），HUD 按它显示；没开指令时为空对象 */
+  stateSchema: StateSchema
 }
 
 export const createChatInput = z
@@ -121,8 +123,16 @@ export const moveMessageInput = z.object({
 })
 export type MoveMessageInput = z.infer<typeof moveMessageInput>
 
+/** HUD 里手动改变量：POST /api/chats/:id/vars，返回 { vars }（改完后的整份变量）。值为 null 表示删除这个变量 */
+export const setVarsInput = z.object({ set: z.record(z.string(), z.unknown()) })
+export type SetVarsInput = z.infer<typeof setVarsInput>
+
 /** 切到某个节点所在的分支：激活叶子设为这个节点子树里最新的叶子（规则同 swipe） */
-export const activateMessageInput = z.object({ messageId: z.string() })
+export const activateMessageInput = z.object({
+  messageId: z.string(),
+  /** true：激活叶子就是这条消息本身（读档用：从存档那一刻接着玩，后面的内容保留为另一条分支） */
+  exact: z.boolean().optional(),
+})
 export type ActivateMessageInput = z.infer<typeof activateMessageInput>
 
 /** 从某条消息开分支：复制到这条为止的路径，成为一个新会话 */

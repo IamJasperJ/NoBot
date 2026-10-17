@@ -50,3 +50,14 @@ test('扩展宏可使用以 random/roll 开头的普通名字，原型键不会�
   )
   expect(applyMacros('{{outlet::constructor}}/{{outlet::toString}}', { ...context, outlets: {} })).toBe('/')
 })
+
+test('阶段宏保留变量名大小写，缺失时为空且优先于扩展宏', () => {
+  expect(
+    applyMacros('{{STAGE:: Alice.affection }}/{{stage::alice.affection}}/{{stage::missing}}', {
+      ...context,
+      stages: { 'Alice.affection': 'Lovers' },
+      extra: { stage: () => '覆盖' },
+    }),
+  ).toBe('Lovers//')
+  expect(applyMacros('{{stage::constructor}}', context)).toBe('')
+})

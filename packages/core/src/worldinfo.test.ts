@@ -442,3 +442,16 @@ describe('scanWorldInfo', () => {
     ).toEqual(['保存字段'])
   })
 })
+
+test('虚拟扫描文本不占历史深度，不绕过 delay 或递归规则', () => {
+  const entries = [
+    entry('stage', { keys: ['affection_stage: Lovers'], scanDepth: 0 }),
+    entry('delayed', { keys: ['affection_stage: Lovers'], delay: 1 }),
+  ]
+  const input = { history: [], scanText: 'affection_stage: Lovers' }
+  expect(ids(scan(entries, input))).toEqual(['stage'])
+  expect(ids(scan(entries, { history: [] }))).toEqual([])
+  expect(
+    ids(scan([entry('recursive', { keys: ['affection_stage: Lovers'], delayUntilRecursion: true })], input)),
+  ).toEqual([])
+})

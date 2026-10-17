@@ -322,6 +322,8 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
     ended,
     stage,
     stageReady: !base.isPending,
+    /** 这条回复之前的变量（后端算好）；还没取回来时为 undefined */
+    varsBefore: base.data?.vars,
     speakerKey,
     auto,
     setAuto,

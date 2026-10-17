@@ -122,7 +122,16 @@ export function ChatView({ chatId }: { chatId: string }) {
       </IconButton>
 
       {vn && play ? (
-        <VnView chatId={chatId} messages={messages} play={play} cast={cast} group={group} busy={busy} />
+        <VnView
+          chatId={chatId}
+          messages={messages}
+          play={play}
+          cast={cast}
+          group={group}
+          busy={busy}
+          liveVars={firstPage?.vars ?? {}}
+          stateSchema={firstPage?.stateSchema ?? {}}
+        />
       ) : (
         <>
           {pages.isPending ? (

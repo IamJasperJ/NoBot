@@ -53,11 +53,14 @@ export function VnImageCard({
   chatId,
   message,
   mobile,
+  side = 'right',
   onClose,
 }: {
   chatId: string
   message: MessageDTO
   mobile: boolean
+  /** 宽屏时放在哪一侧（HUD 占了右上角时放左边） */
+  side?: 'left' | 'right'
   onClose: () => void
 }) {
   return (
@@ -66,7 +69,7 @@ export function VnImageCard({
       aria-label={t('图片')}
       className={cx(
         'vn-image-card absolute z-20 max-h-[calc(100%-8rem)] overflow-y-auto rounded-2xl px-3 pt-2 pb-1',
-        mobile ? 'inset-x-3 top-14' : 'top-14 right-3 w-[344px]',
+        mobile ? 'inset-x-3 top-14' : cx('top-14 w-[344px]', side === 'left' ? 'left-3' : 'right-3'),
       )}
     >
       <div className="flex h-7 items-center gap-2 text-xs">

@@ -14,6 +14,7 @@ import {
   parseStateSchema,
   renderDirectiveInstructions,
   schemaInitVars,
+  stateStageName,
   toDisplayText,
 } from './index'
 
@@ -488,4 +489,25 @@ describe('性能', () => {
     display(content, 'plain', true)
     expect(performance.now() - start).toBeLessThan(50)
   })
+})
+
+test('阶段阈值边界和无效数值', () => {
+  const stages: [number, string][] = [
+    [0, 'Strangers'],
+    [40, 'Friends'],
+    [90, 'Lovers'],
+  ]
+  for (const [value, expected] of [
+    [-1, ''],
+    [0, 'Strangers'],
+    [39, 'Strangers'],
+    [40, 'Friends'],
+    [95, 'Lovers'],
+    ['95', ''],
+    [null, ''],
+    [NaN, ''],
+  ]) {
+    expect(stateStageName(stages, value)).toBe(expected as string)
+  }
+  expect(stateStageName(undefined, 95)).toBe('')
 })

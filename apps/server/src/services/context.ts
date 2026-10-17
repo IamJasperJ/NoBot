@@ -7,7 +7,7 @@ import {
   parsePresetWithEnglishDefaults,
   type ScanEntry,
 } from '@ai-parter/core'
-import { renderDirectiveInstructions, toDisplayText } from '@ai-parter/core/stage'
+import { renderDirectiveInstructions, stateStageName, toDisplayText } from '@ai-parter/core/stage'
 import {
   type ChatMessage,
   EXPRESSIONS,
@@ -339,10 +339,21 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
     macros: collectMacros(ctx.chat.id),
   }
   const play = resolvePlayPreset(ctx.chat.id).data
+  const path = loadPath(opts.leafId)
+  const init = initialVars(ctx.chat.id)
+  const vars = computeVars(path, init.vars)
+  const schema = resolveStateSchema(ctx.chat.id, play)
+  input.stages = Object.fromEntries(
+    Object.entries(schema).map(([key, field]) => [key, stateStageName(field.stages, vars[key])]),
+  )
+  if (play.directives.enabled && play.interaction.stageLore) {
+    input.lore.scanText = Object.entries(input.stages)
+      .filter(([, name]) => name)
+      .map(([key, name]) => `${key}_stage: ${name}`)
+      .join('\n')
+  }
   if (play.directives.enabled && play.directives.inject) {
-    const path = loadPath(opts.leafId)
     const stage = computeStage(ctx.chat.id, path)
-    const init = initialVars(ctx.chat.id)
     const content = renderDirectiveInstructions({
       ...play.directives,
       cast: [
@@ -354,9 +365,9 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
         const description = chars.length > 40 ? `${chars.slice(0, 40).join('')}…` : row.description
         return description ? `${row.name}（${description}）` : row.name
       }),
-      schema: resolveStateSchema(ctx.chat.id, play),
+      schema,
       rules: init.rules,
-      vars: computeVars(path, init.vars),
+      vars,
       valuesInPrompt: play.state.valuesInPrompt,
     })
     input.injections = [

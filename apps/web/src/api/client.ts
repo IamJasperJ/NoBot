@@ -242,9 +242,18 @@ export const api = {
       `/chats?${filter.characterId ? `characterId=${enc(filter.characterId)}` : `groupId=${enc(filter.groupId ?? '')}`}`,
     ),
   createChat: (input: CreateChatInput) => request<ChatDTO>('POST', '/chats', input),
-  /** 某条消息之前的舞台（VN 视图从这条消息开头演时用） */
+  /** 某条消息之前的舞台和变量（VN 重演旧回复时用） */
   getStageBefore: (chatId: string, messageId: string) =>
-    request<{ stage: StageState | null }>('GET', `/chats/${chatId}/stage?before=${encodeURIComponent(messageId)}`),
+    request<{ stage: StageState | null; vars: Record<string, unknown> }>(
+      'GET',
+      `/chats/${chatId}/stage?before=${encodeURIComponent(messageId)}`,
+    ),
+  /** HUD 里手动改变量（null 表示删除），返回改完后的整份变量 */
+  setVars: (chatId: string, set: Record<string, unknown>) =>
+    request<{ vars: Record<string, unknown> }>('POST', `/chats/${chatId}/vars`, { set }),
+  /** VN 存档（书签的一种，带舞台快照）；读档用 activateMessage */
+  createSave: (chatId: string, input: { messageId?: string; name?: string } = {}) =>
+    request<BookmarkDTO>('POST', `/chats/${chatId}/saves`, input),
   getChatPage: (chatId: string, before?: string) =>
     request<ChatPage>('GET', `/chats/${chatId}${before ? `?before=${enc(before)}` : ''}`),
   updateChat: (chatId: string, input: UpdateChatInput) => request<ChatDTO>('PATCH', `/chats/${chatId}`, input),
@@ -269,8 +278,8 @@ export const api = {
   moveMessage: (chatId: string, messageId: string, direction: 'up' | 'down') =>
     request<{ leafId: string }>('POST', `/chats/${chatId}/move`, { messageId, direction }),
   /** 切到某个节点所在的分支 */
-  activateMessage: (chatId: string, messageId: string) =>
-    request<{ leafId: string }>('POST', `/chats/${chatId}/activate`, { messageId }),
+  activateMessage: (chatId: string, messageId: string, exact = false) =>
+    request<{ leafId: string }>('POST', `/chats/${chatId}/activate`, { messageId, exact }),
 
   // ---- 剧情总结（内置扩展 summary，扩展关闭时这些接口 404） ----
   summaryState: (chatId: string) =>

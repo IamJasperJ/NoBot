@@ -35,6 +35,8 @@ export interface ScanInput {
   characterName: string
   /** 额外匹配来源的文本（条目的 matchSources 引用它们） */
   sources: Partial<Record<MatchSource, string>>
+  /** 仅参与首轮关键词扫描的虚拟文本，不计入历史深度，也不作为模型消息发送。 */
+  scanText?: string
   /** 世界书可用的 token 预算，调用方已按 settings 和上下文长度算好 */
   budget: number
   /** 随机种子：概率和包含组的随机结果只由它决定，保证预览与真实发送一致 */
@@ -101,7 +103,7 @@ export function matchKey(key: string, text: string, opts: { caseSensitive: boole
  *
  * 2. 扫描文本：每个条目单独计算 ——
  *    取最后 (entry.scanDepth ?? settings.scanDepth) 条消息，includeNames 时每条写成 "\x01名字: 内容"，
- *    否则只写内容，用 "\n" 连接；再拼上条目 matchSources 引用的 sources 文本；
+ *    否则只写内容，用 "\n" 连接；再拼上 scanText 和条目 matchSources 引用的 sources 文本；
  *    递归轮次里再拼上「递归缓冲区」（之前各轮被激活、且没有 preventRecursion 的条目内容）。
  *    scanDepth 为 0 时聊天记录部分为空（只能靠常驻、额外来源和递归触发）。
  *
@@ -194,7 +196,11 @@ export function scanWorldInfo(input: ScanInput): ScanResult {
               .join('\n')
             historyByDepth.set(depth, historyText)
           }
-          text = [historyText, ...entry.matchSources.map((source) => input.sources[source] ?? '')].join('\n')
+          text = [
+            historyText,
+            ...(input.scanText ? [input.scanText] : []),
+            ...entry.matchSources.map((source) => input.sources[source] ?? ''),
+          ].join('\n')
         }
         // 第 3 条：递归轮只匹配缓冲区；主关键词与可选过滤使用同一匹配设置。
         const opts = {

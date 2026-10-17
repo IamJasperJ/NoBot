@@ -10,6 +10,7 @@ import type {
   MessageMeta,
   MessageRole,
   MessageStatus,
+  SetVarsInput,
   UpdateChatInput,
 } from '@ai-parter/shared'
 import { createChatInput } from '@ai-parter/shared'
@@ -33,7 +34,14 @@ import { deleteBackground, getBackgroundSettings, requireBackground } from './ba
 import { isGenerating } from './generation'
 import { getPlayPreset } from './playPresets'
 import { SETTING_KEYS } from './settings'
-import { applyStageParse, backfillStage, computeStage, initialVars, resolvePlayPreset } from './stage'
+import {
+  applyStageParse,
+  backfillStage,
+  computeStage,
+  initialVars,
+  resolvePlayPreset,
+  resolveStateSchema,
+} from './stage'
 
 // ---------------------------------------------------------------------------
 // 消息树查询：用递归 CTE 从叶子沿 parent_id 往上走，一条 SQL 拿到整条路径。
@@ -101,20 +109,33 @@ export function loadMessage(id: string): MessageDTO {
   return msg
 }
 
-/** 跑团状态 = 激活路径上所有消息的 varsPatch 依次合并（值为 null 表示删除） */
+/** 跑团状态 = 激活路径上每条消息先合并 varsPatch，再合并 varsManual（值为 null 表示删除） */
 export function computeVars(
   path: { role: MessageRole; meta: MessageMeta }[],
   base: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const vars: Record<string, unknown> = { ...base }
   for (const m of path) {
-    if (!m.meta.varsPatch) continue
-    for (const [k, v] of Object.entries(m.meta.varsPatch)) {
-      if (v === null) delete vars[k]
-      else vars[k] = v
+    for (const patch of [m.meta.varsPatch, m.meta.varsManual]) {
+      for (const [k, v] of Object.entries(patch ?? {})) {
+        if (v === null) delete vars[k]
+        else vars[k] = v
+      }
     }
   }
   return vars
+}
+
+/** 手动修改挂在当前叶子上，切换分支和回放时自然遵循消息路径。 */
+export function setVars(chatId: string, input: SetVarsInput) {
+  const chat = getChatRow(chatId)
+  if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', t('正在生成，稍后再修改变量'))
+  if (!chat.activeLeafId) throw new HttpError(400, 'NO_MESSAGES', t('还没有消息，没法修改变量'))
+  const message = loadMessage(chat.activeLeafId)
+  const meta = { ...message.meta, varsManual: { ...message.meta.varsManual, ...input.set } }
+  db.update(messages).set({ meta }).where(eq(messages.id, message.id)).run()
+  emitServerEvent({ type: 'message:updated', message: loadMessage(message.id) })
+  return { vars: computeVars(loadPath(message.id), initialVars(chatId).vars) }
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +380,7 @@ export function getChatPage(chatId: string, opts: { before?: string; limit?: num
   // 多取一条，用来判断是否还有更早的消息
   const page = loadPath(start, limit + 1)
   const hasMore = page.length > limit
+  const play = resolvePlayPreset(chatId)
   return {
     chat: toDTO(chat),
     group: chat.groupId ? loadGroupDTO(chat.groupId) : null,
@@ -368,7 +390,8 @@ export function getChatPage(chatId: string, opts: { before?: string; limit?: num
     // 状态变量要看整条路径；翻旧页时前端不用它
     vars: opts.before ? {} : computeVars(loadPath(chat.activeLeafId), initialVars(chatId).vars),
     stage: computeStage(chatId, loadPath(chat.activeLeafId)),
-    playPresetId: resolvePlayPreset(chatId).id,
+    playPresetId: play.id,
+    stateSchema: play.data.directives.enabled ? resolveStateSchema(chatId, play.data) : {},
   }
 }
 
@@ -564,12 +587,13 @@ function copyPath(
   return parentId
 }
 
-export function activateMessage(chatId: string, messageId: string): string {
+/** 切到某个节点所在的分支。exact 为 true 时激活叶子就是这个节点本身（读档），否则是它子树里最新的叶子（同 swipe） */
+export function activateMessage(chatId: string, messageId: string, exact = false): string {
   getChatRow(chatId)
   const nodes = loadTree(chatId)
   if (!nodes.some((m) => m.id === messageId)) throw notFound(t('消息'))
   if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', t('正在生成，稍后再切换'))
-  const leafId = findLatestLeaf(buildChildrenMap(nodes), messageId)
+  const leafId = exact ? messageId : findLatestLeaf(buildChildrenMap(nodes), messageId)
   db.update(chats).set({ activeLeafId: leafId, updatedAt: Date.now() }).where(eq(chats.id, chatId)).run()
   return leafId
 }

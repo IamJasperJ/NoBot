@@ -45,6 +45,11 @@ export interface MessageMeta {
    * 来源：tool 消息（工具调用），或 assistant 消息正文里的 <state> / MVU _.set 指令。值为 null 表示删除
    */
   varsPatch?: Record<string, unknown>
+  /**
+   * 用户在 HUD 里手动改的变量（值为 null 表示删除），挂在改的时候的激活叶子上，在本条 varsPatch 之后生效。
+   * 跟着分支走：切到别的分支就看不到这次手动修改；重新生成这条消息也会丢掉它（和舞台手动修改一样）
+   */
+  varsManual?: Record<string, unknown>
   /** assistant 消息正文里的舞台指令解析结果（玩法预设开启指令时才有），见 schemas/stage.ts */
   stage?: MessageStage
   /**

@@ -1,12 +1,16 @@
-import { toDisplayText } from '@ai-parter/core/stage'
-import type { BookmarkDTO, CreateBookmarkInput, MessageDTO } from '@ai-parter/shared'
+import { castKey, pickSprite, toDisplayText } from '@ai-parter/core/stage'
+import type { BookmarkDTO, CreateBookmarkInput, CreateSaveInput, MessageDTO, SaveSnapshot } from '@ai-parter/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { bookmarks, characters } from '../db/schema'
-import { notFound } from '../errors'
+import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
-import { getChatRow, loadMessage, loadPath } from './chats'
+import { avatarUrl } from '../lib/files'
+import { backgroundsForChat, listBackgrounds } from './backgrounds'
+import { computeVars, getChatRow, loadMessage, loadPath } from './chats'
 import { resolvePersona } from './context'
+import { listSprites } from './sprites'
+import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema, stageMembers } from './stage'
 
 /** 摘要和默认名用的纯文字：角色回复先去掉舞台指令（<scene>、<state> 等标签和台词速记），再把换行压成空格 */
 const plainText = (message: MessageDTO) =>
@@ -67,7 +71,91 @@ export function createBookmark(chatId: string, input: CreateBookmarkInput): Book
     input.name?.trim() ||
     Array.from(content).slice(0, 20).join('') ||
     t('书签 {n}', { n: db.select().from(bookmarks).where(eq(bookmarks.chatId, chatId)).all().length + 1 })
-  const row = { id: newId(), chatId, messageId: message.id, name, createdAt: Date.now() }
+  const row: typeof bookmarks.$inferSelect = {
+    id: newId(),
+    chatId,
+    messageId: message.id,
+    name,
+    kind: 'bookmark',
+    snapshot: null,
+    createdAt: Date.now(),
+  }
+  db.insert(bookmarks).values(row).run()
+  return toDTO(row)
+}
+
+/** 存档只在创建时计算快照，之后编辑消息、变量和预设都不重算。 */
+export function createSave(chatId: string, input: CreateSaveInput): BookmarkDTO {
+  const chat = getChatRow(chatId)
+  const messageId = input.messageId ?? chat.activeLeafId
+  if (!messageId) throw new HttpError(400, 'NO_MESSAGES', t('还没有消息，没法存档'))
+  const message = loadMessage(messageId)
+  if (message.chatId !== chatId) throw notFound(t('消息'))
+  const path = loadPath(messageId)
+  const stage = computeStage(chatId, path)
+  const play = resolvePlayPreset(chatId).data
+  const vars = computeVars(path, initialVars(chatId).vars)
+  const members = stageMembers(chatId)
+  const lastLine = message.meta.stage?.beats.findLast((beat) => beat.kind === 'line')
+  const speaker = lastLine?.kind === 'line' ? castKey(lastLine.speaker) : null
+  const cast = stage?.cast ?? []
+  const focused = cast.find((actor) => actor.key === speaker)
+  const actors = (focused ? [focused, ...cast.filter((actor) => actor !== focused)] : cast).slice(0, 3)
+  const library = backgroundsForChat(chatId)
+  const snapshot: SaveSnapshot = {
+    backgroundUrl:
+      (
+        library.find((background) => background.id === stage?.scene.backgroundId) ??
+        listBackgrounds().find((background) => background.id === chat.backgroundId)
+      )?.url ?? null,
+    actors: actors.map((actor) => {
+      const character = members.find((member) => member.id === actor.characterId)
+      const sprite = character
+        ? pickSprite(listSprites(character.id), {
+            expression: actor.expression,
+            outfit: actor.outfit ?? '',
+            fallback: play.sprites.fallback,
+            random: play.sprites.randomMultiple,
+            seed: `${messageId}:${actor.key}`,
+          })
+        : null
+      return {
+        name: actor.name,
+        characterId: actor.characterId ?? null,
+        spriteUrl: sprite?.url ?? null,
+        avatarUrl: character ? avatarUrl(character.avatarFile, character.updatedAt) : null,
+      }
+    }),
+    place: stage?.scene.place ?? null,
+    time: stage?.scene.time ?? null,
+    text: Array.from(plainText(message)).slice(0, 60).join(''),
+    vars: Object.entries(resolveStateSchema(chatId, play))
+      .filter(([, field]) => field.pin)
+      .map(([key, field]): [string, string] => {
+        const value = vars[key]
+        let text = Array.isArray(value) ? value.join('、') : value == null ? '' : String(value)
+        const max = typeof field.max === 'string' ? vars[field.max] : field.max
+        if (field.type === 'meter' && max != null) text = `${text}/${max}`
+        return [field.label ?? key, text]
+      }),
+  }
+  const n =
+    db
+      .select()
+      .from(bookmarks)
+      .where(eq(bookmarks.chatId, chatId))
+      .all()
+      .filter((bookmark) => bookmark.kind === 'save').length + 1
+  const name = input.name?.trim() || `${t('存档 {n}', { n })}${snapshot.place ? ` · ${snapshot.place}` : ''}`
+  const row: typeof bookmarks.$inferSelect = {
+    id: newId(),
+    chatId,
+    messageId,
+    name,
+    kind: 'save',
+    snapshot,
+    createdAt: Date.now(),
+  }
   db.insert(bookmarks).values(row).run()
   return toDTO(row)
 }

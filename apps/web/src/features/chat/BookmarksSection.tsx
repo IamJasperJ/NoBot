@@ -27,7 +27,8 @@ export function BookmarksSection({
   const bookmarks = useBookmarks(chatId)
   const mobile = useMobile()
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
-  const list = bookmarks.data ?? []
+  // 存档（VN 里存的）在 VN 视图的「存档 / 读档」里管理，这里只列普通书签
+  const list = (bookmarks.data ?? []).filter((b) => b.kind === 'bookmark')
   const refresh = () => qc.invalidateQueries({ queryKey: keys.bookmarks(chatId) })
 
   const go = async (b: BookmarkDTO) => {

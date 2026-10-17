@@ -9,6 +9,7 @@ import type {
   PlayPresetData,
   PresetData,
   PromptRole,
+  SaveSnapshot,
 } from '@ai-parter/shared'
 import { sql } from 'drizzle-orm'
 import { type AnySQLiteColumn, index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
@@ -305,6 +306,8 @@ export const bookmarks = sqliteTable(
       .notNull()
       .references(() => messages.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    kind: text('kind').$type<'bookmark' | 'save'>().notNull().default('bookmark'),
+    snapshot: text('snapshot', { mode: 'json' }).$type<SaveSnapshot>(),
     createdAt: integer('created_at').notNull(),
   },
   (t) => [index('bookmarks_chat_created_idx').on(t.chatId, t.createdAt)],

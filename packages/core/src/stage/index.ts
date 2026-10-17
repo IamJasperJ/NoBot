@@ -277,3 +277,9 @@ export const DEFAULT_CLASSIFY_PROMPT =
 export function extractExpressionLabel(answer: string, labels: string[]): string | null {
   return spriteHelpers.extractExpressionLabel(answer, labels)
 }
+
+/** 当前值所在的阶段：阈值升序，取不大于当前值的最后一个；非数值没有阶段。 */
+export function stateStageName(stages: [number, string][] | undefined, value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return ''
+  return stages?.findLast(([threshold]) => threshold <= value)?.[1] ?? ''
+}

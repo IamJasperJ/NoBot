@@ -8,6 +8,7 @@ function galgame(): StateSchema {
   return {
     affection: {
       label: t('好感'),
+      pin: true,
       type: 'meter',
       min: 0,
       max: 100,
@@ -102,15 +103,28 @@ export const BUILTIN_PLAY_PRESETS: { key: BuiltinPlayPresetKey; name: string; bu
       data.directives.enabled = true
       data.directives.kinds = ['expression', 'cast']
       data.directives.lists = ['cast', 'expressions']
+      data.interaction.hud = false
       return data
     },
   },
   {
     key: 'galgame',
     name: 'Galgame',
-    build: () => story(['expression', 'cast', 'scene', 'state', 'choices', 'cg'], 'adv', galgame()),
+    build: () => {
+      const data = story(['expression', 'cast', 'scene', 'state', 'choices', 'cg'], 'adv', galgame())
+      data.interaction.stageLore = true
+      return data
+    },
   },
-  { key: 'rpg', name: 'RPG', build: () => story(['expression', 'cast', 'scene', 'state', 'choices'], 'auto', rpg()) },
+  {
+    key: 'rpg',
+    name: 'RPG',
+    build: () => {
+      const data = story(['expression', 'cast', 'scene', 'state', 'choices'], 'auto', rpg())
+      data.interaction.choiceLayout = 'column'
+      return data
+    },
+  },
   {
     key: 'dnd5e',
     name: 'D&D 5e',

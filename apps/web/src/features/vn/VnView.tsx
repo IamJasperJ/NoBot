@@ -1,10 +1,11 @@
 import { toDisplayText } from '@ai-parter/core/stage'
-import type { ChoiceOption, GroupDTO, MessageDTO, PlayPresetData } from '@ai-parter/shared'
+import type { ChoiceOption, GroupDTO, MessageDTO, PlayPresetData, StateSchema } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { resetChat } from '../../api/queries'
+import { refreshChatState, resetChat } from '../../api/queries'
 import {
+  BookmarkIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   EyeOffIcon,
@@ -23,7 +24,9 @@ import { displayMacros } from '../chat/format'
 import { runGeneration } from '../chat/generate'
 import type { ChatCast } from '../chat/MessageItem'
 import { useVnPlayer } from './useVnPlayer'
+import { VnHud } from './VnHud'
 import { useVnImages, VnImageCard } from './VnImages'
+import { VnSaves } from './VnSaves'
 import { VnStage } from './VnStage'
 
 /**
@@ -43,6 +46,8 @@ export function VnView({
   cast,
   group,
   busy,
+  liveVars,
+  stateSchema,
 }: {
   chatId: string
   messages: MessageDTO[]
@@ -50,6 +55,10 @@ export function VnView({
   cast: ChatCast
   group: GroupDTO | null
   busy: boolean
+  /** 会话当前的变量（整条激活路径算出来的） */
+  liveVars: Record<string, unknown>
+  /** 生效的状态定义（预设 + 角色卡合并后），HUD 按它显示 */
+  stateSchema: StateSchema
 }) {
   const mobile = useMobile()
   const qc = useQueryClient()
@@ -61,11 +70,45 @@ export function VnView({
   const [backlog, setBacklog] = useState(false)
   const { beat, current, ended } = player
   const images = useVnImages(messages)
+  const [saves, setSaves] = useState(false)
+
+  // HUD 的变量：跟着最新回复且演完了，就是会话当前的变量；
+  // 正在演（或重演旧回复）时是这条回复之前的变量，演完再加上这条的补丁——好感 +3 在回复演完时飘出来
+  const hudVars = useMemo(() => {
+    if (!player.pinned && ended) return liveVars
+    const vars = { ...(player.varsBefore ?? liveVars) }
+    if (ended && current) {
+      for (const patch of [current.meta.varsPatch, current.meta.varsManual]) {
+        for (const [key, value] of Object.entries(patch ?? {})) {
+          if (value === null) delete vars[key]
+          else vars[key] = value
+        }
+      }
+    }
+    return vars
+  }, [player.pinned, ended, liveVars, player.varsBefore, current])
+  const showHud = play.interaction.hud && Object.keys(stateSchema).length > 0
+  const hudBar = mobile || play.interaction.hudPosition === 'top-bar'
+  const editVar = async (key: string, value: unknown) => {
+    try {
+      await api.setVars(chatId, { [key]: value })
+      await refreshChatState(qc, chatId)
+    } catch (e) {
+      toast.error(errorMessage(e))
+    }
+  }
 
   const avatars = Object.fromEntries(Object.entries(cast.speakers).map(([id, s]) => [id, s.avatarUrl]))
   const choices: ChoiceOption[] | undefined =
     beat?.kind === 'choices' ? beat.options : ended && !player.pinned ? current?.meta.stage?.choices : undefined
   const scene = player.stage.scene
+  // 选项排列：自动 = 选项少且都短时横排，否则竖排
+  const choiceRow =
+    play.interaction.choiceLayout === 'row' ||
+    (play.interaction.choiceLayout === 'auto' &&
+      !!choices &&
+      choices.length <= 3 &&
+      choices.every((c) => Array.from(c.text).length <= 12))
   const send = (text: string) =>
     void runGeneration(qc, chatId, { mode: 'send', text, images: [] }).catch((e) => toast.error(errorMessage(e)))
 
@@ -177,6 +220,9 @@ export function VnView({
                 )}
               </VnButton>
             )}
+            <VnButton label={t('存档 / 读档')} active={saves} onClick={() => setSaves(!saves)}>
+              <BookmarkIcon />
+            </VnButton>
             <VnButton label={t('回想')} active={backlog} onClick={() => setBacklog(!backlog)}>
               <LogIcon />
             </VnButton>
@@ -204,9 +250,28 @@ export function VnView({
         </div>
       )}
 
+      {/* 状态面板：宽屏是角上的面板；手机 / 「顶部一行」是一行摘要 */}
+      {!hidden && showHud && !saves && !backlog && (
+        <VnHud
+          schema={stateSchema}
+          vars={hudVars}
+          position={play.interaction.hudPosition}
+          floatDelta={play.interaction.floatDelta}
+          mobile={mobile}
+          onEdit={player.pinned ? undefined : editVar}
+        />
+      )}
+
       {/* 生成的图片：右上角浮动卡片，不挡对话框 */}
       {!hidden && images.open && images.latest && (
-        <VnImageCard chatId={chatId} message={images.latest} mobile={mobile} onClose={images.close} />
+        <VnImageCard
+          chatId={chatId}
+          message={images.latest}
+          mobile={mobile}
+          // HUD 在右上角时，图片卡片挪到左边，两个不叠在一起
+          side={showHud && !hudBar && play.interaction.hudPosition === 'top-right' ? 'left' : 'right'}
+          onClose={images.close}
+        />
       )}
 
       {/* NVL：全屏文本 */}
@@ -223,7 +288,12 @@ export function VnView({
 
       {/* 选项：画面中央偏下，像 Galgame 的选择肢 */}
       {!hidden && choices && choices.length > 0 && player.complete && play.interaction.choices && (
-        <div className="relative z-10 mx-auto mb-3 flex w-full max-w-xl flex-col gap-2 px-4">
+        <div
+          className={cx(
+            'relative z-10 mx-auto mb-3 flex w-full gap-2 px-4',
+            choiceRow ? 'max-w-3xl flex-wrap justify-center' : 'max-w-xl flex-col',
+          )}
+        >
           {choices.map((option, i) => (
             <button
               // 选项在消息定稿后不变，下标做 key 是安全的
@@ -231,7 +301,10 @@ export function VnView({
               type="button"
               disabled={busy}
               onClick={() => send(option.text)}
-              className="vn-choice flex min-h-11 w-full items-center gap-3 rounded-xl px-4 py-2 text-left text-sm disabled:opacity-50"
+              className={cx(
+                'vn-choice flex min-h-11 items-center gap-3 rounded-xl px-4 py-2 text-left text-sm disabled:opacity-50',
+                choiceRow ? 'min-w-32 justify-center' : 'w-full',
+              )}
             >
               <span className="min-w-0 flex-1">{option.text}</span>
               {option.check && (
@@ -355,6 +428,20 @@ export function VnView({
             </div>
           )}
         </div>
+      )}
+
+      {saves && (
+        <VnSaves
+          chatId={chatId}
+          play={play}
+          // 重演旧回复时存的是正在看的那条；否则存当前分支的最新位置
+          currentId={player.pinned ? (current?.id ?? null) : null}
+          onLoaded={() => {
+            setSaves(false)
+            player.followLatest()
+          }}
+          onClose={() => setSaves(false)}
+        />
       )}
 
       {backlog && (

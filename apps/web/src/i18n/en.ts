@@ -1404,7 +1404,6 @@ export const en: Record<string, string> = {
   电影模式: 'Cinema mode',
   '上下黑边，隐藏界面，只剩字幕': 'Add letterbox bars and hide the UI, leaving subtitles only',
   互动: 'Interaction',
-  '选项、HUD 和存档（VN4）': 'Choices, HUD, and saves (VN4)',
   显示选项: 'Show choices',
   '模型给出的 <choices> 显示成按钮，点一下就发出去': "Display the model's <choices> as buttons; click to send a choice",
   有选项时仍显示输入框: 'Keep input visible with choices',
@@ -1423,8 +1422,6 @@ export const en: Record<string, string> = {
   数值变化飘字: 'Floating value changes',
   '变量变化时显示 +2 / −5': 'Show +2 / −5 when variables change',
   阶段变化触发世界书: 'Trigger lorebooks at value thresholds',
-  '数值跨过阶段阈值时（比如好感到「心动」）触发对应的世界书条目':
-    'Trigger linked lorebook entries when values cross thresholds, e.g. affinity reaching “crush”',
   存档缩略图: 'Save thumbnails',
   存档时保存一张画面缩略图: 'Capture a thumbnail when saving',
   音频: 'Audio',
@@ -1582,4 +1579,23 @@ export const en: Record<string, string> = {
     'Empty the trash? All {count} item(s) and their chats will be permanently deleted. This cannot be undone.',
   回收站已清空: 'Trash emptied',
   清空回收站: 'Empty trash',
+
+  // VN 存档和状态面板
+  '已存档「{name}」': 'Saved “{name}”',
+  '已读档「{name}」': 'Loaded “{name}”',
+  '删除存档「{name}」？（不会删除聊天内容）': 'Delete save “{name}”? (The chat itself is kept.)',
+  关闭存档: 'Close saves',
+  '存档 / 读档': 'Save / Load',
+  存这一条: 'Save this line',
+  存到这里: 'Save here',
+  '还没有存档。点右上角「存到这里」保存当前进度。':
+    'No saves yet. Click “Save here” at the top right to save your progress.',
+  读档: 'Load',
+  删除存档: 'Delete save',
+  '修改 {name}': 'Edit {name}',
+  点击修改: 'Click to edit',
+  '全部状态（{count}）': 'All stats ({count})',
+  '选项、状态面板和存档': 'Choices, stats panel and saves',
+  '变量进入某个阶段后，关键词写成「变量名_stage: 阶段名」（比如 affection_stage: Lovers）的世界书条目会触发；也可以在提示词里用 {{stage::变量名}}':
+    'When a variable enters a stage, lorebook entries keyed “name_stage: Stage” (e.g. affection_stage: Lovers) are triggered; you can also use {{stage::name}} in prompts',
 }

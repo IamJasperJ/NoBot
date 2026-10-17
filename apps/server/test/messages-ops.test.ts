@@ -158,6 +158,12 @@ test('消息操作：排除、思考过程、书签和分支式移动', async ()
     expect((await list())[0]?.onPath).toBe(true)
     expect(db.select().from(chats).where(eq(chats.id, chat.id)).get()?.activeLeafId).toBe(latest)
     expect(loadMessage(descendant).content).toBe('子树旧叶子')
+    // exact（读档）：激活叶子就是这条消息本身，不往下找最新的叶子
+    expect(
+      (await json<{ leafId: string }>(`/chats/${chat.id}/activate`, 'POST', { messageId: marked, exact: true })).leafId,
+    ).toBe(marked)
+    expect(db.select().from(chats).where(eq(chats.id, chat.id)).get()?.activeLeafId).toBe(marked)
+    await json(`/chats/${chat.id}/activate`, 'POST', { messageId: marked })
     await error(`/chats/${chat.id}/activate`, 404, 'NOT_FOUND', { messageId: foreign })
     await error(`/chats/${chat.id}/bookmarks`, 404, 'NOT_FOUND', { messageId: foreign })
     expect((await json<BookmarkDTO>(`/bookmarks/${mark.id}`, 'PATCH', { name: '改名' })).name).toBe('改名')

@@ -588,7 +588,7 @@ export function PlayPresetEditor({
         />
       </Section>
 
-      <Section dense title={t('互动')} description={t('选项、HUD 和存档（VN4）')}>
+      <Section dense title={t('互动')} description={t('选项、状态面板和存档')}>
         <SwitchField
           label={t('显示选项')}
           hint={t('模型给出的 <choices> 显示成按钮，点一下就发出去')}
@@ -603,8 +603,7 @@ export function PlayPresetEditor({
         />
         <SelectField
           label={t('选项排列')}
-          hint={later('VN4', t('VN 视图里选项按钮的排法'))}
-          notImplemented
+          hint={t('VN 视图里选项按钮的排法')}
           value={interaction.choiceLayout}
           onChange={(v) => set('interaction', 'choiceLayout', v)}
           options={[
@@ -615,15 +614,13 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label={t('显示 HUD')}
-          hint={later('VN4', t('在画面上显示状态面板（好感、HP……）'))}
-          notImplemented
+          hint={t('在画面上显示状态面板（好感、HP……）')}
           checked={interaction.hud}
           onChange={(v) => set('interaction', 'hud', v)}
         />
         <SelectField
           label={t('HUD 位置')}
-          hint={later('VN4', t('手机上总是顶部一行'))}
-          notImplemented
+          hint={t('手机上总是顶部一行')}
           value={interaction.hudPosition}
           onChange={(v) => set('interaction', 'hudPosition', v)}
           options={[
@@ -634,22 +631,19 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label={t('数值变化飘字')}
-          hint={later('VN4', t('变量变化时显示 +2 / −5'))}
-          notImplemented
+          hint={t('变量变化时显示 +2 / −5')}
           checked={interaction.floatDelta}
           onChange={(v) => set('interaction', 'floatDelta', v)}
         />
         <SwitchField
           label={t('阶段变化触发世界书')}
-          hint={later('VN4', t('数值跨过阶段阈值时（比如好感到「心动」）触发对应的世界书条目'))}
-          notImplemented
+          hint={t('变量进入某个阶段后，关键词写成「变量名_stage: 阶段名」（比如 affection_stage: Lovers）的世界书条目会触发；也可以在提示词里用 {{stage::变量名}}')}
           checked={interaction.stageLore}
           onChange={(v) => set('interaction', 'stageLore', v)}
         />
         <SwitchField
           label={t('存档缩略图')}
-          hint={later('VN4', t('存档时保存一张画面缩略图'))}
-          notImplemented
+          hint={t('存档时保存一张画面缩略图')}
           checked={interaction.saveThumb}
           onChange={(v) => set('interaction', 'saveThumb', v)}
         />

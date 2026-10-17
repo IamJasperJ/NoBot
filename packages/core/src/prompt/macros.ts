@@ -9,6 +9,7 @@
  *   {{group}} {{lastChatMessage}} 群成员 / 最后一条聊天内容
  *   {{original}}             角色卡覆盖时的预设原文
  *   {{outlet::名字}}          世界书插槽
+ *   {{stage::变量名}}          当前数值阶段名（没有阶段时为空）
  *   {{名字::参数}}             扩展宏（内置宏优先）
  *   {{newline}}              换行
  *   {{// 注释}}               删除
@@ -22,6 +23,8 @@ export interface MacroContext {
   lastChatMessage?: string
   original?: string
   outlets?: Record<string, string>
+  /** 变量当前的阶段名，由调用方按状态 schema 和当前值解析。 */
+  stages?: Record<string, string>
   extra?: Record<string, (arg: string) => string>
   /** 随机数种子。同一个种子得到同样的结果，保证预览和真实发送一致 */
   seed: string
@@ -82,6 +85,10 @@ export function applyMacros(text: string, ctx: MacroContext): string {
       if (lower.startsWith('outlet::')) {
         const outletName = name.slice(8).trim()
         return ctx.outlets && Object.hasOwn(ctx.outlets, outletName) ? ctx.outlets[outletName]! : ''
+      }
+      if (lower.startsWith('stage::')) {
+        const key = name.slice(7).trim()
+        return ctx.stages && Object.hasOwn(ctx.stages, key) ? ctx.stages[key]! : ''
       }
       if (lower === 'newline') return '\n'
       if (lower === 'time') {

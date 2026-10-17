@@ -131,6 +131,8 @@ export function setVars(chatId: string, input: SetVarsInput) {
   const chat = getChatRow(chatId)
   if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', t('正在生成，稍后再修改变量'))
   if (!chat.activeLeafId) throw new HttpError(400, 'NO_MESSAGES', t('还没有消息，没法修改变量'))
+  if (!resolvePlayPreset(chatId).data.interaction.varEdit)
+    throw new HttpError(403, 'VAR_EDIT_DISABLED', t('这个会话的玩法预设不允许手动修改数值'))
   const message = loadMessage(chat.activeLeafId)
   const meta = { ...message.meta, varsManual: { ...message.meta.varsManual, ...input.set } }
   db.update(messages).set({ meta }).where(eq(messages.id, message.id)).run()

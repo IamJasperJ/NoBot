@@ -1381,8 +1381,6 @@ export const en: Record<string, string> = {
   '焦点模式下，不说话的人变暗的程度': 'How much non-speakers dim in focus mode',
   焦点模式: 'Focus mode',
   '正在说话的人在最上层、正常亮度，其他人变暗': 'Show the active speaker on top at full brightness and dim the others',
-  允许拖动站位: 'Allow dragging positions',
-  桌面端可以拖动立绘微调位置: 'Drag sprites to adjust their positions on desktop',
   显示名牌: 'Show nameplates',
   对话框上方显示说话人名字: "Show the speaker's name above the dialogue box",
   边生成边播放: 'Play while streaming',
@@ -1598,4 +1596,30 @@ export const en: Record<string, string> = {
   '选项、状态面板和存档': 'Choices, stats panel and saves',
   '变量进入某个阶段后，关键词写成「变量名_stage: 阶段名」（比如 affection_stage: Lovers）的世界书条目会触发；也可以在提示词里用 {{stage::变量名}}':
     'When a variable enters a stage, lorebook entries keyed “name_stage: Stage” (e.g. affection_stage: Lovers) are triggered; you can also use {{stage::name}} in prompts',
+
+  // 立绘调整和套装
+  允许调整立绘: 'Allow sprite adjustment',
+  'VN 视图和聊天视图的侧边立绘可以拖动位置、缩放大小（只保存在这台设备上）':
+    'Sprites in the VN view and the chat side sprite can be dragged and resized (saved on this device only)',
+  允许修改数值: 'Allow editing values',
+  '玩家可以在状态面板里直接改数值（好感、HP……）；关掉后只能由剧情改变':
+    'Players can edit values (affection, HP…) directly in the stats panel; when off, only the story can change them',
+  缩小: 'Smaller',
+  放大: 'Larger',
+  恢复这个立绘的默认位置和大小: "Reset this sprite's position and size",
+  完成调整: 'Finish adjusting',
+  '调整立绘（拖动位置、滚轮缩放）': 'Adjust sprites (drag to move, scroll to resize)',
+  '拖动立绘调整位置，滚轮或双指捏合缩放。只保存在这台设备上，按会话记住。':
+    'Drag sprites to move them; scroll or pinch to resize. Saved on this device only, per chat.',
+  整体大小: 'Overall size',
+  '恢复这个会话里所有立绘的默认位置和大小？': 'Reset the position and size of all sprites in this chat?',
+  全部恢复: 'Reset all',
+  完成: 'Done',
+  切换立绘套装: 'Switch sprite outfit',
+  '调整侧边立绘（拖动、缩放）': 'Adjust side sprite (drag, resize)',
+  '选好的套装只保存在这台设备上，按会话记住。「跟随剧情」使用模型在舞台指令里写的服装。':
+    'Your choice is saved on this device only, per chat. “Follow story” uses the outfit the model sets in stage directives.',
+  '这个会话里的角色都只有一套立绘。可以在角色编辑页的「立绘」里新建服装。':
+    'Every character in this chat has only one sprite set. You can add outfits under Sprites in the character editor.',
+  跟随剧情: 'Follow story',
 }

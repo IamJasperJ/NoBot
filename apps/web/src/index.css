@@ -303,6 +303,10 @@ body {
     filter 0.3s ease,
     transform 0.3s ease;
 }
+/* 调整立绘时不要过渡动画：拖动要立刻跟手，否则每一步都慢半拍 */
+.vn-actor.vn-actor-adjusting {
+  transition: none;
+}
 .vn-fade {
   animation: vn-fade 0.3s ease-out;
 }

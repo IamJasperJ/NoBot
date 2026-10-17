@@ -147,6 +147,15 @@ test('VN4：手动变量、阶段世界书与固定存档快照', async () => {
       ),
     ).toBe(true)
     expect(service.loadMessage(leaf).meta.varsManual).toEqual({ affection: 95, removed: null })
+    // 玩法预设关掉「允许修改数值」后，手动修改被拒绝，原值不变
+    gal.data.interaction.varEdit = false
+    await json(`/play-presets/${gal.id}`, 'PATCH', { data: gal.data })
+    const denied = await request(`/chats/${chat.id}/vars`, 'POST', { set: { affection: 1 } })
+    expect(denied.status).toBe(403)
+    expect(((await denied.json()) as { error: { code: string } }).error.code).toBe('VAR_EDIT_DISABLED')
+    expect((await page(chat.id)).vars.affection).toBe(95)
+    gal.data.interaction.varEdit = true
+    await json(`/play-presets/${gal.id}`, 'PATCH', { data: gal.data })
     const before = await json<{ vars: Record<string, unknown> }>(`/chats/${chat.id}/stage?before=${leaf}`)
     expect(before.vars.affection).toBe(30)
     expect(before.vars.day).toBe('Day 1')

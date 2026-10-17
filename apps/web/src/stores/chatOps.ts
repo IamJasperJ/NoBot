@@ -17,6 +17,13 @@ interface ChatOpsState {
   setSelected: (ids: string[]) => void
   stopSelect: () => void
 
+  /** 正在调整侧边立绘的会话（拖动、缩放）；null 表示没在调整 */
+  sideAdjusting: string | null
+  setSideAdjusting: (chatId: string | null) => void
+  /** 打开「切换立绘套装」面板的会话 */
+  outfitPicker: string | null
+  setOutfitPicker: (chatId: string | null) => void
+
   jump: { chatId: string; messageId: string; nonce: number } | null
   jumpTo: (chatId: string, messageId: string) => void
   clearJump: () => void
@@ -42,6 +49,11 @@ export const useChatOps = create<ChatOpsState>()((set, get) => ({
   },
   setSelected: (ids) => set({ selected: ids }),
   stopSelect: () => set({ selectingChat: null, selected: [], anchor: null }),
+
+  sideAdjusting: null,
+  setSideAdjusting: (sideAdjusting) => set({ sideAdjusting }),
+  outfitPicker: null,
+  setOutfitPicker: (outfitPicker) => set({ outfitPicker }),
 
   jump: null,
   jumpTo: (chatId, messageId) => set({ jump: { chatId, messageId, nonce: Date.now() } }),

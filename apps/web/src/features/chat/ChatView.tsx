@@ -16,6 +16,7 @@ import { Composer } from './Composer'
 import { runGeneration } from './generate'
 import type { ChatCast } from './MessageItem'
 import { MessageList } from './MessageList'
+import { OutfitPicker } from './OutfitPicker'
 import { SelectionBar } from './SelectionBar'
 import { SideSprite } from './SideSprite'
 
@@ -110,7 +111,14 @@ export function ChatView({ chatId }: { chatId: string }) {
   return (
     <div ref={root} className="relative isolate flex h-full min-w-0 flex-1 flex-col">
       {!vn && firstPage?.stage && play && (
-        <SideSprite stage={firstPage.stage} play={play} cast={cast} lastReply={lastReply} container={root} />
+        <SideSprite
+          chatId={chatId}
+          stage={firstPage.stage}
+          play={play}
+          cast={cast}
+          lastReply={lastReply}
+          container={root}
+        />
       )}
       {/* 不再有顶部标题栏：会话设置、Prompt 预览在输入框左边的「+」菜单里。手机上保留一个打开抽屉的悬浮按钮 */}
       <IconButton
@@ -121,6 +129,7 @@ export function ChatView({ chatId }: { chatId: string }) {
         <MenuIcon />
       </IconButton>
 
+      <OutfitPicker chatId={chatId} cast={cast} stage={firstPage?.stage ?? null} />
       {vn && play ? (
         <VnView
           chatId={chatId}

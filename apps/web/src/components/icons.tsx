@@ -246,3 +246,15 @@ export const ListCheckIcon = (p: P) => (
     <path d="m3 6 2 2 3-3M3 13l2 2 3-3M11 7h10M11 14h10M11 20h10" />
   </Icon>
 )
+
+export const MoveIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" />
+  </Icon>
+)
+
+export const ShirtIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M8 3 3 6l2 5 3-1v11h8V10l3 1 2-5-5-3a4 4 0 0 1-8 0z" />
+  </Icon>
+)

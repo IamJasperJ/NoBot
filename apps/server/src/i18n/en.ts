@@ -1,6 +1,7 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
   '还没有消息，没法修改变量': 'There are no messages yet, so variables cannot be edited',
+  这个会话的玩法预设不允许手动修改数值: 'The play preset of this chat does not allow editing values manually',
   '正在生成，稍后再修改变量': 'Generation is in progress. Edit variables after it finishes',
   '还没有消息，没法存档': 'There are no messages yet, so a save cannot be created',
   '存档 {n}': 'Save {n}',

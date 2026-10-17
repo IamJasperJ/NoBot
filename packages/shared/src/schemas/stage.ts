@@ -276,6 +276,8 @@ const interactionSchema = z.object({
   inputWithChoices: z.boolean().default(true),
   choiceLayout: z.enum(['row', 'column', 'auto']).default('auto'),
   hud: z.boolean().default(true),
+  /** 允许玩家在 HUD 里手动改数值（关掉后数值只能由剧情改，后端也会拒绝手动修改） */
+  varEdit: z.boolean().default(true),
   hudPosition: z.enum(['top-right', 'top-left', 'top-bar']).default('top-right'),
   floatDelta: z.boolean().default(true),
   stageLore: z.boolean().default(true),

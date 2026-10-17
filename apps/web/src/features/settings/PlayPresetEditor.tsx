@@ -516,9 +516,8 @@ export function PlayPresetEditor({
           onChange={(v) => set('stage', 'focus', v)}
         />
         <SwitchField
-          label={t('允许拖动站位')}
-          hint={later('VN6', t('桌面端可以拖动立绘微调位置'))}
-          notImplemented
+          label={t('允许调整立绘')}
+          hint={t('VN 视图和聊天视图的侧边立绘可以拖动位置、缩放大小（只保存在这台设备上）')}
           checked={stage.draggable}
           onChange={(v) => set('stage', 'draggable', v)}
         />
@@ -618,6 +617,12 @@ export function PlayPresetEditor({
           checked={interaction.hud}
           onChange={(v) => set('interaction', 'hud', v)}
         />
+        <SwitchField
+          label={t('允许修改数值')}
+          hint={t('玩家可以在状态面板里直接改数值（好感、HP……）；关掉后只能由剧情改变')}
+          checked={interaction.varEdit}
+          onChange={(v) => set('interaction', 'varEdit', v)}
+        />
         <SelectField
           label={t('HUD 位置')}
           hint={t('手机上总是顶部一行')}
@@ -637,7 +642,9 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label={t('阶段变化触发世界书')}
-          hint={t('变量进入某个阶段后，关键词写成「变量名_stage: 阶段名」（比如 affection_stage: Lovers）的世界书条目会触发；也可以在提示词里用 {{stage::变量名}}')}
+          hint={t(
+            '变量进入某个阶段后，关键词写成「变量名_stage: 阶段名」（比如 affection_stage: Lovers）的世界书条目会触发；也可以在提示词里用 {{stage::变量名}}',
+          )}
           checked={interaction.stageLore}
           onChange={(v) => set('interaction', 'stageLore', v)}
         />

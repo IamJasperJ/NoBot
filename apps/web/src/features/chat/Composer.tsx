@@ -228,6 +228,25 @@ export function Composer({
               }}
               label={t('选择消息（批量不发给模型）')}
             />
+            {play?.directives.enabled && (
+              <MenuButton
+                onClick={() => {
+                  closeMenu()
+                  useChatOps.getState().setOutfitPicker(chatId)
+                }}
+                label={t('切换立绘套装')}
+              />
+            )}
+            {/* VN 视图里有自己的「调整立绘」按钮；这里是聊天视图的侧边立绘 */}
+            {play?.directives.enabled && !inVn && play.sprites.sideSprite !== 'off' && play.stage.draggable && (
+              <MenuButton
+                onClick={() => {
+                  closeMenu()
+                  useChatOps.getState().setSideAdjusting(chatId)
+                }}
+                label={t('调整侧边立绘（拖动、缩放）')}
+              />
+            )}
             <Slot name="chat.composer.menu" props={{ chatId, setText, close: closeMenu }} />
             {/* 原来顶部标题栏里的按钮：会话设置、Prompt 预览、扩展加的按钮 */}
             <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />

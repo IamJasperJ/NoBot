@@ -11,12 +11,14 @@ import {
   EyeOffIcon,
   ImageIcon,
   LogIcon,
+  MoveIcon,
   RefreshIcon,
   XIcon,
 } from '../../components/icons'
 import { cx } from '../../components/ui'
 import { useMobile } from '../../hooks/useMobile'
 import { t } from '../../i18n'
+import { useSpriteLayout } from '../../stores/spriteLayout'
 import { errorMessage, toast } from '../../stores/toast'
 import { useVn } from '../../stores/vn'
 import { Composer } from '../chat/Composer'
@@ -71,6 +73,8 @@ export function VnView({
   const { beat, current, ended } = player
   const images = useVnImages(messages)
   const [saves, setSaves] = useState(false)
+  // 调整立绘：拖动位置、缩放（玩法预设「允许拖动立绘」开着时才有这个入口）
+  const [adjusting, setAdjusting] = useState(false)
 
   // HUD 的变量：跟着最新回复且演完了，就是会话当前的变量；
   // 正在演（或重演旧回复）时是这条回复之前的变量，演完再加上这条的补丁——好感 +3 在回复演完时飘出来
@@ -153,8 +157,10 @@ export function VnView({
       if (e.key === 'Escape') {
         setBacklog(false)
         setHidden(false)
+        setAdjusting(false)
         return
       }
+      if (adjusting) return
       if (e.key === 'ArrowLeft' && !backlog && !hidden) {
         e.preventDefault()
         player.back()
@@ -169,7 +175,7 @@ export function VnView({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [player.advance, player.back, backlog, hidden])
+  }, [player.advance, player.back, backlog, hidden, adjusting])
 
   const said = player.said
   const speakerName = said?.kind === 'line' ? said.speaker : null
@@ -182,12 +188,14 @@ export function VnView({
         type="button"
         aria-label={hidden ? t('显示界面') : t('下一句')}
         className="absolute inset-0 z-0 cursor-default"
-        onClick={() => (hidden ? setHidden(false) : player.advance())}
+        onClick={() => (hidden ? setHidden(false) : adjusting ? undefined : player.advance())}
       />
 
       {/* 立绘 */}
       <div className={cx('pointer-events-none absolute inset-x-0 top-0', mobile ? 'bottom-40' : 'bottom-44')}>
         <VnStage
+          chatId={chatId}
+          adjusting={adjusting}
           stage={player.stage}
           play={play}
           speakerKey={player.speakerKey}
@@ -218,6 +226,15 @@ export function VnView({
                     )}
                   />
                 )}
+              </VnButton>
+            )}
+            {play.stage.draggable && (
+              <VnButton
+                label={adjusting ? t('完成调整') : t('调整立绘（拖动位置、滚轮缩放）')}
+                active={adjusting}
+                onClick={() => setAdjusting(!adjusting)}
+              >
+                <MoveIcon />
               </VnButton>
             )}
             <VnButton label={t('存档 / 读档')} active={saves} onClick={() => setSaves(!saves)}>
@@ -258,7 +275,7 @@ export function VnView({
           position={play.interaction.hudPosition}
           floatDelta={play.interaction.floatDelta}
           mobile={mobile}
-          onEdit={player.pinned ? undefined : editVar}
+          onEdit={player.pinned || !play.interaction.varEdit ? undefined : editVar}
         />
       )}
 
@@ -287,7 +304,7 @@ export function VnView({
       <div className="flex-1" />
 
       {/* 选项：画面中央偏下，像 Galgame 的选择肢 */}
-      {!hidden && choices && choices.length > 0 && player.complete && play.interaction.choices && (
+      {!hidden && !adjusting && choices && choices.length > 0 && player.complete && play.interaction.choices && (
         <div
           className={cx(
             'relative z-10 mx-auto mb-3 flex w-full gap-2 px-4',
@@ -396,8 +413,10 @@ export function VnView({
         </div>
       )}
 
+      {!hidden && adjusting && <AdjustBar chatId={chatId} onDone={() => setAdjusting(false)} />}
+
       {/* 演完了（或在等生成）：输入框；重演旧消息时给一个回到最新的入口 */}
-      {!hidden && (
+      {!hidden && !adjusting && (
         <div className="relative z-10">
           {player.pinned ? (
             <div className="mx-auto mb-3 flex w-full max-w-4xl justify-center px-3">
@@ -457,6 +476,47 @@ export function VnView({
           onClose={() => setBacklog(false)}
         />
       )}
+    </div>
+  )
+}
+
+/** 调整立绘时代替输入框的操作条：说明、整体大小、全部恢复、完成 */
+function AdjustBar({ chatId, onDone }: { chatId: string; onDone: () => void }) {
+  const all = useSpriteLayout((s) => s.vn[chatId]?.all ?? 1)
+  const setAll = useSpriteLayout((s) => s.setAll)
+  const resetChat = useSpriteLayout((s) => s.resetChat)
+  return (
+    <div className="relative z-20 mx-auto mb-3 w-full max-w-4xl px-3 md:px-6">
+      <div className="vn-box flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl px-4 py-3 text-sm">
+        <span className="min-w-0 flex-1 text-xs opacity-75">
+          {t('拖动立绘调整位置，滚轮或双指捏合缩放。只保存在这台设备上，按会话记住。')}
+        </span>
+        <label className="flex items-center gap-2 text-xs">
+          {t('整体大小')}
+          <input
+            type="range"
+            min={30}
+            max={300}
+            step={5}
+            value={Math.round(all * 100)}
+            onChange={(e) => setAll(chatId, Number(e.target.value) / 100)}
+            className="w-28 accent-violet-400"
+          />
+          <span className="w-10 tabular-nums">{Math.round(all * 100)}%</span>
+        </label>
+        <button
+          type="button"
+          className="vn-chip rounded-full px-3 py-1 text-xs"
+          onClick={() => {
+            if (confirm(t('恢复这个会话里所有立绘的默认位置和大小？'))) resetChat(chatId)
+          }}
+        >
+          {t('全部恢复')}
+        </button>
+        <button type="button" className="vn-chip vn-chip-active rounded-full px-4 py-1 text-xs" onClick={onDone}>
+          {t('完成')}
+        </button>
+      </div>
     </div>
   )
 }

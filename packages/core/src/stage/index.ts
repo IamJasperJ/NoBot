@@ -11,6 +11,7 @@ import type {
 } from '@ai-parter/shared'
 import { renderDirectiveInstructions as renderInstructions } from './instructions'
 import * as parser from './parse'
+import * as spriteHelpers from './sprites'
 import * as stageState from './state'
 import * as variables from './vars'
 
@@ -227,3 +228,52 @@ export function renderDirectiveInstructions(input: InstructionsInput): string {
 }
 
 export type { ChoiceOption }
+
+// ---------------------------------------------------------------------------
+// 立绘（VN2）
+// ---------------------------------------------------------------------------
+
+/**
+ * 从文件名推断表情和服装（导入酒馆立绘包、批量上传时用）。
+ * 规则（照酒馆）：去掉扩展名后，第一个「.」或「-」之前的部分是表情，转小写；
+ *   joy.png → joy；joy-1.png → joy；joy.expressive.png → joy；Joy_Smile.webp → joy_smile
+ * 路径里有一层目录时，目录名是服装：casual/joy.png → { outfit: 'casual', expression: 'joy' }；
+ *   更深的目录只取最后一层；没有目录时 outfit 为 ''。
+ * 以「.」开头的文件、__MACOSX 目录里的文件返回 null；表情名不是 [a-z0-9_] 组成时返回 null。
+ */
+export function spriteNameFromPath(path: string): { outfit: string; expression: string } | null {
+  return spriteHelpers.spriteNameFromPath(path)
+}
+
+export interface SpriteCandidate {
+  id: string
+  outfit: string
+  expression: string
+}
+
+/**
+ * 给一个演员挑立绘（前端显示用，纯函数）：
+ * 1. 在 outfit 服装里找 expression 的立绘；没有时退回默认服装（''）里找
+ * 2. 还没有：用 fallback 表情（空串表示不退回）按同样的服装顺序找
+ * 3. 都没有返回 null（调用方再决定用头像还是不显示）
+ * 同一表情有多张时：random 为 false 取第一张；为 true 用 seed（字符串，比如消息 id）哈希后稳定地选一张——
+ * 同一个 seed 永远选同一张，避免重新渲染时闪烁。avoidId 不为空且有别的选择时，跳过这一张（「重复表情时换一张」）。
+ */
+export function pickSprite<T extends SpriteCandidate>(
+  sprites: T[],
+  opts: { expression: string; outfit: string; fallback: string; random: boolean; seed: string; avoidId?: string },
+): T | null {
+  return spriteHelpers.pickSprite(sprites, opts)
+}
+
+/** 酒馆「Main API」情绪判断的默认提示词，{{labels}} 换成逗号分隔的表情列表 */
+export const DEFAULT_CLASSIFY_PROMPT =
+  'Ignore previous instructions. Classify the emotion of the last message. Output just one word, e.g. "joy" or "anger". Choose only one of the following labels: {{labels}}'
+
+/**
+ * 从模型的回答里取出表情：转小写后，先找和某个标签完全相同的单词（按 [a-z0-9_] 以外的字符切词）；
+ * 没有时再找回答里包含的标签，按标签长度从长到短找，避免短标签误配进长单词里；都没有返回 null。
+ */
+export function extractExpressionLabel(answer: string, labels: string[]): string | null {
+  return spriteHelpers.extractExpressionLabel(answer, labels)
+}

@@ -33,11 +33,14 @@ import type {
   PresetData,
   PromptPresetDTO,
   PromptPreview,
+  SpriteDTO,
+  SpriteImportResult,
   SwipeInput,
   TestConnectionInput,
   TestConnectionResult,
   ToolInfo,
   UpdateChatInput,
+  UpdateSpriteInput,
   WorldInfoSettings,
 } from '@ai-parter/shared'
 
@@ -131,6 +134,26 @@ export const api = {
   importPreset: (file: File) => upload<PromptPresetDTO>('/presets/import', file),
   exportPreset: (id: string) => downloadUrl(`/presets/${id}/export`),
 
+  // ---- 立绘（VN 模式） ----
+  listSprites: (characterId: string) => request<SpriteDTO[]>('GET', `/characters/${characterId}/sprites`),
+  /** 上传多张立绘；不给 expression 时后端按文件名推断（joy.png、joy-2.png） */
+  uploadSprites: (characterId: string, files: File[], opts: { outfit?: string; expression?: string } = {}) => {
+    const form = new FormData()
+    for (const file of files) form.append('files', file)
+    if (opts.outfit !== undefined) form.append('outfit', opts.outfit)
+    if (opts.expression) form.append('expression', opts.expression)
+    return request<SpriteImportResult>('POST', `/characters/${characterId}/sprites`, form)
+  },
+  /** 导入立绘包 zip（酒馆的扁平包，或一层目录 = 一套服装） */
+  importSprites: (characterId: string, file: File) =>
+    upload<SpriteImportResult>(`/characters/${characterId}/sprites/import`, file),
+  updateSprite: (characterId: string, spriteId: string, input: UpdateSpriteInput) =>
+    request<SpriteDTO>('PATCH', `/characters/${characterId}/sprites/${spriteId}`, input),
+  deleteSprite: (characterId: string, spriteId: string) =>
+    request<Ok>('DELETE', `/characters/${characterId}/sprites/${spriteId}`),
+  deleteOutfit: (characterId: string, outfit: string) =>
+    request<{ deleted: number }>('DELETE', `/characters/${characterId}/sprites?outfit=${encodeURIComponent(outfit)}`),
+
   // ---- 玩法预设（VN 模式） ----
   listPlayPresets: () => request<PlayPresetDTO[]>('GET', '/play-presets'),
   createPlayPreset: (input: { name: string; data: PlayPresetData }) =>
@@ -140,6 +163,8 @@ export const api = {
   deletePlayPreset: (id: string) => request<Ok>('DELETE', `/play-presets/${id}`),
   setDefaultPlayPreset: (id: string) => request<Ok>('POST', `/play-presets/${id}/default`),
   duplicatePlayPreset: (id: string) => request<PlayPresetDTO>('POST', `/play-presets/${id}/duplicate`),
+  resetPlayPreset: (id: string) => request<PlayPresetDTO>('POST', `/play-presets/${id}/reset`),
+  restoreBuiltinPlayPresets: () => request<{ restored: number }>('POST', '/play-presets/restore-builtins'),
   importPlayPreset: (file: File) => upload<PlayPresetDTO>('/play-presets/import', file),
   exportPlayPreset: (id: string) => downloadUrl(`/play-presets/${id}/export`),
 

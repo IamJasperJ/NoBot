@@ -17,9 +17,10 @@ import { buildRequestBody, chatCompletion } from '../llm/openai'
 import { enabledToolNames, runTool, toOpenAITools } from '../tools'
 import { getAttachment, redactImages, resolveImages } from './attachments'
 import { computeVars, loadMessage, loadPath } from './chats'
+import { classifyMessage } from './classify'
 import { assemble, type GenerationContext, loadGenerationContext } from './context'
 import { insertLog, logError } from './logs'
-import { applyStageParse, initialVars } from './stage'
+import { applyStageParse, backfillStage, initialVars } from './stage'
 
 /**
  * 生成任务。一次任务可能产出多条消息：
@@ -132,6 +133,7 @@ function pickSpeakers(
  */
 export function startGeneration(chatId: string, input: GenerateInput): Job {
   if (jobs.has(chatId)) throw new HttpError(409, 'BUSY', '这个会话正在生成中，请先等它结束或点停止')
+  backfillStage(chatId)
   const ctx = loadGenerationContext(chatId, { requireConnection: true })
   const leafId = ctx.chat.activeLeafId
   const enabledTools = enabledToolNames(chatId, ctx.preset.samplers)
@@ -474,6 +476,7 @@ async function generateOne(
     })
     .where(eq(messages.id, messageId))
     .run()
+  if (status === 'done' && !errorEvent) classifyMessage(messageId)
   job.current = null
   const message = loadMessage(messageId)
   emitServerEvent({ type: 'message:saved', message })

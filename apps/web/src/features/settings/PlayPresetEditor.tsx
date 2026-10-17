@@ -302,19 +302,17 @@ export function PlayPresetEditor({
         />
       </Section>
 
-      <Section dense title="表情与立绘" description="立绘集和情绪判断（VN2）">
+      <Section dense title="表情与立绘" description="立绘在角色编辑页上传；模型没写表情时可以再调一次模型判断">
         <SelectField
           label="兜底表情"
-          hint={later('VN2', '模型写了没有立绘的表情时显示哪一个')}
-          notImplemented
+          hint="模型写了没有立绘的表情时显示哪一个"
           value={sprites.fallback}
           onChange={(v) => set('sprites', 'fallback', v)}
           options={[{ value: '', label: '不显示' }, ...EXPRESSIONS.map((e) => ({ value: e, label: e }))]}
         />
         <SelectField
           label="兜底情绪判断"
-          hint={later('VN2', '模型没写表情时，再调一次模型判断这条回复的情绪')}
-          notImplemented
+          hint="模型没写表情时，再调一次模型判断这条回复的情绪"
           value={sprites.classify}
           onChange={(v) => set('sprites', 'classify', v)}
           options={[
@@ -325,8 +323,7 @@ export function PlayPresetEditor({
         />
         <SelectField
           label="判断用的连接"
-          hint={later('VN2', '可以选一个便宜的模型来判断情绪')}
-          notImplemented
+          hint="可以选一个便宜的模型来判断情绪"
           value={sprites.classifyConnectionId ?? ''}
           onChange={(v) => set('sprites', 'classifyConnectionId', v || null)}
           options={[
@@ -336,15 +333,13 @@ export function PlayPresetEditor({
         />
         <TextField
           label="判断用的模型"
-          hint={later('VN2', '留空则用连接里的模型')}
-          notImplemented
+          hint="留空则用连接里的模型"
           value={sprites.classifyModel}
           onChange={(v) => set('sprites', 'classifyModel', v)}
         />
         <SelectField
           label="判断上下文"
-          hint={later('VN2', '只看最后一条更快更省；完整上下文更准')}
-          notImplemented
+          hint="只看最后一条更快更省；完整上下文更准"
           value={sprites.classifyContext}
           onChange={(v) => set('sprites', 'classifyContext', v)}
           options={[
@@ -354,8 +349,7 @@ export function PlayPresetEditor({
         />
         <SelectField
           label="聊天中的侧边立绘"
-          hint={later('VN2', '不进 VN 视图时，在聊天区旁边显示当前说话人的立绘')}
-          notImplemented
+          hint="不进 VN 视图时，在聊天区旁边显示当前说话人的立绘"
           value={sprites.sideSprite}
           onChange={(v) => set('sprites', 'sideSprite', v)}
           options={[
@@ -366,31 +360,24 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label="没有立绘时用头像"
-          hint={later('VN2', '没有立绘的角色用角色卡头像代替')}
-          notImplemented
+          hint="没有立绘的角色用角色卡头像代替"
           checked={sprites.avatarFallback}
           onChange={(v) => set('sprites', 'avatarFallback', v)}
         />
         <SwitchField
           label="同一表情多张时随机"
-          hint={later('VN2', '同一个表情有多张立绘时随机挑一张')}
-          notImplemented
+          hint="同一个表情有多张立绘时随机挑一张"
           checked={sprites.randomMultiple}
           onChange={(v) => set('sprites', 'randomMultiple', v)}
         />
         <SwitchField
           label="重复表情时换一张"
-          hint={later('VN2', '连续两次同一个表情时，强制换一张不同的立绘')}
+          hint={later('VN3', '连续两次同一个表情时，强制换一张不同的立绘')}
           notImplemented
           checked={sprites.rerollSame}
           onChange={(v) => set('sprites', 'rerollSame', v)}
         />
-        <DenseRow
-          label="自定义表情"
-          hint={later('VN2', '在酒馆的 28 种之外再加表情名（英文），会出现在指令说明的表情清单里')}
-          notImplemented
-          wide
-        >
+        <DenseRow label="自定义表情" hint="在酒馆的 28 种之外再加表情名（英文），会出现在指令说明的表情清单里" wide>
           <div className="min-w-0 flex-1 py-1">
             <TagInput
               label="自定义表情"
@@ -401,8 +388,7 @@ export function PlayPresetEditor({
         </DenseRow>
         <TextAreaField
           label="判断提示词"
-          hint={later('VN2', '留空则用酒馆的默认提示词，{{labels}} 会替换成表情列表')}
-          notImplemented
+          hint="留空则用酒馆的默认提示词，{{labels}} 会替换成表情列表"
           mono
           rows={3}
           placeholder="Classify the emotion of the last message. Output just one word… {{labels}}"

@@ -88,8 +88,27 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     expect(JSON.parse(seeded[4]!.data.state.schema)['主角.HP'].init).toBe(10)
     await bootstrap()
     expect((await list()).length).toBe(5)
+    // 重置内置预设：名字和设置回到内置默认；补回只补缺少的那几个
+    await json(`/play-presets/${gal.id}`, 'PATCH', { name: '改过', data: { directives: { enabled: false } } })
+    const reset = await json<PlayPresetDTO>(`/play-presets/${gal.id}/reset`, 'POST')
+    expect(reset.name).toBe('Galgame')
+    expect(reset.data).toEqual(gal.data)
+    await json(`/play-presets/${seeded[1]!.id}`, 'DELETE')
+    expect((await json<{ restored: number }>('/play-presets/restore-builtins', 'POST')).restored).toBe(1)
+    expect((await list()).map((preset) => preset.name)).toContain('陪伴')
     const actor = await json<CharacterDTO>('/characters', 'POST', { name: '艾莉丝', description: '测试角色' })
     const chat = await json<ChatDTO>('/chats', 'POST', { characterId: actor.id })
+    // 开场白里的指令：建会话时还没绑预设，绑上 Galgame 后打开会话会补解析
+    const greeter = await json<CharacterDTO>('/characters', 'POST', {
+      name: '米拉',
+      first_mes: '<scene place="花店" />\n米拉[joy]：「欢迎光临！」',
+    })
+    const greetChat = await json<ChatDTO>('/chats', 'POST', { characterId: greeter.id })
+    await json(`/chats/${greetChat.id}`, 'PATCH', { playPresetId: gal.id })
+    const greeted = await page(greetChat.id)
+    expect(greeted.stage?.scene.place).toBe('花店')
+    expect(greeted.stage?.cast.map((m) => [m.name, m.expression])).toEqual([['米拉', 'joy']])
+    expect(greeted.messages[0]?.meta.stage?.beats.length).toBeGreaterThan(0)
     const created = await json<PlayPresetDTO>('/play-presets', 'POST', {
       name: '自定义',
       data: { directives: { enabled: true } },
@@ -163,7 +182,7 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
 
     await json('/connections', 'POST', { name: '模拟模型', baseUrl: model.url, model: 'mock-one' })
     await json(`/chats/${chat.id}`, 'PATCH', { playPresetId: plain.id })
-    model.setScript(() => ({ text: '艾莉丝[joy]：你好\n<state>好感 += 2</state>' }))
+    model.setScript(() => ({ text: '艾莉丝[joy]：你好' }))
     const normal = await generate(chat.id)
     expect(normal.meta.stage).toBeUndefined()
     expect(normal.meta.varsPatch).toBeUndefined()
@@ -177,6 +196,10 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
       .run()
     model.setScript(() => ({ text: '<scene bg=" 黄昏的酒馆 " />\n艾莉丝[joy]：欢迎\n<state>好感 += 2</state>' }))
     const first = await generate(chat.id)
+    // 切到 Galgame 后，之前「普通聊天」下生成的回复在生成前被补解析
+    expect(chatService.loadMessage(normal.id).meta.stage?.ops).toEqual([
+      { op: 'expr', who: '艾莉丝', expression: 'joy' },
+    ])
     expect(first.meta.stage?.ops.length).toBe(2)
     expect(first.meta.varsPatch).toEqual({ 好感: 32 })
     let current = await page(chat.id)

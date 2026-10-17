@@ -66,3 +66,19 @@ assetRoutes.get('/backgrounds/:file', async (c) => {
   }
   return new Response(file, { headers })
 })
+
+assetRoutes.get('/sprites/:characterId/:file', async (c) => {
+  const characterId = c.req.param('characterId')
+  const name = c.req.param('file')
+  if (
+    !/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(characterId) ||
+    !/^[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\.thumb\.webp|\.(?:png|webp|gif|jpg))$/.test(name)
+  )
+    throw new HttpError(400, 'BAD_REQUEST', '立绘路径不合法')
+  const file = Bun.file(join(paths.sprites, characterId, name))
+  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', '立绘不存在')
+  const mime = { png: 'image/png', webp: 'image/webp', gif: 'image/gif', jpg: 'image/jpeg' }[name.split('.').pop()!]!
+  return new Response(file, {
+    headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=31536000, immutable' },
+  })
+})

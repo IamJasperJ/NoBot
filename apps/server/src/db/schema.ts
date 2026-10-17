@@ -117,7 +117,8 @@ export const playPresets = sqliteTable('play_presets', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   data: text('data', { mode: 'json' }).$type<PlayPresetData>().notNull().default(sql`'{}'`),
-  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
+  /** 内置预设的标识（chat、companion、galgame、rpg、dnd5e），用来「重置为内置默认」；用户建的预设为空 */
+  builtinKey: text('builtin_key'),
   ...timestamps,
 })
 
@@ -268,3 +269,21 @@ export type PersonaRow = typeof personas.$inferSelect
 export type GroupRow = typeof groups.$inferSelect
 export type LorebookRow = typeof lorebooks.$inferSelect
 export type LorebookEntryRow = typeof lorebookEntries.$inferSelect
+
+/** 立绘保留原图格式，服装只参与检索，不参与文件路径。 */
+export const sprites = sqliteTable(
+  'sprites',
+  {
+    id: text('id').primaryKey(),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
+    outfit: text('outfit').notNull().default(''),
+    expression: text('expression').notNull(),
+    ext: text('ext').$type<'png' | 'webp' | 'gif' | 'jpg'>().notNull(),
+    width: integer('width').notNull(),
+    height: integer('height').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('sprites_character_outfit_expression_idx').on(t.characterId, t.outfit, t.expression)],
+)

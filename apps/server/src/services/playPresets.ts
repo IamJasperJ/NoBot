@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { chats, playPresets } from '../db/schema'
 import { HttpError, notFound } from '../errors'
+import { builtinDefinition } from './playPresets.builtin'
 import { SETTING_KEYS } from './settings'
 
 export function listPlayPresets(): PlayPresetDTO[] {
@@ -14,7 +15,7 @@ export function listPlayPresets(): PlayPresetDTO[] {
     .all()
     .map((row) => ({
       id: row.id,
-      builtin: row.builtin,
+      builtin: row.builtinKey !== null,
       name: row.name,
       data: playPresetDataSchema.parse(row.data),
       updatedAt: row.updatedAt,
@@ -69,6 +70,18 @@ export function duplicatePlayPreset(id: string) {
   const preset = getPlayPreset(id)
   return createPlayPreset({ name: `${preset.name} 副本`, data: preset.data })
 }
+/** 内置预设恢复成内置默认（名字和全部设置）。用户自己建的预设不能重置 */
+export function resetPlayPreset(id: string): PlayPresetDTO {
+  getPlayPreset(id)
+  const row = db.select({ key: playPresets.builtinKey }).from(playPresets).where(eq(playPresets.id, id)).get()
+  const def = builtinDefinition(row?.key ?? null)
+  if (!def) throw new HttpError(400, 'NOT_BUILTIN', '只有内置预设可以重置')
+  db.update(playPresets)
+    .set({ name: def.name, data: def.build(), updatedAt: Date.now() })
+    .where(eq(playPresets.id, id))
+    .run()
+  return getPlayPreset(id)
+}
 export function getDefaultPlayPresetId(): string | undefined {
   const rows = db.select().from(playPresets).orderBy(asc(playPresets.createdAt), asc(playPresets.id)).all()
   const id = getSetting<string>(SETTING_KEYS.defaultPlayPresetId)
@@ -106,6 +119,7 @@ export {
   duplicatePlayPreset as duplicate,
   getPlayPreset as get,
   listPlayPresets as list,
+  resetPlayPreset as reset,
   setDefaultPlayPreset as setDefault,
   updatePlayPreset as update,
 }

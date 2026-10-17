@@ -21,6 +21,7 @@ import { Slot } from '../../extensions/Slot'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { AvatarUpload, CountedArea, CountedText, moveItem, useAction } from './editor'
+import { SpriteManager } from './SpriteManager'
 import { useCharacterImport } from './useCharacterImport'
 
 export function CharactersPage() {
@@ -71,7 +72,7 @@ export function CharactersPage() {
             ref={importInput}
             hidden
             type="file"
-            accept=".png,.json"
+            accept=".png,.json,.charx"
             multiple
             onChange={(e) => {
               const files = Array.from(e.target.files ?? [])
@@ -493,6 +494,7 @@ export function CharacterEditor({
             />
           )}
         </Section>
+        <SpriteManager characterId={character.id} />
         <Slot
           name="character.editor.sections"
           props={{

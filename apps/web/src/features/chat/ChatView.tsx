@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { ApiRequestError } from '../../api/client'
 import { flattenPages, keys, useCharacter, useChatPages, usePersonas, usePlayPresets } from '../../api/queries'
 import { MenuIcon } from '../../components/icons'
@@ -12,6 +12,7 @@ import { Composer } from './Composer'
 import { runGeneration } from './generate'
 import type { ChatCast } from './MessageItem'
 import { MessageList } from './MessageList'
+import { SideSprite } from './SideSprite'
 
 export function ChatView({ chatId }: { chatId: string }) {
   useEffect(() => {
@@ -26,7 +27,10 @@ export function ChatView({ chatId }: { chatId: string }) {
   const personas = usePersonas()
   const playPresets = usePlayPresets()
   const messages = useMemo(() => flattenPages(pages.data), [pages.data])
-  const pendingImage = messages.some((message) => message.meta.imageGen?.status === 'pending')
+  // 图片生成、兜底情绪判断都是后台异步完成的，进行中时轮询刷新
+  const pendingImage = messages.some(
+    (message) => message.meta.imageGen?.status === 'pending' || message.meta.stage?.classify === 'pending',
+  )
   useEffect(() => {
     if (!pendingImage) return
     const timer = setInterval(() => {
@@ -36,6 +40,7 @@ export function ChatView({ chatId }: { chatId: string }) {
   }, [pendingImage, chatId, qc])
   const streamingHere = useStreaming((s) => s.chatId === chatId)
   const setSidebarOpen = useUi((s) => s.setSidebarOpen)
+  const root = useRef<HTMLDivElement>(null)
 
   // 会话里出场的人：群聊是全部成员，单人会话是那个角色；用户是会话绑定的人设（没有就用默认人设）
   const persona = personas.data?.find((p) => p.id === chat?.personaId) ?? personas.data?.find((p) => p.isDefault)
@@ -81,8 +86,13 @@ export function ChatView({ chatId }: { chatId: string }) {
     return <div className="p-8 text-center text-sm text-zinc-500">会话加载失败：{errorMessage(pages.error)}</div>
   }
 
+  const lastReply = messages.findLast((m) => m.role === 'assistant') ?? null
+
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col">
+    <div ref={root} className="relative isolate flex h-full min-w-0 flex-1 flex-col">
+      {firstPage?.stage && play && (
+        <SideSprite stage={firstPage.stage} play={play} cast={cast} lastReply={lastReply} container={root} />
+      )}
       {/* 不再有顶部标题栏：会话设置、Prompt 预览在输入框左边的「+」菜单里。手机上保留一个打开抽屉的悬浮按钮 */}
       <IconButton
         label="打开侧栏"

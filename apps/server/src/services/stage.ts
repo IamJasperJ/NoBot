@@ -1,4 +1,5 @@
 import {
+  castKey,
   foldStage,
   mergeStateSchemas,
   parseInitVars,
@@ -17,7 +18,7 @@ import {
 } from '@ai-parter/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db } from '../db/client'
-import { backgrounds, characters, groupMembers } from '../db/schema'
+import { backgrounds, characters, groupMembers, messages } from '../db/schema'
 import { computeVars, getChatRow, loadPath } from './chats'
 import { loadLore, resolvePersona } from './context'
 import { getDefault, listPlayPresets } from './playPresets'
@@ -100,6 +101,14 @@ export function computeStage(chatId: string, path: { meta: MessageMeta }[]) {
         .sort((a, b) => b.name.length - a.name.length)[0])
     : undefined
   stage.scene.backgroundId = match?.id ?? null
+  const members = stageMembers(chatId)
+  for (const actor of stage.cast) {
+    actor.characterId =
+      (
+        members.find((member) => castKey(member.name) === actor.key) ??
+        members.find((member) => castKey(member.name.trim().split(/\s+/)[0]!) === actor.key)
+      )?.id ?? null
+  }
   return stage
 }
 
@@ -134,4 +143,20 @@ export function applyStageParse(
   meta.stage = result.stage
   if (result.varsPatch !== null) meta.varsPatch = result.varsPatch
   return meta
+}
+
+/**
+ * 补解析：激活路径上还没有 meta.stage 的角色回复（开场白、开启指令之前的旧消息）按从旧到新的顺序解析一遍并存下来。
+ * 必须按顺序，因为每条的变量计算依赖前面的结果。没开指令时什么都不做；解析过的消息不会重复解析。
+ */
+export function backfillStage(chatId: string) {
+  if (!resolvePlayPreset(chatId).data.directives.enabled) return
+  const leaf = getChatRow(chatId).activeLeafId
+  const missing = loadPath(leaf).filter(
+    (m) => m.role === 'assistant' && m.status === 'done' && !m.meta.stage && m.content.trim(),
+  )
+  for (const message of missing) {
+    const meta = applyStageParse(chatId, message, message.content)
+    db.update(messages).set({ meta }).where(eq(messages.id, message.id)).run()
+  }
 }

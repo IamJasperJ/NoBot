@@ -58,29 +58,88 @@ const dnd: StateSchema = {
   地点: { type: 'text', init: '', pin: true },
 }
 
-/** 只记录首次播种，用户主动删除的内置预设不会在重启后恢复。 */
+export type BuiltinPlayPresetKey = 'chat' | 'companion' | 'galgame' | 'rpg' | 'dnd5e'
+
+/** 内置玩法预设的定义。「重置为内置默认」和「补回内置预设」都按这里重新生成 */
+export const BUILTIN_PLAY_PRESETS: { key: BuiltinPlayPresetKey; name: string; build: () => PlayPresetData }[] = [
+  { key: 'chat', name: '普通聊天', build: () => playPresetDataSchema.parse({}) },
+  {
+    key: 'companion',
+    name: '陪伴',
+    build: () => {
+      const data = playPresetDataSchema.parse({})
+      data.directives.enabled = true
+      data.directives.kinds = ['expression', 'cast']
+      data.directives.lists = ['cast', 'expressions']
+      return data
+    },
+  },
+  {
+    key: 'galgame',
+    name: 'Galgame',
+    build: () => story(['expression', 'cast', 'scene', 'state', 'choices', 'cg'], 'adv', galgame),
+  },
+  { key: 'rpg', name: 'RPG', build: () => story(['expression', 'cast', 'scene', 'state', 'choices'], 'auto', rpg) },
+  {
+    key: 'dnd5e',
+    name: 'D&D 5e',
+    build: () => {
+      const data = story(['expression', 'cast', 'scene', 'state', 'choices', 'combat'], 'auto', dnd)
+      data.trpg.ruleSystem = 'dnd5e'
+      return data
+    },
+  },
+]
+
+/** 剧情类预设（Galgame / RPG / 跑团）的共同部分：开指令、默认进 VN 视图、带状态定义 */
+function story(kinds: PlayPresetData['directives']['kinds'], layout: 'adv' | 'auto', schema: StateSchema) {
+  const data = playPresetDataSchema.parse({})
+  data.directives.enabled = true
+  data.directives.kinds = kinds
+  data.basic.openInVn = true
+  data.basic.layout = layout
+  data.state.schema = JSON.stringify(schema, null, 2)
+  return data
+}
+
+function insertBuiltin(def: (typeof BUILTIN_PLAY_PRESETS)[number]) {
+  const id = newId()
+  const now = Date.now()
+  db.insert(playPresets)
+    .values({ id, name: def.name, data: def.build(), builtinKey: def.key, createdAt: now, updatedAt: now })
+    .run()
+  return id
+}
+
+/** 只记录首次播种，用户主动删除的内置预设不会在重启后恢复（可以在设置里手动「补回内置预设」）。 */
 export function seedPlayPresets() {
   if (getSetting(SETTING_KEYS.playPresetsSeeded) === true) return
   db.transaction(() => {
-    for (const [index, name] of ['普通聊天', '陪伴', 'Galgame', 'RPG', 'D&D 5e'].entries()) {
-      const data: PlayPresetData = playPresetDataSchema.parse({})
-      if (index > 0) data.directives.enabled = true
-      if (index === 1) {
-        data.directives.kinds = ['expression', 'cast']
-        data.directives.lists = ['cast', 'expressions']
-      }
-      if (index >= 2) {
-        data.basic.openInVn = true
-        if (index >= 3) data.basic.layout = 'auto'
-        if (index === 2) data.directives.kinds.push('cg')
-        if (index === 4) data.directives.kinds.push('combat')
-        data.state.schema = JSON.stringify(index === 2 ? galgame : index === 3 ? rpg : dnd, null, 2)
-      }
-      const id = newId()
-      const now = Date.now()
-      db.insert(playPresets).values({ id, name, data, builtin: true, createdAt: now, updatedAt: now }).run()
-      if (index === 0) setSetting(SETTING_KEYS.defaultPlayPresetId, id)
+    for (const def of BUILTIN_PLAY_PRESETS) {
+      const id = insertBuiltin(def)
+      if (def.key === 'chat') setSetting(SETTING_KEYS.defaultPlayPresetId, id)
     }
     setSetting(SETTING_KEYS.playPresetsSeeded, true)
   })
+}
+
+/** 补回被删掉的内置预设，返回补回了几个 */
+export function restoreBuiltinPlayPresets(): number {
+  const existing = new Set(
+    db
+      .select({ key: playPresets.builtinKey })
+      .from(playPresets)
+      .all()
+      .map((row) => row.key),
+  )
+  const missing = BUILTIN_PLAY_PRESETS.filter((def) => !existing.has(def.key))
+  db.transaction(() => {
+    for (const def of missing) insertBuiltin(def)
+  })
+  return missing.length
+}
+
+/** 把内置预设的名字和全部设置恢复成内置默认；不是内置预设时返回 null */
+export function builtinDefinition(key: string | null) {
+  return BUILTIN_PLAY_PRESETS.find((def) => def.key === key) ?? null
 }

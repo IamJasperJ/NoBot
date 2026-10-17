@@ -1,0 +1,1 @@
+ALTER TABLE `play_presets` DROP COLUMN `builtin`;

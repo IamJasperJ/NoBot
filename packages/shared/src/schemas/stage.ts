@@ -58,9 +58,14 @@ export interface CastMember {
   name: string
   /** 当前表情（英文标识，可能是自定义表情）；没写过时为空串 */
   expression: string
-  /** 当前服装（立绘子集），VN2 起生效 */
+  /** 当前服装（立绘子集） */
   outfit?: string
   at: StagePosition
+  /**
+   * 对应的角色卡 id（后端按会话成员的名字匹配：忽略大小写和空白，也认名字的第一个词，比如 Ellie ↔ Ellie Sunleaf）。
+   * 匹配不到（临时 NPC）时为 null，前端显示剪影或头像
+   */
+  characterId?: string | null
 }
 
 export interface StageScene {
@@ -116,6 +121,11 @@ export interface MessageStage {
   choices?: ChoiceOption[]
   /** 解析时发现的问题（未知表情、格式错误的行…），只用于调试显示 */
   warnings?: string[]
+  /**
+   * 兜底情绪判断的状态（玩法预设 sprites.classify 开启时）：
+   * pending 判断中（前端会轮询刷新）；done 已判断，结果作为一个 expr 操作追加在 ops 末尾；error 判断失败（不影响其他）
+   */
+  classify?: 'pending' | 'done' | 'error'
 }
 
 // ---------------------------------------------------------------------------

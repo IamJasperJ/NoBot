@@ -63,7 +63,7 @@ describe('E3 管理界面', () => {
     const html = render(<CharactersPage />)
     expect(html).toContain('bg-violet-100 dark:bg-violet-950')
     expect(html).toContain('测试角色')
-    expect(html).toContain('accept=".png,.json" multiple=""')
+    expect(html).toContain('accept=".png,.json,.charx" multiple=""')
     expect(html).not.toContain('基础设定')
   })
 

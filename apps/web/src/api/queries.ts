@@ -16,6 +16,7 @@ export const keys = {
   connections: ['connections'] as const,
   presets: ['presets'] as const,
   playPresets: ['playPresets'] as const,
+  sprites: (characterId: string) => ['sprites', characterId] as const,
   personas: ['personas'] as const,
   characters: ['characters'] as const,
   character: (id: string) => ['character', id] as const,
@@ -50,6 +51,12 @@ export const useBackgroundSettings = () =>
 export const useConnections = () => useQuery({ queryKey: keys.connections, queryFn: api.listConnections })
 export const usePresets = () => useQuery({ queryKey: keys.presets, queryFn: api.listPresets })
 export const usePlayPresets = () => useQuery({ queryKey: keys.playPresets, queryFn: api.listPlayPresets })
+export const useSprites = (characterId: string | null | undefined) =>
+  useQuery({
+    queryKey: keys.sprites(characterId ?? ''),
+    queryFn: () => api.listSprites(characterId as string),
+    enabled: !!characterId,
+  })
 export const usePersonas = () => useQuery({ queryKey: keys.personas, queryFn: api.listPersonas })
 export const useCharacters = () => useQuery({ queryKey: keys.characters, queryFn: api.listCharacters })
 export const useCharacter = (id: string | null) =>

@@ -1,3 +1,5 @@
+import { rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   buildCardExport,
   CardParseError,
@@ -24,9 +26,12 @@ import { asc, desc, eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, newId } from '../db/client'
 import { type CharacterRow, characterLorebooks, characters, lorebooks, personas } from '../db/schema'
+import { paths } from '../env'
 import { HttpError, notFound } from '../errors'
+import { readCharx } from '../lib/charx'
 import { avatarUrl, deleteAvatar, readAvatar, saveAvatar } from '../lib/files'
 import { createEntry, createLorebook, getLorebookWithEntries } from './lorebooks'
+import { saveSprite } from './sprites'
 
 export function toSummary(row: CharacterRow): CharacterSummary {
   return {
@@ -191,23 +196,25 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
 function parseImport(bytes: Uint8Array, includeBook = true) {
   let card: ReturnType<typeof parseCardFile>
   let book: ReturnType<typeof importSTWorldInfo> | null
+  let charx: ReturnType<typeof readCharx>
   try {
-    card = parseCardFile(bytes)
+    charx = readCharx(bytes)
+    card = charx?.card ?? parseCardFile(bytes)
     book = includeBook && card.characterBook ? importSTWorldInfo(card.characterBook) : null
   } catch (error) {
     if (error instanceof CardParseError || error instanceof STFormatError)
       throw new HttpError(400, 'BAD_CARD', `角色卡无法导入：${error.message}`)
     throw error
   }
-  return { card, book }
+  return { card, book, charx }
 }
 
 export function previewCharacterImport(bytes: Uint8Array): CharacterImportPreview {
-  const { card, book } = parseImport(bytes)
+  const { card, book, charx } = parseImport(bytes)
   return {
     name: card.fields.name,
     spec: card.spec,
-    hasAvatar: isPng(bytes),
+    hasAvatar: isPng(bytes) || !!charx?.avatar,
     lorebook: book
       ? { name: book.name?.trim() || `${card.fields.name} 的世界书`, entryCount: book.entries.length }
       : null,
@@ -218,11 +225,12 @@ export async function importCharacter(
   bytes: Uint8Array,
   lorebook: CharacterImportLorebook = 'skip',
 ): Promise<CharacterDTO> {
-  const { card, book } = parseImport(bytes, lorebook !== 'skip')
+  const { card, book, charx } = parseImport(bytes, lorebook !== 'skip')
   const id = newId()
-  const avatarFile = isPng(bytes) ? await saveAvatar(id, bytes) : null
+  const avatar = charx?.avatar ?? (isPng(bytes) ? bytes : null)
+  const avatarFile = avatar ? await saveAvatar(id, avatar) : null
   try {
-    return db.transaction(() => {
+    const imported = db.transaction(() => {
       const lorebookIds: string[] = []
       if (book) {
         const created = createLorebook({ name: book.name?.trim() || `${card.fields.name} 的世界书` })
@@ -262,7 +270,11 @@ export async function importCharacter(
       replaceBooks(id, ids)
       return getCharacter(id)
     })
+    for (const emotion of charx?.emotions ?? []) await saveSprite(id, emotion.data, '', emotion.name.toLowerCase())
+    return imported
   } catch (error) {
+    db.delete(characters).where(eq(characters.id, id)).run()
+    await rm(join(paths.sprites, id), { recursive: true, force: true })
     await deleteAvatar(avatarFile)
     throw error
   }
@@ -271,6 +283,7 @@ export async function deleteCharacter(id: string) {
   const row = getCharacterRow(id)
   db.delete(characters).where(eq(characters.id, id)).run()
   await deleteAvatar(row.avatarFile)
+  await rm(join(paths.sprites, id), { recursive: true, force: true })
 }
 export async function setCharacterAvatar(id: string, bytes: Uint8Array): Promise<CharacterDTO> {
   const row = getCharacterRow(id)

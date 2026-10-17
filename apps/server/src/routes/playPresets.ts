@@ -3,10 +3,13 @@ import { Hono } from 'hono'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'
 import * as service from '../services/playPresets'
+import { restoreBuiltinPlayPresets } from '../services/playPresets.builtin'
 
 export const playPresetRoutes = new Hono()
   .get('/', (c) => c.json(service.listPlayPresets()))
   .post('/', validate('json', playPresetInput), (c) => c.json(service.createPlayPreset(c.req.valid('json'))))
+  /** 补回被删掉的内置预设 */
+  .post('/restore-builtins', (c) => c.json({ restored: restoreBuiltinPlayPresets() }))
   .post('/import', async (c) => {
     const body = await c.req.parseBody()
     const bytes = await readUpload(body)
@@ -34,3 +37,5 @@ export const playPresetRoutes = new Hono()
     return c.json({ ok: true })
   })
   .post('/:id/duplicate', (c) => c.json(service.duplicatePlayPreset(c.req.param('id'))))
+  /** 内置预设恢复成内置默认 */
+  .post('/:id/reset', (c) => c.json(service.resetPlayPreset(c.req.param('id'))))

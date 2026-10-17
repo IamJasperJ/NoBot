@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'
 import * as service from '../services/characters'
+import { spriteRoutes } from './sprites'
 
 export const characterRoutes = new Hono()
   .get('/', (c) => c.json(service.listCharacters()))
@@ -38,3 +39,5 @@ export const characterRoutes = new Hono()
   .post('/:id/avatar', async (c) =>
     c.json(await service.setCharacterAvatar(c.req.param('id'), await readUpload(await c.req.parseBody()))),
   )
+
+characterRoutes.route('/:id/sprites', spriteRoutes)

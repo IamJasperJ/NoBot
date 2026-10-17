@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, usePlayPresets } from '../../api/queries'
-import { CheckIcon, CopyIcon, DownloadIcon, PlusIcon, TrashIcon, UploadIcon } from '../../components/icons'
+import { CheckIcon, CopyIcon, DownloadIcon, PlusIcon, RefreshIcon, TrashIcon, UploadIcon } from '../../components/icons'
 import { DetailHeader, ListItem } from '../../components/layout'
 import { Menu, MenuDivider, MenuEntry } from '../../components/menu'
 import { Button, badgeClass, controlClass, cx, IconButton } from '../../components/ui'
@@ -56,6 +56,19 @@ export function usePlayPresetPanel(): { list: ReactNode; detail: ReactNode; open
           <h2 className="text-sm font-semibold">玩法预设</h2>
           <p className="truncate text-xs text-zinc-500">VN 模式：指令、变量、立绘、跑团</p>
         </div>
+        <IconButton
+          label="补回被删掉的内置预设"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              const { restored } = await api.restoreBuiltinPlayPresets()
+              await refresh()
+              toast.info(restored ? `已补回 ${restored} 个内置预设` : '内置预设都在，没有需要补回的')
+            })
+          }
+        >
+          <RefreshIcon />
+        </IconButton>
         <IconButton
           label="导入玩法预设"
           disabled={busy}
@@ -200,6 +213,22 @@ export function usePlayPresetPanel(): { list: ReactNode; detail: ReactNode; open
                 >
                   复制
                 </MenuEntry>
+                {current?.builtin && (
+                  <MenuEntry
+                    icon={<RefreshIcon />}
+                    disabled={busy}
+                    onClick={() => {
+                      if (confirm(`把「${original.name}」的名字和全部设置恢复成内置默认？`))
+                        void run(async () => {
+                          pick(await api.resetPlayPreset(original.id))
+                          await refresh()
+                          toast.info('已恢复内置默认')
+                        })
+                    }}
+                  >
+                    重置为内置默认
+                  </MenuEntry>
+                )}
                 <MenuEntry icon={<DownloadIcon />} disabled={busy} onClick={() => api.exportPlayPreset(original.id)}>
                   导出
                 </MenuEntry>

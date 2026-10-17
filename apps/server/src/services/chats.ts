@@ -21,7 +21,7 @@ import { avatarUrl } from '../lib/files'
 import { requireBackground } from './backgrounds'
 import { getPlayPreset } from './playPresets'
 import { SETTING_KEYS } from './settings'
-import { applyStageParse, computeStage, initialVars, resolvePlayPreset } from './stage'
+import { applyStageParse, backfillStage, computeStage, initialVars, resolvePlayPreset } from './stage'
 
 // ---------------------------------------------------------------------------
 // 消息树查询：用递归 CTE 从叶子沿 parent_id 往上走，一条 SQL 拿到整条路径。
@@ -294,6 +294,8 @@ export function createChat(input: CreateChatInput): ChatDTO {
  * before 为空时取最新的 limit 条；否则取 before 之前（更旧）的 limit 条。
  */
 export function getChatPage(chatId: string, opts: { before?: string; limit?: number }, generating: boolean): ChatPage {
+  // 开场白、开启指令前的旧消息还没解析过舞台指令，打开会话时补上（只在加载最新一页时做）
+  if (!opts.before && !generating) backfillStage(chatId)
   const chat = getChatRow(chatId)
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500)
 

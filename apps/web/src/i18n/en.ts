@@ -376,6 +376,7 @@ export const en: Record<string, string> = {
   立绘: 'Sprites',
   'VN 模式里按表情显示的角色图。透明背景的 PNG 最好；可以直接导入酒馆的立绘包（zip）':
     'Character images shown by expression in VN mode. Transparent PNGs work best; SillyTavern sprite packs (zip) can be imported directly',
+  服装: 'Outfits',
   默认服装: 'Default outfit',
   新建一套服装: 'Create an outfit',
   '服装名称（比如 casual、泳装）': 'Outfit name (e.g. casual, swimwear)',
@@ -1433,8 +1434,24 @@ export const en: Record<string, string> = {
   语音音量: 'Voice volume',
   '淡入淡出（毫秒）': 'Fade duration (ms)',
   指令说明模板: 'Directive instruction template',
-  '留空用默认模板。可用占位符：{{vn_kinds}} 指令写法、{{vn_cast}} 角色、{{vn_expressions}} 表情、{{vn_backgrounds}} 背景、{{vn_state}} 变量；为空的占位符所在的行会被整行去掉':
-    'Leave blank for the default. Placeholders: {{vn_kinds}} syntax, {{vn_cast}} cast, {{vn_expressions}} expressions, {{vn_backgrounds}} backgrounds, {{vn_state}} variables. Lines with empty placeholders are removed',
+  '留空用默认模板。可用占位符：{{vn_kinds}} 指令写法、{{vn_cast}} 角色、{{vn_expressions}} 表情、{{vn_backgrounds}} 背景、{{vn_outfits}} 服装、{{vn_state}} 变量、{{vn_example}} 示例回复；为空的占位符所在的行会被整行去掉':
+    'Leave blank for the default. Placeholders: {{vn_kinds}} syntax, {{vn_cast}} cast, {{vn_expressions}} expressions, {{vn_backgrounds}} backgrounds, {{vn_outfits}} outfits, {{vn_state}} variables, {{vn_example}} example reply. Lines with empty placeholders are removed',
+  末尾提醒模板: 'Closing reminder template',
+  '留空用默认模板。占位符 {{vn_rules}} 会换成按启用的指令生成的必须项，每条一行':
+    'Leave blank for the default. {{vn_rules}} is replaced with the required items for the enabled directives, one per line',
+  末尾再提醒一次: 'Closing reminder',
+  '在整个 Prompt 最后（预设的结尾指令之后）加一段简短的格式要求。很多预设结尾会要求「只写正文、不给选项」，不提醒的话模型常常不写指令':
+    'Add a short format requirement at the very end of the prompt, after the preset\'s closing instructions. Many presets end with "prose only, no choices", and without this reminder the model often skips directives',
+  提醒的身份: 'Reminder role',
+  '有些接口（比如部分 Gemini 中转）会把中途的 system 消息挪走，提醒不起作用时改成「用户」试试':
+    'Some APIs (such as certain Gemini proxies) move mid-chat system messages elsewhere. If the reminder has no effect, try "User"',
+  什么时候给选项: 'When to offer choices',
+  '需要勾选「选项」指令': 'Requires the "Choices" directive',
+  每条回复都给: 'Every reply',
+  需要玩家做决定时: 'When the player must decide',
+  自动生成缺少的背景: 'Generate missing backgrounds',
+  '模型换到背景库里没有的场景时，用图片生成扩展画一张，并用模型写的场景名命名（需要启用并配置图片生成）':
+    'When the model moves to a scene not in the background library, draw one with the image generation extension and name it after the scene (requires image generation to be enabled and configured)',
   '（使用默认模板）{newline}{preview}…': '(Using default template){newline}{preview}…',
   恢复默认: 'Reset default',
   '用默认模板覆盖当前内容？': 'Replace current content with the default template?',

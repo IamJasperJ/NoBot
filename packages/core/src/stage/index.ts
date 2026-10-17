@@ -204,6 +204,9 @@ export interface InstructionsInput {
   kinds: DirectiveKind[]
   lists: PromptList[]
   cast: string[]
+  /** 角色名到可用服装；空串表示默认服装，不写入清单。 */
+  outfits: Record<string, string[]>
+  choicesMode: 'always' | 'auto'
   expressions: string[]
   backgrounds: string[]
   schema: StateSchema
@@ -216,7 +219,8 @@ export interface InstructionsInput {
 /**
  * 渲染注入 Prompt 的指令说明：
  * - {{vn_kinds}}：按 kinds 顺序取 DIRECTIVE_KIND_GUIDES[style] 里有的段落，用换行连接
- * - {{vn_cast}} / {{vn_expressions}} / {{vn_backgrounds}}：对应 lists 启用且非空时用「、」连接，否则为空
+ * - {{vn_cast}} / {{vn_expressions}} / {{vn_backgrounds}}：对应 lists 启用且非空时用英文逗号连接，否则为空
+ * - {{vn_outfits}}：服装按角色分组，忽略空串；{{vn_example}}：按风格与启用种类生成示例
  * - {{vn_state}}：kinds 含 state 且 lists 含 vars 时生成，形如
  *     状态变量（路径：类型，规则；当前值）：
  *     - 艾莉丝.好感：0–100，温柔对待 +1~3；当前 35
@@ -283,3 +287,5 @@ export function stateStageName(stages: [number, string][] | undefined, value: un
   if (typeof value !== 'number' || !Number.isFinite(value)) return ''
   return stages?.findLast(([threshold]) => threshold <= value)?.[1] ?? ''
 }
+
+export { renderDirectiveReminder } from './instructions'

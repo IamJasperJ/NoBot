@@ -38,8 +38,9 @@ async function requestCompletion(
             speakerId: opts.speakerId ?? ctx.members[0]?.id ?? '',
             leafId: opts.includeHistory === false ? null : ctx.chat.activeLeafId,
             toolsEnabled: false,
+            quiet: true,
           }).messages
-    if ('instruction' in opts) prompt.push({ role: opts.role ?? 'system', content: opts.instruction })
+    if ('instruction' in opts) prompt.push({ role: instructionRole(prompt, opts.role), content: opts.instruction })
     const images = await resolveImages(prompt, ctx.preset.samplers.imageMaxSize)
     const body = buildRequestBody({
       model,
@@ -107,4 +108,9 @@ async function requestCompletion(
     })
     throw error
   }
+}
+
+/** 无对话内容时必须提供 user 消息，兼容要求 contents 的接口。 */
+export function instructionRole(prompt: { role: string }[], role?: 'system' | 'user' | 'assistant') {
+  return role ?? (prompt.some((message) => message.role === 'user' || message.role === 'assistant') ? 'system' : 'user')
 }

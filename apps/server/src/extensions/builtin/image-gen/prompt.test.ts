@@ -1,5 +1,14 @@
 import { expect, test } from 'bun:test'
-import { cleanPrompt, prefixPrompt, rawPrompt, replaceTemplate } from './modes'
+import { composePrompt, resolvePromptStyle } from './composition'
+import {
+  cleanPrompt,
+  prefixPrompt,
+  promptInstruction,
+  rawPrompt,
+  replaceTemplate,
+  templateEndings,
+  templates,
+} from './modes'
 import { parseSettings } from './settings'
 import { buildWorkflow } from './workflow'
 
@@ -53,4 +62,52 @@ test('ComfyUI 占位符：字符串转义、数字类型、固定及随机种子
   )
   const normal = buildWorkflow(parseSettings({}), 'cat', 64, 64, () => 0)
   expect(normal['9']).toMatchObject({ class_type: 'SaveImage' })
+})
+
+test('promptStyle 自动按后端与工作流判断，显式选择优先', () => {
+  // 默认是短标签；auto 才按后端和工作流判断
+  expect(resolvePromptStyle(parseSettings({ source: 'openai' }))).toBe('tags')
+  expect(resolvePromptStyle(parseSettings({ source: 'openai', promptStyle: 'auto' }))).toBe('natural')
+  expect(resolvePromptStyle(parseSettings({ source: 'comfy', promptStyle: 'auto' }))).toBe('tags')
+  for (const loader of ['UNETLoader', 'UnetLoaderGGUF', 'DualCLIPLoader', 'CLIPLoaderGGUF', 'lumina2', 'flux']) {
+    const settings = parseSettings({
+      source: 'comfy',
+      promptStyle: 'auto',
+      comfyWorkflowName: 'test',
+      comfyWorkflows: [{ name: 'test', json: JSON.stringify({ '1': { class_type: loader } }) }],
+    })
+    expect(resolvePromptStyle(settings)).toBe('natural')
+    expect(
+      resolvePromptStyle({ ...settings, comfyWorkflows: [{ name: 'test', json: `${loader} CheckpointLoaderSimple` }] }),
+    ).toBe('tags')
+    expect(resolvePromptStyle({ ...settings, promptStyle: 'tags' })).toBe('tags')
+  }
+})
+
+test('格式结尾只追加到内置默认模板，自定义模板保持原样', () => {
+  for (const style of ['tags', 'natural'] as const) {
+    for (const mode of ['free', 'background', 'character'] as const) {
+      expect(promptInstruction(mode, '', style)).toBe(`${templates[mode]}\n${templateEndings[style]}`)
+      expect(promptInstruction(mode, templates[mode], style)).toBe(`${templates[mode]}\n${templateEndings[style]}`)
+      expect(promptInstruction(mode, 'Custom {{input}}', style)).toBe('Custom {{input}}')
+    }
+  }
+})
+
+test('正负提示词拼接去掉各段首尾空白和逗号，也支持插入占位符', () => {
+  const settings = parseSettings({
+    styles: [
+      { name: 'test', promptPrefix: ' , highres, ', promptSuffix: ', cinematic, ', negativePrompt: ', blurry, ' },
+    ],
+    activeStyle: 'test',
+  })
+  expect(
+    composePrompt(settings, 'free', ', bright, ', { positive: ' , blue hair, ', negative: ', lowres, ' }, ', text, '),
+  ).toEqual({
+    prompt: 'highres, blue hair, bright, cinematic',
+    negative: 'blurry, lowres, text',
+    rawPrompt: 'bright',
+  })
+  settings.styles[0]!.promptPrefix = ', highres, {prompt}, '
+  expect(composePrompt(settings, 'free', 'bright', {}).prompt).toBe('highres, bright, cinematic')
 })

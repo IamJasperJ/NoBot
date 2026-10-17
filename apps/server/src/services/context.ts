@@ -7,7 +7,12 @@ import {
   parsePresetWithEnglishDefaults,
   type ScanEntry,
 } from '@ai-parter/core'
-import { renderDirectiveInstructions, stateStageName, toDisplayText } from '@ai-parter/core/stage'
+import {
+  renderDirectiveInstructions,
+  renderDirectiveReminder,
+  stateStageName,
+  toDisplayText,
+} from '@ai-parter/core/stage'
 import {
   type ChatMessage,
   EXPRESSIONS,
@@ -40,6 +45,7 @@ import { backgroundsForChat } from './backgrounds'
 import { computeVars, getChatRow, loadGroupDTO, loadPath } from './chats'
 import { resolveApiPreset } from './connections'
 import { getWorldInfoSettings, SETTING_KEYS } from './settings'
+import { listSprites } from './sprites'
 import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema } from './stage'
 
 /**
@@ -288,6 +294,8 @@ export interface AssembleOptions {
   leafId: string | null
   /** 还没入库的用户消息（预览时用） */
   pending?: { role: MessageRole; content: string }
+  /** 静默任务不遵循聊天正文的舞台输出格式。 */
+  quiet?: boolean
   /** 兼容无工具的静默生成；实际启用名单在此按会话统一解析。 */
   toolsEnabled?: boolean
   enabledTools?: string[]
@@ -352,34 +360,50 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
       .map(([key, name]) => `${key}_stage: ${name}`)
       .join('\n')
   }
-  if (play.directives.enabled && play.directives.inject) {
+  if (play.directives.enabled && opts.type !== 'impersonate' && !opts.quiet) {
     const stage = computeStage(ctx.chat.id, path)
-    const content = renderDirectiveInstructions({
+    const instructionInput = {
       ...play.directives,
       cast: [
         ...new Set([...ctx.members.map((member) => member.name), ...(stage?.cast.map((actor) => actor.name) ?? [])]),
       ],
       expressions: [...EXPRESSIONS, ...play.sprites.customExpressions],
-      backgrounds: backgroundsForChat(ctx.chat.id).map((row) => {
-        const chars = Array.from(row.description)
-        const description = chars.length > 40 ? `${chars.slice(0, 40).join('')}…` : row.description
-        return description ? `${row.name}（${description}）` : row.name
-      }),
+      outfits: Object.fromEntries(
+        ctx.members.map((member) => [
+          member.name,
+          [
+            ...new Set(
+              listSprites(member.id)
+                .map((sprite) => sprite.outfit)
+                .filter(Boolean),
+            ),
+          ],
+        ]),
+      ),
+      backgrounds: backgroundsForChat(ctx.chat.id).map((row) => row.name),
       schema,
       rules: init.rules,
       vars,
       valuesInPrompt: play.state.valuesInPrompt,
-    })
-    input.injections = [
-      {
+    }
+    input.injections = []
+    if (play.directives.inject)
+      input.injections.push({
         id: 'stage',
         label: t('舞台指令'),
         role: 'system',
-        content,
+        content: renderDirectiveInstructions(instructionInput),
         position: play.directives.position,
         depth: play.directives.position === 'author_note' ? ctx.chat.authorNoteDepth : play.directives.depth,
-      },
-    ]
+      })
+    if (play.directives.reminder)
+      input.injections.push({
+        id: 'stage_reminder',
+        label: t('舞台指令提醒'),
+        position: 'end',
+        role: play.directives.reminderRole,
+        content: renderDirectiveReminder({ ...instructionInput, reminderTemplate: play.directives.reminderTemplate }),
+      })
   }
   input = runBeforePrompt(input)
 

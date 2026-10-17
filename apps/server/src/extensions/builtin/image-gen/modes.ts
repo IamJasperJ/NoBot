@@ -15,19 +15,29 @@ const last =
   'Ignore previous format requirements. Turn the following content into an AI image prompt describing a single still image. Include location, number and gender of people, relative positions, main action, appearance, expression, and pose, in that order:\n{{input}}'
 export const templates: Partial<Record<Mode, string>> = {
   character:
-    'Ignore previous format requirements. Write an AI image prompt describing {{char}}, in this order: number and gender (e.g. 1girl / 1boy), species, apparent age, hairstyle and hair color, eyes, build, clothing, accessories, pose, expression, and brief background. Start with full body.',
-  face: 'Ignore previous format requirements. Write a close-up AI image prompt for {{char}}, in this order: number and gender, species, apparent age, hairstyle and hair color, eyes, facial features, expression, and head accessories. Start with close-up portrait, face focus.',
-  user: 'Ignore previous format requirements. Write an AI image prompt describing {{user}} (the character played by the user), in this order: number and gender, species, apparent age, hairstyle and hair color, eyes, build, clothing, pose, and expression. Start with full body. If appearance details are insufficient, infer plausible details from the available information.',
+    'Ignore previous format requirements. Write an AI image prompt describing {{char}}, including number and gender, species, apparent age, hairstyle and hair color, eyes, build, clothing, accessories, pose, expression, and brief background. Use full body framing.',
+  face: 'Ignore previous format requirements. Write a close-up AI image prompt for {{char}}, in this order: number and gender, species, apparent age, hairstyle and hair color, eyes, facial features, expression, and head accessories. Use close-up portrait framing and face focus.',
+  user: 'Ignore previous format requirements. Write an AI image prompt describing {{user}} (the character played by the user), in this order: number and gender, species, apparent age, hairstyle and hair color, eyes, build, clothing, pose, and expression. Use full body framing. If appearance details are insufficient, infer plausible details from the available information.',
   scene:
     'Ignore previous format requirements. Write an AI image prompt for the current story scene: people present (number, gender, key appearance details, actions), location, time, lighting, weather, mood, and camera angle.',
   last,
   message: last,
   background:
-    'Ignore previous format requirements. Write an AI image prompt for the current story location. Describe only the environment (location, architecture or landscape, time, lighting, weather, mood). No people may appear. Start with scenery, no humans.',
+    'Ignore previous format requirements. Write an AI image prompt for the current story location. Describe only the environment (location, architecture or landscape, time, lighting, weather, mood). No people may appear. Show scenery with no humans.',
   free: 'Ignore previous format requirements. Expand the following scene description into an AI image prompt:\n{{input}}',
 }
-export const templateEnding =
-  'Output only one line of comma-separated English keywords and phrases. Do not use full sentences, explanations, quotes, or prefixes. Describe only visible elements in a still image, excluding personality, sounds, smells, and thoughts.'
+export const templateEndings = {
+  tags: 'Output only one line of comma-separated English Danbooru-style tags, most important first: person count (1girl/1boy), character features, clothing, expression, pose and action, scene, lighting, camera. Each tag must contain 1–3 words. No sentences. Use at most about 40 tags. Describe only visible elements.',
+  natural:
+    'Output only one paragraph of 40–90 words of natural English describing visible elements: subject appearance, clothing, expression, pose and action, environment, lighting, mood, and camera. No lists, quotes, explanations, or prefixes.',
+}
+
+/** 自定义模板保持原样，只有内置模板接受统一的格式结尾。 */
+export function promptInstruction(mode: Mode, configured: unknown, style: 'tags' | 'natural'): string {
+  const fallback = templates[mode] ?? ''
+  const template = typeof configured === 'string' && configured ? configured : fallback
+  return !configured || configured === fallback ? `${template}\n${templateEndings[style]}` : template
+}
 
 export function replaceTemplate(template: string, values: { char: string; user: string; input: string }): string {
   return template.replace(/{{(char|user|input)}}/g, (_, key: keyof typeof values) => values[key])

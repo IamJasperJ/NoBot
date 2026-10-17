@@ -825,3 +825,22 @@ describe('通用注入', () => {
     })
   }
 })
+
+test.each(['normal', 'continue', 'impersonate'] as const)('end 注入在 post-history 之后、%s 预填充之前', (type) => {
+  const value = minimal()
+  value.type = type
+  value.preset.prompts.push(custom('post_history', { content: 'Post-history rule' }))
+  value.preset.behavior.assistantPrefill = 'Reply prefill'
+  value.preset.behavior.assistantImpersonationPrefill = 'User prefill'
+  value.preset.behavior.continuePrefill = true
+  value.injections = [{ id: 'stage_reminder', label: '提醒', position: 'end', role: 'user', content: 'Stage reminder' }]
+  const result = buildPrompt(value)
+  const segments = result.report.segments
+  const index = segments.findIndex((segment) => segment.source === 'stage_reminder')
+  expect(index).toBeGreaterThan(segments.findIndex((segment) => segment.source === 'post_history'))
+  expect(result.messages.at(-1)?.role).toBe('assistant')
+  expect(result.messages.findIndex((message) => message.content === 'Stage reminder')).toBeLessThan(
+    result.messages.length - 1,
+  )
+  expect(segments[index]?.role).toBe('user')
+})

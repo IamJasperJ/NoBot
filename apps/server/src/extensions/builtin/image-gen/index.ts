@@ -3,10 +3,21 @@ import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { listApiPresets } from '../../../services/connections'
 import { defineExtension, draftBody, draftChatId, parseSettingsDraft } from '../../types'
-import { matchInteractive } from './composition'
+import { matchInteractive, resolvePromptStyle } from './composition'
 import { comfyCapabilities, openaiModels, promptModels, testConnection } from './discovery'
 import { modes } from './modes'
-import { cancel, dismiss, generate, promptPreview, retry, runImageTool, testImage, toBackground } from './pipeline'
+import {
+  autoBackground,
+  cancel,
+  dismiss,
+  generate,
+  isBackgroundRunning,
+  promptPreview,
+  retry,
+  runImageTool,
+  testImage,
+  toBackground,
+} from './pipeline'
 import { defaultSettings, parseSettings, settingsSchema } from './settings'
 import { placeholders, workflowSource } from './workflow'
 import { workflowValidationError } from './workflow-validation'
@@ -45,6 +56,7 @@ export default defineExtension({
         error instanceof z.ZodError ? 400 : 502,
       )
     })
+    app.get('/background-status', (c) => c.json({ running: isBackgroundRunning(c.req.query('chatId') ?? '') }))
     app.post('/generate', async (c) => c.json(await generate(ctx, generateInput.parse(await c.req.json()))))
     app.post('/prompt', async (c) => c.json(await promptPreview(ctx, generateInput.parse(await c.req.json()))))
     app.post('/cancel', async (c) => c.json(cancel(ctx, messageInput.parse(await c.req.json()).messageId)))
@@ -165,6 +177,10 @@ export default defineExtension({
   },
   hooks: {
     onEvent(event, ctx) {
+      if (event.type === 'generation:complete') {
+        void autoBackground(ctx, event.chatId)
+        return
+      }
       if (
         event.type !== 'message:saved' ||
         event.message.role !== 'user' ||
@@ -196,7 +212,10 @@ export default defineExtension({
               properties: {
                 prompt: {
                   type: 'string',
-                  description: 'English comma-separated keywords describing visible elements in the image',
+                  description:
+                    resolvePromptStyle(parseSettings(ctx.settings)) === 'tags'
+                      ? 'One line of English Danbooru-style short tags describing visible elements, most important first: person count, appearance, clothing, expression, pose, scene, lighting, camera.'
+                      : 'One paragraph of natural English describing visible appearance, clothing, expression, pose, environment, lighting, mood, and camera.',
                 },
                 orientation: { type: 'string', enum: ['portrait', 'landscape', 'square'], default: 'portrait' },
                 as_background: { type: 'boolean' },

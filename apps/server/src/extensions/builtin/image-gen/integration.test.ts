@@ -351,7 +351,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       mode: 'background',
     })
     expect(bg.background.source).toBe('generated')
-    expect(bg.background.name).toMatch(/^画师 背景 /)
+    expect(bg.background.name).toBe('1girl, blue hair')
     expect(getChatRow(chat.id).backgroundId).toBe(bg.background.id)
     expect(getChatRow(chat.id).activeLeafId).toBe(beforeBackground)
     await json('/ext/image-gen/to-background', { messageId: error.id })
@@ -483,7 +483,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       body: JSON.stringify({ chatId: groupChat.id, mode: 'message', messageId: raw.id }),
     })
     expect(crossChat.status).toBe(400)
-    configure({ async: true })
+    configure({ async: true, refineModelPrompts: false })
     const toolFailure = await runTool('generate_image', '{"prompt":"FAIL"}', { chatId: groupChat.id, vars: {} })
     const toolError = host.appendMessage(groupChat.id, {
       role: 'tool',

@@ -407,6 +407,8 @@ describe('初始化、schema 与说明模板', () => {
   })
 
   const input: InstructionsInput = {
+    outfits: {},
+    choicesMode: 'always',
     template: '',
     style: 'shorthand',
     kinds: ['expression', 'state'],

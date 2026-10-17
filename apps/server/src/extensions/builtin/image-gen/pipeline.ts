@@ -1,19 +1,27 @@
 import { join } from 'node:path'
-import type { ImageGenMeta } from '@ai-parter/shared'
+import type { ImageGenMeta, MessageMeta, PlayPresetData, StageState } from '@ai-parter/shared'
 import { paths } from '../../../env'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { getAttachment } from '../../../services/attachments'
 import { deleteMessage, getChatRow, loadMessage, loadPath } from '../../../services/chats'
 import { getLanguage } from '../../../services/settings'
-import { computeStage } from '../../../services/stage'
+import { computeStage, resolvePlayPreset } from '../../../services/stage'
 import type { ToolResult } from '../../../tools'
 import type { ExtensionContext } from '../../types'
 import { generateComfy } from './backends/comfy'
 import { generateOpenAI } from './backends/openai'
-import { characterPrompt, composePrompt, dimensions } from './composition'
+import { characterPrompt, composePrompt, dimensions, resolvePromptStyle } from './composition'
 import { comfyHeaders, openaiHeaders, resolveImageConnection } from './discovery'
-import { cleanPrompt, type Mode, rawPrompt, replaceTemplate, templateEnding, templates } from './modes'
+import {
+  cleanPrompt,
+  type Mode,
+  promptInstruction,
+  rawPrompt,
+  replaceTemplate,
+  templateEndings,
+  templates,
+} from './modes'
 import { fitOpenaiSize } from './options'
 import { Semaphore } from './semaphore'
 import { parseSettings, type Settings } from './settings'
@@ -31,6 +39,7 @@ export interface GenerateInput {
   negative?: string
   snapshotId?: string
   origin?: 'button' | 'interactive'
+  backgroundName?: string
 }
 const imageQueue = new Semaphore(3)
 const tasks = new Map<string, AbortController>()
@@ -131,11 +140,11 @@ async function freeze(ctx: Context, input: GenerateInput): Promise<Snapshot> {
     character,
   }
 }
-async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: AbortSignal) {
+async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: AbortSignal, refine = false) {
   const { settings, input, prepared } = snapshot
   let text: string
   if (input.mode === 'raw_last') text = settings.minimalProcessing ? prepared.text : rawPrompt(prepared.text)
-  else if (input.mode === 'free' && prepared.text.startsWith('!')) text = prepared.text.slice(1)
+  else if (!refine && input.mode === 'free' && prepared.text.startsWith('!')) text = prepared.text.slice(1)
   else {
     let avatar: Uint8Array | null = null
     if (settings.multimodalCaptioning && ['character', 'face', 'user'].includes(input.mode)) {
@@ -143,18 +152,22 @@ async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: AbortSigna
       if (id) avatar = await ctx.host.readAvatar(input.mode === 'user' ? 'persona' : 'character', id)
     }
     const template = settings[`tpl_${input.mode}`]
-    const instruction = avatar
-      ? `Describe the appearance of the character in the image in detail. Output English comma-separated keywords, starting with ${input.mode === 'face' ? 'close-up portrait' : 'full body portrait'}.`
-      : replaceTemplate(typeof template === 'string' ? template : (templates[input.mode] ?? ''), {
-          char: prepared.character.name,
-          user: prepared.info.persona.name,
-          input: prepared.text,
-        })
+    const style = resolvePromptStyle(settings)
+    const builtin = !template || template === templates[input.mode]
+    let instruction =
+      avatar && builtin
+        ? `Describe the visible appearance of the character in the image using ${input.mode === 'face' ? 'close-up portrait' : 'full body portrait'} framing.\n${templateEndings[style]}`
+        : replaceTemplate(promptInstruction(input.mode, template, style), {
+            char: prepared.character.name,
+            user: prepared.info.persona.name,
+            input: prepared.text,
+          })
+    if (input.mode === 'background' && prepared.text.trim()) instruction += `\nAdditional information: ${prepared.text}`
     text = await ctx.host.quietPrompt({
       chatId: input.chatId,
       speakerId: prepared.character.id,
       includeHistory: settings.promptWithHistory,
-      instruction: `${instruction}\n${templateEnding}`,
+      instruction,
       connectionId: settings.promptConnectionId || undefined,
       model: settings.promptModel || undefined,
       avatar: avatar ?? undefined,
@@ -282,20 +295,39 @@ export async function nameBackground(
   const sceneName = stage?.scene.backgroundId === null ? stage.scene.bg?.trim() : undefined
   let name =
     sceneName ||
+    (stage?.scene.place?.trim()
+      ? [stage.scene.place.trim(), stage.scene.time?.trim()].filter(Boolean).join(' ')
+      : '') ||
+    prompt
+      .split(',')
+      .map((part) => part.trim())
+      .filter(
+        (part) =>
+          part &&
+          !/^(?:best quality|high quality|highest quality|masterpiece|highly detailed|ultra detailed|ultra-detailed|highres|high res|high resolution|[48]k|scenery|no humans)$/i.test(
+            part,
+          ),
+      )
+      .slice(0, 3)
+      .join(', ') ||
     t('{name} 背景 {time}', {
       name: characterName,
       time: new Date().toLocaleString(getLanguage() === 'en' ? 'en-US' : 'zh-CN'),
     })
   let description = ''
   try {
-    const reply = await ctx.host.quietPrompt({
+    const reply = await ctx.host.complete({
       chatId,
-      includeHistory: false,
-      maxTokens: 120,
+      summary: t('背景起名'),
       connectionId: settings.promptConnectionId || undefined,
       model: settings.promptModel || undefined,
-      instruction: `The following describes a background image. Give it a short name (2–10 words or Chinese characters), using the location plus any necessary time or mood, such as "Tavern at dusk". Describe the image in one sentence of at most 40 words or Chinese characters. Write in ${getLanguage() === 'en' ? 'English' : 'Chinese'}. Output only JSON: {"name": "...", "description": "..."}
+      messages: [
+        {
+          role: 'user',
+          content: `The following describes a background image. Give it a short name (2–10 words or Chinese characters), using the location plus any necessary time or mood, such as "Tavern at dusk". Describe the image in one sentence of at most 40 words or Chinese characters. Write in ${getLanguage() === 'en' ? 'English' : 'Chinese'}. Output only JSON: {"name": "...", "description": "..."}
 Image description: ${prompt}`,
+        },
+      ],
     })
     const start = reply.indexOf('{')
     if (start < 0) throw new Error(t('模型没有返回 JSON'))
@@ -336,12 +368,14 @@ async function background(
   name: string,
   settings: Settings,
   prompt: string,
+  backgroundName?: string,
 ) {
   const metadata = await nameBackground(ctx, chatId, settings, prompt, name)
   const saved = await ctx.host.saveBackground(bytes, {
     source: 'generated',
     chatId,
     ...metadata,
+    ...(backgroundName ? { name: backgroundName } : {}),
   })
   ctx.host.setChatBackground(chatId, saved.id)
   return { background: saved }
@@ -441,7 +475,15 @@ export async function generate(ctx: Context, input: GenerateInput) {
       stage('saving')
       if (input.mode === 'background') {
         controller.signal.throwIfAborted()
-        return await background(ctx, input.chatId, bytes, prepared.character.name, settings, snapshot.prompt!)
+        return await background(
+          ctx,
+          input.chatId,
+          bytes,
+          prepared.character.name,
+          settings,
+          snapshot.prompt!,
+          input.backgroundName,
+        )
       }
       await pendingReady
       const image = await ctx.host.saveImage(bytes)
@@ -657,7 +699,11 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
   let meta: ImageGenMeta = { status: 'error', mode: 'tool' }
   try {
     if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new Error(t('图片提示词不能为空'))
-    const snapshot = await freeze(ctx, { chatId: ctx.chatId, mode: 'character', prompt: args.prompt })
+    const snapshot = await freeze(ctx, {
+      chatId: ctx.chatId,
+      mode: args.as_background === true ? 'background' : 'free',
+      input: args.prompt,
+    })
     const { settings, prepared } = snapshot
     let size = dimensions(settings, args.orientation === 'landscape', 'tool')
     if (args.orientation === 'square') size.height = size.width
@@ -665,11 +711,29 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
       const [width, height] = fitOpenaiSize(settings, size.width, size.height).split('x').map(Number)
       size = { width: width!, height: height! }
     }
+    let toolPrompt = args.prompt
+    if (settings.refineModelPrompts) {
+      try {
+        await writePrompt(ctx, snapshot, undefined, true)
+        toolPrompt = snapshot.rawPrompt ?? args.prompt
+      } catch (error) {
+        ctx.host.log({
+          chatId: ctx.chatId,
+          kind: 'image',
+          status: 'error',
+          summary: t('生图提示词润色失败：{error}', { error: safeError(error, settings) }),
+        })
+      }
+    }
     const combined = composePrompt(
       settings,
       'tool',
-      args.prompt,
-      characterPrompt('tool', prepared.character.extensions, !!prepared.info.chat.groupId),
+      toolPrompt,
+      characterPrompt(
+        args.as_background === true ? 'background' : 'tool',
+        prepared.character.extensions,
+        !!prepared.info.chat.groupId,
+      ),
     )
     Object.assign(snapshot, combined, size)
     settings.negativePrompt = combined.negative
@@ -754,5 +818,58 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
       content: 'Image generation failed. The user can inspect the error and retry.',
       meta: { imageGen: { ...meta, status: 'error', error: errorText(error) } },
     }
+  }
+}
+
+const backgroundTasks = new Map<string, string>()
+
+export function isBackgroundRunning(chatId: string): boolean {
+  return [...backgroundTasks.values()].includes(chatId)
+}
+
+/** 只为最新回复引入且尚未匹配的背景生成图片，避免普通续写反复触发。 */
+export function missingBackground(
+  play: PlayPresetData,
+  message: { meta: MessageMeta } | undefined,
+  stage: StageState | null,
+): string | null {
+  if (!play.directives.enabled || !play.stage.autoBackground || !stage || stage.scene.backgroundId !== null) return null
+  const bg = stage.scene.bg?.trim()
+  return bg && message?.meta.stage?.ops.some((op) => op.op === 'scene' && op.bg?.trim() === bg) ? bg : null
+}
+
+export async function autoBackground(ctx: Context, chatId: string): Promise<void> {
+  try {
+    const play = resolvePlayPreset(chatId).data
+    if (!play.directives.enabled || !play.stage.autoBackground) return
+    const path = loadPath(getChatRow(chatId).activeLeafId)
+    const stage = computeStage(chatId, path)
+    const bg = missingBackground(
+      play,
+      path.findLast((message) => message.role === 'assistant'),
+      stage,
+    )
+    if (!bg) return
+    validate(resolveImageConnection(parseSettings(ctx.settings)))
+    const key = JSON.stringify([chatId, bg])
+    if (backgroundTasks.has(key)) return
+    backgroundTasks.set(key, chatId)
+    try {
+      await generate(ctx, {
+        chatId,
+        mode: 'background',
+        backgroundName: bg,
+        input: `Location name: ${bg}; place: ${stage?.scene.place ?? ''}; time: ${stage?.scene.time ?? ''}`,
+      })
+    } finally {
+      backgroundTasks.delete(key)
+    }
+  } catch (error) {
+    ctx.host.log({
+      chatId,
+      kind: 'image',
+      status: 'error',
+      summary: t('自动背景生成失败：{error}', { error: errorText(error) }),
+    })
   }
 }

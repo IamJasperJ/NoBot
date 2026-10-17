@@ -1,5 +1,18 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  舞台指令提醒: 'Stage directive reminder',
+  背景起名: 'Name background',
+  提示词格式: 'Prompt format',
+  短标签: 'Short tags',
+  自然语言: 'Natural language',
+  '短标签（Danbooru 风格）适合 SD、SDXL、Illustrious、Pony；自然语言适合 Flux、Z-Image、Qwen-Image、GPT Image 和 Gemini；自动按图片后端与工作流选择':
+    'Short Danbooru-style tags suit SD, SDXL, Illustrious and Pony; natural language suits Flux, Z-Image, Qwen-Image, GPT Image and Gemini; Auto picks by image backend and workflow',
+  润色模型的生图提示词: 'Refine model image prompts',
+  '工具调用时先用提示词模型改写描述，失败时使用原文':
+    'Rewrite tool prompts with the prompt model first; use the original if rewriting fails',
+  '生图提示词润色失败：{error}': 'Image prompt refinement failed: {error}',
+  '自动背景生成失败：{error}': 'Automatic background generation failed: {error}',
+
   '还没有消息，没法修改变量': 'There are no messages yet, so variables cannot be edited',
   这个会话的玩法预设不允许手动修改数值: 'The play preset of this chat does not allow editing values manually',
   '正在生成，稍后再修改变量': 'Generation is in progress. Edit variables after it finishes',
@@ -350,8 +363,8 @@ export const en: Record<string, string> = {
   '自定义（下面填写地址和密钥）': 'Custom (enter URL and key below)',
   自由描述: 'Free description',
   行为: 'Behavior',
-  '要求输出英文关键词；支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}':
-    'Request English keywords; supports {{char}} {{user}} {{input}} and {{charPrefix}} in free mode',
+  '支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}；内置模板按格式设置输出，自定义模板自行决定格式':
+    'Supports {{char}} {{user}} {{input}} and {{charPrefix}} in free mode. Built-in templates follow the format setting; custom templates control their own format',
   覆盖该类型的风格参数: 'Override style parameters for this generation type',
   规则: 'Rules',
   角色: 'Character',

@@ -69,6 +69,8 @@ const shape = z
     maxConcurrent: z.number().int().min(1).max(8).default(3),
     async: z.boolean().default(true),
     toolEnabled: z.boolean().default(false),
+    promptStyle: z.enum(['auto', 'tags', 'natural']).default('tags'),
+    refineModelPrompts: z.boolean().default(true),
     promptWithHistory: z.boolean().default(true),
     editBeforeGenerate: z.boolean().default(false),
     interactiveMode: z.boolean().default(false),
@@ -289,10 +291,23 @@ export const settingsSchema: ExtensionSettingField[] = [
   text('promptModel', '写提示词的模型', '留空使用该连接的默认模型；跟随会话时请先选择会话', {
     optionsSource: 'prompt/models',
   }),
+  {
+    ...select('promptStyle', '提示词格式', [
+      { value: 'tags', label: '短标签' },
+      { value: 'natural', label: '自然语言' },
+      { value: 'auto', label: '自动' },
+    ]),
+    hint: '短标签（Danbooru 风格）适合 SD、SDXL、Illustrious、Pony；自然语言适合 Flux、Z-Image、Qwen-Image、GPT Image 和 Gemini；自动按图片后端与工作流选择',
+  },
+  bool('refineModelPrompts', '润色模型的生图提示词', '工具调用时先用提示词模型改写描述，失败时使用原文'),
   heading('templates', '提示词模板', true),
   ...modes
     .filter((m) => m.key in templates)
     .map((m) =>
-      area(`tpl_${m.key}`, m.name, '要求输出英文关键词；支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}'),
+      area(
+        `tpl_${m.key}`,
+        m.name,
+        '支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}；内置模板按格式设置输出，自定义模板自行决定格式',
+      ),
     ),
 ]

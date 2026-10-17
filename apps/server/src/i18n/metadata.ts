@@ -4,6 +4,21 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '提示词格式':
+      return t('提示词格式')
+    case '短标签':
+      return t('短标签')
+    case '自然语言':
+      return t('自然语言')
+    case '短标签（Danbooru 风格）适合 SD、SDXL、Illustrious、Pony；自然语言适合 Flux、Z-Image、Qwen-Image、GPT Image 和 Gemini；自动按图片后端与工作流选择':
+      return t(
+        '短标签（Danbooru 风格）适合 SD、SDXL、Illustrious、Pony；自然语言适合 Flux、Z-Image、Qwen-Image、GPT Image 和 Gemini；自动按图片后端与工作流选择',
+      )
+    case '润色模型的生图提示词':
+      return t('润色模型的生图提示词')
+    case '工具调用时先用提示词模型改写描述，失败时使用原文':
+      return t('工具调用时先用提示词模型改写描述，失败时使用原文')
+
     case '-1 为随机；生成新候选时固定种子也会重新随机':
       return t('-1 为随机；生成新候选时固定种子也会重新随机')
     case '0 表示不按 token 触发':
@@ -300,8 +315,10 @@ export function translateMetadata(text: string): string {
       return t('自由描述')
     case '行为':
       return t('行为')
-    case '要求输出英文关键词；支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}':
-      return t('要求输出英文关键词；支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}')
+    case '支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}；内置模板按格式设置输出，自定义模板自行决定格式':
+      return t(
+        '支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}；内置模板按格式设置输出，自定义模板自行决定格式',
+      )
     case '覆盖该类型的风格参数':
       return t('覆盖该类型的风格参数')
     case '规则':

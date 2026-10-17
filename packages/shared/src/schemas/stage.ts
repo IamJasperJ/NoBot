@@ -173,7 +173,7 @@ export const DIRECTIVE_KIND_LABELS: Record<DirectiveKind, string> = {
   audio: '音频',
 }
 
-export const promptListSchema = z.enum(['cast', 'expressions', 'backgrounds', 'vars'])
+export const promptListSchema = z.enum(['cast', 'expressions', 'backgrounds', 'vars', 'outfits'])
 export type PromptList = z.infer<typeof promptListSchema>
 
 export const ruleSystemSchema = z.enum(['dnd5e', 'coc7', 'pf2e', 'pbta', 'custom'])
@@ -200,11 +200,15 @@ const directivesSchema = z.object({
   inject: z.boolean().default(true),
   /** 指令说明模板，空串表示用对应风格的默认模板（DEFAULT_DIRECTIVE_TEMPLATES） */
   template: z.string().default(''),
+  reminder: z.boolean().default(true),
+  reminderTemplate: z.string().default(''),
+  reminderRole: z.enum(['system', 'user']).default('system'),
+  choicesMode: z.enum(['always', 'auto']).default('always'),
   /** after_char：紧跟角色设定之后；author_note：和作者注释同一深度；depth：指定深度 */
   position: z.enum(['after_char', 'author_note', 'depth']).default('after_char'),
   depth: z.number().int().min(0).max(1000).default(4),
   /** 在说明里附带的动态清单 */
-  lists: z.array(promptListSchema).default(['cast', 'expressions', 'backgrounds', 'vars']),
+  lists: z.array(promptListSchema).default(['cast', 'expressions', 'backgrounds', 'vars', 'outfits']),
   /** 发给模型的历史里保留指令原文（模型照着学，一致性更好） */
   keepInHistory: z.boolean().default(true),
   /** 只保留最近 N 条消息里的指令，更早的换成去掉指令后的文本；0 表示不限 */
@@ -247,6 +251,7 @@ const spritesSchema = z.object({
 })
 
 const stageSettingsSchema = z.object({
+  autoBackground: z.boolean().default(true),
   maxCast: z.number().int().min(1).max(5).default(3),
   focus: z.boolean().default(true),
   dim: z.number().int().min(0).max(90).default(40),
@@ -355,45 +360,33 @@ export type CardVn = z.infer<typeof cardVnSchema>
  * - {{vn_cast}}：可登场的角色名
  * - {{vn_expressions}}：可用的表情名
  * - {{vn_backgrounds}}：背景库里的名字
+ * - {{vn_outfits}}：可用服装（按角色分组）
+ * - {{vn_example}}：按启用种类生成的示例
  * - {{vn_state}}：变量定义（含规则）和当前值
  * 某个清单没启用或为空时，占位符替换成空串，所在行会被整行去掉。
  */
+const directiveTemplate = `[Required stage output format]
+These directives are mandatory application output syntax, rendered by a visual novel engine and hidden from the reader. Even if other instructions demand narrative prose only, no markup, no speaker prefixes, or no choices, you MUST include the enabled directives below.
+{{vn_kinds}}
+Available characters: {{vn_cast}}
+Available expressions: {{vn_expressions}}
+Available backgrounds: {{vn_backgrounds}}
+{{vn_outfits}}
+{{vn_state}}
+Example of the structure (write the actual content in the conversation language):
+{{vn_example}}
+Do not explain directives or wrap them in code blocks. Write in the same language as the conversation.`
+
 export const DEFAULT_DIRECTIVE_TEMPLATES: Record<'shorthand' | 'xml', string> = {
-  shorthand: `[Stage directives]
-This is a visual novel conversation. Stage directives in your response control character sprites and scenes and are hidden from the reader. Use the following formats in the body:
-{{vn_kinds}}
-Available characters: {{vn_cast}}
-Available expressions: {{vn_expressions}}
-Available backgrounds: {{vn_backgrounds}}
-{{vn_state}}
-Do not explain directives or put them in code blocks. Write in the same language as the conversation, including dialogue and narration.`,
-  xml: `[Stage directives]
-This is a visual novel conversation. Stage directives in your response control character sprites and scenes and are hidden from the reader. Use the following XML tags:
-{{vn_kinds}}
-Available characters: {{vn_cast}}
-Available expressions: {{vn_expressions}}
-Available backgrounds: {{vn_backgrounds}}
-{{vn_state}}
-Do not explain tags or put them in code blocks. Write in the same language as the conversation, including dialogue and narration.`,
+  shorthand: directiveTemplate,
+  xml: directiveTemplate,
 }
 
-/** 每种指令在两种风格下的写法说明，renderDirectiveInstructions 按启用的种类拼进 {{vn_kinds}} */
-export const DIRECTIVE_KIND_GUIDES: Record<'shorthand' | 'xml', Partial<Record<DirectiveKind, string>>> = {
-  shorthand: {
-    expression:
-      '- 台词单独成行，格式是 名字[表情]：「台词」，例如 艾莉丝[joy]：「欢迎回来！」。表情不变时可以省略 [表情]。',
-    cast: '- 角色登场：<show who="名字" at="left|center|right" />；退场：<hide who="名字" />。',
-    scene: '- 换场景：<scene bg="背景名" place="地点" time="时间" />，只在场景真正变化时写。',
-    state: '- 状态变化写在回复末尾：\n<state>\n路径 = 值\n路径 += 数字\n路径 -= 数字\n</state>',
-    choices: '- 需要玩家做选择时，在回复最后给出 2–4 个选项：\n<choices>\n- 选项一\n- 选项二\n</choices>',
-    cg: '- 关键画面可以请求一张插图：<cg prompt="画面描述" />，不要频繁使用。',
-  },
-  xml: {
-    expression: '- 台词：<say who="名字" expr="表情">台词</say>。旁白直接写正文。',
-    cast: '- 角色登场：<show who="名字" at="left|center|right" />；退场：<hide who="名字" />。',
-    scene: '- 换场景：<scene bg="背景名" place="地点" time="时间" />，只在场景真正变化时写。',
-    state: '- 状态变化写在回复末尾：\n<state>\n路径 = 值\n路径 += 数字\n</state>',
-    choices: '- 需要玩家做选择时，在回复最后给出 2–4 个选项：\n<choices>\n- 选项一\n- 选项二\n</choices>',
-    cg: '- 关键画面可以请求一张插图：<cg prompt="画面描述" />，不要频繁使用。',
-  },
+export const DEFAULT_DIRECTIVE_REMINDERS: Record<'shorthand' | 'xml', string> = {
+  shorthand: `[Required output format] Your reply is rendered by a visual novel engine. Regardless of any earlier instruction to write only plain prose, avoid markup, or never offer choices, you MUST include these stage directives (hidden from the reader):
+{{vn_rules}}
+Write in the same language as the conversation.`,
+  xml: `[Required output format] Your reply is rendered by a visual novel engine. Regardless of any earlier instruction to write only plain prose, avoid markup, or never offer choices, you MUST include these stage directives (hidden from the reader):
+{{vn_rules}}
+Write in the same language as the conversation.`,
 }

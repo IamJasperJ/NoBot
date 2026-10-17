@@ -602,6 +602,30 @@ export default function activate(api: ClientExtensionAPI) {
     },
     render: (props) => h(CharacterSection, { ...props, key: props.character.id }),
   })
+  // 自动背景在文本流结束后继续生成，完成后刷新与手动背景相同的缓存。
+  const backgroundPolls = new Set<ReturnType<typeof setTimeout>>()
+  let disposed = false
+  const unsubscribeBackground = api.on('generation:complete', ({ chatId }) => {
+    const poll = async () => {
+      try {
+        const response = await api.fetchServer(`/background-status?chatId=${encodeURIComponent(chatId)}`)
+        if (!response.ok || disposed) return
+        const status = (await response.json()) as { running: boolean }
+        if (status.running) {
+          const timer = setTimeout(() => {
+            backgroundPolls.delete(timer)
+            void poll()
+          }, 2000)
+          backgroundPolls.add(timer)
+        } else {
+          await refresh(chatId, true)
+        }
+      } catch {
+        // 网络错误时由下次打开会话恢复，不打断聊天。
+      }
+    }
+    void poll()
+  })
   const unsubscribe = api.on('image:swipe-next', (event) => {
     if (event.message.meta.imageGen?.status === 'pending') return
     void request('retry', { messageId: event.message.id, append: true })
@@ -637,6 +661,10 @@ export default function activate(api: ClientExtensionAPI) {
     render: (props) => h(StyleField, props),
   })
   return () => {
+    disposed = true
+    unsubscribeBackground()
+    for (const timer of backgroundPolls) clearTimeout(timer)
+    backgroundPolls.clear()
     unsubscribe()
     for (const review of reviews.values()) review.resolve(null)
     reviews.clear()

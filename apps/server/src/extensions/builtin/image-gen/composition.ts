@@ -1,6 +1,7 @@
 import { cleanPrompt, type Mode } from './modes'
 import { orientResolution, resolutionOptions } from './options'
 import type { Settings } from './settings'
+import { workflowSource } from './workflow'
 
 export function dimensions(settings: Settings, landscape?: boolean, mode?: string) {
   const override = settings.modeOverrides.find((item) => item.enabled && item.mode === mode)
@@ -25,14 +26,12 @@ export function composePrompt(
     settings.styles.find((item) => item.name === settings.activeStyle) ??
     settings.styles[0]
   const prompt = cleanPrompt(text, settings.minimalProcessing)
-  const body = [character.positive, prompt].filter(Boolean).join(', ')
-  const prefix = style?.promptPrefix.trim() ?? ''
-  const positive = prefix.includes('{prompt}')
-    ? prefix.replaceAll('{prompt}', body)
-    : [prefix, body].filter(Boolean).join(', ')
+  const body = combinePrefixes(character.positive, prompt)
+  const prefix = trimCommas(style?.promptPrefix)
+  const positive = prefix.includes('{prompt}') ? prefix.replaceAll('{prompt}', body) : combinePrefixes(prefix, body)
   return {
-    prompt: [positive, style?.promptSuffix.trim()].filter(Boolean).join(', '),
-    negative: [style?.negativePrompt.trim(), character.negative, extraNegative.trim()].filter(Boolean).join(', '),
+    prompt: combinePrefixes(positive, style?.promptSuffix),
+    negative: combinePrefixes(style?.negativePrompt, character.negative, extraNegative),
     rawPrompt: prompt,
   }
 }
@@ -78,4 +77,19 @@ export function matchInteractive(text: string): { mode: Mode; input?: string } |
   ]
   const mode = mappings.find(([pattern]) => pattern.test(subject))?.[1]
   return mode ? { mode } : { mode: 'free', input: subject }
+}
+
+const trimCommas = (value?: string) => (value ?? '').replace(/^[\s,]+|[\s,]+$/g, '')
+export function combinePrefixes(...parts: (string | undefined)[]): string {
+  return parts.map(trimCommas).filter(Boolean).join(', ')
+}
+
+export function resolvePromptStyle(settings: Settings): 'tags' | 'natural' {
+  if (settings.promptStyle !== 'auto') return settings.promptStyle
+  if (settings.source === 'openai') return 'natural'
+  const workflow = workflowSource(settings)
+  return !/CheckpointLoaderSimple/i.test(workflow) &&
+    /UNETLoader|UnetLoaderGGUF|DualCLIPLoader|CLIPLoaderGGUF|lumina2|flux/i.test(workflow)
+    ? 'natural'
+    : 'tags'
 }

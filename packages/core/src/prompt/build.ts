@@ -27,7 +27,7 @@ import { applyMacros, type MacroContext } from './macros'
 
 /**
  * Prompt 组装 v2：完全由「生成预设」驱动（纯函数，不读数据库、不发请求）。
- * 预览和真实发送调用的是同一个函数。
+ * 预览和真实发送调用的是同一个函数。end 注入位于所有预设条目之后、【6】结尾之前；预填充始终最后。
  */
 
 /** 图片预算采用统一估算，避免 core 依赖实际文件或模型的视觉分词规则。 */
@@ -66,9 +66,9 @@ export interface PromptInjection {
   id: string
   label: string
   content: string
-  /** 角色设定之后、作者注释之后，或指定聊天深度 */
-  position: 'after_char' | 'author_note' | 'depth'
-  depth: number
+  /** 角色设定之后、作者注释之后、指定聊天深度，或所有预设条目之后（end） */
+  position: 'after_char' | 'author_note' | 'depth' | 'end'
+  depth?: number
   role: PromptRole
 }
 
@@ -380,16 +380,20 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     }
   }
 
+  const endInjections: Piece[] = []
   let afterCharOffset = 0
   for (const [order, injection] of (input.injections ?? []).entries()) {
-    if (injection.position !== 'after_char') {
+    if (injection.position === 'end') {
+      const content = macro(injection.content)
+      if (content) endInjections.push(piece(injection.id, injection.label, injection.role, content))
+    } else if (injection.position !== 'after_char') {
       // 独立顺序避免不同角色重排或合并，保证每个注入都有自己的报告片段。
       addInjection(
         injection.id,
         injection.label,
         injection.role,
         injection.content,
-        injection.position === 'author_note' ? input.chat.authorNoteDepth : injection.depth,
+        injection.position === 'author_note' ? input.chat.authorNoteDepth : (injection.depth ?? 0),
         (order + 1) / ((input.injections?.length ?? 0) + 1),
       )
     } else {
@@ -558,7 +562,14 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     newChat && rawHistory.length ? [piece('new_chat', group ? '新群聊提示' : '新对话提示', 'system', newChat)] : []
   const fixed = slots.flatMap((slot) => (slot.kind === 'piece' ? [slot.piece] : []))
   const keptExamples = behavior.exampleBehavior === 'keep' ? exampleBlocks.flat() : []
-  let used = sum([...fixed, ...groupedInjections.map((item) => item.piece), ...ending, ...start, ...keptExamples])
+  let used = sum([
+    ...fixed,
+    ...groupedInjections.map((item) => item.piece),
+    ...endInjections,
+    ...ending,
+    ...start,
+    ...keptExamples,
+  ])
   if (used > budget) throw new PromptBudgetError(`固定提示词超出预算 ${used - budget} token（预算 ${budget} token）`)
   const keptHistory: Piece[] = []
   for (let i = units.length - 1; i >= 0; i--) {
@@ -584,7 +595,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   )
   // 没有历史占位时深度注入仍是固定提示，统一放在相对条目后、结尾前。
   if (!hasHistory) ordered.push(...groupedInjections.map((item) => item.piece))
-  ordered.push(...ending)
+  ordered.push(...endInjections, ...ending)
 
   // 【9】【报告】报告保留合并前的片段，最终 token 总数按后处理后的 messages 重新计算。
   const messages = postprocess(ordered, behavior)

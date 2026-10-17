@@ -127,9 +127,9 @@ test('BG-SCOPE：字段、范围、清单、自动选择、命名、固定和删
     expect(scene(a.id, '专属山古')).toBeNull()
     const aInstructions = await preview(a.id)
     const bInstructions = await preview(b.id)
-    expect(aInstructions).toContain('专属山谷（夕阳照亮山谷）')
+    expect(aInstructions).toContain('Available backgrounds: 专属山谷')
     expect(bInstructions).not.toContain('专属山谷')
-    expect(bInstructions).toContain(`公共海滩（${'🌙'.repeat(40)}…）`)
+    expect(bInstructions).toContain('公共海滩')
     expect(bInstructions).not.toContain(longDescription)
     expect(bInstructions).toContain(imported.name)
     expect(bInstructions).not.toContain(`${imported.name}（`)
@@ -178,7 +178,9 @@ test('BG-SCOPE：字段、范围、清单、自动选择、命名、固定和删
     expect((await json<ChatPage>(`/chats/${a.id}`)).chat.backgroundId).toBe(stageBg.id)
     const namingRequest = model.requests.at(-1)!
     expect(namingRequest.model).toBe('mock-two')
-    expect(namingRequest.max_tokens).toBe(120)
+    expect(namingRequest.max_tokens).not.toBe(120)
+    expect(namingRequest.messages).toHaveLength(1)
+    expect(namingRequest.messages[0]?.role).toBe('user')
     expect(namingRequest.messages.some((message) => message.role === 'assistant')).toBe(false)
     expect(JSON.stringify(namingRequest.messages)).toContain('rainy alley at night')
     model.setScript(() => ({ text: '{"name":"晨雾森林","description":"晨光穿过薄雾和树梢"}' }))
@@ -191,7 +193,7 @@ test('BG-SCOPE：字段、范围、清单、自动选择、命名、固定和删
     expect((await generate()).background).toMatchObject({ name: '暖光书房', description: '墙上挂着{山水}画' })
     model.setScript(() => ({ text: '乱码' }))
     const fallback = (await generate()).background
-    expect(fallback.name).toMatch(/^画师 背景 /)
+    expect(fallback.name).toBe('rainy alley at night')
     expect(fallback.description).toBe('')
     const host = createExtensionHost(() => {})
     const log = spyOn(host, 'log')
@@ -199,9 +201,7 @@ test('BG-SCOPE：字段、范围、清单、自动选择、命名、固定和删
     for (const reply of ['乱码', '{"name":" "}', '{无效}']) {
       model.setScript(() => ({ text: reply }))
       log.mockClear()
-      expect((await nameBackground(context, a.id, parseSettings(settings), 'forest', '画师')).name).toMatch(
-        /^画师 背景 /,
-      )
+      expect((await nameBackground(context, a.id, parseSettings(settings), 'forest', '画师')).name).toBe('forest')
       expect(log).toHaveBeenCalledTimes(1)
       expect(log.mock.calls[0]![0]).toMatchObject({
         kind: 'image',

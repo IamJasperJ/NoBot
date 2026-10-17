@@ -1,4 +1,5 @@
 import {
+  DEFAULT_DIRECTIVE_REMINDERS,
   DEFAULT_DIRECTIVE_TEMPLATES,
   type DirectiveKind,
   EXPRESSIONS,
@@ -43,6 +44,7 @@ const LIST_OPTIONS = (): { value: PromptList; label: string }[] => [
   { value: 'cast', label: t('角色') },
   { value: 'expressions', label: t('表情') },
   { value: 'backgrounds', label: t('背景') },
+  { value: 'outfits', label: t('服装') },
   { value: 'vars', label: t('变量') },
 ]
 
@@ -101,6 +103,37 @@ export function PlayPresetEditor({
           disabled={off}
           checked={directives.inject}
           onChange={(v) => set('directives', 'inject', v)}
+        />
+        <SwitchField
+          label={t('末尾再提醒一次')}
+          hint={t(
+            '在整个 Prompt 最后（预设的结尾指令之后）加一段简短的格式要求。很多预设结尾会要求「只写正文、不给选项」，不提醒的话模型常常不写指令',
+          )}
+          disabled={off || !directives.inject}
+          checked={directives.reminder}
+          onChange={(v) => set('directives', 'reminder', v)}
+        />
+        <SelectField
+          label={t('提醒的身份')}
+          hint={t('有些接口（比如部分 Gemini 中转）会把中途的 system 消息挪走，提醒不起作用时改成「用户」试试')}
+          disabled={off || !directives.inject || !directives.reminder}
+          value={directives.reminderRole}
+          onChange={(v) => set('directives', 'reminderRole', v)}
+          options={[
+            { value: 'system', label: t('系统') },
+            { value: 'user', label: t('用户') },
+          ]}
+        />
+        <SelectField
+          label={t('什么时候给选项')}
+          hint={t('需要勾选「选项」指令')}
+          disabled={off || !directives.kinds.includes('choices')}
+          value={directives.choicesMode}
+          onChange={(v) => set('directives', 'choicesMode', v)}
+          options={[
+            { value: 'always', label: t('每条回复都给') },
+            { value: 'auto', label: t('需要玩家做决定时') },
+          ]}
         />
         <CheckGroupField
           label={t('启用的指令')}
@@ -166,10 +199,18 @@ export function PlayPresetEditor({
           onChange={(v) => set('directives', 'showSpeaker', v)}
         />
         <TemplateField
+          kind="template"
           disabled={off || !directives.inject}
           value={directives.template}
           style={directives.style}
           onChange={(v) => set('directives', 'template', v)}
+        />
+        <TemplateField
+          kind="reminder"
+          disabled={off || !directives.inject || !directives.reminder}
+          value={directives.reminderTemplate}
+          style={directives.style}
+          onChange={(v) => set('directives', 'reminderTemplate', v)}
         />
       </Section>
 
@@ -516,6 +557,14 @@ export function PlayPresetEditor({
           onChange={(v) => set('stage', 'focus', v)}
         />
         <SwitchField
+          label={t('自动生成缺少的背景')}
+          hint={t(
+            '模型换到背景库里没有的场景时，用图片生成扩展画一张，并用模型写的场景名命名（需要启用并配置图片生成）',
+          )}
+          checked={stage.autoBackground}
+          onChange={(v) => set('stage', 'autoBackground', v)}
+        />
+        <SwitchField
           label={t('允许调整立绘')}
           hint={t('VN 视图和聊天视图的侧边立绘可以拖动位置、缩放大小（只保存在这台设备上）')}
           checked={stage.draggable}
@@ -702,31 +751,38 @@ export function PlayPresetEditor({
   )
 }
 
-/** 指令说明模板：留空用默认模板；可以一键填入默认模板再改 */
+/** 指令说明模板 / 末尾提醒模板：留空用默认模板；可以一键填入默认模板再改 */
 function TemplateField({
+  kind,
   value,
   style,
   disabled,
   onChange,
 }: {
+  kind: 'template' | 'reminder'
   value: string
   style: 'shorthand' | 'xml'
   disabled: boolean
   onChange: (v: string) => void
 }) {
+  const defaults = kind === 'template' ? DEFAULT_DIRECTIVE_TEMPLATES[style] : DEFAULT_DIRECTIVE_REMINDERS[style]
   return (
     <div className="col-span-full space-y-1">
       <TextAreaField
-        label={t('指令说明模板')}
-        hint={t(
-          '留空用默认模板。可用占位符：{{vn_kinds}} 指令写法、{{vn_cast}} 角色、{{vn_expressions}} 表情、{{vn_backgrounds}} 背景、{{vn_state}} 变量；为空的占位符所在的行会被整行去掉',
-        )}
+        label={kind === 'template' ? t('指令说明模板') : t('末尾提醒模板')}
+        hint={
+          kind === 'template'
+            ? t(
+                '留空用默认模板。可用占位符：{{vn_kinds}} 指令写法、{{vn_cast}} 角色、{{vn_expressions}} 表情、{{vn_backgrounds}} 背景、{{vn_outfits}} 服装、{{vn_state}} 变量、{{vn_example}} 示例回复；为空的占位符所在的行会被整行去掉',
+              )
+            : t('留空用默认模板。占位符 {{vn_rules}} 会换成按启用的指令生成的必须项，每条一行')
+        }
         disabled={disabled}
         mono
         rows={value ? 8 : 3}
         placeholder={t('（使用默认模板）{newline}{preview}…', {
           newline: '\n',
-          preview: DEFAULT_DIRECTIVE_TEMPLATES[style].split('\n').slice(0, 2).join('\n'),
+          preview: defaults.split('\n').slice(0, 2).join('\n'),
         })}
         value={value}
         onChange={onChange}
@@ -741,7 +797,7 @@ function TemplateField({
           size="sm"
           disabled={disabled}
           onClick={() => {
-            if (!value || confirm(t('用默认模板覆盖当前内容？'))) onChange(DEFAULT_DIRECTIVE_TEMPLATES[style])
+            if (!value || confirm(t('用默认模板覆盖当前内容？'))) onChange(defaults)
           }}
         >
           {t('填入默认模板')}

@@ -372,7 +372,7 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label="重复表情时换一张"
-          hint={later('VN3', '连续两次同一个表情时，强制换一张不同的立绘')}
+          hint={later('VN6', '连续两次同一个表情时，强制换一张不同的立绘')}
           notImplemented
           checked={sprites.rerollSame}
           onChange={(v) => set('sprites', 'rerollSame', v)}
@@ -397,18 +397,16 @@ export function PlayPresetEditor({
         />
       </Section>
 
-      <Section dense title="VN 视图" description="版式、舞台和对话框（VN3）">
+      <Section dense title="VN 视图" description="版式、舞台和对话框">
         <SwitchField
           label="默认以 VN 视图打开"
-          hint={later('VN3', '用这个预设的新会话一打开就是 VN 视图')}
-          notImplemented
+          hint="用这个预设的新会话一打开就是 VN 视图"
           checked={basic.openInVn}
           onChange={(v) => set('basic', 'openInVn', v)}
         />
         <SelectField
           label="版式"
-          hint={later('VN3', 'ADV：底部对话框；NVL：全屏文本；自动：旁白长时切 NVL')}
-          notImplemented
+          hint="ADV：底部对话框；NVL：全屏文本；自动：旁白长时切 NVL"
           value={basic.layout}
           onChange={(v) => set('basic', 'layout', v)}
           options={[
@@ -420,7 +418,7 @@ export function PlayPresetEditor({
         {basic.layout === 'auto' && (
           <NumberField
             label="切 NVL 的字数"
-            hint={later('VN3', '旁白超过这么多字时自动切成全屏文本')}
+            hint="旁白超过这么多字时自动切成全屏文本"
             notImplemented
             min={20}
             max={5000}
@@ -431,8 +429,7 @@ export function PlayPresetEditor({
         )}
         <NumberField
           label="文字速度（字/秒）"
-          hint={later('VN3', '打字机效果的速度，0 表示瞬间显示')}
-          notImplemented
+          hint="打字机效果的速度，0 表示瞬间显示"
           min={0}
           max={200}
           value={dialog.cps}
@@ -440,8 +437,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label="自动播放停顿（秒）"
-          hint={later('VN3', '自动播放时每句之间停多久')}
-          notImplemented
+          hint="自动播放时每句之间停多久"
           min={0}
           max={10}
           step={0.1}
@@ -450,8 +446,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label="旁白拆分长度"
-          hint={later('VN3', '一段旁白超过这么多字时拆成几拍显示')}
-          notImplemented
+          hint="一段旁白超过这么多字时拆成几拍显示"
           min={20}
           max={2000}
           slider={false}
@@ -460,8 +455,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label="对话框不透明度"
-          hint={later('VN3', '百分比')}
-          notImplemented
+          hint="百分比"
           min={0}
           max={100}
           value={dialog.boxOpacity}
@@ -469,8 +463,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label="对话框字号"
-          hint={later('VN3', '像素')}
-          notImplemented
+          hint="像素"
           min={12}
           max={32}
           value={dialog.fontSize}
@@ -478,8 +471,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label="最多同屏人数"
-          hint={later('VN3', '手机上最多 2 人')}
-          notImplemented
+          hint="手机上最多 2 人"
           min={1}
           max={5}
           value={stage.maxCast}
@@ -487,8 +479,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label="立绘大小（%）"
-          hint={later('VN3', '立绘的缩放比例')}
-          notImplemented
+          hint="立绘的缩放比例"
           min={50}
           max={200}
           value={stage.spriteScale}
@@ -496,8 +487,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label="非说话人变暗（%）"
-          hint={later('VN3', '焦点模式下，不说话的人变暗的程度')}
-          notImplemented
+          hint="焦点模式下，不说话的人变暗的程度"
           min={0}
           max={90}
           value={stage.dim}
@@ -505,55 +495,49 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label="焦点模式"
-          hint={later('VN3', '正在说话的人在最上层、正常亮度，其他人变暗')}
-          notImplemented
+          hint="正在说话的人在最上层、正常亮度，其他人变暗"
           checked={stage.focus}
           onChange={(v) => set('stage', 'focus', v)}
         />
         <SwitchField
           label="允许拖动站位"
-          hint={later('VN3', '桌面端可以拖动立绘微调位置')}
+          hint={later('VN6', '桌面端可以拖动立绘微调位置')}
           notImplemented
           checked={stage.draggable}
           onChange={(v) => set('stage', 'draggable', v)}
         />
         <SwitchField
           label="显示名牌"
-          hint={later('VN3', '对话框上方显示说话人名字')}
-          notImplemented
+          hint="对话框上方显示说话人名字"
           checked={dialog.nameplate}
           onChange={(v) => set('dialog', 'nameplate', v)}
         />
         <SwitchField
           label="边生成边播放"
-          hint={later('VN3', '流式生成时，第一句写完就开始演')}
-          notImplemented
+          hint="流式生成时，第一句写完就开始演"
           checked={dialog.streamPlay}
           onChange={(v) => set('dialog', 'streamPlay', v)}
         />
         <SwitchField
           label="默认自动播放"
-          hint={later('VN3', '打开 VN 视图时自动推进')}
-          notImplemented
+          hint="打开 VN 视图时自动推进"
           checked={dialog.autoDefault}
           onChange={(v) => set('dialog', 'autoDefault', v)}
         />
         <SwitchField
           label="快进只跳读过的"
-          hint={later('VN3', '快进遇到新生成的内容会停下')}
-          notImplemented
+          hint="快进遇到新生成的内容会停下"
           checked={dialog.skipReadOnly}
           onChange={(v) => set('dialog', 'skipReadOnly', v)}
         />
         <SelectField
           label="未知角色"
-          hint={later('VN5', '模型写了没有立绘也没有角色卡的人（临时 NPC）时怎么显示')}
-          notImplemented
+          hint="模型写了没有立绘也没有角色卡的人（临时 NPC）时怎么显示"
           value={stage.unknownActor}
           onChange={(v) => set('stage', 'unknownActor', v)}
           options={[
             { value: 'silhouette', label: '剪影 + 名牌' },
-            { value: 'generate', label: '自动生成头像' },
+            { value: 'generate', label: '自动生成头像（未实现）', disabled: true },
             { value: 'hide', label: '不显示' },
           ]}
         />
@@ -597,8 +581,7 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label="有选项时仍显示输入框"
-          hint={later('VN4', 'VN 视图里有选项时，是否还能自由输入')}
-          notImplemented
+          hint="VN 视图里有选项时，是否还能自由输入"
           checked={interaction.inputWithChoices}
           onChange={(v) => set('interaction', 'inputWithChoices', v)}
         />

@@ -15,6 +15,7 @@ import { validate } from '../lib/validate'
 import * as chats from '../services/chats'
 import { assemble, loadGenerationContext } from '../services/context'
 import * as generation from '../services/generation'
+import { computeStage } from '../services/stage'
 
 /** 把一个生成任务的事件流推给浏览器，直到任务结束或浏览器断开 */
 function streamJob(c: Context, job: NonNullable<ReturnType<typeof generation.getJob>>) {
@@ -70,6 +71,13 @@ export const chatRoutes = new Hono()
       return c.json(chats.getChatPage(id, c.req.valid('query'), generation.isGenerating(id)))
     },
   )
+  /** VN 视图从某条消息开头开始演时，需要这条消息之前的舞台（沿激活路径累加到它的父节点） */
+  .get('/:id/stage', validate('query', z.object({ before: z.string() })), (c) => {
+    const chatId = c.req.param('id')
+    const message = chats.loadMessage(c.req.valid('query').before)
+    if (message.chatId !== chatId) throw new HttpError(404, 'NOT_FOUND', '消息不在这个会话里')
+    return c.json({ stage: computeStage(chatId, chats.loadPath(message.parentId)) })
+  })
   .patch('/:id', validate('json', updateChatInput), (c) =>
     c.json(chats.updateChat(c.req.param('id'), c.req.valid('json'))),
   )

@@ -35,6 +35,7 @@ import type {
   PromptPreview,
   SpriteDTO,
   SpriteImportResult,
+  StageState,
   SwipeInput,
   TestConnectionInput,
   TestConnectionResult,
@@ -228,6 +229,9 @@ export const api = {
       `/chats?${filter.characterId ? `characterId=${enc(filter.characterId)}` : `groupId=${enc(filter.groupId ?? '')}`}`,
     ),
   createChat: (input: CreateChatInput) => request<ChatDTO>('POST', '/chats', input),
+  /** 某条消息之前的舞台（VN 视图从这条消息开头演时用） */
+  getStageBefore: (chatId: string, messageId: string) =>
+    request<{ stage: StageState | null }>('GET', `/chats/${chatId}/stage?before=${encodeURIComponent(messageId)}`),
   getChatPage: (chatId: string, before?: string) =>
     request<ChatPage>('GET', `/chats/${chatId}${before ? `?before=${enc(before)}` : ''}`),
   updateChat: (chatId: string, input: UpdateChatInput) => request<ChatDTO>('PATCH', `/chats/${chatId}`, input),

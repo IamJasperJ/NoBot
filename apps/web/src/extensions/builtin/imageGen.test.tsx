@@ -103,6 +103,7 @@ test('独立图片按钮打开菜单，连续选择发出两个请求，群聊�
           group: { members: [{ characterId: 'actor', name: '莱恩' }] },
         },
       ],
+      pageParams: [undefined],
     })
     clicks.get('生成图片')!()
     const menu = render()

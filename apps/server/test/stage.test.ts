@@ -204,6 +204,11 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     expect(first.meta.varsPatch).toEqual({ 好感: 32 })
     let current = await page(chat.id)
     expect(current.vars).toMatchObject({ 好感: 32, 日期: '第1天' })
+    // VN 视图从这条回复开头演：取它之前的舞台，不含它自己的场景和上台
+    const before = await json<{ stage: ChatPage['stage'] }>(`/chats/${chat.id}/stage?before=${first.id}`)
+    expect(before.stage?.scene.bg).toBeUndefined()
+    expect(current.stage?.scene.backgroundId).toBe(bgId)
+    expect((await request(`/chats/${chat.id}/stage?before=nope`)).status).toBe(404)
     expect(current.stage?.scene.backgroundId).toBe(bgId)
     expect(current.stage?.cast[0]?.name).toBe('艾莉丝')
     model.setScript(() => ({ text: '<scene bg="森林" />\n<state>好感 += 5</state>' }))

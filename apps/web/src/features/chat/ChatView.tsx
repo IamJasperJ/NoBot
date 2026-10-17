@@ -8,6 +8,8 @@ import { emitClientEvent } from '../../extensions/runtime'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { useVnMode } from '../../stores/vn'
+import { VnView } from '../vn/VnView'
 import { Composer } from './Composer'
 import { runGeneration } from './generate'
 import type { ChatCast } from './MessageItem'
@@ -82,15 +84,18 @@ export function ChatView({ chatId }: { chatId: string }) {
     if (notFound) useUi.getState().openChat({}, null)
   }, [notFound])
 
+  // VN 视图：玩法预设开了指令才可用；会话自己选过就按选的，否则按预设的「默认以 VN 视图打开」
+  const vnWanted = useVnMode(chatId, !!play?.basic.openInVn)
   if (pages.isError) {
     return <div className="p-8 text-center text-sm text-zinc-500">会话加载失败：{errorMessage(pages.error)}</div>
   }
 
   const lastReply = messages.findLast((m) => m.role === 'assistant') ?? null
+  const vn = !!play?.directives.enabled && vnWanted && !pages.isPending
 
   return (
     <div ref={root} className="relative isolate flex h-full min-w-0 flex-1 flex-col">
-      {firstPage?.stage && play && (
+      {!vn && firstPage?.stage && play && (
         <SideSprite stage={firstPage.stage} play={play} cast={cast} lastReply={lastReply} container={root} />
       )}
       {/* 不再有顶部标题栏：会话设置、Prompt 预览在输入框左边的「+」菜单里。手机上保留一个打开抽屉的悬浮按钮 */}
@@ -102,20 +107,26 @@ export function ChatView({ chatId }: { chatId: string }) {
         <MenuIcon />
       </IconButton>
 
-      {pages.isPending ? (
-        <div className="flex-1 p-8 text-center text-sm text-zinc-400">加载中…</div>
+      {vn && play ? (
+        <VnView chatId={chatId} messages={messages} play={play} cast={cast} group={group} busy={busy} />
       ) : (
-        <MessageList
-          chatId={chatId}
-          messages={messages}
-          busy={busy}
-          hasMore={pages.hasNextPage}
-          loadingMore={pages.isFetchingNextPage}
-          loadMore={() => void pages.fetchNextPage()}
-          cast={cast}
-        />
+        <>
+          {pages.isPending ? (
+            <div className="flex-1 p-8 text-center text-sm text-zinc-400">加载中…</div>
+          ) : (
+            <MessageList
+              chatId={chatId}
+              messages={messages}
+              busy={busy}
+              hasMore={pages.hasNextPage}
+              loadingMore={pages.isFetchingNextPage}
+              loadMore={() => void pages.fetchNextPage()}
+              cast={cast}
+            />
+          )}
+          <Composer chatId={chatId} generating={busy} group={group} lastMessage={messages.at(-1) ?? null} />
+        </>
       )}
-      <Composer chatId={chatId} generating={busy} group={group} lastMessage={messages.at(-1) ?? null} />
     </div>
   )
 }

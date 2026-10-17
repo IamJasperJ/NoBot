@@ -2,6 +2,7 @@ import type { AttachmentDTO, GroupDTO, MessageDTO } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, api } from '../../api/client'
+import { useChatPages, usePlayPresets } from '../../api/queries'
 import { PlusIcon, SendIcon, StopIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
@@ -9,6 +10,7 @@ import { Slot } from '../../extensions/Slot'
 import { useMobile } from '../../hooks/useMobile'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { useVn, useVnMode } from '../../stores/vn'
 import { runGeneration, runImpersonate } from './generate'
 
 /**
@@ -28,6 +30,11 @@ export function Composer({
 }) {
   const mobile = useMobile()
   const qc = useQueryClient()
+  // VN 视图切换：玩法预设开了舞台指令时才显示这一项
+  const page = useChatPages(chatId).data?.pages[0]
+  const play = usePlayPresets().data?.find((p) => p.id === page?.playPresetId)?.data
+  const inVn = useVnMode(chatId, !!play?.basic.openInVn)
+  const setVnMode = useVn((s) => s.setMode)
   const [text, setText] = useState('')
   const [images, setImages] = useState<{ key: string; attachment?: AttachmentDTO }[]>([])
   const imagesRef = useRef(images)
@@ -215,6 +222,15 @@ export function Composer({
             <Slot name="chat.composer.menu" props={{ chatId, setText, close: closeMenu }} />
             {/* 原来顶部标题栏里的按钮：会话设置、Prompt 预览、扩展加的按钮 */}
             <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
+            {play?.directives.enabled && (
+              <MenuButton
+                onClick={() => {
+                  closeMenu()
+                  setVnMode(chatId, inVn ? 'chat' : 'vn')
+                }}
+                label={inVn ? '切到聊天视图' : '切到 VN 视图'}
+              />
+            )}
             <MenuButton
               onClick={() => {
                 closeMenu()

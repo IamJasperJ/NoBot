@@ -186,3 +186,98 @@ body {
     opacity: 0;
   }
 }
+
+/* ---------- VN 视图 ---------- */
+/* 深色半透明的对话框，透明度来自玩法预设（--vn-box-alpha） */
+.vn-box {
+  background: rgb(15 15 20 / var(--vn-box-alpha, 80%));
+  color: rgb(250 250 250);
+  border: 1px solid rgb(255 255 255 / 12%);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
+  backdrop-filter: blur(6px);
+}
+.vn-nameplate {
+  background: rgb(124 58 237 / 92%);
+  color: white;
+  box-shadow: 0 4px 14px rgb(124 58 237 / 35%);
+}
+.vn-nvl {
+  background: rgb(10 10 14 / 78%);
+  color: rgb(245 245 245);
+  backdrop-filter: blur(8px);
+}
+.vn-chip {
+  background: rgb(15 15 20 / 55%);
+  color: rgb(245 245 245);
+  border: 1px solid rgb(255 255 255 / 14%);
+  backdrop-filter: blur(6px);
+}
+.vn-chip:hover {
+  background: rgb(15 15 20 / 72%);
+}
+.vn-chip-active {
+  background: rgb(124 58 237 / 85%);
+  border-color: rgb(167 139 250 / 60%);
+}
+.vn-choice {
+  background: rgb(15 15 20 / 70%);
+  color: rgb(250 250 250);
+  border: 1px solid rgb(255 255 255 / 18%);
+  backdrop-filter: blur(6px);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.15s;
+}
+.vn-choice:hover:not(:disabled) {
+  background: rgb(124 58 237 / 80%);
+  border-color: rgb(196 181 253 / 70%);
+  transform: translateY(-1px);
+}
+.vn-backlog {
+  background: rgb(18 18 24 / 94%);
+  color: rgb(240 240 240);
+  backdrop-filter: blur(10px);
+}
+/* VN 的图片卡片：里面复用聊天视图的图片组件（浅色 / 深色主题配色），所以卡片本身跟随主题而不是固定深色 */
+.vn-image-card {
+  background: rgb(255 255 255 / 92%);
+  color: rgb(24 24 27);
+  border: 1px solid rgb(0 0 0 / 8%);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 30%);
+  backdrop-filter: blur(10px);
+}
+.dark .vn-image-card {
+  background: rgb(24 24 27 / 92%);
+  color: rgb(244 244 245);
+  border-color: rgb(255 255 255 / 10%);
+}
+.vn-caret {
+  animation: vn-caret 0.9s ease-in-out infinite;
+  font-size: 0.7em;
+}
+@keyframes vn-caret {
+  50% {
+    transform: translateY(3px);
+    opacity: 0.5;
+  }
+}
+/* 立绘：换站位平滑移动，换表情 / 上台淡入，变暗有过渡 */
+.vn-actor {
+  transition:
+    left 0.45s ease,
+    filter 0.3s ease,
+    transform 0.3s ease;
+}
+.vn-fade {
+  animation: vn-fade 0.3s ease-out;
+}
+@keyframes vn-fade {
+  from {
+    opacity: 0;
+  }
+}
+/* VN 里的输入框：去掉聊天视图的底色，浮在画面上 */
+.vn-composer .composer-bar {
+  background: transparent;
+}

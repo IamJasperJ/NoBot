@@ -64,6 +64,13 @@
       "when": 1792203993746,
       "tag": "0008_tired_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792233200185,
+      "tag": "0009_purple_hercules",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
 import { useMobile } from '../../hooks/useMobile'
+import { useChatOps } from '../../stores/chatOps'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { useVn, useVnMode } from '../../stores/vn'
@@ -219,6 +220,13 @@ export function Composer({
             )}
             <MenuButton onClick={continueLast} label="续写最后一条回复" disabled={busy || !canContinue} />
             <MenuButton onClick={impersonate} label="代写（AI 替我写一条）" disabled={busy} />
+            <MenuButton
+              onClick={() => {
+                closeMenu()
+                useChatOps.getState().startSelect(chatId)
+              }}
+              label="选择消息（批量不发给模型）"
+            />
             <Slot name="chat.composer.menu" props={{ chatId, setText, close: closeMenu }} />
             {/* 原来顶部标题栏里的按钮：会话设置、Prompt 预览、扩展加的按钮 */}
             <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />

@@ -7,7 +7,20 @@ import { assemble, loadGenerationContext } from './context'
 import { insertLog } from './logs'
 
 /** 与扩展宿主共用静默生成，保持上下文、图片处理和日志行为一致。 */
-export async function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>[0]): Promise<string> {
+export function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>[0]): Promise<string> {
+  return requestCompletion(opts)
+}
+
+/** 直接请求与静默组装共用连接、采样参数、响应清理及日志。 */
+export function complete(opts: Parameters<ExtensionHost['complete']>[0]): Promise<string> {
+  return requestCompletion(opts)
+}
+
+async function requestCompletion(
+  opts: Parameters<ExtensionHost['quietPrompt']>[0] | Parameters<ExtensionHost['complete']>[0],
+): Promise<string> {
+  const summary = 'messages' in opts ? opts.summary : opts.instruction.slice(0, 60)
+  const avatar = 'avatar' in opts ? opts.avatar : undefined
   const started = Date.now()
   let model: string | null = null
   let request: unknown
@@ -16,13 +29,16 @@ export async function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>
     const connection = opts.connectionId ? getApiPresetRow(opts.connectionId) : ctx.connection
     if (!connection) throw new HttpError(400, 'NO_CONNECTION', '没有可用的模型连接')
     model = opts.model || connection.model
-    const prompt = assemble(ctx, {
-      type: 'normal',
-      speakerId: opts.speakerId ?? ctx.members[0]?.id ?? '',
-      leafId: opts.includeHistory === false ? null : ctx.chat.activeLeafId,
-      toolsEnabled: false,
-    }).messages
-    prompt.push({ role: opts.role ?? 'system', content: opts.instruction })
+    const prompt =
+      'messages' in opts
+        ? [...opts.messages]
+        : assemble(ctx, {
+            type: 'normal',
+            speakerId: opts.speakerId ?? ctx.members[0]?.id ?? '',
+            leafId: opts.includeHistory === false ? null : ctx.chat.activeLeafId,
+            toolsEnabled: false,
+          }).messages
+    if ('instruction' in opts) prompt.push({ role: opts.role ?? 'system', content: opts.instruction })
     const images = await resolveImages(prompt, ctx.preset.samplers.imageMaxSize)
     const body = buildRequestBody({
       model,
@@ -34,15 +50,15 @@ export async function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>
         ...(opts.maxTokens === undefined ? {} : { maxTokens: opts.maxTokens }),
       },
     })
-    if (opts.avatar) {
+    if (avatar) {
       // 头像仅用于本次外貌提炼，不保存为聊天附件，日志也不写入图片数据。
       const sharp = (await import('sharp')).default
-      const png = await sharp(opts.avatar).png().toBuffer()
+      const png = await sharp(avatar).png().toBuffer()
       const messages = body.messages as Record<string, unknown>[]
       messages[messages.length - 1] = {
         role: 'user',
         content: [
-          { type: 'text', text: opts.instruction },
+          { type: 'text', text: 'instruction' in opts ? opts.instruction : '' },
           { type: 'image_url', image_url: { url: `data:image/png;base64,${png.toString('base64')}` } },
         ],
       }
@@ -53,7 +69,7 @@ export async function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>
     delete body.tools
     delete body.tool_choice
     if (opts.maxTokens !== undefined) body.max_tokens = opts.maxTokens
-    request = opts.avatar
+    request = avatar
       ? { ...redactImages(body, images), messages: '[头像外貌提炼，图片数据已隐藏]' }
       : redactImages(body, images)
     let text = ''
@@ -72,7 +88,7 @@ export async function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>
       status: 'ok',
       model,
       durationMs: Date.now() - started,
-      summary: opts.instruction.slice(0, 60),
+      summary,
       request,
       response: { content: text },
     })
@@ -84,7 +100,7 @@ export async function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>
       status: 'error',
       model,
       durationMs: Date.now() - started,
-      summary: opts.instruction.slice(0, 60),
+      summary,
       request,
       response: { error: error instanceof Error ? error.message : String(error) },
     })

@@ -246,6 +246,7 @@ export function toHistory(ctx: GenerationContext, leafId: string | null): Histor
     .filter(
       (m) =>
         m.status !== 'error' &&
+        m.meta.excluded !== true &&
         !(m.role !== 'user' && m.role !== 'tool' && m.meta.imageGen?.hidden === true) &&
         // tool 消息必须保留：它和上一条的 tool_calls 成对出现，丢掉会让模型以为工具没执行而反复调用
         !(
@@ -357,16 +358,22 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
       vars: computeVars(path, init.vars),
       valuesInPrompt: play.state.valuesInPrompt,
     })
-    input.stageInstructions = {
-      content,
-      position: play.directives.position === 'after_char' ? 'after_char' : 'depth',
-      depth: play.directives.position === 'author_note' ? ctx.chat.authorNoteDepth : play.directives.depth,
-    }
+    input.injections = [
+      {
+        id: 'stage',
+        label: '舞台指令',
+        role: 'system',
+        content,
+        position: play.directives.position,
+        depth: play.directives.position === 'author_note' ? ctx.chat.authorNoteDepth : play.directives.depth,
+      },
+    ]
   }
   input = runBeforePrompt(input)
 
   try {
     const { messages, report } = buildPrompt(input)
+    report.excludedCount = loadPath(opts.leafId).filter((m) => m.meta.excluded === true).length
     const finalMessages: ChatMessage[] = runAfterPrompt(messages, ctx.chat.id)
     return { messages: finalMessages, report, input }
   } catch (e) {

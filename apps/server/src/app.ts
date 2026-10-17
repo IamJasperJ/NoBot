@@ -5,6 +5,7 @@ import { forwardExtension } from './extensions/registry'
 import { assetRoutes } from './routes/assets'
 import { attachmentRoutes } from './routes/attachments'
 import { backgroundRoutes } from './routes/backgrounds'
+import { bookmarkRoutes } from './routes/bookmarks'
 import { characterRoutes } from './routes/characters'
 import { chatRoutes } from './routes/chats'
 import { connectionRoutes } from './routes/connections'
@@ -59,6 +60,7 @@ app.route('/characters', characterRoutes)
 app.route('/lorebooks', lorebookRoutes)
 app.route('/groups', groupRoutes)
 app.route('/chats', chatRoutes)
+app.route('/bookmarks', bookmarkRoutes)
 app.route('/messages', messageRoutes)
 app.route('/logs', logRoutes)
 app.route('/extensions', extensionRoutes)

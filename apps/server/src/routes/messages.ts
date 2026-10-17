@@ -10,7 +10,7 @@ export const messageRoutes = new Hono()
     c.json(chats.updateMessageImageIndex(c.req.param('id'), c.req.valid('json').imageIndex)),
   )
   .patch('/:id', validate('json', editMessageInput), (c) =>
-    c.json(chats.editMessage(c.req.param('id'), c.req.valid('json').content)),
+    c.json(chats.editMessage(c.req.param('id'), c.req.valid('json').content, c.req.valid('json').reasoning)),
   )
   .delete('/:id', (c) => {
     chats.deleteMessage(c.req.param('id'))

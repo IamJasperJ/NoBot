@@ -5,6 +5,7 @@ import { flattenPages, keys, useCharacter, useChatPages, usePersonas, usePlayPre
 import { MenuIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
+import { useChatOps } from '../../stores/chatOps'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -14,6 +15,7 @@ import { Composer } from './Composer'
 import { runGeneration } from './generate'
 import type { ChatCast } from './MessageItem'
 import { MessageList } from './MessageList'
+import { SelectionBar } from './SelectionBar'
 import { SideSprite } from './SideSprite'
 
 export function ChatView({ chatId }: { chatId: string }) {
@@ -86,11 +88,15 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   // VN 视图：玩法预设开了指令才可用；会话自己选过就按选的，否则按预设的「默认以 VN 视图打开」
   const vnWanted = useVnMode(chatId, !!play?.basic.openInVn)
+  const selectingChat = useChatOps((s) => s.selectingChat)
+  // 换会话时退出多选
+  useEffect(() => () => useChatOps.getState().stopSelect(), [chatId])
   if (pages.isError) {
     return <div className="p-8 text-center text-sm text-zinc-500">会话加载失败：{errorMessage(pages.error)}</div>
   }
 
   const lastReply = messages.findLast((m) => m.role === 'assistant') ?? null
+  const selecting = selectingChat === chatId
   const vn = !!play?.directives.enabled && vnWanted && !pages.isPending
 
   return (
@@ -124,7 +130,11 @@ export function ChatView({ chatId }: { chatId: string }) {
               cast={cast}
             />
           )}
-          <Composer chatId={chatId} generating={busy} group={group} lastMessage={messages.at(-1) ?? null} />
+          {selecting ? (
+            <SelectionBar chatId={chatId} messages={messages} />
+          ) : (
+            <Composer chatId={chatId} generating={busy} group={group} lastMessage={messages.at(-1) ?? null} />
+          )}
         </>
       )}
     </div>

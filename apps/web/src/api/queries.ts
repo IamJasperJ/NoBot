@@ -17,6 +17,7 @@ export const keys = {
   presets: ['presets'] as const,
   playPresets: ['playPresets'] as const,
   sprites: (characterId: string) => ['sprites', characterId] as const,
+  bookmarks: (chatId: string) => ['bookmarks', chatId] as const,
   personas: ['personas'] as const,
   characters: ['characters'] as const,
   character: (id: string) => ['character', id] as const,
@@ -51,6 +52,10 @@ export const useBackgroundSettings = () =>
 export const useConnections = () => useQuery({ queryKey: keys.connections, queryFn: api.listConnections })
 export const usePresets = () => useQuery({ queryKey: keys.presets, queryFn: api.listPresets })
 export const usePlayPresets = () => useQuery({ queryKey: keys.playPresets, queryFn: api.listPlayPresets })
+/** 会话的书签（消息上的小旗子、会话设置里的书签列表共用） */
+export const useBookmarks = (chatId: string) =>
+  useQuery({ queryKey: keys.bookmarks(chatId), queryFn: () => api.listBookmarks(chatId), staleTime: 30_000 })
+
 export const useSprites = (characterId: string | null | undefined) =>
   useQuery({
     queryKey: keys.sprites(characterId ?? ''),
@@ -177,5 +182,7 @@ export function markIdle(qc: QueryClient, chatId: string) {
  * 不能用普通的 refetch，因为旧页的分页参数可能已经不在新路径上了。
  */
 export function resetChat(qc: QueryClient, chatId: string) {
+  // 分支变了（swipe、移动、删除、切换书签分支）：书签的「是否在当前分支」也要跟着刷新
+  void qc.invalidateQueries({ queryKey: keys.bookmarks(chatId) })
   return qc.resetQueries({ queryKey: keys.chat(chatId) })
 }

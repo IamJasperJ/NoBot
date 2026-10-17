@@ -106,15 +106,28 @@ Bun.serve({
       : null
     // 背景起名请求：回答固定的 JSON
     const nameRequest = String(msgs.at(-1)?.content ?? '').includes('只输出 JSON：{"name"')
-    const reply = nameRequest
-      ? '{"name": "模拟背景", "description": "模拟模型写的画面描述"}'
-      : classifyAnswer
-        ? classifyAnswer
-        : hasToolResult
-          ? `根据工具结果「${msgs.filter((m) => m.role === 'tool').at(-1).content}」，继续故事。`
-          : String(lastUser).includes('VN')
-            ? vnReply
-            : `你好！这是模拟回复，你刚才说的是「${String(lastUser).slice(0, 20)}」。`
+    const summaryRequest =
+      msgs.some((m) => m.role === 'system' && String(m.content).includes('故事记录员')) ||
+      String(msgs.at(-1)?.content).includes('【新的对话】')
+    const summaryMessage = String(msgs.at(-1)?.content ?? '')
+    const summaryIndex = summaryMessage.indexOf('【新的对话】')
+    const summaryText =
+      summaryIndex < 0
+        ? '（无）'
+        : Array.from(summaryMessage.slice(summaryIndex + '【新的对话】'.length))
+            .slice(0, 30)
+            .join('')
+    const reply = summaryRequest
+      ? `模拟总结：${summaryText}`
+      : nameRequest
+        ? '{"name": "模拟背景", "description": "模拟模型写的画面描述"}'
+        : classifyAnswer
+          ? classifyAnswer
+          : hasToolResult
+            ? `根据工具结果「${msgs.filter((m) => m.role === 'tool').at(-1).content}」，继续故事。`
+            : String(lastUser).includes('VN')
+              ? vnReply
+              : `你好！这是模拟回复，你刚才说的是「${String(lastUser).slice(0, 20)}」。`
     const enc = new TextEncoder()
     if (!body.stream) {
       return Response.json({

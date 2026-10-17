@@ -57,6 +57,8 @@ export interface SlotProps {
   'chat.composer.menu': { chatId: string; setText: (text: string) => void; close: () => void }
   /** 每条消息的「⋯」菜单里的条目 */
   'chat.message.actions': { chatId: string; message: MessageDTO }
+  /** 会话设置面板里的分组（和角色编辑器的分组一样，自动包成可折叠的分组，标题用贡献的 title） */
+  'chat.settings.sections': { chatId: string }
   /** 每条消息正文下方 */
   'chat.message.footer': { chatId: string; message: MessageDTO }
   /** 聊天页侧栏底部 */

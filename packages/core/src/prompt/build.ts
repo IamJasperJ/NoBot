@@ -61,8 +61,20 @@ export interface HistoryMessage {
   images?: string[]
 }
 
+export interface PromptInjection {
+  /** 报告里的片段标识和中文名称 */
+  id: string
+  label: string
+  content: string
+  /** 角色设定之后、作者注释之后，或指定聊天深度 */
+  position: 'after_char' | 'author_note' | 'depth'
+  depth: number
+  role: PromptRole
+}
+
 export interface BuildInput {
-  stageInstructions?: { content: string; position: 'after_char' | 'depth'; depth: number }
+  /** 扩展 / 玩法注入的内容，同位置按数组顺序排列 */
+  injections?: PromptInjection[]
   type: GenerationType
   preset: PresetData
   /** 当前发言的角色 */
@@ -364,14 +376,25 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     }
   }
 
-  const stageInstructions = input.stageInstructions
-  if (stageInstructions?.content.trim()) {
-    if (stageInstructions.position === 'depth') {
-      addInjection('stage', '舞台指令', 'system', stageInstructions.content, stageInstructions.depth, 0)
+  let afterCharOffset = 0
+  for (const [order, injection] of (input.injections ?? []).entries()) {
+    if (injection.position !== 'after_char') {
+      // 独立顺序避免不同角色重排或合并，保证每个注入都有自己的报告片段。
+      addInjection(
+        injection.id,
+        injection.label,
+        injection.role,
+        injection.content,
+        injection.position === 'author_note' ? input.chat.authorNoteDepth : injection.depth,
+        (order + 1) / ((input.injections?.length ?? 0) + 1),
+      )
     } else {
+      const content = macro(injection.content)
+      if (!content) continue
       const historyIndex = slots.findIndex((slot) => slot.kind === 'history')
-      const index = stageAnchor >= 0 ? stageAnchor : historyIndex >= 0 ? historyIndex : slots.length
-      slots.splice(index, 0, { kind: 'piece', piece: piece('stage', '舞台指令', 'system', stageInstructions.content) })
+      const index = stageAnchor >= 0 ? stageAnchor + afterCharOffset : historyIndex >= 0 ? historyIndex : slots.length
+      slots.splice(index, 0, { kind: 'piece', piece: piece(injection.id, injection.label, injection.role, content) })
+      afterCharOffset++
     }
   }
 
@@ -569,6 +592,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
       budget,
       historyTotal: input.history.length,
       omittedToolCalls: filtered.omittedToolCalls,
+      excludedCount: 0,
       historyKept: keptHistory.length + (continuation ? 1 : 0),
       worldInfo: scanned.report,
     },

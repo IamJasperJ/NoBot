@@ -4,6 +4,7 @@ import type {
   AttachmentDTO,
   BackgroundDTO,
   BackgroundSettings,
+  BookmarkDTO,
   CharacterDTO,
   CharacterImportLorebook,
   CharacterImportPreview,
@@ -36,6 +37,7 @@ import type {
   SpriteDTO,
   SpriteImportResult,
   StageState,
+  SummaryStateDTO,
   SwipeInput,
   TestConnectionInput,
   TestConnectionResult,
@@ -253,7 +255,36 @@ export const api = {
   // ---- 消息 ----
   updateMessageImageIndex: (id: string, imageIndex: number) =>
     request<MessageDTO>('PATCH', `/messages/${enc(id)}/meta`, { imageIndex }),
-  editMessage: (id: string, content: string) => request<MessageDTO>('PATCH', `/messages/${id}`, { content }),
+  /** reasoning：传字符串替换思考过程，空串删除，不传不动 */
+  editMessage: (id: string, content: string, reasoning?: string) =>
+    request<MessageDTO>('PATCH', `/messages/${id}`, { content, ...(reasoning === undefined ? {} : { reasoning }) }),
+  /** 批量排除于上下文 / 恢复发送；返回所有改动过的消息（含自动带上的工具调用配对） */
+  excludeMessages: (chatId: string, messageIds: string[], excluded: boolean) =>
+    request<MessageDTO[]>('POST', `/chats/${chatId}/exclude`, { messageIds, excluded }),
+  /** 上移 / 下移：生成一条交换了顺序的新分支，返回新的激活叶子 */
+  moveMessage: (chatId: string, messageId: string, direction: 'up' | 'down') =>
+    request<{ leafId: string }>('POST', `/chats/${chatId}/move`, { messageId, direction }),
+  /** 切到某个节点所在的分支 */
+  activateMessage: (chatId: string, messageId: string) =>
+    request<{ leafId: string }>('POST', `/chats/${chatId}/activate`, { messageId }),
+
+  // ---- 剧情总结（内置扩展 summary，扩展关闭时这些接口 404） ----
+  summaryState: (chatId: string) =>
+    request<SummaryStateDTO>('GET', `/ext/summary/state?chatId=${encodeURIComponent(chatId)}`),
+  runSummary: (chatId: string) => request<SummaryStateDTO>('POST', '/ext/summary/run', { chatId }),
+  editSummary: (chatId: string, messageId: string, text: string) =>
+    request<SummaryStateDTO>('PATCH', '/ext/summary/entry', { chatId, messageId, text }),
+  deleteSummary: (chatId: string, messageId: string) =>
+    request<SummaryStateDTO>('DELETE', '/ext/summary/entry', { chatId, messageId }),
+  freezeSummary: (chatId: string, frozen: boolean) =>
+    request<SummaryStateDTO>('POST', '/ext/summary/freeze', { chatId, frozen }),
+
+  // ---- 书签 ----
+  listBookmarks: (chatId: string) => request<BookmarkDTO[]>('GET', `/chats/${chatId}/bookmarks`),
+  createBookmark: (chatId: string, messageId: string, name?: string) =>
+    request<BookmarkDTO>('POST', `/chats/${chatId}/bookmarks`, { messageId, ...(name ? { name } : {}) }),
+  renameBookmark: (id: string, name: string) => request<BookmarkDTO>('PATCH', `/bookmarks/${id}`, { name }),
+  deleteBookmark: (id: string) => request<Ok>('DELETE', `/bookmarks/${id}`),
   deleteMessage: (id: string) => request<Ok>('DELETE', `/messages/${id}`),
 
   // ---- 日志 ----

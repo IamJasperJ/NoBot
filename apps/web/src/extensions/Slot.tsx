@@ -36,8 +36,9 @@ export function Slot<K extends SlotName>({ name, props }: { name: K; props: Slot
     .sort((a, b) => a.order - b.order)
     .map((entry) => (
       <ExtensionBoundary key={`${entry.extensionId}:${entry.id}`} id={entry.extensionId}>
-        {name === 'character.editor.sections' ? (
-          <Section title={entry.title ?? entry.id} defaultOpen={false}>
+        {name === 'character.editor.sections' || name === 'chat.settings.sections' ? (
+          // 角色编辑器的扩展分组默认收起（分组多）；会话设置里的默认展开
+          <Section title={entry.title ?? entry.id} defaultOpen={name === 'chat.settings.sections'}>
             <Render render={() => entry.render(slotProps(props))} />
           </Section>
         ) : (

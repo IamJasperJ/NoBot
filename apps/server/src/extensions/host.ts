@@ -11,13 +11,14 @@ import { getChatPage, getChatRow, loadMessage, loadPath, updateChat } from '../s
 import { loadGenerationContext } from '../services/context'
 import { isGenerating } from '../services/generation'
 import { insertLog } from '../services/logs'
-import { quietPrompt } from '../services/quiet-prompt'
+import { complete, quietPrompt } from '../services/quiet-prompt'
 import type { ExtensionHost, ServerEvent } from './types'
 
 /** 由注册表注入事件出口，宿主不反向导入注册表。 */
 export function createExtensionHost(emit: (event: ServerEvent) => void): ExtensionHost {
   return {
     quietPrompt,
+    complete,
     listGeneratedImages(characterId) {
       const groups = new Set(
         db

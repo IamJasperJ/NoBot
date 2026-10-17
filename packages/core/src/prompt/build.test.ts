@@ -744,7 +744,9 @@ describe('舞台指令注入', () => {
       custom('scenario', { enabled: false }),
       custom('history'),
     ]
-    value.stageInstructions = { content: '舞台说明', position: 'after_char', depth: 0 }
+    value.injections = [
+      { id: 'stage', label: '舞台指令', role: 'system', content: '舞台说明', position: 'after_char', depth: 0 },
+    ]
     const report = buildPrompt(value).report
     expect(report.segments.map((segment) => segment.source)).toEqual([
       'char_personality',
@@ -760,13 +762,17 @@ describe('舞台指令注入', () => {
   })
   test('depth 按指定深度插入历史', () => {
     const value = minimal()
-    value.stageInstructions = { content: '舞台说明', position: 'depth', depth: 1 }
+    value.injections = [
+      { id: 'stage', label: '舞台指令', role: 'system', content: '舞台说明', position: 'depth', depth: 1 },
+    ]
     expect(buildPrompt(value).report.segments.map((segment) => segment.source)).toEqual(['history', 'stage', 'history'])
   })
   test('没有角色设定条目时回退到历史之前', () => {
     const value = minimal()
     value.preset.prompts.unshift(custom('main'))
-    value.stageInstructions = { content: '舞台说明', position: 'after_char', depth: 9 }
+    value.injections = [
+      { id: 'stage', label: '舞台指令', role: 'system', content: '舞台说明', position: 'after_char', depth: 9 },
+    ]
     expect(buildPrompt(value).report.segments.map((segment) => segment.source)).toEqual([
       'main',
       'stage',
@@ -777,7 +783,9 @@ describe('舞台指令注入', () => {
   test('最后启用的角色条目为空时仍使用其排布位置', () => {
     const value = minimal()
     value.preset.prompts = [custom('char_description'), custom('main'), custom('wi_after'), custom('history')]
-    value.stageInstructions = { content: '舞台说明', position: 'after_char', depth: 0 }
+    value.injections = [
+      { id: 'stage', label: '舞台指令', role: 'system', content: '舞台说明', position: 'after_char', depth: 0 },
+    ]
     expect(buildPrompt(value).report.segments.map((segment) => segment.source)).toEqual([
       'char_description',
       'main',
@@ -786,4 +794,26 @@ describe('舞台指令注入', () => {
       'history',
     ])
   })
+})
+
+describe('通用注入', () => {
+  for (const position of ['after_char', 'author_note', 'depth'] as const) {
+    test(`${position} 替换宏、跳过空内容并保持不同角色的数组顺序`, () => {
+      const value = minimal()
+      value.chat.authorNote = '作者提示'
+      value.chat.authorNoteDepth = 1
+      value.injections = [
+        { id: 'empty', label: '空', role: 'system', content: '   ', position, depth: 1 },
+        { id: 'first', label: '第一条', role: 'system', content: '第一 {{char}}', position, depth: 1 },
+        { id: 'second', label: '第二条', role: 'user', content: '第二 {{user}}', position, depth: 1 },
+      ]
+      const result = buildPrompt(value)
+      const sources = result.report.segments.map((segment) => segment.source)
+      expect(sources).not.toContain('empty')
+      expect(sources.indexOf('first')).toBeLessThan(sources.indexOf('second'))
+      if (position === 'author_note') expect(sources.indexOf('author_note')).toBeLessThan(sources.indexOf('first'))
+      expect(result.messages.some((m) => m.content.includes('第一 小明'))).toBe(true)
+      expect(result.messages.some((m) => m.content.includes('第二 小红'))).toBe(true)
+    })
+  }
 })

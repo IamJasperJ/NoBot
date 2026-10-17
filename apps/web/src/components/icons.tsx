@@ -234,3 +234,15 @@ export const InfoIcon = (p: P) => (
     <path d="M12 11v5M12 8h.01" />
   </Icon>
 )
+
+export const BookmarkIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M6 4h12v16l-6-4-6 4z" />
+  </Icon>
+)
+
+export const ListCheckIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="m3 6 2 2 3-3M3 13l2 2 3-3M11 7h10M11 14h10M11 20h10" />
+  </Icon>
+)

@@ -16,10 +16,12 @@ import {
 import { NumberField, Section, SelectField, TextAreaField, TextField, Toggle } from '../../components/form'
 import { WandIcon, XIcon } from '../../components/icons'
 import { Avatar, Button, cx, IconButton } from '../../components/ui'
+import { Slot } from '../../extensions/Slot'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { GroupDialog } from '../groups/GroupDialog'
+import { BookmarksSection } from './BookmarksSection'
 import { runGeneration } from './generate'
 
 // 背景和固定开关在背景页里即时保存，不进会话设置的草稿
@@ -283,6 +285,12 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
             ]}
           />
         </Section>
+
+        <Slot name="chat.settings.sections" props={{ chatId }} />
+        <BookmarksSection
+          chatId={chatId}
+          owner={page.chat.groupId ? { groupId: page.chat.groupId } : { characterId: page.chat.characterId ?? '' }}
+        />
 
         <Section
           title="状态变量"

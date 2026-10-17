@@ -105,5 +105,25 @@ export const swipeInput = z.object({
 })
 export type SwipeInput = z.infer<typeof swipeInput>
 
+/** 批量切换「排除于上下文」。后端会自动带上配对的工具调用 / 结果消息 */
+export const excludeMessagesInput = z.object({
+  messageIds: z.array(z.string()).min(1).max(2000),
+  excluded: z.boolean(),
+})
+export type ExcludeMessagesInput = z.infer<typeof excludeMessagesInput>
+
+/**
+ * 上移 / 下移一条消息：不改原有路径，而是在原位置生成一条交换了顺序的新分支（见 docs/design/messages-memory.md 第 4 节）
+ */
+export const moveMessageInput = z.object({
+  messageId: z.string(),
+  direction: z.enum(['up', 'down']),
+})
+export type MoveMessageInput = z.infer<typeof moveMessageInput>
+
+/** 切到某个节点所在的分支：激活叶子设为这个节点子树里最新的叶子（规则同 swipe） */
+export const activateMessageInput = z.object({ messageId: z.string() })
+export type ActivateMessageInput = z.infer<typeof activateMessageInput>
+
 /** 从某条消息开分支：复制到这条为止的路径，成为一个新会话 */
 export const branchInput = z.object({ messageId: z.string() })

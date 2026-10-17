@@ -39,6 +39,8 @@ export interface BuildReport {
   /** 历史消息一共多少条、保留了多少条 */
   historyTotal: number
   historyKept: number
+  /** 激活路径上被「排除于上下文」跳过的消息条数（由后端组装时填写，core 的 buildPrompt 填 0） */
+  excludedCount: number
   /** 因当前未启用而省略的工具调用数量（不重复计算结果消息）。 */
   omittedToolCalls: number
   /** 世界书扫描结果（包括没插入的条目和原因） */

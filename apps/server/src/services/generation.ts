@@ -468,6 +468,9 @@ async function generateOne(
     content = step.continueTarget.content
     status = 'done'
   }
+  // 生成期间允许切换排除标记，落库前读取最新值，避免内存快照把用户操作覆盖。
+  if (loadMessage(messageId).meta.excluded === true) meta.excluded = true
+  else delete meta.excluded
   db.update(messages)
     .set({
       content,

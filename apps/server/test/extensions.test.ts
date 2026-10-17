@@ -151,9 +151,10 @@ test('扩展 v2：manifest、旧入口、接口、资源、存储、钩子与生
       return value as T
     }
     let list = await json<ExtensionDTO[]>('/extensions')
-    expect(list.slice(0, 6).map((x) => x.id)).toEqual([
+    expect(list.slice(0, 7).map((x) => x.id)).toEqual([
       'regex',
       'image-gen',
+      'summary',
       'legacy',
       'fixture',
       'legacy-js',

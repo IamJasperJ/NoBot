@@ -71,6 +71,16 @@ export interface ExtensionHost {
     avatar?: Uint8Array
     signal?: AbortSignal
   }): Promise<string>
+  /** 直接请求模型，不组装上下文；连接和模型为空时跟随会话，使用会话采样参数，去掉思考并记录扩展日志。 */
+  complete(opts: {
+    chatId: string
+    messages: ChatMessage[]
+    summary: string
+    connectionId?: string
+    model?: string
+    maxTokens?: number
+    signal?: AbortSignal
+  }): Promise<string>
   saveImage(bytes: Uint8Array): Promise<AttachmentDTO>
   saveBackground(
     bytes: Uint8Array,

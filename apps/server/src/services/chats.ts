@@ -4,6 +4,7 @@ import type {
   ChatPage,
   ChatSummary,
   CreateChatInput,
+  ExcludeMessagesInput,
   GroupDTO,
   MessageDTO,
   MessageMeta,
@@ -28,6 +29,7 @@ import { HttpError, notFound } from '../errors'
 import { emitServerEvent } from '../extensions/registry'
 import { avatarUrl } from '../lib/files'
 import { deleteBackground, getBackgroundSettings, requireBackground } from './backgrounds'
+import { isGenerating } from './generation'
 import { getPlayPreset } from './playPresets'
 import { SETTING_KEYS } from './settings'
 import { applyStageParse, backfillStage, computeStage, initialVars, resolvePlayPreset } from './stage'
@@ -430,24 +432,7 @@ export function branchChat(chatId: string, messageId: string): ChatDTO {
         updatedAt: now,
       })
       .run()
-    let parentId: string | null = null
-    for (const m of path) {
-      const id = newId()
-      tx.insert(messages)
-        .values({
-          id,
-          chatId: newChatId,
-          parentId,
-          role: m.role,
-          content: m.content,
-          status: m.status === 'streaming' ? 'aborted' : m.status,
-          meta: m.meta,
-          speakerId: m.speakerId,
-          createdAt: m.createdAt,
-        })
-        .run()
-      parentId = id
-    }
+    const parentId = copyPath(tx, newChatId, null, path)
     tx.update(chats).set({ activeLeafId: parentId }).where(eq(chats.id, newChatId)).run()
     for (const lorebookId of chatLorebookIds(chatId)) {
       tx.insert(chatLorebooks).values({ chatId: newChatId, lorebookId }).run()
@@ -456,14 +441,16 @@ export function branchChat(chatId: string, messageId: string): ChatDTO {
   return toDTO(getChatRow(newChatId))
 }
 
-export function editMessage(messageId: string, content: string): MessageDTO {
+export function editMessage(messageId: string, content: string, reasoning?: string): MessageDTO {
   const row = db.select().from(messages).where(eq(messages.id, messageId)).get()
   if (!row) throw notFound('消息')
   if (row.status === 'streaming') throw new HttpError(409, 'BUSY', '这条消息还在生成中，不能编辑')
-  db.update(messages)
-    .set({ content, meta: applyStageParse(row.chatId, row, content) })
-    .where(eq(messages.id, messageId))
-    .run()
+  const meta = applyStageParse(row.chatId, row, content)
+  if (reasoning !== undefined) {
+    if (reasoning.trim()) meta.reasoning = reasoning
+    else delete meta.reasoning
+  }
+  db.update(messages).set({ content, meta }).where(eq(messages.id, messageId)).run()
   return loadMessage(messageId)
 }
 
@@ -510,4 +497,111 @@ export function updateMessageImageIndex(messageId: string, imageIndex: number): 
   const saved = loadMessage(messageId)
   emitServerEvent({ type: 'message:updated', message: saved })
   return saved
+}
+
+/** 复制路径时统一保留消息快照；调用方负责开启事务和切换激活叶子。 */
+function copyPath(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  chatId: string,
+  parentId: string | null,
+  path: MessageDTO[],
+): string | null {
+  for (const m of path) {
+    const id = newId()
+    tx.insert(messages)
+      .values({
+        id,
+        chatId,
+        parentId,
+        role: m.role,
+        content: m.content,
+        status: m.status === 'streaming' ? 'aborted' : m.status,
+        meta: m.meta,
+        speakerId: m.speakerId,
+        createdAt: m.createdAt,
+      })
+      .run()
+    parentId = id
+  }
+  return parentId
+}
+
+export function activateMessage(chatId: string, messageId: string): string {
+  getChatRow(chatId)
+  const nodes = loadTree(chatId)
+  if (!nodes.some((m) => m.id === messageId)) throw notFound('消息')
+  if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', '正在生成，稍后再切换')
+  const leafId = findLatestLeaf(buildChildrenMap(nodes), messageId)
+  db.update(chats).set({ activeLeafId: leafId, updatedAt: Date.now() }).where(eq(chats.id, chatId)).run()
+  return leafId
+}
+
+export function moveMessage(chatId: string, messageId: string, direction: 'up' | 'down'): string {
+  const chat = getChatRow(chatId)
+  const path = loadPath(chat.activeLeafId)
+  let index = path.findIndex((m) => m.id === messageId)
+  if (index < 0) throw new HttpError(400, 'NOT_ON_PATH', '只能移动当前分支上的消息')
+  if (direction === 'down') {
+    if (index === path.length - 1) throw new HttpError(400, 'CANNOT_MOVE', '已经是最后一条')
+    index++
+  }
+  const x = path[index]!
+  const p = path[index - 1]
+  if (!p) throw new HttpError(400, 'CANNOT_MOVE', '已经是第一条')
+  if ([x, p].some((m) => m.role === 'tool' || m.meta.toolCalls))
+    throw new HttpError(400, 'CANNOT_MOVE', '工具调用和结果不能移动')
+  if (isGenerating(chatId) || [x, p].some((m) => m.status === 'streaming'))
+    throw new HttpError(409, 'GENERATING', '正在生成，稍后再移动')
+  return db.transaction((tx) => {
+    const leafId = copyPath(tx, chatId, p.parentId, [x, p, ...path.slice(index + 1)])!
+    tx.update(chats).set({ activeLeafId: leafId, updatedAt: Date.now() }).where(eq(chats.id, chatId)).run()
+    return leafId
+  })
+}
+
+export function excludeMessages(chatId: string, input: ExcludeMessagesInput): MessageDTO[] {
+  getChatRow(chatId)
+  const rows = db.select().from(messages).where(eq(messages.chatId, chatId)).all()
+  const byId = new Map(rows.map((m) => [m.id, m]))
+  for (const id of input.messageIds) if (!byId.has(id)) throw notFound('消息')
+  const children = buildChildrenMap(rows)
+  const selected = new Set(input.messageIds)
+  for (const id of input.messageIds) {
+    const message = byId.get(id)!
+    let caller = message
+    // 结果只向上寻找连续工具链的发起者，不能跨过下一轮普通消息。
+    if (message.role === 'tool' && message.meta.toolCallId) {
+      while (caller.parentId) {
+        const parent = byId.get(caller.parentId)
+        if (!parent) break
+        caller = parent
+        if (caller.role !== 'tool') break
+      }
+      if (caller.role !== 'assistant' || !caller.meta.toolCalls?.some((c) => c.id === message.meta.toolCallId)) continue
+    }
+    if (caller.role !== 'assistant' || !caller.meta.toolCalls) continue
+    selected.add(caller.id)
+    const calls = new Set(caller.meta.toolCalls.map((c) => c.id))
+    // 从某条结果切换时沿它所在的链补齐；从发起者切换时沿最新子链，不扩散到兄弟备选。
+    const chain = new Map(loadPath(message.id).map((m) => [m.parentId, m.id]))
+    let current = caller
+    while (true) {
+      const kids = children.get(current.id)
+      const next = kids?.find((m) => m.id === chain.get(current.id)) ?? kids?.at(-1)
+      if (next?.role !== 'tool') break
+      if (next.meta.toolCallId && calls.has(next.meta.toolCallId)) selected.add(next.id)
+      current = next
+    }
+  }
+  db.transaction((tx) => {
+    for (const id of selected) {
+      const row = byId.get(id)!
+      const meta = { ...row.meta }
+      if (input.excluded ? meta.excluded === true : !Object.hasOwn(meta, 'excluded')) continue
+      if (input.excluded) meta.excluded = true
+      else delete meta.excluded
+      tx.update(messages).set({ meta }).where(eq(messages.id, id)).run()
+    }
+  })
+  return [...selected].map(loadMessage).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
 }

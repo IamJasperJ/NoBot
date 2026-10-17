@@ -1,9 +1,13 @@
 import {
+  activateMessageInput,
   branchInput,
+  createBookmarkInput,
   createChatInput,
+  excludeMessagesInput,
   type GenerateEvent,
   generateInput,
   generationTypeSchema,
+  moveMessageInput,
   swipeInput,
   updateChatInput,
 } from '@ai-parter/shared'
@@ -12,6 +16,7 @@ import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import { HttpError } from '../errors'
 import { validate } from '../lib/validate'
+import * as bookmarks from '../services/bookmarks'
 import * as chats from '../services/chats'
 import { assemble, loadGenerationContext } from '../services/context'
 import * as generation from '../services/generation'
@@ -85,6 +90,20 @@ export const chatRoutes = new Hono()
     generation.abortGeneration(c.req.param('id'))
     await chats.deleteChat(c.req.param('id'))
     return c.json({ ok: true })
+  })
+  .get('/:id/bookmarks', (c) => c.json(bookmarks.listBookmarks(c.req.param('id'))))
+  .post('/:id/bookmarks', validate('json', createBookmarkInput), (c) =>
+    c.json(bookmarks.createBookmark(c.req.param('id'), c.req.valid('json'))),
+  )
+  .post('/:id/exclude', validate('json', excludeMessagesInput), (c) =>
+    c.json(chats.excludeMessages(c.req.param('id'), c.req.valid('json'))),
+  )
+  .post('/:id/activate', validate('json', activateMessageInput), (c) =>
+    c.json({ leafId: chats.activateMessage(c.req.param('id'), c.req.valid('json').messageId) }),
+  )
+  .post('/:id/move', validate('json', moveMessageInput), (c) => {
+    const { messageId, direction } = c.req.valid('json')
+    return c.json({ leafId: chats.moveMessage(c.req.param('id'), messageId, direction) })
   })
   .post('/:id/swipe', validate('json', swipeInput), (c) => {
     const { messageId, direction } = c.req.valid('json')

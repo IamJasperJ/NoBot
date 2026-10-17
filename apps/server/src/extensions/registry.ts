@@ -13,6 +13,7 @@ import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
 import imageGen from './builtin/image-gen'
 import regex from './builtin/regex'
+import summary from './builtin/summary'
 import { createExtensionHost } from './host'
 import type { Extension, ExtensionContext, ExtensionManifest, ServerEvent } from './types'
 
@@ -68,6 +69,7 @@ export function registerBuiltinExtension(extension: Extension) {
 
 registerBuiltinExtension(regex)
 registerBuiltinExtension(imageGen)
+registerBuiltinExtension(summary)
 
 const manifestSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),

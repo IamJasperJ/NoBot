@@ -59,6 +59,25 @@ export interface MessageMeta {
   imageIndex?: number
   /** 这条消息上的图片生成任务（图片生成扩展写入）。生成完成后图片追加进 images */
   imageGen?: ImageGenMeta
+  /**
+   * true：排除于上下文（酒馆的「隐藏消息」）。消息仍然显示，但不进 Prompt、不进总结素材，世界书扫描也看不到；
+   * 不影响舞台、变量。带工具调用的助手消息和它的 tool 结果总是一起切换
+   */
+  excluded?: boolean
+  /**
+   * 剧情总结（总结扩展写入）：「到这条消息为止」的总结。组装 Prompt 时沿激活路径找最近的一条，
+   * 所以切换分支 / swipe 时总结自动跟着走。见 docs/design/messages-memory.md 第 6 节
+   */
+  summary?: MessageSummary
+}
+
+export interface MessageSummary {
+  text: string
+  createdAt: number
+  /** true：自动总结生成；false：手动「立即总结」或用户编辑过 */
+  auto: boolean
+  /** 这次总结新纳入了多少条消息（上一份总结之后的） */
+  coveredCount: number
 }
 
 /** 图片生成任务的状态，界面据此显示占位框 / 错误 / 重试 */
@@ -122,5 +141,7 @@ export interface MessageDTO {
 
 export const editMessageInput = z.object({
   content: z.string(),
+  /** 思考过程：传字符串就替换，传空串（去掉首尾空白后）就删掉，不传就不动 */
+  reasoning: z.string().optional(),
 })
 export type EditMessageInput = z.infer<typeof editMessageInput>

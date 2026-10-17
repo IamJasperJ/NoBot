@@ -291,3 +291,19 @@ export const sprites = sqliteTable(
   },
   (t) => [index('sprites_character_outfit_expression_idx').on(t.characterId, t.outfit, t.expression)],
 )
+
+export const bookmarks = sqliteTable(
+  'bookmarks',
+  {
+    id: text('id').primaryKey(),
+    chatId: text('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    messageId: text('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('bookmarks_chat_created_idx').on(t.chatId, t.createdAt)],
+)

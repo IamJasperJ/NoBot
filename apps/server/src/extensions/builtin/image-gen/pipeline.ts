@@ -243,16 +243,23 @@ export async function renderImage(
   chatId?: string,
   signal?: AbortSignal,
   stage?: (stage: ImageGenMeta['stage'], position?: number) => void,
+  referenceImage?: string,
 ) {
   const started = Date.now()
-  const request = { ...safeSnapshot(settings), prompt, width, height }
+  const request = {
+    ...safeSnapshot(settings),
+    prompt,
+    width,
+    height,
+    ...(referenceImage ? { referenceImage: true } : {}),
+  }
   try {
     validate(settings)
     imageQueue.setLimit(settings.maxConcurrent)
     const bytes = await imageQueue.run(
       async () => {
         stage?.('generating')
-        const result = await getBackend(settings).generate({ settings, prompt, width, height }, signal)
+        const result = await getBackend(settings).generate({ settings, prompt, width, height, referenceImage }, signal)
         if (result.seed !== undefined) settings.seed = result.seed
         return result.bytes
       },

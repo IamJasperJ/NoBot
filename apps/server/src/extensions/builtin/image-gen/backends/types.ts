@@ -22,6 +22,7 @@ export interface Discovery {
   adetailer?: boolean
 }
 export interface ImageJob {
+  referenceImage?: string
   settings: Settings
   prompt: string
   width: number
@@ -38,6 +39,7 @@ export interface ImageBackend {
   resolveConnection?(settings: Settings): Settings
   validate(settings: Settings): void
   dimensions?(settings: Settings, width: number, height: number): { width: number; height: number }
+  supportsReference?(settings: Settings): boolean
   prepareAvatars?: boolean
   discover(settings: Settings): Promise<Discovery>
   test(settings: Settings): Promise<void>

@@ -56,13 +56,25 @@ export function aspectRatio(width: number, height: number): string {
 }
 
 /** 聊天接口出图的请求体：提示词作为用户消息，声明要图片输出，并在提示词里注明画幅比例 */
-export function openaiChatBody(settings: Settings, prompt: string, width: number, height: number) {
+export function openaiChatBody(
+  settings: Settings,
+  prompt: string,
+  width: number,
+  height: number,
+  referenceImage?: string,
+) {
+  const text = `Generate an image. Do not reply with text.\nAspect ratio: ${aspectRatio(width, height)} (${width}x${height}).\nPrompt: ${prompt}`
   return {
     model: settings.openaiModel,
     messages: [
       {
         role: 'user',
-        content: `Generate an image. Do not reply with text.\nAspect ratio: ${aspectRatio(width, height)} (${width}x${height}).\nPrompt: ${prompt}`,
+        content: referenceImage
+          ? [
+              { type: 'text', text },
+              { type: 'image_url', image_url: { url: referenceImage } },
+            ]
+          : text,
       },
     ],
     modalities: ['image', 'text'],
@@ -145,12 +157,19 @@ async function viaImages(settings: Settings, prompt: string, width: number, heig
   throw new HttpError(502, 'IMAGE_EMPTY', t('图片接口没有返回图片'))
 }
 
-async function viaChat(settings: Settings, prompt: string, width: number, height: number, signal: AbortSignal) {
+async function viaChat(
+  settings: Settings,
+  prompt: string,
+  width: number,
+  height: number,
+  signal: AbortSignal,
+  referenceImage?: string,
+) {
   const response = await imageFetch(`${settings.openaiBaseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     signal,
     headers: openaiRequestHeaders(settings),
-    body: JSON.stringify(openaiChatBody(settings, prompt, width, height)),
+    body: JSON.stringify(openaiChatBody(settings, prompt, width, height, referenceImage)),
   })
   const body = await jsonResponse(response)
   const found = findChatImage(body)
@@ -179,8 +198,11 @@ export async function generateOpenAI(
   width: number,
   height: number,
   abort?: AbortSignal,
+  referenceImage?: string,
 ): Promise<Uint8Array> {
   const signal = AbortSignal.any([AbortSignal.timeout(300000), ...(abort ? [abort] : [])])
+  // 参考图不能降级到纯文生图，否则整套立绘会悄悄失去人物一致性约束。
+  if (referenceImage) return viaChat(settings, prompt, width, height, signal, referenceImage)
   const kind = openaiApiKind(settings)
   const first = kind === 'chat' ? viaChat : viaImages
   try {
@@ -243,8 +265,9 @@ export const openaiBackend: ImageBackend = {
   test: async (settings) => {
     await openaiModels(settings)
   },
-  async generate({ settings, prompt, width, height }, signal) {
-    const bytes = await generateOpenAI(settings, prompt, width, height, signal)
+  supportsReference: (settings) => openaiApiKind(settings) === 'chat',
+  async generate({ settings, prompt, width, height, referenceImage }, signal) {
+    const bytes = await generateOpenAI(settings, prompt, width, height, signal, referenceImage)
     return { bytes, mime: imageMime(bytes) }
   },
 }

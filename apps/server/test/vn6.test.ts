@@ -80,11 +80,16 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
     .png()
     .toBuffer()
   const calls: Record<string, unknown>[] = []
+  const referenceCalls: Record<string, unknown>[] = []
   let failImage = false
   let release: (() => void) | undefined
   let gate: Promise<void> | undefined
   const fetchMock = spyOn(globalThis, 'fetch').mockImplementation((async (url: unknown, options?: RequestInit) => {
     const body = JSON.parse(String(options?.body ?? '{}')) as Record<string, unknown>
+    if (body.model === 'gemini-sprite-test') {
+      referenceCalls.push(body)
+      return Response.json({ choices: [{ message: { content: `data:image/png;base64,${png.toString('base64')}` } }] })
+    }
     if ('prompt' in body) {
       calls.push(body)
       if (gate) await gate
@@ -201,6 +206,31 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
     })
     expect((await waitJob(appearanceJob.jobId)).done).toBe(1)
     expect(calls.at(-1)!.prompt).toContain('blue hair, blue eyes')
+
+    // 聊天出图后端：第二张引用第一张白底原图，所选服装名保留在绘图描述中。
+    const referenceSettings = { ...settings, openaiModel: 'gemini-sprite-test' }
+    updateExtension('image-gen', { settings: referenceSettings })
+    const referenceJob = await json<{ jobId: string }>(`/characters/${actor.id}/sprites/generate`, 'POST', {
+      outfit: 'outfit-id-42',
+      expressions: ['joy', 'neutral'],
+      basePrompt: 'blue hair, blue dress',
+    })
+    expect((await waitJob(referenceJob.jobId)).done).toBe(2)
+    const firstMessages = referenceCalls[0]!.messages as { content: string }[]
+    expect(firstMessages[0]!.content).toContain('neutral expression')
+    expect(firstMessages[0]!.content).toContain('outfit-id-42')
+    expect(firstMessages[0]!.content).toContain('head to shoes')
+    const secondMessages = referenceCalls[1]!.messages as {
+      content: { type: string; text?: string; image_url?: { url: string } }[]
+    }[]
+    expect(secondMessages[0]!.content[0]!.text).toContain('change only the facial expression')
+    expect(secondMessages[0]!.content[0]!.text).toContain('smile, happy')
+    expect(secondMessages[0]!.content[1]!.image_url?.url).toBe(`data:image/png;base64,${png.toString('base64')}`)
+    const referenceSprites = (await json<SpriteDTO[]>(`/characters/${actor.id}/sprites`)).filter(
+      (sprite) => sprite.outfit === 'outfit-id-42',
+    )
+    expect(referenceSprites).toHaveLength(2)
+    updateExtension('image-gen', { settings: { ...settings, source: 'a1111', a1111Url: 'http://mock' } })
 
     failImage = true
     const failedJob = await json<{ jobId: string }>(`/characters/${actor.id}/sprites/generate`, 'POST', {

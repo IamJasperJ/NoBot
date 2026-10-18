@@ -3,6 +3,7 @@ import { type GenerateSpritesInput, generateSpritesInput, type SpriteJobDTO } fr
 import { newId } from '../db/client'
 import { HttpError, notFound } from '../errors'
 import { backendDimensions, getBackend } from '../extensions/builtin/image-gen/backends'
+import { imageMime as getImageMime } from '../extensions/builtin/image-gen/backends/types'
 import {
   characterPrompt,
   composePrompt,
@@ -79,7 +80,7 @@ export async function generateSpriteSet(
     const character = getCharacter(characterId)
     let appearance = input.basePrompt
     if (!appearance) {
-      const instruction = `${promptInstruction('character', settings.tpl_character || templates.character, style)}\nCharacter name: ${character.name}\nCharacter description: ${character.description}\nPersonality: ${character.personality}\nOutput only an English image prompt describing physical appearance, hair, eyes, body and clothing. No scenery or other characters.`
+      const instruction = `${promptInstruction('character', settings.tpl_character || templates.character, style)}\nCharacter name: ${character.name}\nCharacter description: ${character.description}\nPersonality: ${character.personality}\nOutput only an English image prompt describing physical appearance, hair, eyes, body and clothing. No scenery or other characters. Choose one coherent outfit and one hairstyle. Do not combine alternate outfits, hairstyles or changing appearance states.`
       if (chatId)
         appearance = await ctx.host.quietPrompt({
           chatId,
@@ -129,6 +130,8 @@ export async function generateSpriteSet(
     let size = dimensions(settings, false, 'character')
     size = backendDimensions(settings, Math.min(size.width, size.height), Math.max(size.width, size.height))
     let seed = settings.seed
+    let referenceImage: string | undefined
+    const useReference = getBackend(settings).supportsReference?.(settings) === true
     for (const expression of expressions) {
       try {
         const composed = composePrompt(
@@ -139,9 +142,25 @@ export async function generateSpriteSet(
         )
         settings.negativePrompt = composed.negative
         settings.seed = seed
-        const bytes = await renderImage(ctx, settings, composed.prompt, size.width, size.height, chatId)
+        const prompt = referenceImage
+          ? `${composed.prompt}. Edit the supplied reference sprite: change only the facial expression. Preserve the exact identity, face shape, hairstyle, outfit, body proportions, standing pose, camera, framing, lighting, rendering style and white background. Do not redesign the character.`
+          : composed.prompt
+        const bytes = await renderImage(
+          ctx,
+          settings,
+          prompt,
+          size.width,
+          size.height,
+          chatId,
+          undefined,
+          undefined,
+          referenceImage,
+        )
         if (expression === expressions[0]) seed = settings.seed
         await saveSprite(characterId, await transparentSprite(bytes), input.outfit, expression)
+        // 以第一张成功保存的原始白底图固定整套外观，不把去底边缘传回模型。
+        if (useReference && !referenceImage)
+          referenceImage = `data:${getImageMime(bytes)};base64,${Buffer.from(bytes).toString('base64')}`
         state.done++
       } catch (error) {
         state.failed++

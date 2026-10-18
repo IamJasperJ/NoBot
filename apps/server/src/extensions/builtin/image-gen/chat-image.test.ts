@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test'
+import { imageBackends } from './backends'
 import { aspectRatio, findChatImage, generateOpenAI, openaiApiKind, openaiChatBody } from './backends/openai'
 import { parseSettings } from './settings'
 
@@ -58,6 +59,8 @@ beforeAll(() => {
     const url = new URL(request.url)
     const body = (await request.json()) as { model: string }
     hits.push(`${url.pathname} ${body.model}`)
+    if (body.model === 'reference-400')
+      return Response.json({ error: { message: 'reference rejected' } }, { status: 400 })
     if (body.model.includes('401')) return Response.json({ error: { message: 'bad key' } }, { status: 401 })
     if (url.pathname.endsWith('/images/generations')) {
       if (body.model.includes('404')) return new Response('not found', { status: 404 })
@@ -115,4 +118,32 @@ test('聊天接口出图、自动模式猜错时换接口重试、没有图片�
   expect((await run('gpt-image-2')).length).toBeGreaterThan(0)
   expect(hits).toEqual(['/v1/images/generations gpt-image-2'])
   await expect(run('text-only', 'chat')).rejects.toThrow('回复里没有图片')
+})
+
+test('参考立绘作为图片输入，接口失败时不降级成丢失参考图的文生图', async () => {
+  const reference = `data:image/png;base64,${png}`
+  const settings = parseSettings({ openaiModel: 'gemini-3.1-flash-image' })
+  expect(imageBackends.openai.supportsReference?.(settings)).toBe(true)
+  expect(imageBackends.a1111.supportsReference?.(settings)).toBeUndefined()
+  expect(imageBackends.openai.supportsReference?.(parseSettings({ openaiModel: 'gpt-image-2' }))).toBe(false)
+  const body = openaiChatBody(settings, 'change only the expression', 832, 1216, reference)
+  expect(body.messages[0]?.content).toEqual([
+    { type: 'text', text: expect.stringContaining('change only the expression') },
+    { type: 'image_url', image_url: { url: reference } },
+  ])
+  hits.length = 0
+  await expect(
+    generateOpenAI(
+      parseSettings({
+        openaiBaseUrl: `http://127.0.0.1:${server?.port ?? 12345}/v1`,
+        openaiModel: 'reference-400',
+      }),
+      'a sprite',
+      832,
+      1216,
+      undefined,
+      reference,
+    ),
+  ).rejects.toThrow('HTTP 400')
+  expect(hits).toEqual(['/v1/chat/completions reference-400'])
 })

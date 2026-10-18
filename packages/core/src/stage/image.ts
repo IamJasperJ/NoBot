@@ -41,11 +41,13 @@ export function spritePrompt(
   const tags = Object.hasOwn(EXPRESSION_TAGS, expression)
     ? EXPRESSION_TAGS[expression as Expression]
     : expression.replace(/[_-]/g, ' ')
+  const framing =
+    'Single visual novel character sprite, full body visible from head to shoes, centered with clear margins above the head and below the feet, eye-level camera, relaxed upright pose, arms slightly separated from torso, hands fully visible, consistent proportions, plain pure white background, flat even lighting, no cast shadow, no scenery, no text, no border, no collage. Preserve the same character design and outfit across expressions.'
   return style === 'tags'
-    ? [appearance, outfit, tags, 'full body, standing, simple white background, no other characters']
+    ? `${[appearance, outfit, tags, 'full body, standing, simple white background, no other characters']
         .filter(Boolean)
-        .join(', ')
-    : `${appearance}. ${outfit ? `Wearing ${outfit}. ` : ''}Facial expression: ${tags}. Full body, standing, on a simple white background, with no other characters.`
+        .join(', ')}. ${framing}`
+    : `${appearance}. ${outfit ? `Wearing ${outfit}. ` : ''}Facial expression: ${tags}. Full body, standing, on a simple white background, with no other characters. ${framing}`
 }
 
 /** 只移除从边缘可达的背景，封闭在人物内部的相似颜色（例如白色衣服）保留。 */

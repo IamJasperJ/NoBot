@@ -14,6 +14,7 @@ export const SETTING_KEYS = {
   defaultPlayPresetId: 'defaultPlayPresetId',
   playPresetsSeeded: 'playPresetsSeeded',
   legacyPromptsMigrated: 'legacyPromptsMigrated',
+  defaultProfileId: 'defaultProfileId',
   defaultApiPresetId: 'defaultApiPresetId',
   defaultPromptPresetId: 'defaultPromptPresetId',
   builtinPromptPresetId: 'builtinPromptPresetId',

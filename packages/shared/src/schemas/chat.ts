@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { autoBackgroundSettingsSchema } from './background'
 import type { GroupDTO } from './group'
 import type { MessageDTO } from './message'
 import type { StageState, StateSchema } from './stage'
@@ -14,6 +15,7 @@ export interface ChatSummary {
 }
 
 export interface ChatDTO extends ChatSummary {
+  profileId: string | null
   personaId: string | null
   activeLeafId: string | null
   /** 连接配置，为空则用全局默认 */
@@ -29,6 +31,7 @@ export interface ChatDTO extends ChatSummary {
   backgroundId: string | null
   /** 固定聊天背景：为 true 且有聊天背景时，它优先于舞台背景（用户手动覆盖模型选的场景） */
   backgroundPinned: boolean
+  autoBackground: { lore: boolean; everyN: number }
   /** 玩法预设（VN 模式），为空则用角色卡指定的预设或全局默认 */
   playPresetId: string | null
   createdAt: number
@@ -66,6 +69,7 @@ export const createChatInput = z
 export type CreateChatInput = z.input<typeof createChatInput>
 
 export const updateChatInput = z.object({
+  profileId: z.string().nullable().optional(),
   title: z.string().trim().min(1).optional(),
   personaId: z.string().nullable().optional(),
   apiPresetId: z.string().nullable().optional(),
@@ -76,6 +80,7 @@ export const updateChatInput = z.object({
   lorebookIds: z.array(z.string()).optional(),
   backgroundId: z.string().nullable().optional(),
   backgroundPinned: z.boolean().optional(),
+  autoBackground: autoBackgroundSettingsSchema.optional(),
   playPresetId: z.string().nullable().optional(),
 })
 export type UpdateChatInput = z.infer<typeof updateChatInput>

@@ -1,5 +1,6 @@
 import type { GenerationType, LorebookEntryData, MatchSource, WIPosition } from '@ai-parter/shared'
 import { useId } from 'react'
+import { useBackgrounds } from '../../api/queries'
 import {
   DenseRow,
   denseControlClass,
@@ -96,6 +97,7 @@ export function EntryEditor({
     />
   )
   const scanDepthId = useId()
+  const backgrounds = useBackgrounds()
   const toggle = (
     key: keyof { [K in keyof LorebookEntryData as LorebookEntryData[K] extends boolean ? K : never]: boolean },
     label: string,
@@ -141,6 +143,16 @@ export function EntryEditor({
         <p className="col-span-full -mt-0.5 text-right text-xs text-zinc-400">
           {t('字数：{count}', { count: Array.from(draft.content).length })}
         </p>
+        <SelectField
+          label={t('切换到背景')}
+          hint={t('条目被触发时把会话背景换成这张（需要在会话设置里打开「世界书条目触发时换背景」）')}
+          value={draft.backgroundId ?? ''}
+          options={[
+            { value: '', label: t('不切换') },
+            ...(backgrounds.data ?? []).map((b) => ({ value: b.id, label: b.name })),
+          ]}
+          onChange={(id) => set('backgroundId', id || null)}
+        />
       </Section>
       <Section dense title={t('触发')}>
         {toggle('constant', t('常驻条目'), t('开启后无需命中关键词也会参与激活，仍受概率、过滤和预算等限制。'))}

@@ -47,6 +47,8 @@ export const matchSourceSchema = z.enum([
 export type MatchSource = z.infer<typeof matchSourceSchema>
 
 export const lorebookEntryDataSchema = z.object({
+  /** 条目实际激活后自动切换的背景，不参与提示词文本。 */
+  backgroundId: z.string().nullable().default(null),
   /** 备注 / 标题，不发给模型 */
   comment: z.string().default(''),
   /** 主关键词。以 / 开头和结尾的按正则匹配，如 /龙(族|人)/i */

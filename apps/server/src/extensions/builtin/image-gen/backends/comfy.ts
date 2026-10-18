@@ -2,8 +2,10 @@ import { HttpError } from '../../../../errors'
 import { t } from '../../../../i18n'
 import { comfyCapabilities, comfyHeaders } from '../discovery'
 import type { Settings } from '../settings'
-import { buildWorkflow } from '../workflow'
+import { settingsSchema } from '../settings'
+import { buildWorkflow, workflowSource } from '../workflow'
 import { imageFetch, jsonResponse, object } from './http'
+import { diffusionCapabilities, type ImageBackend, imageMime } from './types'
 
 export async function comfyModels(settings: Settings) {
   return (await comfyCapabilities(settings)).models
@@ -64,4 +66,38 @@ export async function generateComfy(
     })
   }
   throw new HttpError(502, 'COMFY_TIMEOUT', t('ComfyUI 生成超时'))
+}
+
+export const comfyBackend: ImageBackend = {
+  id: 'comfy',
+  label: 'ComfyUI',
+  get settingsSchema() {
+    return settingsSchema.filter((field) => field.key.startsWith('comfy'))
+  },
+  capabilities: diffusionCapabilities,
+  prepareAvatars: true,
+  promptStyle(settings) {
+    const workflow = workflowSource(settings)
+    return !/CheckpointLoaderSimple/i.test(workflow) &&
+      /UNETLoader|UnetLoaderGGUF|DualCLIPLoader|CLIPLoaderGGUF|lumina2|flux/i.test(workflow)
+      ? 'natural'
+      : 'tags'
+  },
+  model: (settings) => settings.comfyCheckpoint,
+  validate(settings) {
+    if (!settings.comfyUrl.trim()) throw new HttpError(400, 'IMAGE_CONFIG', t('请先配置 ComfyUI 地址'))
+  },
+  discover: comfyCapabilities,
+  async test(settings) {
+    await jsonResponse(
+      await imageFetch(`${settings.comfyUrl.replace(/\/+$/, '')}/system_stats`, {
+        headers: comfyHeaders(settings),
+        signal: AbortSignal.timeout(30000),
+      }),
+    )
+  },
+  async generate({ settings, prompt, width, height }, signal) {
+    const bytes = await generateComfy(settings, prompt, width, height, signal)
+    return { bytes, mime: imageMime(bytes), seed: settings.seed }
+  },
 }

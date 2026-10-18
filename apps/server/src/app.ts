@@ -19,6 +19,7 @@ import { messageRoutes } from './routes/messages'
 import { personaRoutes } from './routes/personas'
 import { playPresetRoutes } from './routes/playPresets'
 import { presetRoutes } from './routes/presets'
+import { profileRoutes } from './routes/profiles'
 import { trashRoutes } from './routes/trash'
 import { logError } from './services/logs'
 
@@ -56,6 +57,7 @@ app.get('/health', (c) => c.json({ ok: true }))
 
 app.route('/backgrounds', backgroundRoutes)
 app.route('/connections', connectionRoutes)
+app.route('/profiles', profileRoutes)
 app.route('/presets', presetRoutes)
 app.route('/play-presets', playPresetRoutes)
 app.route('/personas', personaRoutes)

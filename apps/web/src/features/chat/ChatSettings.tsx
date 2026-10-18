@@ -7,13 +7,15 @@ import {
   useAutoBackground,
   useBackgrounds,
   useChatPages,
+  useChatProfile,
   useConnections,
   useLorebooks,
   usePersonas,
   usePlayPresets,
   usePresets,
+  useProfiles,
 } from '../../api/queries'
-import { NumberField, Section, SelectField, TextAreaField, TextField, Toggle } from '../../components/form'
+import { NumberField, Section, SelectField, SwitchField, TextAreaField, TextField, Toggle } from '../../components/form'
 import { WandIcon, XIcon } from '../../components/icons'
 import { Avatar, Button, cx, IconButton } from '../../components/ui'
 import { Slot } from '../../extensions/Slot'
@@ -32,6 +34,7 @@ function toDraft(page: ChatPage): Draft {
   const c = page.chat
   return {
     title: c.title,
+    profileId: c.profileId,
     personaId: c.personaId,
     apiPresetId: c.apiPresetId,
     promptPresetId: c.promptPresetId,
@@ -40,6 +43,7 @@ function toDraft(page: ChatPage): Draft {
     authorNoteRole: c.authorNoteRole,
     lorebookIds: c.lorebookIds,
     playPresetId: c.playPresetId,
+    autoBackground: c.autoBackground,
   }
 }
 
@@ -73,6 +77,8 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
     }
   }, [effectivePlay?.data.state.schema])
   const connections = useConnections()
+  const profiles = useProfiles()
+  const effectiveProfile = useChatProfile(page.chat.id)
   const lorebooks = useLorebooks()
   const auto = useAutoBackground()
   const backgrounds = useBackgrounds()
@@ -135,6 +141,19 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
         <TextField label={t('会话名称')} value={draft.title} onChange={(v) => set('title', v)} />
 
         <Section dense title={t('人设与预设')}>
+          <SelectField
+            label={t('连接配置组')}
+            hint={t(
+              '一键切换连接、模型、生成预设和正则（在「连接」页的「配置组」里编辑）。跟随：角色绑定的配置组，没有就用全局默认；都没有时用下面单独选的连接和预设',
+            )}
+            value={draft.profileId ?? DEFAULT}
+            onChange={(v) => set('profileId', pick(v))}
+            options={[
+              { value: DEFAULT, label: t('跟随') },
+              ...(profiles.data ?? []).map((p) => ({ value: p.id, label: p.name })),
+            ]}
+          />
+          {effectiveProfile.data && <ProfileSummary data={effectiveProfile.data} />}
           <SelectField
             label={t('用户人设')}
             hint={t('你在这个会话里扮演谁，{{user}} 会替换成人设的名字')}
@@ -244,6 +263,23 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
               </Button>
             )}
           </div>
+          <div className="space-y-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+            <SwitchField
+              label={t('世界书条目触发时换背景')}
+              hint={t('世界书条目可以绑定一张背景，条目被触发时自动切过去，不额外调用模型')}
+              checked={draft.autoBackground.lore}
+              onChange={(lore) => set('autoBackground', { ...draft.autoBackground, lore })}
+            />
+            <NumberField
+              label={t('每隔几条回复自动选择背景')}
+              hint={t('让模型按当前场景从背景库挑一张，每次会多调用一次模型。0 表示关闭')}
+              min={0}
+              max={100}
+              slider={false}
+              value={draft.autoBackground.everyN}
+              onChange={(everyN) => set('autoBackground', { ...draft.autoBackground, everyN: Math.round(everyN) })}
+            />
+          </div>
         </Section>
 
         <Section title={t('会话世界书')} description={t('只在这个会话里生效，优先级最高')}>
@@ -341,6 +377,31 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
 /**
  * 群聊成员的快捷操作：禁言开关（立即保存到群组）、「让 TA 说」（马上让这个角色发言，即使被禁言也会说）。
  */
+const PROFILE_SOURCE = () => ({
+  chat: t('会话指定'),
+  character: t('角色绑定'),
+  global: t('全局默认'),
+  legacy: t('单独设置'),
+})
+
+/** 现在实际生效的连接、模型和预设，以及它来自哪一层 */
+function ProfileSummary({ data }: { data: NonNullable<ReturnType<typeof useChatProfile>['data']> }) {
+  const { summary, profile } = data
+  return (
+    <div className="col-span-full rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900">
+      <div className="mb-0.5 font-medium text-zinc-700 dark:text-zinc-300">
+        {t('生效中：{name}（{source}）', {
+          name: profile?.name ?? t('未使用配置组'),
+          source: PROFILE_SOURCE()[summary.source],
+        })}
+      </div>
+      <div className="truncate" title={summary.baseUrl}>
+        {summary.baseUrl || t('未设置连接')} · {summary.model || t('未设置模型')} · {summary.presetName}
+      </div>
+    </div>
+  )
+}
+
 function GroupMembers({ page, onEdit }: { page: ChatPage; onEdit: () => void }) {
   const qc = useQueryClient()
   const group = page.group as NonNullable<ChatPage['group']>

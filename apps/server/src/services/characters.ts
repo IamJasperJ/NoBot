@@ -31,7 +31,9 @@ import { cardParseMessage, HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { readCharx } from '../lib/charx'
 import { avatarUrl, deleteAvatar, readAvatar, saveAvatar } from '../lib/files'
+import { requireBackground } from './backgrounds'
 import { createEntry, createLorebook, getLorebookWithEntries } from './lorebooks'
+import { getProfile } from './profiles'
 import { saveSprite } from './sprites'
 
 export function toSummary(row: CharacterRow): CharacterSummary {
@@ -102,7 +104,9 @@ export function getCharacter(id: string): CharacterDTO {
     characterNote: row.characterNote,
     characterNoteDepth: row.characterNoteDepth,
     characterNoteRole: row.characterNoteRole,
+    profileId: row.profileId,
     defaultPersonaId: row.defaultPersonaId,
+    defaultBackgroundId: row.defaultBackgroundId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     lorebookIds: db
@@ -144,9 +148,13 @@ export function createCharacter(input: CharacterInput): CharacterDTO {
     characterNoteDepth,
     characterNoteRole,
     defaultPersonaId,
+    profileId,
+    defaultBackgroundId,
     extensions,
     ...fields
   } = characterInput.parse(input)
+  if (profileId) getProfile(profileId)
+  if (defaultBackgroundId !== null) requireBackground(defaultBackgroundId)
   checkRelations(lorebookIds, defaultPersonaId)
   return db.transaction(() => {
     const id = newId()
@@ -159,6 +167,8 @@ export function createCharacter(input: CharacterInput): CharacterDTO {
         characterNoteDepth,
         characterNoteRole,
         defaultPersonaId,
+        profileId,
+        defaultBackgroundId,
         extensions,
         id,
         createdAt: now,
@@ -184,9 +194,13 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
     characterNoteDepth,
     characterNoteRole,
     defaultPersonaId,
+    profileId,
+    defaultBackgroundId,
     extensions,
     ...fields
   } = merged
+  if (profileId) getProfile(profileId)
+  if (defaultBackgroundId !== null) requireBackground(defaultBackgroundId)
   checkRelations(lorebookIds, defaultPersonaId)
   return db.transaction(() => {
     db.update(characters)
@@ -197,6 +211,8 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
         characterNoteDepth,
         characterNoteRole,
         defaultPersonaId,
+        profileId,
+        defaultBackgroundId,
         extensions,
         updatedAt: Date.now(),
       })
@@ -260,6 +276,8 @@ export async function importCharacter(
         characterNoteDepth,
         characterNoteRole,
         defaultPersonaId,
+        profileId,
+        defaultBackgroundId,
         extensions,
         ...fields
       } = data
@@ -272,6 +290,8 @@ export async function importCharacter(
           characterNoteDepth,
           characterNoteRole,
           defaultPersonaId,
+          profileId,
+          defaultBackgroundId,
           extensions,
           id,
           avatarFile,

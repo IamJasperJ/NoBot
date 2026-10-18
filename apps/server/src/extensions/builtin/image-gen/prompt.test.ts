@@ -111,3 +111,10 @@ test('正负提示词拼接去掉各段首尾空白和逗号，也支持插入�
   settings.styles[0]!.promptPrefix = ', highres, {prompt}, '
   expect(composePrompt(settings, 'free', 'bright', {}).prompt).toBe('highres, bright, cinematic')
 })
+
+test('清理提示词时去掉舞台指令，保留 lora 写法', async () => {
+  const { cleanPrompt } = await import('./modes')
+  expect(
+    cleanPrompt('<scene bg="公会大厅" /> 1girl, <lora:style:0.8>, tavern\n<state>\naffection += 3\n</state>'),
+  ).toBe('1girl, <lora:style:0.8>, tavern')
+})

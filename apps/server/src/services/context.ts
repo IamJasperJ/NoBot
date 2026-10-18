@@ -4,7 +4,6 @@ import {
   type HistoryMessage,
   PromptBudgetError,
   type PromptCharacter,
-  parsePresetWithEnglishDefaults,
   type ScanEntry,
 } from '@ai-parter/core'
 import {
@@ -35,15 +34,15 @@ import {
   lorebookEntries,
   lorebooks,
   personas,
-  promptPresets,
 } from '../db/schema'
 import { HttpError, notFound, promptBudgetMessage } from '../errors'
 import { collectMacros, runAfterPrompt, runBeforePrompt } from '../extensions/registry'
 import { t } from '../i18n'
 import { enabledToolNames } from '../tools'
 import { backgroundsForChat } from './backgrounds'
+import { replaceImageAttachments } from './caption'
 import { computeVars, getChatRow, loadGroupDTO, loadPath } from './chats'
-import { resolveApiPreset } from './connections'
+import { resolveProfile } from './profiles'
 import { getWorldInfoSettings, SETTING_KEYS } from './settings'
 import { listSprites } from './sprites'
 import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema } from './stage'
@@ -91,21 +90,9 @@ export function toPromptCharacter(row: CharacterRow, muted = false): PromptChara
       characterNoteDepth: row.characterNoteDepth,
       characterNoteRole: row.characterNoteRole,
       defaultPersonaId: row.defaultPersonaId,
+      defaultBackgroundId: row.defaultBackgroundId,
     },
   }
-}
-
-/** 会话指定的生成预设 → 全局默认 → 任意一个 → 内置默认值 */
-function resolvePreset(chat: ChatRow): PresetData {
-  const ids = [chat.promptPresetId, getSetting<string>(SETTING_KEYS.defaultPromptPresetId)].filter(
-    (x): x is string => !!x,
-  )
-  for (const id of ids) {
-    const row = db.select().from(promptPresets).where(eq(promptPresets.id, id)).get()
-    if (row) return parsePresetWithEnglishDefaults(row.data)
-  }
-  const any = db.select().from(promptPresets).orderBy(asc(promptPresets.createdAt)).get()
-  return parsePresetWithEnglishDefaults(any?.data ?? {})
 }
 
 export function resolvePersona(chat: ChatRow) {
@@ -208,17 +195,12 @@ export function loadGenerationContext(chatId: string, opts: { requireConnection:
     members = [toPromptCharacter(row)]
   }
 
-  let connection: ApiPresetRow | null = null
-  try {
-    connection = resolveApiPreset(chat.apiPresetId)
-  } catch (e) {
-    if (opts.requireConnection) throw e
-  }
+  const resolved = resolveProfile(chat, opts.requireConnection)
 
   return {
     chat,
-    connection,
-    preset: resolvePreset(chat),
+    connection: resolved.connection,
+    preset: resolved.preset,
     persona,
     members,
     group,
@@ -305,7 +287,7 @@ export interface AssembleOptions {
 export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptPreview & { input: BuildInput } {
   const speaker = ctx.members.find((m) => m.id === opts.speakerId) ?? ctx.members[0]
   if (!speaker) throw new HttpError(400, 'NO_SPEAKER', t('找不到发言的角色'))
-  const history = toHistory(ctx, opts.leafId)
+  const history = replaceImageAttachments(toHistory(ctx, opts.leafId), ctx.connection)
   if (opts.pending) {
     history.push({
       id: 'pending',

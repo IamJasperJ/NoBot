@@ -6,13 +6,14 @@ import { z } from 'zod'
  * - 全局背景：所有会话默认使用（存在 settings 表）
  * - 聊天背景：单个会话覆盖全局背景（chats.background_id）
  * - 舞台背景（VN 模式）：模型用 <scene bg> 指令切换的背景
- * 显示时：固定的聊天背景 > 舞台背景 > 聊天背景 > 全局背景 > 无背景（「固定」见 ChatDTO.backgroundPinned）。
+ * 显示时：固定的聊天背景 > 舞台背景 > 聊天背景 > 角色或群组默认背景 > 全局背景 > 无背景（「固定」见 ChatDTO.backgroundPinned）。
  *
  * 范围：背景库是共用的，但图片生成扩展生成的背景属于生成它的会话（chatId）。
  * 舞台匹配、给模型的背景清单、自动选择都只看「公共背景 + 本会话生成的」，不会选到别的会话生成的背景。
  */
 export interface BackgroundDTO {
   id: string
+  folderIds: string[]
   name: string
   /** 一句话描述画面（地点、时间、氛围），和名字一起出现在给模型的背景清单里；可以为空 */
   description: string
@@ -64,3 +65,29 @@ export interface BackgroundSettings {
 export const backgroundSettingsInput = z.object({
   globalId: z.string().nullable(),
 })
+
+/** 自动换背景默认关闭；完整替换设置，避免局部更新含义不明确。 */
+export const autoBackgroundSettingsSchema = z.object({
+  lore: z.boolean().default(false),
+  everyN: z.number().int().min(0).default(0),
+})
+
+export const backgroundFolderInput = z.object({
+  name: z.string().trim().min(1),
+  coverBackgroundId: z.string().nullable().default(null),
+  sort: z.number().int().default(0),
+})
+export type BackgroundFolderInput = z.input<typeof backgroundFolderInput>
+export interface BackgroundFolderDTO {
+  id: string
+  name: string
+  coverBackgroundId: string | null
+  sort: number
+  createdAt: number
+  updatedAt: number
+}
+export const backgroundFolderItemsInput = z.object({
+  folderId: z.string(),
+  backgroundIds: z.array(z.string()).min(1).max(2000),
+})
+export const batchDeleteBackgroundsInput = z.object({ ids: z.array(z.string()).min(1).max(2000) })

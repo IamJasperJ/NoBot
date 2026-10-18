@@ -9,6 +9,7 @@ import type {
   PlayPresetData,
   PresetData,
   PromptRole,
+  RegexScript,
   SaveSnapshot,
 } from '@ai-parter/shared'
 import { sql } from 'drizzle-orm'
@@ -51,6 +52,10 @@ export const characters = sqliteTable('characters', {
   characterNoteRole: text('character_note_role').$type<PromptRole>().notNull().default('system'),
   /** 用这个角色新建会话时默认使用的人设 */
   defaultPersonaId: text('default_persona_id'),
+  profileId: text('profile_id').references((): AnySQLiteColumn => profiles.id, { onDelete: 'set null' }),
+  defaultBackgroundId: text('default_background_id').references((): AnySQLiteColumn => backgrounds.id, {
+    onDelete: 'set null',
+  }),
   /** 头像文件名（不含目录），没有头像时为空 */
   avatarFile: text('avatar_file'),
   /** 角色卡 data.extensions 里本应用不认识的字段 + 扩展存的角色级数据，导出时写回 */
@@ -104,6 +109,7 @@ export const apiPresets = sqliteTable('api_presets', {
   apiKey: text('api_key').notNull().default(''),
   headers: text('headers', { mode: 'json' }).$type<Record<string, string>>().notNull().default(sql`'{}'`),
   model: text('model').notNull(),
+  vision: text('vision').$type<'auto' | 'yes' | 'no'>().notNull().default('auto'),
   ...timestamps,
 })
 
@@ -112,6 +118,18 @@ export const promptPresets = sqliteTable('prompt_presets', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   data: text('data', { mode: 'json' }).$type<PresetData>().notNull().default(sql`'{}'`),
+  ...timestamps,
+})
+
+export const profiles = sqliteTable('profiles', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  apiPresetId: text('api_preset_id').references(() => apiPresets.id, { onDelete: 'set null' }),
+  promptPresetId: text('prompt_preset_id').references(() => promptPresets.id, { onDelete: 'set null' }),
+  model: text('model').notNull().default(''),
+  regexScripts: text('regex_scripts', { mode: 'json' }).$type<RegexScript[]>(),
+  imageConnectionId: text('image_connection_id').references(() => apiPresets.id, { onDelete: 'set null' }),
+  promptConnectionId: text('prompt_connection_id').references(() => apiPresets.id, { onDelete: 'set null' }),
   ...timestamps,
 })
 
@@ -133,6 +151,9 @@ export const groups = sqliteTable('groups', {
   allowSelfResponses: integer('allow_self_responses', { mode: 'boolean' }).notNull().default(false),
   autoMode: integer('auto_mode', { mode: 'boolean' }).notNull().default(false),
   scenarioOverride: text('scenario_override').notNull().default(''),
+  defaultBackgroundId: text('default_background_id').references((): AnySQLiteColumn => backgrounds.id, {
+    onDelete: 'set null',
+  }),
   ...timestamps,
 })
 
@@ -166,6 +187,27 @@ export const backgrounds = sqliteTable('backgrounds', {
   createdAt: integer('created_at').notNull(),
 })
 
+export const backgroundFolders = sqliteTable('background_folders', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  coverBackgroundId: text('cover_background_id').references(() => backgrounds.id, { onDelete: 'set null' }),
+  sort: integer('sort').notNull().default(0),
+  ...timestamps,
+})
+
+export const backgroundFolderItems = sqliteTable(
+  'background_folder_items',
+  {
+    folderId: text('folder_id')
+      .notNull()
+      .references(() => backgroundFolders.id, { onDelete: 'cascade' }),
+    backgroundId: text('background_id')
+      .notNull()
+      .references(() => backgrounds.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.folderId, t.backgroundId] })],
+)
+
 export const chats = sqliteTable(
   'chats',
   {
@@ -176,10 +218,15 @@ export const chats = sqliteTable(
     groupId: text('group_id').references(() => groups.id, { onDelete: 'cascade' }),
     backgroundId: text('background_id').references(() => backgrounds.id, { onDelete: 'set null' }),
     backgroundPinned: integer('background_pinned', { mode: 'boolean' }).notNull().default(false),
+    autoBackground: text('auto_background', { mode: 'json' })
+      .$type<{ lore: boolean; everyN: number }>()
+      .notNull()
+      .default({ lore: false, everyN: 0 }),
     personaId: text('persona_id').references(() => personas.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     /** 当前分支的叶子节点。不加外键：删除消息时由业务代码负责更新它 */
     activeLeafId: text('active_leaf_id'),
+    profileId: text('profile_id').references(() => profiles.id, { onDelete: 'set null' }),
     apiPresetId: text('api_preset_id').references(() => apiPresets.id, { onDelete: 'set null' }),
     promptPresetId: text('prompt_preset_id').references(() => promptPresets.id, { onDelete: 'set null' }),
     playPresetId: text('play_preset_id'),

@@ -3,6 +3,7 @@ import type { ExtensionHost } from '../extensions/types'
 import { t } from '../i18n'
 import { buildRequestBody, chatCompletion } from '../llm/openai'
 import { redactImages, resolveImages } from './attachments'
+import { replaceImageAttachments } from './caption'
 import { getApiPresetRow } from './connections'
 import { assemble, loadGenerationContext } from './context'
 import { insertLog } from './logs'
@@ -30,7 +31,7 @@ async function requestCompletion(
     const connection = opts.connectionId ? getApiPresetRow(opts.connectionId) : ctx.connection
     if (!connection) throw new HttpError(400, 'NO_CONNECTION', t('没有可用的模型连接'))
     model = opts.model || connection.model
-    const prompt =
+    let prompt =
       'messages' in opts
         ? [...opts.messages]
         : assemble(ctx, {
@@ -41,6 +42,7 @@ async function requestCompletion(
             quiet: true,
           }).messages
     if ('instruction' in opts) prompt.push({ role: instructionRole(prompt, opts.role), content: opts.instruction })
+    prompt = replaceImageAttachments(prompt, { ...connection, model })
     const images = await resolveImages(prompt, ctx.preset.samplers.imageMaxSize)
     const body = buildRequestBody({
       model,

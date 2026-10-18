@@ -27,6 +27,8 @@ export interface Appearance {
   bgBlur: number
   bgFit: 'cover' | 'contain' | 'stretch' | 'center'
   bgAnimate: boolean
+  /** 背景库缩略图列数，限制为 2–6。 */
+  backgroundColumns: number
   showAvatars: boolean
   /** 宽屏下左侧导航栏自动隐藏：鼠标移到窗口最左边时滑出（打开侧边面板时始终显示） */
   autoHideNav: boolean
@@ -38,6 +40,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   bgBlur: 0,
   bgFit: 'cover',
   bgAnimate: true,
+  backgroundColumns: 2,
   theme: 'system',
   uiScale: 16,
   messageFontSize: 15,
@@ -54,10 +57,17 @@ export const SIDEBAR_MAX = 520
 
 const STORAGE_KEY = 'ai-parter:appearance'
 
+export function normalizeBackgroundColumns(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(6, Math.max(2, Math.round(value))) : 2
+}
+
 function load(): Appearance {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...DEFAULT_APPEARANCE, ...JSON.parse(raw) }
+    if (raw) {
+      const data = { ...DEFAULT_APPEARANCE, ...JSON.parse(raw) }
+      return { ...data, backgroundColumns: normalizeBackgroundColumns(data.backgroundColumns) }
+    }
   } catch {
     // localStorage 不可用或内容损坏时用默认值
   }
@@ -72,7 +82,11 @@ interface AppearanceState extends Appearance {
 export const useAppearance = create<AppearanceState>((set, get) => ({
   ...load(),
   set: (patch) => {
-    set(patch)
+    set(
+      patch.backgroundColumns === undefined
+        ? patch
+        : { ...patch, backgroundColumns: normalizeBackgroundColumns(patch.backgroundColumns) },
+    )
     persist(get())
   },
   reset: () => {
@@ -88,6 +102,7 @@ function persist(state: Appearance) {
     bgBlur: state.bgBlur,
     bgFit: state.bgFit,
     bgAnimate: state.bgAnimate,
+    backgroundColumns: state.backgroundColumns,
     theme: state.theme,
     uiScale: state.uiScale,
     messageFontSize: state.messageFontSize,

@@ -1,8 +1,11 @@
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AttachmentDTO, ChatMessage } from '@ai-parter/shared'
+import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { ulid } from 'ulid'
+import { db } from '../db/client'
+import { messages } from '../db/schema'
 import { paths } from '../env'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
@@ -50,10 +53,36 @@ export function getAttachment(id: string): AttachmentDTO {
       typeof data.height !== 'number'
     )
       throw new Error(t('图片尺寸缺失'))
-    return { id, url: `/api/assets/attachments/${id}.webp`, width: data.width, height: data.height }
+    return {
+      id,
+      url: `/api/assets/attachments/${id}.webp`,
+      width: data.width,
+      height: data.height,
+      ...('caption' in data && typeof data.caption === 'string' ? { caption: data.caption } : {}),
+    }
   } catch {
     throw new HttpError(400, 'BAD_ATTACHMENT', t('图片附件不存在'))
   }
+}
+
+export async function setAttachmentCaption(id: string, caption: string): Promise<AttachmentDTO> {
+  const attachment = { ...getAttachment(id), caption }
+  await Bun.write(join(paths.attachments, `${id}.json`), JSON.stringify(attachment))
+  db.transaction(() => {
+    for (const row of db.select().from(messages).all()) {
+      if (!row.meta.images?.some((image) => image.id === id)) continue
+      db.update(messages)
+        .set({
+          meta: {
+            ...row.meta,
+            images: row.meta.images.map((image) => (image.id === id ? { ...image, caption } : image)),
+          },
+        })
+        .where(eq(messages.id, row.id))
+        .run()
+    }
+  })
+  return attachment
 }
 
 const imageCache = new Map<string, string>()

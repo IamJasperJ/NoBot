@@ -1,13 +1,54 @@
+import type { BackgroundDTO, BackgroundFolderDTO } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { type RefObject, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, useAutoBackground, useBackgroundSettings, useBackgrounds, useChatPages } from '../../api/queries'
+import {
+  keys,
+  useAddBackgroundsToFolder,
+  useAutoBackground,
+  useBackgroundFolders,
+  useBackgroundSettings,
+  useBackgrounds,
+  useBatchDeleteBackgrounds,
+  useChatPages,
+  useCreateBackgroundFolder,
+  useDeleteBackgroundFolder,
+  useRemoveBackgroundsFromFolder,
+  useUpdateBackgroundFolder,
+} from '../../api/queries'
 import { TextAreaField, TextField } from '../../components/form'
-import { EditIcon, LinkIcon, SearchIcon, TrashIcon, UploadIcon, WandIcon } from '../../components/icons'
+import {
+  ChevronLeftIcon,
+  EditIcon,
+  FolderIcon,
+  LinkIcon,
+  ListCheckIcon,
+  PlusIcon,
+  SearchIcon,
+  TrashIcon,
+  UploadIcon,
+  WandIcon,
+} from '../../components/icons'
+import { Menu, MenuEntry } from '../../components/menu'
 import { Button, controlClass, cx, Dialog, IconButton, selectClass } from '../../components/ui'
 import { getLanguage, t } from '../../i18n'
+import { useAppearance } from '../../stores/appearance'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+
+/** 设置里的列数按大约 300px 宽的侧栏算；面板更宽时按比例多加几列 */
+function useColumns(ref: RefObject<HTMLElement | null>, base: number) {
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
+    observer.observe(el)
+    setWidth(el.clientWidth)
+    return () => observer.disconnect()
+  }, [ref])
+  return width > 0 ? Math.max(base, Math.min(12, Math.round((base * width) / 300))) : base
+}
 
 export function BackgroundsPage() {
   const auto = useAutoBackground()
@@ -30,11 +71,31 @@ export function BackgroundsPage() {
   const [importing, setImporting] = useState(false)
   const [url, setUrl] = useState('')
   const [importName, setImportName] = useState('')
+  // 「全部 / 文件夹」视图；folderId 不为空表示进入了某个文件夹
+  const [view, setView] = useState<'all' | 'folders'>('all')
+  const [folderId, setFolderId] = useState<string | null>(null)
+  const [selecting, setSelecting] = useState(false)
+  const [picked, setPicked] = useState<string[]>([])
+  const [folderDialog, setFolderDialog] = useState<{ id: string | null; name: string } | null>(null)
+  const folders = useBackgroundFolders()
+  const createFolder = useCreateBackgroundFolder()
+  const updateFolder = useUpdateBackgroundFolder()
+  const deleteFolder = useDeleteBackgroundFolder()
+  const addToFolder = useAddBackgroundsToFolder()
+  const removeFromFolder = useRemoveBackgroundsFromFolder()
+  const batchDelete = useBatchDeleteBackgrounds()
+  const columnsBase = useAppearance((s) => s.backgroundColumns)
+  const setAppearance = useAppearance((s) => s.set)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const columns = useColumns(gridRef, columnsBase)
+  const folder = folders.data?.find((f) => f.id === folderId) ?? null
+  const showFolderList = view === 'folders' && !folder
   const list = backgrounds.data ?? []
   const keyword = search.trim().toLocaleLowerCase()
   const filtered = list
     // 「本会话可用」= 公共背景 + 本会话生成的，和舞台、自动选择的范围一致
     .filter((b) => !chatId || scope === 'all' || b.chatId === null || b.chatId === chatId)
+    .filter((b) => !folder || b.folderIds.includes(folder.id))
     .filter((b) => `${b.name} ${b.description}`.toLocaleLowerCase().includes(keyword))
     .sort((a, b) =>
       sort === 'name'
@@ -53,6 +114,13 @@ export function BackgroundsPage() {
       qc.invalidateQueries({ queryKey: ['chat'] }),
     ])
   }
+  const stopSelecting = () => {
+    setSelecting(false)
+    setPicked([])
+  }
+  const togglePick = (id: string) =>
+    setPicked((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]))
+  const mutateOpts = { onError: (e: unknown) => toast.error(errorMessage(e)) }
   const run = async (action: () => Promise<unknown>) => {
     if (busy) return
     setBusy(true)
@@ -83,6 +151,21 @@ export function BackgroundsPage() {
             <WandIcon className={auto.isPending ? 'animate-pulse' : ''} />
           </IconButton>
         )}
+        <IconButton
+          label={selecting ? t('退出选择') : t('选择多张（批量删除、加入文件夹）')}
+          aria-pressed={selecting}
+          disabled={busy}
+          className={selecting ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300' : ''}
+          onClick={() => {
+            if (selecting) stopSelecting()
+            else {
+              setSelecting(true)
+              setSelected(null)
+            }
+          }}
+        >
+          <ListCheckIcon />
+        </IconButton>
         <IconButton label={t('从网址添加')} disabled={busy} onClick={() => setImporting(true)}>
           <LinkIcon />
         </IconButton>
@@ -115,7 +198,7 @@ export function BackgroundsPage() {
           }}
         />
       </header>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+      <div ref={gridRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         <div className="relative min-w-0">
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-zinc-400" />
           <input
@@ -157,6 +240,28 @@ export function BackgroundsPage() {
           ) : (
             <span className="flex-1" />
           )}
+          <div className="flex shrink-0 items-center rounded-lg border border-zinc-200 dark:border-zinc-700">
+            <button
+              type="button"
+              className="flex size-8 items-center justify-center text-zinc-500 hover:text-zinc-900 disabled:opacity-40 dark:hover:text-zinc-100"
+              title={t('每行少放几张')}
+              aria-label={t('每行少放几张')}
+              disabled={columnsBase <= 2}
+              onClick={() => setAppearance({ backgroundColumns: columnsBase - 1 })}
+            >
+              −
+            </button>
+            <button
+              type="button"
+              className="flex size-8 items-center justify-center text-zinc-500 hover:text-zinc-900 disabled:opacity-40 dark:hover:text-zinc-100"
+              title={t('每行多放几张')}
+              aria-label={t('每行多放几张')}
+              disabled={columnsBase >= 6}
+              onClick={() => setAppearance({ backgroundColumns: columnsBase + 1 })}
+            >
+              +
+            </button>
+          </div>
           <select
             className={cx(selectClass, 'h-8 w-20 shrink-0 text-xs')}
             aria-label={t('排序')}
@@ -166,6 +271,31 @@ export function BackgroundsPage() {
             <option value="latest">{t('最新')}</option>
             <option value="name">{t('名字')}</option>
           </select>
+        </div>
+
+        <div className="flex gap-1 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800">
+          {(
+            [
+              ['all', t('全部背景')],
+              ['folders', t('文件夹')],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={view === value}
+              onClick={() => {
+                setView(value)
+                setFolderId(null)
+              }}
+              className={cx(
+                'h-7 flex-1 truncate rounded-md px-2 text-xs font-medium',
+                view === value ? 'bg-white shadow-sm dark:bg-zinc-950' : 'text-zinc-500',
+              )}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* 当前生效的背景：固定的聊天背景 > 舞台 > 本聊天 > 全局 */}
@@ -336,6 +466,52 @@ export function BackgroundsPage() {
               >
                 {globalId === current.id ? t('取消全局') : t('设为全局')}
               </Button>
+              <select
+                className={cx(selectClass, 'col-span-2 h-8 min-w-0 text-xs')}
+                aria-label={t('加入文件夹')}
+                value=""
+                disabled={!folders.data?.length}
+                onChange={(e) => {
+                  const id = e.target.value
+                  if (!id) return
+                  const inside = current.folderIds.includes(id)
+                  ;(inside ? removeFromFolder : addToFolder).mutate(
+                    { folderId: id, backgroundIds: [current.id] },
+                    mutateOpts,
+                  )
+                }}
+              >
+                <option value="">
+                  {folders.data?.length
+                    ? current.folderIds.length
+                      ? t('所在文件夹：{names}', {
+                          names: folders.data
+                            .filter((f) => current.folderIds.includes(f.id))
+                            .map((f) => f.name)
+                            .join('、'),
+                        })
+                      : t('加入文件夹…')
+                    : t('还没有文件夹')}
+                </option>
+                {folders.data?.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {current.folderIds.includes(f.id) ? `✓ ${f.name}` : f.name}
+                  </option>
+                ))}
+              </select>
+              {folder && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="col-span-2 min-w-0"
+                  disabled={folder.coverBackgroundId === current.id}
+                  onClick={() =>
+                    updateFolder.mutate({ id: folder.id, input: { coverBackgroundId: current.id } }, mutateOpts)
+                  }
+                >
+                  {folder.coverBackgroundId === current.id ? t('已是文件夹封面') : t('设为文件夹封面')}
+                </Button>
+              )}
               {current.chatId !== null && (
                 <Button
                   size="sm"
@@ -351,16 +527,57 @@ export function BackgroundsPage() {
           </fieldset>
         )}
 
-        {backgrounds.isPending ? (
+        {folder && (
+          <div className="flex min-w-0 items-center gap-1">
+            <IconButton label={t('返回文件夹列表')} onClick={() => setFolderId(null)}>
+              <ChevronLeftIcon />
+            </IconButton>
+            <button type="button" className="text-sm text-zinc-500 hover:underline" onClick={() => setFolderId(null)}>
+              {t('文件夹')}
+            </button>
+            <span className="text-zinc-300">/</span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{folder.name}</span>
+            <Menu>
+              <MenuEntry icon={<EditIcon />} onClick={() => setFolderDialog({ id: folder.id, name: folder.name })}>
+                {t('重命名')}
+              </MenuEntry>
+              <MenuEntry
+                icon={<TrashIcon />}
+                danger
+                onClick={() => {
+                  if (confirm(t('删除文件夹「{name}」？里面的背景不会被删除。', { name: folder.name })))
+                    deleteFolder.mutate(folder.id, { ...mutateOpts, onSuccess: () => setFolderId(null) })
+                }}
+              >
+                {t('删除文件夹')}
+              </MenuEntry>
+            </Menu>
+          </div>
+        )}
+
+        {showFolderList ? (
+          <FolderGrid
+            folders={folders.data ?? []}
+            backgrounds={list}
+            columns={columns}
+            onOpen={(id) => {
+              setFolderId(id)
+              setSelected(null)
+            }}
+            onCreate={() => setFolderDialog({ id: null, name: '' })}
+          />
+        ) : backgrounds.isPending ? (
           <p className="text-sm text-zinc-500">{t('加载中…')}</p>
         ) : backgrounds.isError ? (
           <p className="text-sm text-red-600">{errorMessage(backgrounds.error)}</p>
         ) : list.length === 0 ? (
           <p className="py-10 text-center text-sm text-zinc-400">{t('还没有背景，点右上角「上传」')}</p>
         ) : filtered.length === 0 ? (
-          <p className="py-6 text-center text-sm text-zinc-400">{t('没有匹配的背景')}</p>
+          <p className="py-6 text-center text-sm text-zinc-400">
+            {folder ? t('文件夹是空的。在背景详情里选「加入文件夹」，或者多选后批量加入') : t('没有匹配的背景')}
+          </p>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
             {filtered.map((b) => {
               const foreign = !!chatId && b.chatId !== null && b.chatId !== chatId
               return (
@@ -368,15 +585,15 @@ export function BackgroundsPage() {
                   key={b.id}
                   type="button"
                   disabled={busy}
-                  aria-pressed={selected === b.id}
+                  aria-pressed={selecting ? picked.includes(b.id) : selected === b.id}
                   title={b.description ? `${b.name}\n${b.description}` : b.name}
-                  onClick={() => setSelected(selected === b.id ? null : b.id)}
+                  onClick={() => (selecting ? togglePick(b.id) : setSelected(selected === b.id ? null : b.id))}
                   className="group min-w-0 text-left"
                 >
                   <div
                     className={cx(
                       'relative overflow-hidden rounded-lg bg-zinc-100 ring-2 ring-offset-2 ring-offset-white transition-shadow dark:bg-zinc-800 dark:ring-offset-zinc-950',
-                      selected === b.id
+                      (selecting ? picked.includes(b.id) : selected === b.id)
                         ? 'ring-violet-500'
                         : 'ring-transparent group-hover:ring-zinc-200 dark:group-hover:ring-zinc-700',
                     )}
@@ -397,6 +614,16 @@ export function BackgroundsPage() {
                         loading="lazy"
                         className={cx('aspect-video w-full object-cover', foreign && 'opacity-60')}
                       />
+                    )}
+                    {selecting && (
+                      <span
+                        className={cx(
+                          'absolute top-1.5 right-1.5 z-10 flex size-5 items-center justify-center rounded-full border-2 text-[11px] text-white shadow',
+                          picked.includes(b.id) ? 'border-violet-500 bg-violet-600' : 'border-white bg-black/30',
+                        )}
+                      >
+                        {picked.includes(b.id) && '✓'}
+                      </span>
                     )}
                     <div className="absolute inset-x-1.5 top-1.5 flex flex-wrap gap-1 text-[10px] leading-4 font-medium text-white">
                       {chat?.backgroundId === b.id && (
@@ -431,6 +658,69 @@ export function BackgroundsPage() {
           </div>
         )}
       </div>
+      {selecting && (
+        <SelectionBar
+          count={picked.length}
+          folders={folders.data ?? []}
+          inFolder={folder}
+          busy={batchDelete.isPending || addToFolder.isPending || removeFromFolder.isPending}
+          onAll={() => setPicked(picked.length === filtered.length ? [] : filtered.map((b) => b.id))}
+          allPicked={picked.length > 0 && picked.length === filtered.length}
+          onDelete={() => {
+            if (confirm(t('删除选中的 {count} 张背景？使用它们的会话将跟随全局背景。', { count: picked.length })))
+              batchDelete.mutate(picked, {
+                ...mutateOpts,
+                onSuccess: () => {
+                  toast.info(t('已删除 {count} 张背景', { count: picked.length }))
+                  setPicked([])
+                },
+              })
+          }}
+          onAdd={(id) =>
+            addToFolder.mutate(
+              { folderId: id, backgroundIds: picked },
+              {
+                ...mutateOpts,
+                onSuccess: () => toast.info(t('已加入文件夹')),
+              },
+            )
+          }
+          onRemove={() =>
+            folder &&
+            removeFromFolder.mutate(
+              { folderId: folder.id, backgroundIds: picked },
+              { ...mutateOpts, onSuccess: () => setPicked([]) },
+            )
+          }
+          onDone={stopSelecting}
+        />
+      )}
+      <Dialog
+        open={!!folderDialog}
+        onClose={() => setFolderDialog(null)}
+        title={folderDialog?.id ? t('重命名文件夹') : t('新建文件夹')}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!folderDialog?.name.trim()) return
+            const name = folderDialog.name.trim()
+            const done = { ...mutateOpts, onSuccess: () => setFolderDialog(null) }
+            if (folderDialog.id) updateFolder.mutate({ id: folderDialog.id, input: { name } }, done)
+            else createFolder.mutate({ name }, done)
+          }}
+        >
+          <TextField
+            label={t('文件夹名')}
+            value={folderDialog?.name ?? ''}
+            onChange={(name) => setFolderDialog((d) => (d ? { ...d, name } : d))}
+          />
+          <Button type="submit" variant="primary" disabled={!folderDialog?.name.trim()}>
+            {t('保存')}
+          </Button>
+        </form>
+      </Dialog>
       <Dialog open={importing} onClose={() => setImporting(false)} title={t('从网址添加背景')}>
         <form
           className="space-y-4"
@@ -485,6 +775,116 @@ export function BackgroundsPage() {
           </Button>
         </form>
       </Dialog>
+    </div>
+  )
+}
+
+/** 文件夹列表：封面（没设封面就用文件夹里最新的一张）+ 名字 + 张数，最后一格是「新建」 */
+function FolderGrid({
+  folders,
+  backgrounds,
+  columns,
+  onOpen,
+  onCreate,
+}: {
+  folders: BackgroundFolderDTO[]
+  backgrounds: BackgroundDTO[]
+  columns: number
+  onOpen: (id: string) => void
+  onCreate: () => void
+}) {
+  return (
+    <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+      {folders.map((f) => {
+        const items = backgrounds.filter((b) => b.folderIds.includes(f.id))
+        const cover =
+          backgrounds.find((b) => b.id === f.coverBackgroundId) ??
+          [...items].sort((a, b) => b.createdAt - a.createdAt)[0]
+        return (
+          <button key={f.id} type="button" className="group min-w-0 text-left" onClick={() => onOpen(f.id)}>
+            <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-lg bg-zinc-100 ring-2 ring-transparent ring-offset-2 ring-offset-white group-hover:ring-zinc-200 dark:bg-zinc-800 dark:ring-offset-zinc-950 dark:group-hover:ring-zinc-700">
+              {cover && !cover.mime.startsWith('video/') ? (
+                <img src={cover.thumbUrl} alt="" loading="lazy" className="size-full object-cover" />
+              ) : (
+                <FolderIcon className="size-8 text-zinc-400" />
+              )}
+              <span className="absolute right-1.5 bottom-1.5 rounded bg-black/55 px-1.5 text-[10px] leading-4 font-medium text-white backdrop-blur-sm">
+                {items.length}
+              </span>
+            </div>
+            <p className="mt-1.5 flex items-center gap-1 truncate text-xs">
+              <FolderIcon className="size-3.5 shrink-0 text-zinc-400" />
+              <span className="truncate">{f.name}</span>
+            </p>
+          </button>
+        )
+      })}
+      <button type="button" className="group min-w-0 text-left" onClick={onCreate}>
+        <div className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-zinc-200 text-zinc-400 group-hover:border-violet-300 group-hover:text-violet-500 dark:border-zinc-700">
+          <PlusIcon className="size-6" />
+        </div>
+        <p className="mt-1.5 truncate text-xs text-zinc-500">{t('新建文件夹')}</p>
+      </button>
+    </div>
+  )
+}
+
+/** 选择模式的底部操作条 */
+function SelectionBar({
+  count,
+  folders,
+  inFolder,
+  busy,
+  allPicked,
+  onAll,
+  onDelete,
+  onAdd,
+  onRemove,
+  onDone,
+}: {
+  count: number
+  folders: BackgroundFolderDTO[]
+  inFolder: BackgroundFolderDTO | null
+  busy: boolean
+  allPicked: boolean
+  onAll: () => void
+  onDelete: () => void
+  onAdd: (folderId: string) => void
+  onRemove: () => void
+  onDone: () => void
+}) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+      <span className="mr-auto text-xs text-zinc-500">{t('已选 {count} 张', { count })}</span>
+      <Button size="sm" variant="ghost" onClick={onAll}>
+        {allPicked ? t('全不选') : t('全选')}
+      </Button>
+      <select
+        className={cx(selectClass, 'h-8 w-28 text-xs')}
+        aria-label={t('加入文件夹')}
+        value=""
+        disabled={busy || !count || !folders.length}
+        onChange={(e) => e.target.value && onAdd(e.target.value)}
+      >
+        <option value="">{folders.length ? t('加入文件夹…') : t('还没有文件夹')}</option>
+        {folders.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.name}
+          </option>
+        ))}
+      </select>
+      {inFolder && (
+        <Button size="sm" disabled={busy || !count} onClick={onRemove}>
+          {t('移出文件夹')}
+        </Button>
+      )}
+      <Button size="sm" variant="danger" disabled={busy || !count} onClick={onDelete}>
+        <TrashIcon />
+        {t('删除')}
+      </Button>
+      <Button size="sm" variant="primary" onClick={onDone}>
+        {t('完成')}
+      </Button>
     </div>
   )
 }

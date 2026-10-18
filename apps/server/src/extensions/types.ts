@@ -200,9 +200,21 @@ export function draftBody(c: Context): Promise<Record<string, unknown>> {
   return body
 }
 /** POST 草稿只接受 JSON 对象；缺失或格式错误时沿用已保存设置。 */
+/** 密钥类设置（secret 字段）返回给前端时换成这个占位串，前端原样传回时表示「没改」 */
+export const SECRET_MASK = '••••••••'
+
+/** 草稿里还是占位串的密钥换回保存的原值（拉取模型、测试连接这类接口用的是表单草稿） */
+export function restoreSecrets(draft: Record<string, unknown>, saved: Record<string, unknown>) {
+  const result = { ...draft }
+  for (const [key, value] of Object.entries(result)) if (value === SECRET_MASK) result[key] = saved[key] ?? ''
+  return result
+}
+
 export async function parseSettingsDraft(c: Context, saved: Record<string, unknown>): Promise<Record<string, unknown>> {
   const draft = (await draftBody(c)).settings
-  return draft && typeof draft === 'object' && !Array.isArray(draft) ? { ...saved, ...draft } : { ...saved }
+  return draft && typeof draft === 'object' && !Array.isArray(draft)
+    ? { ...saved, ...restoreSecrets(draft as Record<string, unknown>, saved) }
+    : { ...saved }
 }
 export async function draftChatId(c: Context): Promise<string | undefined> {
   const chatId = (await draftBody(c)).chatId

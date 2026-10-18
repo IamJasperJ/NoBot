@@ -1,21 +1,24 @@
 import { t } from '../../../i18n'
 import { getChatRow } from '../../../services/chats'
-import { getApiPresetRow, resolveApiPreset } from '../../../services/connections'
+import { getApiPresetRow } from '../../../services/connections'
+import { profileChatScope, resolveProfile, selectProfile } from '../../../services/profiles'
+import { getBackend } from './backends'
 import { imageFetch, jsonResponse, object } from './backends/http'
 import { imageModelOptions, type Option } from './options'
 import type { Settings } from './settings'
 
 export function resolveImageConnection(settings: Settings): Settings {
-  if (settings.source !== 'openai' || !settings.openaiConnectionId) return settings
-  const connection = getApiPresetRow(settings.openaiConnectionId)
-  const headers = new Headers(connection.headers)
-  for (const [key, value] of Object.entries(openaiHeaders(settings))) headers.set(key, value)
-  return {
+  // 设置里没选连接时，用会话生效的连接配置组里指定的图片连接 / 提示词连接
+  const chatId = profileChatScope.getStore()
+  const profile = selectProfile(chatId ? getChatRow(chatId) : undefined).profile
+  const image = profile?.imageConnectionId || ''
+  settings = {
     ...settings,
-    openaiBaseUrl: connection.baseUrl,
-    openaiApiKey: connection.apiKey,
-    openaiHeaders: JSON.stringify(Object.fromEntries(headers)),
+    openaiConnectionId: settings.openaiConnectionId || (settings.source === 'openai' ? image : ''),
+    openrouterConnectionId: settings.openrouterConnectionId || (settings.source === 'openrouter' ? image : ''),
+    promptConnectionId: settings.promptConnectionId || profile?.promptConnectionId || '',
   }
+  return getBackend(settings).resolveConnection?.(settings) ?? settings
 }
 /** 端点的全部模型都返回（不按名字筛选），看起来是图片模型的排在前面并标注 */
 export async function openaiModels(settings: Settings) {
@@ -32,19 +35,26 @@ export async function openaiModels(settings: Settings) {
   return imageModelOptions(names)
 }
 export async function promptModels(settings: Settings, chatId?: string) {
+  settings = {
+    ...settings,
+    promptConnectionId:
+      settings.promptConnectionId ||
+      selectProfile(chatId ? getChatRow(chatId) : undefined).profile?.promptConnectionId ||
+      '',
+  }
   const connection = settings.promptConnectionId
     ? getApiPresetRow(settings.promptConnectionId)
-    : resolveApiPreset(chatId ? getChatRow(chatId).apiPresetId : null)
+    : resolveProfile(chatId ? getChatRow(chatId) : undefined).connection!
   return openaiModels({
     ...settings,
-    openaiConnectionId: '',
+    openaiConnectionId: connection.id,
     openaiBaseUrl: connection.baseUrl,
     openaiApiKey: connection.apiKey,
     openaiHeaders: JSON.stringify(connection.headers),
   })
 }
 /** 解析「额外请求头」设置（JSON 对象，值必须是字符串） */
-function parseHeaders(text: string, label: string): Record<string, string> {
+export function parseHeaders(text: string, label: string): Record<string, string> {
   if (!text.trim()) return {}
   let parsed: unknown
   try {
@@ -116,13 +126,6 @@ export function comfyCapabilities(settings: Settings): Promise<Capabilities> {
   return promise
 }
 export async function testConnection(settings: Settings) {
-  if (settings.source === 'openai') await openaiModels(settings)
-  else
-    await jsonResponse(
-      await imageFetch(`${settings.comfyUrl.replace(/\/+$/, '')}/system_stats`, {
-        headers: comfyHeaders(settings),
-        signal: AbortSignal.timeout(30000),
-      }),
-    )
+  await getBackend(settings).test(resolveImageConnection(settings))
   return { ok: true, message: t('连接成功') }
 }

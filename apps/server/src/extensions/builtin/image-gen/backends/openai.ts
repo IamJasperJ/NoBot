@@ -1,9 +1,12 @@
 import { HttpError } from '../../../../errors'
 import { t } from '../../../../i18n'
-import { openaiRequestHeaders } from '../discovery'
+import { getApiPresetRow } from '../../../../services/connections'
+import { openaiHeaders, openaiModels, openaiRequestHeaders } from '../discovery'
 import { fitOpenaiSize } from '../options'
 import type { Settings } from '../settings'
+import { settingsSchema } from '../settings'
 import { imageFetch, jsonResponse, object } from './http'
+import { chatCapabilities, type ImageBackend, imageMime } from './types'
 
 export function openaiBody(settings: Settings, prompt: string, width: number, height: number) {
   return {
@@ -187,4 +190,61 @@ export async function generateOpenAI(
     const second = kind === 'chat' ? viaImages : viaChat
     return second(settings, prompt, width, height, signal)
   }
+}
+
+export const openaiBackend: ImageBackend = {
+  id: 'openai',
+  label: 'OpenAI 兼容接口',
+  get settingsSchema() {
+    return settingsSchema.filter((field) => field.key.startsWith('openai'))
+  },
+  capabilities: chatCapabilities,
+  capabilitiesFor(settings) {
+    if (!settings.openaiSnapSize || !/gpt-image-|dall-e-[23]/i.test(settings.openaiModel)) return chatCapabilities
+    const values = new Set(
+      [
+        [512, 512],
+        [1024, 1024],
+        [1536, 1024],
+        [1024, 1536],
+      ].map(([width, height]) => fitOpenaiSize(settings, width!, height!)),
+    )
+    return {
+      ...chatCapabilities,
+      sizes: [...values].map((size) => {
+        const [width, height] = size.split('x').map(Number)
+        return { width: width!, height: height! }
+      }),
+    }
+  },
+  promptStyle: () => 'natural',
+  model: (settings) => settings.openaiModel,
+  resolveConnection(settings) {
+    if (!settings.openaiConnectionId) return settings
+    const connection = getApiPresetRow(settings.openaiConnectionId)
+    const headers = new Headers(connection.headers)
+    for (const [key, value] of Object.entries(openaiHeaders(settings))) headers.set(key, value)
+    return {
+      ...settings,
+      openaiBaseUrl: connection.baseUrl,
+      openaiApiKey: connection.apiKey,
+      openaiHeaders: JSON.stringify(Object.fromEntries(headers)),
+    }
+  },
+  validate(settings) {
+    if (!settings.openaiBaseUrl.trim() || !settings.openaiModel.trim())
+      throw new HttpError(400, 'IMAGE_CONFIG', t('请先配置图片接口地址和模型'))
+  },
+  dimensions(settings, width, height) {
+    const [w, h] = fitOpenaiSize(settings, width, height).split('x').map(Number)
+    return { width: w!, height: h! }
+  },
+  discover: async (settings) => ({ models: await openaiModels(settings) }),
+  test: async (settings) => {
+    await openaiModels(settings)
+  },
+  async generate({ settings, prompt, width, height }, signal) {
+    const bytes = await generateOpenAI(settings, prompt, width, height, signal)
+    return { bytes, mime: imageMime(bytes) }
+  },
 }

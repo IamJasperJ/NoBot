@@ -288,4 +288,5 @@ export function stateStageName(stages: [number, string][] | undefined, value: un
   return stages?.findLast(([threshold]) => threshold <= value)?.[1] ?? ''
 }
 
+export { resolveBackgroundId } from './backgrounds'
 export { renderDirectiveReminder } from './instructions'

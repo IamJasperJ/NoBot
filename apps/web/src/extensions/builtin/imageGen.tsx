@@ -59,6 +59,8 @@ export default function activate(api: ClientExtensionAPI) {
       total?: number
       error?: string
       placeholders?: { name: string; used: boolean }[]
+      schedulers?: { value: string; label: string }[]
+      adetailer?: boolean
       messageText?: string
     }
   }
@@ -647,9 +649,45 @@ export default function activate(api: ClientExtensionAPI) {
       ),
   })
   api.registerSlot('chat.message.media', { id: 'media', render: (props) => h(Media, props) })
+  function ImageSettingsFooter(props: {
+    settings: Record<string, unknown>
+    onSettingsChange?: (settings: Record<string, unknown>) => void
+  }) {
+    const current = R.useRef(props)
+    current.current = props
+    const source = props.settings.source
+    const url = props.settings.a1111Url
+    const auth = props.settings.a1111Auth
+    R.useEffect(() => {
+      if (source !== 'a1111') return
+      let active = true
+      // 探测只修改草稿中的能力标记，不自动保存用户的设置。
+      current.current.onSettingsChange?.({
+        ...current.current.settings,
+        a1111HasSchedulers: false,
+        a1111HasADetailer: false,
+      })
+      void request('a1111/capabilities', { settings: current.current.settings })
+        .then((result) => {
+          if (!active) return
+          current.current.onSettingsChange?.({
+            ...current.current.settings,
+            a1111HasSchedulers: !!result.schedulers?.length,
+            a1111HasADetailer: result.adetailer === true,
+          })
+        })
+        .catch(() => {
+          // 测试连接按钮负责显示错误，能力探测失败时保留隐藏状态。
+        })
+      return () => {
+        active = false
+      }
+    }, [source, url, auth])
+    return h(SettingsFooter, { api, settings: props.settings })
+  }
   api.registerSlot('extensions.settings.footer', {
     id: 'settings',
-    render: ({ settings }) => h(SettingsFooter, { api, settings }),
+    render: (props) => h(ImageSettingsFooter, props),
   })
   // 设置表单里的自定义控件：工作流管理、风格管理
   api.registerSlot('extensions.settings.field', {

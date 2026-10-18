@@ -23,6 +23,7 @@ import * as bookmarks from '../services/bookmarks'
 import * as chats from '../services/chats'
 import { assemble, loadGenerationContext } from '../services/context'
 import * as generation from '../services/generation'
+import { resolvedProfileDTO } from '../services/profiles'
 import { computeStage, initialVars } from '../services/stage'
 
 /** 把一个生成任务的事件流推给浏览器，直到任务结束或浏览器断开 */
@@ -99,6 +100,7 @@ export const chatRoutes = new Hono()
     await chats.deleteChat(c.req.param('id'))
     return c.json({ ok: true })
   })
+  .get('/:id/profile', (c) => c.json(resolvedProfileDTO(chats.getChatRow(c.req.param('id')))))
   .get('/:id/bookmarks', (c) => c.json(bookmarks.listBookmarks(c.req.param('id'))))
   .post('/:id/bookmarks', validate('json', createBookmarkInput), (c) =>
     c.json(bookmarks.createBookmark(c.req.param('id'), c.req.valid('json'))),

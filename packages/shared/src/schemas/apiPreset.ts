@@ -10,6 +10,7 @@ export const apiPresetInput = z.object({
   /** 不传表示保持原值 */
   apiKey: z.string().optional(),
   model: z.string().trim().min(1),
+  vision: z.enum(['auto', 'yes', 'no']).default('auto'),
   /** 额外请求头：每个发往这个连接的请求（聊天、拉取模型、测试、图片生成复用连接时）都会带上，例如反向代理鉴权 */
   headers: z.record(z.string(), z.string()).default({}),
 })
@@ -21,6 +22,7 @@ export interface ApiPresetDTO {
   name: string
   baseUrl: string
   model: string
+  vision: 'auto' | 'yes' | 'no'
   apiKeyMasked: string
   /** 额外请求头（原样返回，编辑页需要显示和修改） */
   headers: Record<string, string>

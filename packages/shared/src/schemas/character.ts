@@ -39,10 +39,12 @@ export const characterExtrasSchema = z.object({
   characterNoteRole: promptRoleSchema.default('system'),
   /** 用这个角色新建会话时默认使用的人设，为空则用全局默认 */
   defaultPersonaId: z.string().nullable().default(null),
+  defaultBackgroundId: z.string().nullable().default(null),
 })
 export type CharacterExtras = z.infer<typeof characterExtrasSchema>
 
 export const characterInput = characterFieldsSchema.extend(characterExtrasSchema.shape).extend({
+  profileId: z.string().nullable().default(null),
   /** 挂在这个角色上的世界书，第一本是导出时嵌入角色卡的「主世界书」 */
   lorebookIds: z.array(z.string()).default([]),
   /**
@@ -58,6 +60,7 @@ export type CharacterUpdateInput = z.infer<typeof characterUpdateInput>
 
 /** 角色详情 */
 export interface CharacterDTO extends CharacterFields, CharacterExtras {
+  profileId: string | null
   id: string
   avatarUrl: string | null
   lorebookIds: string[]

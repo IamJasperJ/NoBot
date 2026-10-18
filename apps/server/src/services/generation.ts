@@ -17,6 +17,8 @@ import { t } from '../i18n'
 import { buildRequestBody, chatCompletion } from '../llm/openai'
 import { enabledToolNames, runTool, toOpenAITools } from '../tools'
 import { getAttachment, redactImages, resolveImages } from './attachments'
+import { applyAutomaticBackground, loreBackgroundId } from './auto-background'
+import { replaceImageAttachments } from './caption'
 import { computeVars, loadMessage, loadPath } from './chats'
 import { classifyMessage } from './classify'
 import { assemble, type GenerationContext, loadGenerationContext } from './context'
@@ -202,7 +204,10 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
 
   if (attachments.length) {
     const pending = preflight.input.history.find((message) => message.id === 'pending')
-    if (pending) pending.images = attachments.map((image) => image.id)
+    if (pending) {
+      pending.images = attachments.map((image) => image.id)
+      preflight.input.history = replaceImageAttachments(preflight.input.history, ctx.connection)
+    }
     try {
       buildPrompt(preflight.input)
     } catch (error) {
@@ -386,6 +391,7 @@ async function generateOne(
   let toolCalls: ToolCall[] = []
   let requestBody: Record<string, unknown> | null = null
   let report: unknown = null
+  let loreId: string | null = null
   let lastFlush = Date.now()
 
   try {
@@ -396,6 +402,7 @@ async function generateOne(
       enabledTools,
     })
     report = assembled.report
+    loreId = loreBackgroundId(assembled.report.worldInfo, ctx.loreEntries)
     const images = await resolveImages(assembled.messages, ctx.preset.samplers.imageMaxSize)
     const body = buildRequestBody({
       images,
@@ -484,7 +491,10 @@ async function generateOne(
     })
     .where(eq(messages.id, messageId))
     .run()
-  if (status === 'done' && !errorEvent) classifyMessage(messageId)
+  if (status === 'done' && !errorEvent) {
+    classifyMessage(messageId)
+    if (!toolCalls.length) await applyAutomaticBackground(job.chatId, loreId, !step.continueTarget)
+  }
   job.current = null
   const message = loadMessage(messageId)
   emitServerEvent({ type: 'message:saved', message })

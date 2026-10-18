@@ -3,8 +3,9 @@ import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { listApiPresets } from '../../../services/connections'
 import { defineExtension, draftBody, draftChatId, parseSettingsDraft } from '../../types'
+import { getBackend } from './backends'
 import { matchInteractive, resolvePromptStyle } from './composition'
-import { comfyCapabilities, openaiModels, promptModels, testConnection } from './discovery'
+import { promptModels, resolveImageConnection, testConnection } from './discovery'
 import { modes } from './modes'
 import {
   autoBackground,
@@ -37,7 +38,7 @@ export default defineExtension({
   id: 'image-gen',
   name: '图片生成',
   version: '1.0.0',
-  description: '根据角色和聊天场景生成图片，支持 OpenAI 兼容接口与 ComfyUI。',
+  description: '根据角色和聊天场景生成图片，支持 OpenAI、ComfyUI、OpenRouter 与 A1111 / Forge。',
   enabledByDefault: true,
   defaultSettings,
   settingsSchema,
@@ -93,22 +94,34 @@ export default defineExtension({
     app.post('/connections', async (c) =>
       c.json({ options: listApiPresets().map((item) => ({ value: item.id, label: item.name })) }),
     )
-    app.post('/openai/models', async (c) =>
-      c.json({ options: await openaiModels(parseSettings(await parseSettingsDraft(c, ctx.settings))) }),
-    )
     app.post('/prompt/models', async (c) =>
       c.json({
         options: await promptModels(parseSettings(await parseSettingsDraft(c, ctx.settings)), await draftChatId(c)),
       }),
     )
-    app.post('/comfy/capabilities', async (c) =>
-      c.json(await comfyCapabilities(parseSettings(await parseSettingsDraft(c, ctx.settings)))),
-    )
-    for (const key of ['models', 'samplers', 'schedulers', 'vaes'] as const)
-      app.post(`/comfy/${key}`, async (c) => {
-        const options = (await comfyCapabilities(parseSettings(await parseSettingsDraft(c, ctx.settings))))[key]
-        return c.json({ options, [key]: options })
-      })
+    for (const id of ['openai', 'comfy', 'a1111', 'openrouter'] as const) {
+      const discover = async (c: import('hono').Context) => {
+        const settings = resolveImageConnection({
+          ...parseSettings(await parseSettingsDraft(c, ctx.settings)),
+          source: id,
+        })
+        const backend = getBackend(settings)
+        return {
+          ...(await backend.discover(settings)),
+          capabilities: backend.capabilitiesFor?.(settings) ?? backend.capabilities,
+        }
+      }
+      app.post(`/${id}/capabilities`, async (c) =>
+        c.json({
+          ...(await discover(c)),
+        }),
+      )
+      for (const key of ['models', 'samplers', 'schedulers', 'vaes', 'upscalers'] as const)
+        app.post(`/${id}/${key}`, async (c) => {
+          const options = (await discover(c))[key] ?? []
+          return c.json({ options, [key]: options })
+        })
+    }
     app.post('/comfy/workflow-inspection', async (c) => {
       const settings = parseSettings(await parseSettingsDraft(c, ctx.settings))
       const source = workflowSource(settings)
@@ -205,22 +218,35 @@ export default defineExtension({
       ? [
           {
             name: 'generate_image',
-            description:
-              'Generate an image to show the user. Call when the user asks for an image or a story scene is particularly worth illustrating. Use sparingly.',
+            description: `Generate an image when requested or when a scene is worth illustrating. Use sparingly. Choose a generation mode. A supplied prompt is the final drawing description; omit it to extract a description from the selected mode and conversation. Background mode also sets the chat background. In asynchronous mode the saved tool placeholder returns queued status and task_id. Continue your reply without waiting; do not claim the image is finished or invent its URL. The placeholder updates automatically. ${resolvePromptStyle(parseSettings(ctx.settings)) === 'tags' ? 'Write supplied prompts as short English Danbooru-style tags.' : 'Write supplied prompts as natural English prose.'}`,
             parameters: {
               type: 'object',
               properties: {
+                mode: {
+                  type: 'string',
+                  enum: ['free', 'character', 'portrait', 'face', 'user', 'last', 'raw_last', 'scene', 'background'],
+                  description:
+                    'free: supplied prompt; character: full body; portrait/face: close-up; user: user persona; last: latest message; raw_last: latest message directly; scene: current story; background: scenery only and set chat background.',
+                },
+                character: {
+                  type: 'string',
+                  description:
+                    'Optional exact name of a conversation member to draw. Omit to use the current speaker. Duplicate or unknown names are rejected.',
+                },
                 prompt: {
                   type: 'string',
                   description:
                     resolvePromptStyle(parseSettings(ctx.settings)) === 'tags'
-                      ? 'One line of English Danbooru-style short tags describing visible elements, most important first: person count, appearance, clothing, expression, pose, scene, lighting, camera.'
-                      : 'One paragraph of natural English describing visible appearance, clothing, expression, pose, environment, lighting, mood, and camera.',
+                      ? 'Optional final description. Required in free mode. One line of English Danbooru-style short tags describing visible elements, most important first: person count, appearance, clothing, expression, pose, scene, lighting, camera.'
+                      : 'Optional final description. Required in free mode. One paragraph of natural English describing visible appearance, clothing, expression, pose, environment, lighting, mood, and camera.',
                 },
-                orientation: { type: 'string', enum: ['portrait', 'landscape', 'square'], default: 'portrait' },
-                as_background: { type: 'boolean' },
+                orientation: {
+                  type: 'string',
+                  enum: ['portrait', 'landscape', 'square'],
+                  description: 'Optional framing; defaults to the mode dimensions.',
+                },
               },
-              required: ['prompt'],
+              required: ['mode'],
             },
             run: (args, toolCtx) => runImageTool(toolCtx.extension ?? { ...ctx, chatId: toolCtx.chatId }, args),
           },

@@ -33,6 +33,7 @@ import { avatarUrl } from '../lib/files'
 import { deleteBackground, getBackgroundSettings, requireBackground } from './backgrounds'
 import { isGenerating } from './generation'
 import { getPlayPreset } from './playPresets'
+import { getProfile } from './profiles'
 import { SETTING_KEYS } from './settings'
 import {
   applyStageParse,
@@ -166,8 +167,10 @@ function toDTO(row: ChatRow): ChatDTO {
     ...toSummary(row),
     backgroundId: row.backgroundId,
     backgroundPinned: row.backgroundPinned,
+    autoBackground: row.autoBackground,
     personaId: row.personaId,
     activeLeafId: row.activeLeafId,
+    profileId: row.profileId,
     apiPresetId: row.apiPresetId,
     promptPresetId: row.promptPresetId,
     playPresetId: row.playPresetId,
@@ -202,6 +205,7 @@ export function loadGroupDTO(groupId: string): GroupDTO {
     allowSelfResponses: g.allowSelfResponses,
     autoMode: g.autoMode,
     scenarioOverride: g.scenarioOverride,
+    defaultBackgroundId: g.defaultBackgroundId,
     members: members.map(({ member, character }) => ({
       characterId: character.id,
       name: character.name,
@@ -399,6 +403,7 @@ export function getChatPage(chatId: string, opts: { before?: string; limit?: num
 
 export function updateChat(chatId: string, input: UpdateChatInput): ChatDTO {
   getChatRow(chatId)
+  if (input.profileId != null) getProfile(input.profileId)
   if (input.playPresetId != null) getPlayPreset(input.playPresetId)
   if (input.backgroundId != null) requireBackground(input.backgroundId)
   const { lorebookIds, ...rest } = input

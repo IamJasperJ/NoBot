@@ -45,17 +45,22 @@ export function replaceTemplate(template: string, values: { char: string; user: 
 
 export function cleanPrompt(text: string, minimal = false): string {
   if (minimal) return text.replace(/\s+/g, ' ').trim()
-  return text
-    .replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '')
-    .replace(/```[a-z0-9_-]*[ \t]*\r?\n/gi, '')
-    .replace(/```/g, '')
-    .replace(/["'“”‘’`]/g, '')
-    .replace(/^\s*(?:(?:positive\s+)?prompt|提示词|正向提示词)\s*[:：]\s*/i, '')
-    .replace(/[\r\n]+/g, ', ')
-    .replace(/\s+/g, ' ')
-    .replace(/\s*,(?:\s*,)*\s*/g, ', ')
-    .replace(/^[,\s]+|[,\s]+$/g, '')
-    .slice(0, 1500)
+  return (
+    text
+      .replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '')
+      // 写提示词的模型偶尔会把舞台指令原样抄回来；只去掉这几种标签，A1111 的 <lora:名字:权重> 要保留
+      .replace(/<(state|choices)\b[^>]*>[\s\S]*?(?:<\/\1>|$)/gi, ' ')
+      .replace(/<\/?(?:scene|show|hide|say|expr|cg|sfx|bgm)\b[^>]*>/gi, ' ')
+      .replace(/```[a-z0-9_-]*[ \t]*\r?\n/gi, '')
+      .replace(/```/g, '')
+      .replace(/["'“”‘’`]/g, '')
+      .replace(/^\s*(?:(?:positive\s+)?prompt|提示词|正向提示词)\s*[:：]\s*/i, '')
+      .replace(/[\r\n]+/g, ', ')
+      .replace(/\s+/g, ' ')
+      .replace(/\s*,(?:\s*,)*\s*/g, ', ')
+      .replace(/^[,\s]+|[,\s]+$/g, '')
+      .slice(0, 1500)
+  )
 }
 
 export function prefixPrompt(prefix: string, prompt: string): string {

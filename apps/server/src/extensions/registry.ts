@@ -6,18 +6,21 @@ import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { db, getSetting, setSetting } from '../db/client'
-import { settings } from '../db/schema'
+import { chats, messages, settings } from '../db/schema'
 import { env } from '../env'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { translateMetadata, translateSettingsSchema } from '../i18n/metadata'
+import { profileChatScope, selectProfile } from '../services/profiles'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
+import caption, { generateCaption } from './builtin/caption'
 import imageGen from './builtin/image-gen'
 import regex from './builtin/regex'
 import summary from './builtin/summary'
 import { createExtensionHost } from './host'
 import type { Extension, ExtensionContext, ExtensionManifest, ServerEvent } from './types'
+import { restoreSecrets, SECRET_MASK } from './types'
 
 /**
  * 扩展注册表：启动时加载内置扩展和 data/extensions/ 下的第三方扩展，
@@ -36,10 +39,28 @@ interface Loaded {
 
 const host = createExtensionHost(emitServerEvent)
 const loaded: Loaded[] = []
+const requestChat = profileChatScope
 
 function createApp(extension: Extension): Hono | undefined {
   if (!extension.routes) return undefined
   const app = new Hono()
+  app.use('*', async (c, next) => {
+    let chatId = c.req.query('chatId') ?? ''
+    if (c.req.method === 'POST') {
+      const body: unknown = await c.req.raw
+        .clone()
+        .json()
+        .catch(() => null)
+      if (body && typeof body === 'object') {
+        if ('chatId' in body && typeof body.chatId === 'string') chatId = body.chatId
+        else if ('messageId' in body && typeof body.messageId === 'string') {
+          const row = db.select().from(messages).where(eq(messages.id, body.messageId)).get()
+          chatId = row?.chatId ?? ''
+        }
+      }
+    }
+    await requestChat.run(chatId, next)
+  })
   app.onError((error, c) =>
     c.json(
       {
@@ -57,7 +78,7 @@ function createApp(extension: Extension): Hono | undefined {
   app.notFound((c) => c.json({ error: { code: 'NOT_FOUND', message: t('扩展接口不存在') } }, 404))
   extension.routes(app, {
     get settings() {
-      return settingsOf(extension)
+      return contextOf(extension, requestChat.getStore() ?? '').settings
     },
     storage: storageOf(extension.id),
     host,
@@ -75,6 +96,7 @@ export function registerBuiltinExtension(extension: Extension) {
 registerBuiltinExtension(regex)
 registerBuiltinExtension(imageGen)
 registerBuiltinExtension(summary)
+registerBuiltinExtension(caption)
 
 const manifestSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
@@ -193,10 +215,11 @@ export function forwardExtension(id: string, request: Request) {
 
 /** 异步隔离事件处理；同步异常和异步拒绝都不能影响主流程。 */
 export function emitServerEvent(event: ServerEvent) {
-  for (const { ext, ctx } of active('')) {
+  const chatId = 'chatId' in event ? event.chatId : event.message.chatId
+  for (const { ext, ctx } of active(chatId)) {
     if (ext.hooks?.onEvent)
       void Promise.resolve()
-        .then(() => ext.hooks?.onEvent?.(event, ctx))
+        .then(() => profileChatScope.run(chatId, () => ext.hooks?.onEvent?.(event, ctx)))
         .catch((e) => {
           console.error(`扩展「${ext.name}」的 onEvent 出错：`, e)
         })
@@ -214,6 +237,20 @@ function isEnabled(l: Loaded): boolean {
 
 function settingsOf(ext: Extension): Record<string, unknown> {
   return { ...ext.defaultSettings, ...getSetting<Record<string, unknown>>(SETTING_KEYS.extensionSettings(ext.id)) }
+}
+
+/** 设置里标了 secret 的字段名（API 密钥、Basic Auth 等） */
+function secretKeys(ext: Extension): string[] {
+  return (ext.settingsSchema ?? []).flatMap((field) =>
+    field.type === 'string' && field.secret && 'key' in field ? [field.key] : [],
+  )
+}
+
+/** 返回给前端的设置：有值的密钥换成占位串，不把明文发出去 */
+function maskedSettingsOf(ext: Extension): Record<string, unknown> {
+  const settings = settingsOf(ext)
+  for (const key of secretKeys(ext)) if (settings[key]) settings[key] = SECRET_MASK
+  return settings
 }
 
 function toDTO(l: Loaded): ExtensionDTO {
@@ -234,9 +271,16 @@ function toDTO(l: Loaded): ExtensionDTO {
       hooks: Object.keys(e.hooks ?? {}),
     },
     settingsSchema: translateSettingsSchema(e.settingsSchema ?? []),
-    settings: settingsOf(e),
+    settings: maskedSettingsOf(e),
     ...(l.loadError ? { loadError: l.loadError } : {}),
   }
+}
+
+/** 上传完成后按需说明；扩展关闭时不触发模型请求。 */
+export async function captionUpload(id: string, chatId?: string) {
+  const entry = loaded.find((entry) => entry.extension.id === 'caption')
+  if (!entry || !isEnabled(entry)) return undefined
+  return generateCaption(id, settingsOf(entry.extension), chatId)
 }
 
 export const listExtensions = () => loaded.map(toDTO)
@@ -245,7 +289,9 @@ export function updateExtension(id: string, patch: { enabled?: boolean; settings
   const l = loaded.find((x) => x.extension.id === id)
   if (!l) throw notFound(t('扩展'))
   if (patch.enabled !== undefined) setSetting(SETTING_KEYS.extensionsEnabled, { ...enabledMap(), [id]: patch.enabled })
-  if (patch.settings) setSetting(SETTING_KEYS.extensionSettings(id), patch.settings)
+  // 前端传回的密钥如果还是占位串，表示没改，保留原值
+  if (patch.settings)
+    setSetting(SETTING_KEYS.extensionSettings(id), restoreSecrets(patch.settings, settingsOf(l.extension)))
   return toDTO(l)
 }
 
@@ -303,7 +349,24 @@ export function runTransform(kind: 'transformInput' | 'transformOutput', text: s
 }
 
 function contextOf(ext: Extension, chatId: string): ExtensionContext {
-  return { settings: settingsOf(ext), chatId, storage: storageOf(ext.id), host }
+  const settings = settingsOf(ext)
+  if (ext.id === 'image-gen') {
+    const profile = selectProfile(
+      chatId ? db.select().from(chats).where(eq(chats.id, chatId)).get() : undefined,
+    ).profile
+    // 配置组的图片连接只填给当前选中的后端（和 discovery.resolveImageConnection 一致）
+    const source = settings.source ?? 'openai'
+    if (source === 'openai') settings.openaiConnectionId ||= profile?.imageConnectionId ?? ''
+    if (source === 'openrouter') settings.openrouterConnectionId ||= profile?.imageConnectionId ?? ''
+    settings.promptConnectionId ||= profile?.promptConnectionId ?? ''
+  }
+  if (ext.id === 'regex' && chatId) {
+    const scripts = selectProfile(db.select().from(chats).where(eq(chats.id, chatId)).get()).profile?.regexScripts
+    if (scripts !== null && scripts !== undefined)
+      // 配置组自己的一份规则，按它里面的开关启用
+      settings.scripts = scripts
+  }
+  return { settings, chatId, storage: storageOf(ext.id), host }
 }
 
 function toolsOf(ext: Extension, chatId: string) {
@@ -320,7 +383,11 @@ setExtensionToolsProvider((chatId = '') =>
   loaded.filter(isEnabled).flatMap(({ extension: ext }) =>
     toolsOf(ext, chatId).map((tool) => ({
       source: ext.name,
-      tool: { ...tool, run: (args, ctx) => tool.run(args, { ...ctx, extension: contextOf(ext, ctx.chatId) }) },
+      tool: {
+        ...tool,
+        run: (args, ctx) =>
+          profileChatScope.run(ctx.chatId, () => tool.run(args, { ...ctx, extension: contextOf(ext, ctx.chatId) })),
+      },
     })),
   ),
 )

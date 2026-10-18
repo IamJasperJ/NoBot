@@ -1,3 +1,4 @@
+import { resolveBackgroundId } from '@ai-parter/core/stage'
 import type { ChatPage, MessageDTO } from '@ai-parter/shared'
 import {
   type InfiniteData,
@@ -12,7 +13,10 @@ import { api } from './client'
 /** 所有缓存的 key 集中在这里，避免拼错。改了数据后用 invalidateQueries 刷新对应的 key */
 export const keys = {
   backgrounds: ['backgrounds'] as const,
+  backgroundFolders: ['backgroundFolders'] as const,
   backgroundSettings: ['backgroundSettings'] as const,
+  profiles: ['profiles'] as const,
+  chatProfile: (id: string) => ['chatProfile', id] as const,
   connections: ['connections'] as const,
   presets: ['presets'] as const,
   playPresets: ['playPresets'] as const,
@@ -45,9 +49,61 @@ export function useAutoBackground() {
   })
 }
 
-export const useBackgrounds = () => useQuery({ queryKey: keys.backgrounds, queryFn: api.listBackgrounds })
+export const useBackgrounds = (folderId?: string) =>
+  useQuery({
+    queryKey: folderId === undefined ? keys.backgrounds : [...keys.backgrounds, { folderId }],
+    queryFn: () => api.listBackgrounds(folderId),
+  })
+export const useBackgroundFolders = () =>
+  useQuery({ queryKey: keys.backgroundFolders, queryFn: api.listBackgroundFolders })
+
+/** 显示层只读取解析结果，优先级在 core 的纯函数内统一维护。 */
+export function useResolvedBackgroundId(chatId: string | null) {
+  const pages = useChatPages(chatId)
+  const page = pages.data?.pages[0]
+  const character = useCharacter(page?.chat.characterId ?? null)
+  const settings = useBackgroundSettings()
+  return resolveBackgroundId({
+    backgroundId: page?.chat.backgroundId,
+    backgroundPinned: page?.chat.backgroundPinned,
+    stageBackgroundId: page?.stage?.scene.backgroundId,
+    defaultBackgroundId: page?.chat.groupId ? page.group?.defaultBackgroundId : character.data?.defaultBackgroundId,
+    globalId: settings.data?.globalId,
+  })
+}
 export const useBackgroundSettings = () =>
   useQuery({ queryKey: keys.backgroundSettings, queryFn: api.getBackgroundSettings })
+
+export const useProfiles = () => useQuery({ queryKey: keys.profiles, queryFn: api.listProfiles })
+export const useChatProfile = (chatId: string | null) =>
+  useQuery({
+    queryKey: keys.chatProfile(chatId ?? ''),
+    queryFn: () => api.getChatProfile(chatId!),
+    enabled: !!chatId,
+  })
+
+/** 配置组影响连接、角色绑定和会话摘要，保存后统一使相关缓存失效。 */
+export function useProfileMutations() {
+  const qc = useQueryClient()
+  const refresh = () => qc.invalidateQueries()
+  return {
+    create: useMutation({ mutationFn: api.createProfile, onSuccess: refresh }),
+    update: useMutation({
+      mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.updateProfile>[1] }) =>
+        api.updateProfile(id, input),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({ mutationFn: api.deleteProfile, onSuccess: refresh }),
+    setDefault: useMutation({ mutationFn: api.setDefaultProfile, onSuccess: refresh }),
+  }
+}
+export function useRegenerateCaption() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, chatId }: { id: string; chatId?: string }) => api.regenerateCaption(id, chatId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['chat'] }),
+  })
+}
 
 export const useConnections = () => useQuery({ queryKey: keys.connections, queryFn: api.listConnections })
 export const usePresets = () => useQuery({ queryKey: keys.presets, queryFn: api.listPresets })
@@ -158,6 +214,8 @@ export async function refreshChatState(qc: QueryClient, chatId: string) {
             ...data,
             pages: data.pages.map((p) => ({
               ...p,
+              chat: latest.chat,
+              group: latest.group,
               stage: latest.stage,
               vars: latest.vars,
               playPresetId: latest.playPresetId,
@@ -186,3 +244,36 @@ export function resetChat(qc: QueryClient, chatId: string) {
   void qc.invalidateQueries({ queryKey: keys.bookmarks(chatId) })
   return qc.resetQueries({ queryKey: keys.chat(chatId) })
 }
+
+/** 背景删除会清空多种实体的引用，库操作后统一刷新这些缓存。 */
+function useBackgroundLibraryMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise<TResult>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn,
+    onSuccess: async () => {
+      await Promise.all(
+        [
+          'backgrounds',
+          'backgroundFolders',
+          'backgroundSettings',
+          'chat',
+          'character',
+          'groups',
+          'group',
+          'lorebook',
+        ].map((key) => qc.invalidateQueries({ queryKey: [key] })),
+      )
+    },
+  })
+}
+
+export const useCreateBackgroundFolder = () => useBackgroundLibraryMutation(api.createBackgroundFolder)
+export const useUpdateBackgroundFolder = () =>
+  useBackgroundLibraryMutation(
+    ({ id, input }: { id: string; input: Parameters<typeof api.updateBackgroundFolder>[1] }) =>
+      api.updateBackgroundFolder(id, input),
+  )
+export const useDeleteBackgroundFolder = () => useBackgroundLibraryMutation(api.deleteBackgroundFolder)
+export const useAddBackgroundsToFolder = () => useBackgroundLibraryMutation(api.addBackgroundsToFolder)
+export const useRemoveBackgroundsFromFolder = () => useBackgroundLibraryMutation(api.removeBackgroundsFromFolder)
+export const useBatchDeleteBackgrounds = () => useBackgroundLibraryMutation(api.batchDeleteBackgrounds)

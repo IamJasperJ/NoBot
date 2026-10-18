@@ -6,9 +6,10 @@ import { characters, messages, sprites } from '../db/schema'
 import { t } from '../i18n'
 import { buildRequestBody, chatCompletion } from '../llm/openai'
 import { getChatRow, loadPath } from './chats'
-import { getApiPresetRow, resolveApiPreset } from './connections'
+import { getApiPresetRow } from './connections'
 import { loadGenerationContext } from './context'
 import { insertLog, logError } from './logs'
+import { resolveProfile } from './profiles'
 import { quietPrompt } from './quiet-prompt'
 import { computeStage, resolvePlayPreset } from './stage'
 
@@ -61,7 +62,7 @@ export function classifyMessage(messageId: string): void {
     try {
       const connection = options.classifyConnectionId
         ? getApiPresetRow(options.classifyConnectionId)
-        : resolveApiPreset(getChatRow(message.chatId).apiPresetId)
+        : resolveProfile(getChatRow(message.chatId)).connection!
       model = options.classifyModel || connection.model
       if (options.classifyContext === 'full') {
         answer = await quietPrompt({

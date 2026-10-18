@@ -2,7 +2,15 @@ import type { CharacterDTO, CharacterUpdateInput, PromptRole } from '@ai-parter/
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, useCharacter, useCharacters, useLorebooks, usePersonas } from '../../api/queries'
+import {
+  keys,
+  useBackgrounds,
+  useCharacter,
+  useCharacters,
+  useLorebooks,
+  usePersonas,
+  useProfiles,
+} from '../../api/queries'
 import { NumberField, Section, SelectField } from '../../components/form'
 import {
   ChatIcon,
@@ -184,6 +192,8 @@ export function CharacterEditor({
   const [draft, setDraft] = useState(() => structuredClone(character))
   const lorebooks = useLorebooks()
   const personas = usePersonas()
+  const profiles = useProfiles()
+  const backgrounds = useBackgrounds()
   const qc = useQueryClient()
   const openChat = useUi((s) => s.openChat)
   const { busy, run } = useAction()
@@ -525,6 +535,26 @@ export function CharacterEditor({
               onChange={(id) => patch('defaultPersonaId', id || null)}
             />
           )}
+          <SelectField
+            label={t('连接配置组')}
+            hint={t('和这个角色聊天时用哪组连接、模型和预设（会话里还可以临时换）。群聊不使用角色绑定')}
+            value={draft.profileId ?? ''}
+            options={[
+              { value: '', label: t('使用全局默认') },
+              ...(profiles.data ?? []).map((p) => ({ value: p.id, label: p.name })),
+            ]}
+            onChange={(id) => patch('profileId', id || null)}
+          />
+          <SelectField
+            label={t('默认背景')}
+            hint={t('这个角色的会话没有单独选背景时用它，优先于全局背景')}
+            value={draft.defaultBackgroundId ?? ''}
+            options={[
+              { value: '', label: t('使用全局背景') },
+              ...(backgrounds.data ?? []).map((b) => ({ value: b.id, label: b.name })),
+            ]}
+            onChange={(id) => patch('defaultBackgroundId', id || null)}
+          />
         </Section>
         <SpriteManager characterId={character.id} />
         <Slot

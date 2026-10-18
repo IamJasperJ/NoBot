@@ -2,15 +2,20 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   type BackgroundDTO,
+  type BackgroundFolderInput,
   type BackgroundSettings,
+  backgroundFolderInput,
+  backgroundFolderItemsInput,
   backgroundSettingsInput,
+  batchDeleteBackgroundsInput,
+  lorebookEntryDataSchema,
   type UpdateBackgroundInput,
   updateBackgroundInput,
 } from '@ai-parter/shared'
-import { desc, eq, isNull, or } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, or } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, getSetting, newId, setSetting } from '../db/client'
-import { backgrounds } from '../db/schema'
+import { backgroundFolderItems, backgroundFolders, backgrounds, lorebookEntries } from '../db/schema'
 import { paths } from '../env'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
@@ -19,6 +24,13 @@ import { SETTING_KEYS } from './settings'
 function toDTO(row: typeof backgrounds.$inferSelect): BackgroundDTO {
   return {
     ...row,
+    folderIds: db
+      .select()
+      .from(backgroundFolderItems)
+      .where(eq(backgroundFolderItems.backgroundId, row.id))
+      .orderBy(asc(backgroundFolderItems.folderId))
+      .all()
+      .map((item) => item.folderId),
     animated: row.mime !== 'image/webp',
     url: `/api/assets/backgrounds/${row.id}.${extension(row.mime)}`,
     thumbUrl: row.mime.startsWith('video/')
@@ -33,8 +45,10 @@ export function requireBackground(id: string) {
   return row
 }
 
-export function listBackgrounds(): BackgroundDTO[] {
-  return db.select().from(backgrounds).orderBy(desc(backgrounds.createdAt), desc(backgrounds.id)).all().map(toDTO)
+export function listBackgrounds(folderId?: string): BackgroundDTO[] {
+  if (folderId !== undefined) requireFolder(folderId)
+  const list = db.select().from(backgrounds).orderBy(desc(backgrounds.createdAt), desc(backgrounds.id)).all().map(toDTO)
+  return folderId === undefined ? list : list.filter((background) => background.folderIds.includes(folderId))
 }
 
 /** 舞台与模型只看公共背景及当前会话的背景。 */
@@ -128,6 +142,15 @@ export async function deleteBackground(id: string) {
   )
   db.transaction(() => {
     if (getBackgroundSettings().globalId === id) setSetting(SETTING_KEYS.backgrounds, { globalId: null })
+    // 世界书字段存于 JSON，不能使用外键，由共用删除入口清理。
+    for (const entry of db.select().from(lorebookEntries).all()) {
+      if (entry.data.backgroundId === id) {
+        db.update(lorebookEntries)
+          .set({ data: lorebookEntryDataSchema.parse({ ...entry.data, backgroundId: null }) })
+          .where(eq(lorebookEntries.id, entry.id))
+          .run()
+      }
+    }
     db.delete(backgrounds).where(eq(backgrounds.id, id)).run()
   })
 }
@@ -193,4 +216,66 @@ export async function importBackgroundUrl(input: { url: string; name?: string })
     if (error instanceof HttpError) throw error
     throw new HttpError(400, 'DOWNLOAD_FAILED', t('下载背景失败或超时'))
   }
+}
+
+function requireFolder(id: string) {
+  const row = db.select().from(backgroundFolders).where(eq(backgroundFolders.id, id)).get()
+  if (!row) throw notFound(t('背景文件夹'))
+  return row
+}
+
+export function listBackgroundFolders() {
+  return db.select().from(backgroundFolders).orderBy(asc(backgroundFolders.sort), asc(backgroundFolders.id)).all()
+}
+
+export function createBackgroundFolder(input: BackgroundFolderInput) {
+  const data = backgroundFolderInput.parse(input)
+  if (data.coverBackgroundId !== null) requireBackground(data.coverBackgroundId)
+  const now = Date.now()
+  const row = { ...data, id: newId(), createdAt: now, updatedAt: now }
+  db.insert(backgroundFolders).values(row).run()
+  return row
+}
+
+export function updateBackgroundFolder(id: string, input: Partial<BackgroundFolderInput>) {
+  const old = requireFolder(id)
+  // 以原始输入合并完整记录，避免 partial 的默认值覆盖未修改的字段。
+  const data = backgroundFolderInput.parse({ ...old, ...input })
+  if (data.coverBackgroundId !== null) requireBackground(data.coverBackgroundId)
+  db.update(backgroundFolders)
+    .set({ ...data, updatedAt: Date.now() })
+    .where(eq(backgroundFolders.id, id))
+    .run()
+  return requireFolder(id)
+}
+
+export function deleteBackgroundFolder(id: string) {
+  requireFolder(id)
+  db.delete(backgroundFolders).where(eq(backgroundFolders.id, id)).run()
+}
+
+export function changeBackgroundFolderItems(input: { folderId: string; backgroundIds: string[] }, remove = false) {
+  const { folderId, backgroundIds } = backgroundFolderItemsInput.parse(input)
+  db.transaction(() => {
+    requireFolder(folderId)
+    for (const id of new Set(backgroundIds)) requireBackground(id)
+    for (const backgroundId of new Set(backgroundIds)) {
+      if (remove)
+        db.delete(backgroundFolderItems)
+          .where(
+            and(eq(backgroundFolderItems.folderId, folderId), eq(backgroundFolderItems.backgroundId, backgroundId)),
+          )
+          .run()
+      else db.insert(backgroundFolderItems).values({ folderId, backgroundId }).onConflictDoNothing().run()
+    }
+    db.update(backgroundFolders).set({ updatedAt: Date.now() }).where(eq(backgroundFolders.id, folderId)).run()
+  })
+}
+
+/** 先验证整批，避免无效 ID 导致前半批已被删除。文件清理沿用单张删除入口。 */
+export async function batchDeleteBackgrounds(input: { ids: string[] }) {
+  const { ids } = batchDeleteBackgroundsInput.parse(input)
+  const unique = [...new Set(ids)]
+  for (const id of unique) requireBackground(id)
+  for (const id of unique) await deleteBackground(id)
 }

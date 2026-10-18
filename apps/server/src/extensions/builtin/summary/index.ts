@@ -14,8 +14,9 @@ import { HttpError, notFound } from '../../../errors'
 import { t } from '../../../i18n'
 import { listModels } from '../../../llm/openai'
 import { getChatRow, loadMessage, loadPath } from '../../../services/chats'
-import { getApiPresetRow, listApiPresets, resolveApiPreset } from '../../../services/connections'
+import { getApiPresetRow, listApiPresets } from '../../../services/connections'
 import { loadGenerationContext, toHistory } from '../../../services/context'
+import { resolveProfile } from '../../../services/profiles'
 import { defineExtension, draftChatId, type ExtensionContext, parseSettingsDraft } from '../../types'
 import { defaultSettings, parseSettings, settingsSchema } from './settings'
 
@@ -212,7 +213,7 @@ export default defineExtension({
       const chatId = await draftChatId(c)
       const connection = settings.connectionId
         ? getApiPresetRow(settings.connectionId)
-        : resolveApiPreset(chatId ? getChatRow(chatId).apiPresetId : null)
+        : resolveProfile(chatId ? getChatRow(chatId) : undefined).connection!
       return c.json({
         options: (await listModels(connection.baseUrl, connection.apiKey, connection.headers)).map((value) => ({
           value,

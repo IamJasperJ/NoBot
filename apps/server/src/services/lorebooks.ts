@@ -12,6 +12,7 @@ import { db, newId } from '../db/client'
 import { type LorebookEntryRow, type LorebookRow, lorebookEntries, lorebooks } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
+import { requireBackground } from './backgrounds'
 
 function getRow(id: string) {
   const row = db.select().from(lorebooks).where(eq(lorebooks.id, id)).get()
@@ -82,6 +83,7 @@ export function deleteLorebook(id: string) {
 export function createEntry(id: string, input: Partial<LorebookEntryData>): LorebookEntryDTO {
   return db.transaction(() => {
     getRow(id)
+    if (input.backgroundId != null) requireBackground(input.backgroundId)
     const entries = rows(id)
     const entryId = newId()
     db.insert(lorebookEntries)
@@ -104,6 +106,7 @@ export function updateEntry(id: string, input: Partial<LorebookEntryData>): Lore
       if (!Object.hasOwn(input, key)) delete patch[key]
     }
     const data = lorebookEntryDataSchema.parse({ ...lorebookEntryDataSchema.parse(row.data), ...patch })
+    if (data.backgroundId != null) requireBackground(data.backgroundId)
     db.update(lorebookEntries).set({ data }).where(eq(lorebookEntries.id, id)).run()
     touch(row.lorebookId)
     return entryDTO(entryRow(id))

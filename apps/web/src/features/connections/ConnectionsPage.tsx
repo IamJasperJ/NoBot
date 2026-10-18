@@ -1,10 +1,10 @@
 import type { ApiPresetDTO } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useEffectEvent, useState } from 'react'
+import { type ReactNode, useEffect, useEffectEvent, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useConnections } from '../../api/queries'
 import { Combobox } from '../../components/combobox'
-import { TextField } from '../../components/form'
+import { SelectField, Tabs, TextField } from '../../components/form'
 import { HeadersEditor } from '../../components/headers'
 import { CheckIcon, RefreshIcon, TrashIcon } from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
@@ -13,6 +13,7 @@ import { Button, Field, IconButton } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { ProfilesManager } from './ProfilesManager'
 
 interface Draft {
   name: string
@@ -20,17 +21,37 @@ interface Draft {
   apiKey: string
   headers: Record<string, string>
   model: string
+  vision: ApiPresetDTO['vision']
 }
-const emptyDraft = (): Draft => ({ name: '', baseUrl: '', apiKey: '', model: '', headers: {} })
+const emptyDraft = (): Draft => ({ name: '', baseUrl: '', apiKey: '', model: '', headers: {}, vision: 'auto' })
 const toDraft = (p: ApiPresetDTO): Draft => ({
   name: p.name,
   baseUrl: p.baseUrl,
   apiKey: '',
   model: p.model,
   headers: p.headers ?? {},
+  vision: p.vision,
 })
 
+/** 「连接」页：上面切换「连接」和「配置组」两个列表 */
 export function ConnectionsPage() {
+  const [tab, setTab] = useState<'connections' | 'profiles'>('connections')
+  const tabs = (
+    <div className="mb-2 px-1">
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'connections', label: t('连接') },
+          { id: 'profiles', label: t('配置组') },
+        ]}
+      />
+    </div>
+  )
+  return tab === 'connections' ? <ConnectionsManager tabs={tabs} /> : <ProfilesManager tabs={tabs} />
+}
+
+function ConnectionsManager({ tabs }: { tabs: ReactNode }) {
   const query = useConnections()
   const qc = useQueryClient()
   const focusId = useUi((s) => s.focusId)
@@ -108,6 +129,7 @@ export function ConnectionsPage() {
       }
       list={
         <>
+          {tabs}
           {query.isPending && <p className="p-3 text-sm text-zinc-500">{t('加载中…')}</p>}
           {query.isError && (
             <p role="alert" className="p-3 text-sm text-red-600">
@@ -155,6 +177,7 @@ export function ConnectionsPage() {
                     baseUrl: draft.baseUrl.trim(),
                     model: draft.model.trim(),
                     headers: draft.headers,
+                    vision: draft.vision,
                     ...(draft.apiKey ? { apiKey: draft.apiKey } : {}),
                   }
                   const saved = original
@@ -287,6 +310,19 @@ export function ConnectionsPage() {
                     </IconButton>
                   </div>
                 </Field>
+                <SelectField
+                  label={t('支持看图')}
+                  hint={t(
+                    '不支持时，消息里的图片会换成「图片说明」扩展生成的文字描述。自动：按模型名判断（GPT-4o、Claude 3 以上、Gemini、Qwen-VL 等算支持）',
+                  )}
+                  value={draft.vision}
+                  onChange={(vision) => setDraft({ ...draft, vision })}
+                  options={[
+                    { value: 'auto', label: t('自动判断') },
+                    { value: 'yes', label: t('支持') },
+                    { value: 'no', label: t('不支持') },
+                  ]}
+                />
                 <div className="space-y-1.5">
                   <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">
                     {t('额外请求头')}

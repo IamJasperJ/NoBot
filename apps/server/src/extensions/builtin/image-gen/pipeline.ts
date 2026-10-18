@@ -4,15 +4,14 @@ import { paths } from '../../../env'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { getAttachment } from '../../../services/attachments'
-import { deleteMessage, getChatRow, loadMessage, loadPath } from '../../../services/chats'
+import { deleteMessage, editMessage, getChatRow, loadMessage, loadPath } from '../../../services/chats'
 import { getLanguage } from '../../../services/settings'
 import { computeStage, resolvePlayPreset } from '../../../services/stage'
 import type { ToolResult } from '../../../tools'
 import type { ExtensionContext } from '../../types'
-import { generateComfy } from './backends/comfy'
-import { generateOpenAI } from './backends/openai'
+import { backendDimensions, getBackend } from './backends'
 import { characterPrompt, composePrompt, dimensions, resolvePromptStyle } from './composition'
-import { comfyHeaders, openaiHeaders, resolveImageConnection } from './discovery'
+import { comfyHeaders, openaiHeaders, parseHeaders, resolveImageConnection } from './discovery'
 import {
   cleanPrompt,
   type Mode,
@@ -22,7 +21,6 @@ import {
   templateEndings,
   templates,
 } from './modes'
-import { fitOpenaiSize } from './options'
 import { Semaphore } from './semaphore'
 import { parseSettings, type Settings } from './settings'
 import { workflowSource } from './workflow'
@@ -47,10 +45,7 @@ const retryLocks = new Set<string>()
 const previews = new Map<string, { expires: number; snapshot: Snapshot }>()
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 function validate(settings: Settings) {
-  if (settings.source === 'openai' && (!settings.openaiBaseUrl.trim() || !settings.openaiModel.trim()))
-    throw new HttpError(400, 'IMAGE_CONFIG', t('请先配置图片接口地址和模型'))
-  if (settings.source === 'comfy' && !settings.comfyUrl.trim())
-    throw new HttpError(400, 'IMAGE_CONFIG', t('请先配置 ComfyUI 地址'))
+  getBackend(settings).validate(settings)
 }
 async function appendImage(ctx: Context, chatId: string, message: Parameters<Context['host']['appendMessage']>[1]) {
   const deadline = Date.now() + 600000
@@ -106,10 +101,7 @@ async function freeze(ctx: Context, input: GenerateInput): Promise<Snapshot> {
       ? false
       : undefined
   let size = dimensions(settings, orientation, input.mode)
-  if (settings.source === 'openai') {
-    const [width, height] = fitOpenaiSize(settings, size.width, size.height).split('x').map(Number)
-    size = { width: width!, height: height! }
-  }
+  size = backendDimensions(settings, size.width, size.height)
   const character = characterPrompt(input.mode, prepared.character.extensions, !!prepared.info.chat.groupId)
   // 在任何异步工作开始前冻结角色外貌、设置与随机种子。
   settings.seed = settings.seed === -1 ? Math.floor(Math.random() * 2 ** 48) : settings.seed
@@ -120,7 +112,7 @@ async function freeze(ctx: Context, input: GenerateInput): Promise<Snapshot> {
     ),
   }))
   const workflow = workflowSource(settings)
-  if (settings.source === 'comfy') {
+  if (getBackend(settings).prepareAvatars) {
     const sharp = (await import('sharp')).default
     for (const [placeholder, kind, id, key] of [
       ['%char_avatar%', 'character', prepared.character.id, 'charAvatar'],
@@ -201,7 +193,7 @@ export async function promptPreview(ctx: Context, input: GenerateInput) {
     width: snapshot.width,
     height: snapshot.height,
     source: snapshot.settings.source,
-    model: snapshot.settings.source === 'openai' ? snapshot.settings.openaiModel : snapshot.settings.comfyCheckpoint,
+    model: getBackend(snapshot.settings).model(snapshot.settings),
     workflow:
       snapshot.settings.comfyWorkflowName === 'avatar'
         ? t('角色头像图生图')
@@ -211,6 +203,9 @@ export async function promptPreview(ctx: Context, input: GenerateInput) {
 function safeSnapshot(settings: Settings) {
   const {
     openaiApiKey: _key,
+    openrouterApiKey: _routerKey,
+    openrouterHeaders: _routerHeaders,
+    a1111Auth: _auth,
     comfyHeaders: _headers,
     openaiHeaders: _openaiHeaders,
     charAvatar: _char,
@@ -221,9 +216,18 @@ function safeSnapshot(settings: Settings) {
 }
 function safeError(error: unknown, settings: Settings) {
   let text = errorText(error)
-  const secrets = [settings.openaiApiKey]
+  const secrets = [
+    settings.openaiApiKey,
+    settings.openrouterApiKey,
+    settings.a1111Auth,
+    Buffer.from(settings.a1111Auth).toString('base64'),
+  ]
   try {
-    secrets.push(...Object.values(comfyHeaders(settings)), ...Object.values(openaiHeaders(settings)))
+    secrets.push(
+      ...Object.values(comfyHeaders(settings)),
+      ...Object.values(openaiHeaders(settings)),
+      ...Object.values(parseHeaders(settings.openrouterHeaders, 'OpenRouter ')),
+    )
   } catch {
     /* 无效请求头本身不包含在错误里。 */
   }
@@ -248,9 +252,7 @@ export async function renderImage(
     const bytes = await imageQueue.run(
       async () => {
         stage?.('generating')
-        return settings.source === 'openai'
-          ? generateOpenAI(settings, prompt, width, height, signal)
-          : generateComfy(settings, prompt, width, height, signal)
+        return (await getBackend(settings).generate({ settings, prompt, width, height }, signal)).bytes
       },
       signal,
       (position) => stage?.('queued', position),
@@ -260,7 +262,7 @@ export async function renderImage(
       chatId,
       kind: 'image',
       status: 'ok',
-      model: settings.source === 'openai' ? settings.openaiModel : settings.comfyCheckpoint,
+      model: getBackend(settings).model(settings),
       durationMs: Date.now() - started,
       summary: t('{source}：{prompt}', { source: settings.source, prompt: prompt.slice(0, 60) }),
       request,
@@ -585,10 +587,7 @@ export async function retry(
   settings.seed = Math.floor(Math.random() * 2 ** 48)
   let size = { width: old.width ?? settings.width, height: old.height ?? settings.height }
   // 换了 OpenAI 模型时，尺寸要按新模型支持的规格重新贴合（比如 gpt-image 只接受 1024 / 1536）
-  if (settings.source === 'openai') {
-    const [width, height] = fitOpenaiSize(settings, size.width, size.height).split('x').map(Number)
-    size = { width: width!, height: height! }
-  }
+  size = backendDimensions(settings, size.width, size.height)
   let meta: ImageGenMeta = {
     ...old,
     ...size,
@@ -638,6 +637,10 @@ export async function retry(
         stage,
       )
       stage('saving')
+      if (old.mode === 'background') {
+        await background(ctx, message.chatId, bytes, message.meta.name ?? '', settings, prompt!)
+        return { message: ctx.host.updateMessageMeta(messageId, { imageGen: { ...meta, status: 'done' } }) }
+      }
       const image = await ctx.host.saveImage(bytes)
       controller.signal.throwIfAborted()
       const images = append ? [...(loadMessage(messageId).meta.images ?? []), image] : [image]
@@ -698,56 +701,48 @@ export async function testImage(ctx: Context) {
 export async function runImageTool(ctx: ExtensionContext, args: Record<string, unknown>): Promise<ToolResult> {
   let meta: ImageGenMeta = { status: 'error', mode: 'tool' }
   try {
-    if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new Error(t('图片提示词不能为空'))
+    const legacy = args.mode === undefined
+    const requested =
+      args.mode === 'portrait' ? 'face' : (args.mode ?? (args.as_background === true ? 'background' : 'free'))
+    if (
+      typeof requested !== 'string' ||
+      !['free', 'character', 'face', 'user', 'last', 'raw_last', 'scene', 'background'].includes(requested)
+    )
+      throw new Error(t('图片生成模式无效'))
+    const mode = requested as Mode
+    if (args.prompt !== undefined && (typeof args.prompt !== 'string' || !args.prompt.trim()))
+      throw new Error(t('图片提示词不能为空'))
+    if (args.orientation !== undefined && !['portrait', 'landscape', 'square'].includes(String(args.orientation)))
+      throw new Error(t('图片方向无效'))
+    let characterId: string | undefined
+    if (args.character !== undefined) {
+      if (typeof args.character !== 'string' || !args.character.trim()) throw new Error(t('会话中没有这个角色'))
+      const matches = ctx.host.getChatInfo(ctx.chatId, 0).characters.filter((item) => item.name === args.character)
+      if (matches.length !== 1) throw new Error(t('角色名字不存在或不唯一'))
+      characterId = matches[0]!.id
+    }
     const snapshot = await freeze(ctx, {
       chatId: ctx.chatId,
-      mode: args.as_background === true ? 'background' : 'free',
-      input: args.prompt,
+      mode,
+      characterId,
+      input: typeof args.prompt === 'string' ? args.prompt : undefined,
+      // 显式描述绕过依赖上下文的输入校验，但仍保留所选模式和角色。
+      prompt: typeof args.prompt === 'string' ? args.prompt : undefined,
     })
     const { settings, prepared } = snapshot
-    let size = dimensions(settings, args.orientation === 'landscape', 'tool')
+    const styleMode = legacy ? 'tool' : mode
+    let size =
+      args.orientation === undefined
+        ? { width: snapshot.width, height: snapshot.height }
+        : dimensions(settings, args.orientation === 'landscape', styleMode)
     if (args.orientation === 'square') size.height = size.width
-    if (settings.source === 'openai') {
-      const [width, height] = fitOpenaiSize(settings, size.width, size.height).split('x').map(Number)
-      size = { width: width!, height: height! }
-    }
-    let toolPrompt = args.prompt
-    if (settings.refineModelPrompts) {
-      try {
-        await writePrompt(ctx, snapshot, undefined, true)
-        toolPrompt = snapshot.rawPrompt ?? args.prompt
-      } catch (error) {
-        ctx.host.log({
-          chatId: ctx.chatId,
-          kind: 'image',
-          status: 'error',
-          summary: t('生图提示词润色失败：{error}', { error: safeError(error, settings) }),
-        })
-      }
-    }
-    const combined = composePrompt(
-      settings,
-      'tool',
-      toolPrompt,
-      characterPrompt(
-        args.as_background === true ? 'background' : 'tool',
-        prepared.character.extensions,
-        !!prepared.info.chat.groupId,
-      ),
+    size = backendDimensions(settings, size.width, size.height)
+    snapshot.character = characterPrompt(
+      mode === 'background' ? 'background' : legacy ? 'tool' : mode,
+      prepared.character.extensions,
+      !!prepared.info.chat.groupId,
     )
-    Object.assign(snapshot, combined, size)
-    settings.negativePrompt = combined.negative
-    meta = {
-      status: 'pending',
-      stage: 'queued',
-      mode: 'tool',
-      prompt: combined.prompt,
-      negative: combined.negative,
-      seed: settings.seed,
-      hidden: !settings.visibleFromTool,
-      caption: caption(snapshot),
-      ...size,
-    }
+    Object.assign(snapshot, size)
     const run = async (messageId?: string): Promise<ToolResult> => {
       const controller = new AbortController()
       if (messageId) {
@@ -760,10 +755,39 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
           meta = { ...meta, stage: value, queuePosition: position }
           if (messageId) ctx.host.updateMessageMeta(messageId, { imageGen: meta })
         }
+        if (typeof args.prompt === 'string') {
+          let prompt = args.prompt
+          if (settings.refineModelPrompts) {
+            try {
+              // 润色最终描述始终使用自由描述模板，避免角色模板丢弃模型已给出的场景。
+              const rewritten = await writePrompt(
+                ctx,
+                {
+                  ...snapshot,
+                  input: { ...snapshot.input, mode: legacy && mode === 'background' ? 'background' : 'free' },
+                },
+                controller.signal,
+                true,
+              )
+              const refined = rewritten.rawPrompt
+              if (refined) prompt = refined
+            } catch (error) {
+              ctx.host.log({
+                chatId: ctx.chatId,
+                kind: 'image',
+                status: 'error',
+                summary: t('生图提示词润色失败：{error}', { error: safeError(error, settings) }),
+              })
+            }
+          }
+          Object.assign(snapshot, composePrompt(settings, styleMode, prompt, snapshot.character))
+        } else await writePrompt(ctx, snapshot, controller.signal)
+        settings.negativePrompt = snapshot.negative ?? ''
+        meta = { ...meta, prompt: snapshot.prompt, negative: snapshot.negative, caption: caption(snapshot) }
         const bytes = await renderImage(
           ctx,
           settings,
-          combined.prompt,
+          snapshot.prompt!,
           size.width,
           size.height,
           ctx.chatId,
@@ -771,8 +795,8 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
           stage,
         )
         stage('saving')
-        if (args.as_background === true) {
-          await background(ctx, ctx.chatId, bytes, prepared.character.name, settings, combined.prompt)
+        if (mode === 'background') {
+          await background(ctx, ctx.chatId, bytes, prepared.character.name, settings, snapshot.prompt!)
           if (messageId) ctx.host.updateMessageMeta(messageId, { imageGen: { ...meta, status: 'done' } })
           return { content: 'Image generated and set as the chat background.' }
         }
@@ -791,28 +815,52 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
             imageGen: {
               ...meta,
               status: 'error' as const,
-              error: controller.signal.aborted ? t('已取消') : errorText(error),
+              error: controller.signal.aborted ? t('已取消') : safeError(error, settings),
             },
           },
         }
         if (messageId && tasks.get(messageId) === controller) ctx.host.updateMessageMeta(messageId, result.meta)
         return result
       } finally {
-        if (messageId && tasks.get(messageId) === controller) tasks.delete(messageId)
+        if (messageId && tasks.get(messageId) === controller) {
+          tasks.delete(messageId)
+          ctx.storage.set(`request:${messageId}`, snapshot)
+        }
       }
+    }
+    meta = {
+      status: 'pending',
+      stage: args.prompt === undefined || settings.refineModelPrompts ? 'prompt' : 'queued',
+      mode: styleMode,
+      seed: settings.seed,
+      hidden: !settings.visibleFromTool,
+      ...size,
     }
     if (!settings.async) return await run()
     let started = false
-    return {
-      content:
-        'The image is being generated and will be shown to the user automatically. Continue your reply without waiting.',
+    const result: ToolResult = {
+      content: JSON.stringify({
+        status: 'queued',
+        message:
+          'Continue your reply without waiting. Do not claim the image is finished or invent its URL. The placeholder updates automatically.',
+      }),
       meta: { imageGen: meta },
       onSaved(messageId) {
         if (started) return
         started = true
+        // 工具消息 id 由宿主在保存时分配；在下一轮模型读取历史之前补入任务编号。
+        result.content = JSON.stringify({
+          status: 'queued',
+          task_id: messageId,
+          message:
+            'Continue your reply without waiting. Do not claim the image is finished or invent its URL. The placeholder updates automatically.',
+        })
+        editMessage(messageId, result.content)
+        ctx.host.updateMessageMeta(messageId, { imageGen: meta })
         void run(messageId).catch(console.error)
       },
     }
+    return result
   } catch (error) {
     return {
       content: 'Image generation failed. The user can inspect the error and retry.',

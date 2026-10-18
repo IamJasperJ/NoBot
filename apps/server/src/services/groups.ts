@@ -5,6 +5,7 @@ import { characters, groupMembers, groups } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
+import { requireBackground } from './backgrounds'
 
 export function getGroup(id: string): GroupDTO {
   const row = db
@@ -35,6 +36,7 @@ export function getGroup(id: string): GroupDTO {
     allowSelfResponses: row.allowSelfResponses,
     autoMode: row.autoMode,
     scenarioOverride: row.scenarioOverride,
+    defaultBackgroundId: row.defaultBackgroundId,
     updatedAt: row.updatedAt,
     members,
   }
@@ -70,6 +72,7 @@ function replaceMembers(id: string, members: NonNullable<GroupInput['members']>)
 }
 export function createGroup(input: GroupInput): GroupDTO {
   const { members, ...data } = groupInput.parse(input)
+  if (data.defaultBackgroundId != null) requireBackground(data.defaultBackgroundId)
   return db.transaction(() => {
     const id = newId()
     const now = Date.now()
@@ -88,6 +91,7 @@ export function updateGroup(id: string, input: Partial<GroupInput>): GroupDTO {
     if (!Object.hasOwn(input, key)) delete data[key]
   }
   const { members, ...fields } = data
+  if (fields.defaultBackgroundId != null) requireBackground(fields.defaultBackgroundId)
   return db.transaction(() => {
     if (members !== undefined) replaceMembers(id, members)
     db.update(groups)

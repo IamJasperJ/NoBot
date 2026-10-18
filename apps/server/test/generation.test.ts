@@ -475,6 +475,8 @@ test('预设采样参数和额外请求体正确透传且非流式响应正常�
 
 test('图片上传与生成全链路及发送限制', async () => {
   const { chat } = await setup()
+  const connections = await json<import('@ai-parter/shared').ApiPresetDTO[]>('/connections')
+  await json(`/connections/${connections[0]!.id}`, 'PATCH', { vision: 'yes' })
   const sharp = (await import('sharp')).default
   const form = new FormData()
   form.append(

@@ -247,6 +247,8 @@ describe.skipIf(!process.env.CRUD_TEST_CHILD)('后端 CRUD 接口', () => {
       characterNoteDepth: _depth,
       characterNoteRole: _role,
       defaultPersonaId: _persona,
+      profileId: _profile,
+      defaultBackgroundId: _background,
       extensions: _extensions,
       ...fields
     } = updated

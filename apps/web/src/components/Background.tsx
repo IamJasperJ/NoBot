@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useBackgroundSettings, useBackgrounds, useChatPages } from '../api/queries'
+import { useBackgrounds, useResolvedBackgroundId } from '../api/queries'
 import { useAppearance } from '../stores/appearance'
 
 type Layer = { url: string; video: boolean }
@@ -7,12 +7,7 @@ type Layer = { url: string; video: boolean }
 /** 保留上一层，图片或视频首帧加载后再淡入。 */
 export function Background({ chatId }: { chatId: string | null }) {
   const backgrounds = useBackgrounds()
-  const settings = useBackgroundSettings()
-  const pages = useChatPages(chatId)
-  const page = pages.data?.pages[0]
-  // 优先级：固定的本聊天背景（用户手动覆盖）> 舞台（模型用 <scene bg> 切的场景）> 本聊天背景 > 全局背景
-  const pinned = page?.chat.backgroundPinned && page.chat.backgroundId
-  const id = pinned || (page?.stage?.scene.backgroundId ?? page?.chat.backgroundId ?? settings.data?.globalId)
+  const id = useResolvedBackgroundId(chatId)
   const background = backgrounds.data?.find((b) => b.id === id)
   const { bgDim, bgBlur, bgFit, bgAnimate } = useAppearance()
   const url = background && (!bgAnimate && background.mime === 'image/gif' ? background.thumbUrl : background.url)

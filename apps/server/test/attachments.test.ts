@@ -25,6 +25,8 @@ test('附件接口校验文件大小、格式、取图路径和持久化尺寸',
     }
     return
   }
+  const { initDatabase } = await import('../src/db/client')
+  initDatabase()
   const { attachmentRoutes } = await import('../src/routes/attachments')
   const { assetRoutes } = await import('../src/routes/assets')
   const { HttpError } = await import('../src/errors')

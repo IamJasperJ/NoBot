@@ -8,7 +8,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, useCharacters } from '../../api/queries'
+import { keys, useBackgrounds, useCharacters } from '../../api/queries'
 import { Section, SelectField, SwitchField, Toggle } from '../../components/form'
 import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from '../../components/icons'
 import { Avatar, Button, Dialog, IconButton } from '../../components/ui'
@@ -54,6 +54,7 @@ function GroupEditor({
     enabled: groupId !== null,
   })
   const characters = useCharacters()
+  const backgrounds = useBackgrounds()
   const qc = useQueryClient()
   const [original, setOriginal] = useState<GroupInput>(() => ({
     name: t('新群组'),
@@ -63,6 +64,7 @@ function GroupEditor({
     allowSelfResponses: false,
     autoMode: false,
     scenarioOverride: '',
+    defaultBackgroundId: null,
   }))
   const [draft, setDraft] = useState<GroupInput>(() => structuredClone(original))
   const [loaded, setLoaded] = useState(groupId === null)
@@ -79,6 +81,7 @@ function GroupEditor({
       allowSelfResponses: result.allowSelfResponses,
       autoMode: result.autoMode,
       scenarioOverride: result.scenarioOverride,
+      defaultBackgroundId: result.defaultBackgroundId,
       members: result.members.map((m) => ({ characterId: m.characterId, muted: m.muted })),
     }
     setGroup(result)
@@ -270,6 +273,16 @@ function GroupEditor({
             hint={t('填写后代替所有成员的场景')}
             value={draft.scenarioOverride ?? ''}
             onChange={(v) => patch('scenarioOverride', v)}
+          />
+          <SelectField
+            label={t('默认背景')}
+            hint={t('这个群组的会话没有单独选背景时用它，优先于全局背景')}
+            value={draft.defaultBackgroundId ?? ''}
+            options={[
+              { value: '', label: t('使用全局背景') },
+              ...(backgrounds.data ?? []).map((b) => ({ value: b.id, label: b.name })),
+            ]}
+            onChange={(id) => patch('defaultBackgroundId', id || null)}
           />
         </fieldset>
       )}

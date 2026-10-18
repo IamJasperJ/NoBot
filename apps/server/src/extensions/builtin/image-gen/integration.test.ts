@@ -885,6 +885,82 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       messageId: confirmed.message.id,
       imageId: confirmed.message.meta.images![0]!.id,
     })
+    // C9 按模式提炼、显式描述、群聊角色和异步占位保持同一条工具消息。
+    configure({
+      source: 'openai',
+      openaiConnectionId: '',
+      openaiBaseUrl: `${base}/v1`,
+      openaiModel: 'gpt-image-1',
+      openaiExtra: '',
+      openaiHeaders: '',
+      async: false,
+      toolEnabled: true,
+      refineModelPrompts: false,
+    })
+    const invoke = (args: Record<string, unknown>, chatId = chat.id) =>
+      runTool('generate_image', JSON.stringify(args), { chatId, vars: {} })
+    for (const mode of ['character', 'portrait', 'face', 'user', 'scene', 'last', 'raw_last']) {
+      host.appendMessage(chat.id, { role: 'assistant', content: 'A cat beside a lake.' })
+      const beforePrompts = chatRequests.length
+      const image = await invoke({ mode })
+      expect(image.meta?.imageGen?.status).toBe('done')
+      expect(image.meta?.imageGen?.mode).toBe(mode === 'portrait' ? 'face' : mode)
+      expect(chatRequests.length - beforePrompts).toBe(mode === 'raw_last' ? 0 : 1)
+    }
+    const beforeDirect = chatRequests.length
+    const direct = await invoke({ mode: 'portrait', prompt: 'original final description', orientation: 'landscape' })
+    expect(chatRequests).toHaveLength(beforeDirect)
+    expect(direct.meta?.imageGen?.prompt).toContain('original final description')
+    expect(direct.meta?.imageGen?.width).toBeGreaterThan(direct.meta?.imageGen?.height ?? 0)
+    expect((await invoke({ mode: 'free' })).meta?.imageGen?.status).toBe('error')
+    expect((await invoke({ mode: 'unknown' })).meta?.imageGen?.status).toBe('error')
+    expect((await invoke({ mode: 'character', prompt: 12 })).meta?.imageGen?.status).toBe('error')
+    expect((await invoke({ mode: 'character', orientation: 'invalid' })).meta?.imageGen?.status).toBe('error')
+    expect((await invoke({ mode: 'character', character: 'missing' }, groupChat.id)).meta?.imageGen?.status).toBe(
+      'error',
+    )
+    const selectedTool = await invoke({ mode: 'character', character: actor2.name }, groupChat.id)
+    expect(selectedTool.meta?.imageGen?.status).toBe('done')
+    const selectedPrompt = JSON.stringify(chatRequests.at(-1))
+    expect(selectedPrompt).toContain(actor2.name)
+    const backgroundResult = await invoke({ mode: 'background', prompt: 'a lake' })
+    expect(backgroundResult.content).toBe('Image generated and set as the chat background.')
+    configure({ refineModelPrompts: true, promptStyle: 'natural' })
+    await invoke({ mode: 'portrait', prompt: 'a detailed portrait' })
+    expect(JSON.stringify(chatRequests.at(-1))).toContain('a detailed portrait')
+    expect(JSON.stringify(chatRequests.at(-1))).toContain('40–90 words')
+    promptFail = true
+    expect((await invoke({ mode: 'free', prompt: 'fallback description' })).meta?.imageGen?.prompt).toContain(
+      'fallback description',
+    )
+    promptFail = false
+    configure({ async: true })
+    const beforeQueue = chatRequests.length
+    const queuedTool = await invoke({ mode: 'character' })
+    expect(chatRequests).toHaveLength(beforeQueue)
+    expect(JSON.parse(queuedTool.content).status).toBe('queued')
+    const placeholder = host.appendMessage(chat.id, {
+      role: 'tool',
+      content: queuedTool.content,
+      meta: queuedTool.meta,
+    })
+    queuedTool.onSaved?.(placeholder.id)
+    expect(JSON.parse(loadMessage(placeholder.id).content)).toMatchObject({ status: 'queued', task_id: placeholder.id })
+    expect((await wait(placeholder.id)).meta.imageGen?.mode).toBe('character')
+    const asyncBg = await invoke({ mode: 'background', prompt: 'a quiet garden' })
+    const bgPlaceholder = host.appendMessage(chat.id, { role: 'tool', content: asyncBg.content, meta: asyncBg.meta })
+    asyncBg.onSaved?.(bgPlaceholder.id)
+    expect(JSON.parse(loadMessage(bgPlaceholder.id).content).task_id).toBe(bgPlaceholder.id)
+    await wait(bgPlaceholder.id)
+    const backgroundBeforeRetry = getChatRow(chat.id).backgroundId
+    const backgroundRetry = await json<{ message: MessageDTO }>('/ext/image-gen/retry', {
+      messageId: bgPlaceholder.id,
+      prompt: 'a new garden',
+    })
+    expect(backgroundRetry.message.id).toBe(bgPlaceholder.id)
+    await wait(bgPlaceholder.id)
+    expect(getChatRow(chat.id).backgroundId).not.toBe(backgroundBeforeRetry)
+
     const logs = listLogs({})
       .filter((log) => log.kind === 'image')
       .map((log) => getLog(log.id))

@@ -16,6 +16,7 @@ import { SETTING_KEYS } from './settings'
 // Zod 4 的 partial 仍会填充内部默认值，PATCH 必须显式移除 headers 默认值。
 export const apiPresetPatchInput = apiPresetInput.partial().extend({
   headers: apiPresetInput.shape.headers.removeDefault().optional(),
+  vision: apiPresetInput.shape.vision.removeDefault().optional(),
 })
 
 /** Key 打码：只露出最后 4 位 */
@@ -30,6 +31,7 @@ function toDTO(row: ApiPresetRow, defaultId: string | undefined): ApiPresetDTO {
     name: row.name,
     baseUrl: row.baseUrl,
     model: row.model,
+    vision: row.vision,
     headers: row.headers,
     apiKeyMasked: maskKey(row.apiKey),
     isDefault: row.id === defaultId,

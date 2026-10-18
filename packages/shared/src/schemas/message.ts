@@ -119,6 +119,7 @@ export interface ImageGenMeta {
 
 /** 上传的图片附件 */
 export interface AttachmentDTO {
+  caption?: string
   id: string
   /** 显示用的地址 */
   url: string

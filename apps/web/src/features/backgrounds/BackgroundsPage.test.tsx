@@ -10,6 +10,7 @@ import { BackgroundsPage } from './BackgroundsPage'
 test('背景库展示视频缩略图、GIF 缩略图、动态角标和最新排序', () => {
   const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Number.POSITIVE_INFINITY } } })
   const base: BackgroundDTO = {
+    folderIds: [],
     id: 'static',
     name: '静态风景',
     url: '/static.webp',

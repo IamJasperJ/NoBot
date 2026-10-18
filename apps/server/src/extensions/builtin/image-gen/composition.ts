@@ -1,7 +1,7 @@
+import { getBackend } from './backends'
 import { cleanPrompt, type Mode } from './modes'
 import { orientResolution, resolutionOptions } from './options'
 import type { Settings } from './settings'
-import { workflowSource } from './workflow'
 
 export function dimensions(settings: Settings, landscape?: boolean, mode?: string) {
   const override = settings.modeOverrides.find((item) => item.enabled && item.mode === mode)
@@ -86,10 +86,5 @@ export function combinePrefixes(...parts: (string | undefined)[]): string {
 
 export function resolvePromptStyle(settings: Settings): 'tags' | 'natural' {
   if (settings.promptStyle !== 'auto') return settings.promptStyle
-  if (settings.source === 'openai') return 'natural'
-  const workflow = workflowSource(settings)
-  return !/CheckpointLoaderSimple/i.test(workflow) &&
-    /UNETLoader|UnetLoaderGGUF|DualCLIPLoader|CLIPLoaderGGUF|lumina2|flux/i.test(workflow)
-    ? 'natural'
-    : 'tags'
+  return getBackend(settings).promptStyle(settings)
 }

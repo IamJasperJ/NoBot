@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HttpError } from '../errors'
+import { captionUpload } from '../extensions/registry'
 import { t } from '../i18n'
 import { readUpload } from '../lib/files'
 import { saveAttachment } from '../services/attachments'
@@ -14,5 +15,10 @@ export const attachmentRoutes = new Hono().post(
       throw new HttpError(400, 'TOO_LARGE', t('文件太大（上限 10MB）'))
     },
   }),
-  async (c) => c.json(await saveAttachment(await readUpload(await c.req.parseBody(), 'file', 10))),
+  async (c) => {
+    const body = await c.req.parseBody()
+    const attachment = await saveAttachment(await readUpload(body, 'file', 10))
+    const chatId = typeof body.chatId === 'string' && body.chatId ? body.chatId : undefined
+    return c.json((await captionUpload(attachment.id, chatId)) ?? attachment)
+  },
 )

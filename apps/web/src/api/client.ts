@@ -4,6 +4,8 @@ import type {
   AppSettings,
   AttachmentDTO,
   BackgroundDTO,
+  BackgroundFolderDTO,
+  BackgroundFolderInput,
   BackgroundSettings,
   BookmarkDTO,
   CharacterDTO,
@@ -33,8 +35,11 @@ import type {
   PlayPresetData,
   PlayPresetDTO,
   PresetData,
+  ProfileDTO,
+  ProfileInput,
   PromptPresetDTO,
   PromptPreview,
+  ResolvedProfileDTO,
   SpriteDTO,
   SpriteImportResult,
   StageState,
@@ -105,11 +110,31 @@ type Ok = { ok: true }
 
 /** 所有后端接口。路径和 apps/server/API.md 一一对应 */
 export const api = {
+  listProfiles: () => request<ProfileDTO[]>('GET', '/profiles'),
+  createProfile: (input: ProfileInput) => request<ProfileDTO>('POST', '/profiles', input),
+  updateProfile: (id: string, input: ProfileInput) => request<ProfileDTO>('PUT', `/profiles/${enc(id)}`, input),
+  deleteProfile: (id: string) => request<{ ok: true }>('DELETE', `/profiles/${enc(id)}`),
+  setDefaultProfile: (id: string | null) => request<{ ok: true }>('PUT', '/profiles/default', { id }),
+  getChatProfile: (id: string) => request<ResolvedProfileDTO>('GET', `/chats/${enc(id)}/profile`),
+  regenerateCaption: (id: string, chatId?: string) =>
+    request<AttachmentDTO>('POST', `/ext/caption/attachments/${enc(id)}`, { chatId }),
   importBackgroundUrl: (input: { url: string; name?: string }) =>
     request<BackgroundDTO>('POST', '/backgrounds/import-url', input),
   autoBackground: (chatId: string) =>
     request<{ background: BackgroundDTO; reply: string }>('POST', '/backgrounds/auto', { chatId }),
-  listBackgrounds: () => request<BackgroundDTO[]>('GET', '/backgrounds'),
+  listBackgrounds: (folderId?: string) =>
+    request<BackgroundDTO[]>('GET', `/backgrounds${folderId === undefined ? '' : `?folderId=${enc(folderId)}`}`),
+  listBackgroundFolders: () => request<BackgroundFolderDTO[]>('GET', '/backgrounds/folders'),
+  createBackgroundFolder: (input: BackgroundFolderInput) =>
+    request<BackgroundFolderDTO>('POST', '/backgrounds/folders', input),
+  updateBackgroundFolder: (id: string, input: Partial<BackgroundFolderInput>) =>
+    request<BackgroundFolderDTO>('PATCH', `/backgrounds/folders/${enc(id)}`, input),
+  deleteBackgroundFolder: (id: string) => request<Ok>('DELETE', `/backgrounds/folders/${enc(id)}`),
+  addBackgroundsToFolder: (input: { folderId: string; backgroundIds: string[] }) =>
+    request<Ok>('POST', '/backgrounds/folders/add', input),
+  removeBackgroundsFromFolder: (input: { folderId: string; backgroundIds: string[] }) =>
+    request<Ok>('POST', '/backgrounds/folders/remove', input),
+  batchDeleteBackgrounds: (ids: string[]) => request<Ok>('POST', '/backgrounds/batch-delete', { ids }),
   uploadBackground: (file: File, name?: string) => {
     const form = new FormData()
     form.append('file', file)
@@ -123,7 +148,12 @@ export const api = {
   getBackgroundSettings: () => request<BackgroundSettings>('GET', '/backgrounds/settings'),
   setBackgroundSettings: (input: BackgroundSettings) =>
     request<BackgroundSettings>('PUT', '/backgrounds/settings', input),
-  uploadAttachment: (file: File) => upload<AttachmentDTO>('/attachments', file),
+  uploadAttachment: (file: File, chatId?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (chatId) form.append('chatId', chatId)
+    return request<AttachmentDTO>('POST', '/attachments', form)
+  },
   // ---- 连接 ----
   listConnections: () => request<ApiPresetDTO[]>('GET', '/connections'),
   createConnection: (input: ApiPresetInput) => request<ApiPresetDTO>('POST', '/connections', input),

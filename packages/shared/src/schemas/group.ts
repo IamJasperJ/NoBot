@@ -36,6 +36,7 @@ export interface GroupDTO {
   /** 自动模式：AI 之间自动接着聊。未实现 */
   autoMode: boolean
   /** 覆盖所有成员的场景，留空则用各自的 */
+  defaultBackgroundId: string | null
   scenarioOverride: string
   members: GroupMemberDTO[]
   updatedAt: number
@@ -48,6 +49,7 @@ export const groupInput = z.object({
   allowSelfResponses: z.boolean().default(false),
   autoMode: z.boolean().default(false),
   scenarioOverride: z.string().default(''),
+  defaultBackgroundId: z.string().nullable().default(null),
   /** 成员顺序即列表顺序 */
   members: z
     .array(z.object({ characterId: z.string(), muted: z.boolean().default(false) }))

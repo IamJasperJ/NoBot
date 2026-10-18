@@ -4,6 +4,67 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '仅列出支持图片输出的模型':
+      return t('仅列出支持图片输出的模型')
+    case '复用连接时覆盖同名请求头':
+      return t('复用连接时覆盖同名请求头')
+    case 'A1111 / Forge 地址':
+      return t('A1111 / Forge 地址')
+    case 'Basic Auth':
+      return t('Basic Auth')
+    case '可选，格式为用户名:密码':
+      return t('可选，格式为用户名:密码')
+    case '留空使用后端默认':
+      return t('留空使用后端默认')
+    case '高分修复':
+      return t('高分修复')
+    case '先生成低分辨率图片再放大重绘':
+      return t('先生成低分辨率图片再放大重绘')
+    case '放大器':
+      return t('放大器')
+    case '放大倍数':
+      return t('放大倍数')
+    case '第二遍步数':
+      return t('第二遍步数')
+    case '重绘幅度':
+      return t('重绘幅度')
+    case '面部修复':
+      return t('面部修复')
+    case '使用后端的面部修复功能':
+      return t('使用后端的面部修复功能')
+    case 'ADetailer':
+      return t('ADetailer')
+    case '使用 ADetailer 自动修复脸部':
+      return t('使用 ADetailer 自动修复脸部')
+    case '请先配置 A1111 / Forge 地址':
+      return t('请先配置 A1111 / Forge 地址')
+    case '图片生成模式无效':
+      return t('图片生成模式无效')
+    case '图片方向无效':
+      return t('图片方向无效')
+    case '角色名字不存在或不唯一':
+      return t('角色名字不存在或不唯一')
+    case '根据角色和聊天场景生成图片，支持 OpenAI、ComfyUI、OpenRouter 与 A1111 / Forge。':
+      return t('根据角色和聊天场景生成图片，支持 OpenAI、ComfyUI、OpenRouter 与 A1111 / Forge。')
+    case '连接配置组':
+      return t('连接配置组')
+    case '图片说明':
+      return t('图片说明')
+    case '看图连接':
+      return t('看图连接')
+    case '看图模型':
+      return t('看图模型')
+    case '说明提示词':
+      return t('说明提示词')
+    case '总是用文字描述代替图片':
+      return t('总是用文字描述代替图片')
+    case '为上传的图片生成文字说明，供不支持看图的模型使用。':
+      return t('为上传的图片生成文字说明，供不支持看图的模型使用。')
+    case '图片说明为空':
+      return t('图片说明为空')
+    case '图片说明生成失败':
+      return t('图片说明生成失败')
+
     case '提示词格式':
       return t('提示词格式')
     case '短标签':

@@ -11,7 +11,7 @@ const style = z.object({
 })
 const shape = z
   .object({
-    source: z.enum(['openai', 'comfy']).default('openai'),
+    source: z.enum(['openai', 'comfy', 'a1111', 'openrouter']).default('openai'),
     openaiConnectionId: z.string().default(''),
     openaiBaseUrl: z.string().default('https://api.openai.com/v1'),
     openaiApiKey: z.string().default(''),
@@ -23,6 +23,27 @@ const shape = z
     openaiApiType: z.enum(['auto', 'images', 'chat']).default('auto'),
     /** 按模型修正尺寸：默认关闭，原样发送设置的分辨率 */
     openaiSnapSize: z.boolean().default(false),
+    openrouterConnectionId: z.string().default(''),
+    openrouterBaseUrl: z.string().default('https://openrouter.ai/api/v1'),
+    openrouterApiKey: z.string().default(''),
+    openrouterModel: z.string().default(''),
+    openrouterHeaders: z.string().default(''),
+    a1111Url: z.string().default('http://127.0.0.1:7860'),
+    a1111Auth: z.string().default(''),
+    a1111Model: z.string().default(''),
+    a1111Sampler: z.string().default('Euler a'),
+    a1111Scheduler: z.string().default(''),
+    a1111Vae: z.string().default(''),
+    a1111Steps: z.number().int().min(1).max(1000).default(25),
+    a1111Cfg: z.number().min(0).max(100).default(7),
+    a1111ClipSkip: z.number().int().min(1).max(12).default(1),
+    a1111Hires: z.boolean().default(false),
+    a1111Upscaler: z.string().default('Latent'),
+    a1111HiresScale: z.number().min(1).max(8).default(2),
+    a1111HiresSteps: z.number().int().min(0).max(1000).default(0),
+    a1111Denoise: z.number().min(0).max(1).default(0.7),
+    a1111RestoreFaces: z.boolean().default(false),
+    a1111ADetailer: z.boolean().default(false),
     promptConnectionId: z.string().default(''),
     promptModel: z.string().default(''),
     comfyUrl: z.string().default('http://127.0.0.1:8188'),
@@ -148,6 +169,8 @@ export const settingsSchema: ExtensionSettingField[] = [
   select('source', '后端', [
     { value: 'openai', label: 'OpenAI 兼容接口' },
     { value: 'comfy', label: 'ComfyUI' },
+    { value: 'a1111', label: 'A1111 / Forge' },
+    { value: 'openrouter', label: 'OpenRouter' },
   ]),
   {
     ...select('openaiConnectionId', '复用连接', [{ value: '', label: '自定义（下面填写地址和密钥）' }], 'connections'),
@@ -233,6 +256,49 @@ export const settingsSchema: ExtensionSettingField[] = [
     slider('comfyClipSkip', 'CLIP 跳层', -12, -1, 1),
     number('comfyTimeout', '超时（秒）', '超过后中止当前任务', 1),
   ].map((field) => ({ ...field, visibleWhen: comfy })),
+  ...[
+    select('openrouterConnectionId', '复用连接', [{ value: '', label: '自定义（下面填写地址和密钥）' }], 'connections'),
+    text('openrouterBaseUrl', '接口地址', '包含 /v1 等接口路径'),
+    text('openrouterApiKey', 'API 密钥', '图片接口的鉴权密钥', { secret: true }),
+    text('openrouterModel', '图片模型', '仅列出支持图片输出的模型', { optionsSource: 'openrouter/models' }),
+    area('openrouterHeaders', '额外请求头（JSON）', '复用连接时覆盖同名请求头'),
+  ].map((field) => ({
+    ...field,
+    visibleWhen: ['openrouterBaseUrl', 'openrouterApiKey'].includes(field.key)
+      ? [
+          { key: 'source', equals: 'openrouter' },
+          { key: 'openrouterConnectionId', equals: '' },
+        ]
+      : { key: 'source', equals: 'openrouter' },
+  })),
+  ...[
+    text('a1111Url', 'A1111 / Forge 地址', '必须可由应用服务器访问'),
+    text('a1111Auth', 'Basic Auth', '可选，格式为用户名:密码', { secret: true }),
+    text('a1111Model', '模型', '', { optionsSource: 'a1111/models' }),
+    text('a1111Sampler', '采样器', '', { optionsSource: 'a1111/samplers' }),
+    text('a1111Scheduler', '调度器', '', { optionsSource: 'a1111/schedulers' }),
+    text('a1111Vae', 'VAE', '留空使用后端默认', { optionsSource: 'a1111/vaes' }),
+    slider('a1111Steps', '采样步数', 1, 150, 1),
+    slider('a1111Cfg', 'CFG', 1, 30, 0.5),
+    slider('a1111ClipSkip', 'CLIP 跳层', 1, 12, 1),
+    bool('a1111Hires', '高分修复', '先生成低分辨率图片再放大重绘'),
+    text('a1111Upscaler', '放大器', '', { optionsSource: 'a1111/upscalers' }),
+    slider('a1111HiresScale', '放大倍数', 1, 8, 0.1),
+    slider('a1111HiresSteps', '第二遍步数', 0, 150, 1),
+    slider('a1111Denoise', '重绘幅度', 0, 1, 0.05),
+    bool('a1111RestoreFaces', '面部修复', '使用后端的面部修复功能'),
+    bool('a1111ADetailer', 'ADetailer', '使用 ADetailer 自动修复脸部'),
+  ].map((field) => ({
+    ...field,
+    visibleWhen: [
+      { key: 'source', equals: 'a1111' },
+      ...(['a1111Upscaler', 'a1111HiresScale', 'a1111HiresSteps', 'a1111Denoise'].includes(field.key)
+        ? [{ key: 'a1111Hires', equals: true }]
+        : []),
+      ...(field.key === 'a1111Scheduler' ? [{ key: 'a1111HasSchedulers', equals: true }] : []),
+      ...(field.key === 'a1111ADetailer' ? [{ key: 'a1111HasADetailer', equals: true }] : []),
+    ],
+  })),
   heading('picture', '画面与分辨率'),
   select('resolution', '基准分辨率', [...resolutionOptions, { value: 'custom', label: '自定义' }]),
   ...[number('width', '宽度', '', 64, 64), number('height', '高度', '', 64, 64)].map((field) => ({

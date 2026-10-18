@@ -205,9 +205,15 @@ describe('scanWorldInfo', () => {
         ),
       ),
     ).toEqual(['忽略大小写'])
-    expect(ids(scan([entry('继承全词', { keys: ['cat'] })], { history: [{ name: '', content: 'category' }] }))).toEqual(
-      [],
-    )
+    expect(
+      ids(
+        scan(
+          [entry('继承全词', { keys: ['cat'] })],
+          { history: [{ name: '', content: 'category' }] },
+          { matchWholeWords: true },
+        ),
+      ),
+    ).toEqual([])
   })
 
   test('只拼接条目选中的额外来源，深度为 0 仍可触发', () => {
@@ -602,5 +608,48 @@ describe('酒馆补齐行为', () => {
         5,
       ),
     ).toEqual([])
+  })
+})
+
+test('默认世界书规则对齐酒馆，已保存的显式设置仍可覆盖', () => {
+  expect(worldInfoSettingsSchema.parse({})).toMatchObject({
+    scanDepth: 2,
+    budgetPercent: 100,
+    budgetCap: 0,
+    includeNames: false,
+    recursive: true,
+    maxRecursionSteps: 0,
+    matchWholeWords: false,
+  })
+  const entries = [
+    entry('名字', { keys: ['Alice'] }),
+    entry('词片段', { keys: ['cat'] }),
+    entry('旧消息', { keys: ['dragon'] }),
+  ]
+  expect(
+    ids(
+      scan(entries, {
+        history: [
+          { name: '', content: 'dragon' },
+          { name: '', content: 'hello' },
+          { name: 'Alice', content: 'category' },
+        ],
+      }),
+    ),
+  ).toEqual(['词片段'])
+  expect(
+    worldInfoSettingsSchema.parse({
+      scanDepth: 8,
+      budgetPercent: 25,
+      includeNames: true,
+      matchWholeWords: true,
+      maxRecursionSteps: 3,
+    }),
+  ).toMatchObject({
+    scanDepth: 8,
+    budgetPercent: 25,
+    includeNames: true,
+    matchWholeWords: true,
+    maxRecursionSteps: 3,
   })
 })

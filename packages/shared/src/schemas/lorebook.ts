@@ -133,18 +133,18 @@ export type LorebookInput = z.input<typeof lorebookInput>
 /** 世界书的全局激活设置（对应酒馆世界书页顶部的 Activation Settings） */
 export const worldInfoSettingsSchema = z.object({
   /** 扫描最近多少条消息 */
-  scanDepth: z.number().int().min(0).max(1000).default(4),
+  scanDepth: z.number().int().min(0).max(1000).default(2),
   /** 预算：上下文长度的百分比 */
-  budgetPercent: z.number().int().min(1).max(100).default(25),
+  budgetPercent: z.number().int().min(1).max(100).default(100),
   /** 预算上限（token），0 表示不限 */
   budgetCap: z.number().int().min(0).default(0),
   /** 扫描时给每条消息加上发言人名字前缀 */
-  includeNames: z.boolean().default(true),
+  includeNames: z.boolean().default(false),
   recursive: z.boolean().default(true),
   /** 最多递归几轮，0 表示不限 */
-  maxRecursionSteps: z.number().int().min(0).max(10).default(3),
+  maxRecursionSteps: z.number().int().min(0).max(10).default(0),
   caseSensitive: z.boolean().default(false),
-  matchWholeWords: z.boolean().default(true),
+  matchWholeWords: z.boolean().default(false),
   /** 多个来源的条目怎么排：均匀排序 / 角色优先 / 全局优先 */
   insertionStrategy: z.enum(['evenly', 'character_first', 'global_first']).default('character_first'),
   /** 最少激活数 */

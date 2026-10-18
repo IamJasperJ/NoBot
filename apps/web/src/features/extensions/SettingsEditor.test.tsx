@@ -156,6 +156,10 @@ function editorHarness(initial: React.ComponentProps<typeof SettingsEditor>) {
     spyOn(React, 'useEffect').mockImplementation((callback) => {
       effects.push(callback)
     }),
+    // 下拉框定位用的 layout effect 和普通 effect 一样收集起来
+    spyOn(React, 'useLayoutEffect').mockImplementation((callback) => {
+      effects.push(callback)
+    }),
   ]
   function walk(node: React.ReactNode, path: string): string {
     if (node == null || typeof node === 'boolean') return ''
@@ -409,14 +413,14 @@ test('附着字段同行排序、高亮、草稿编辑、外部点击和 Esc 关
     ;(textarea.props.onChange as (event: unknown) => void)({ target: { value: '{"Authorization":"token"}' } })
     expect(draft.headers).toBe('{"Authorization":"token"}')
     harness.update({ values: draft })
-    // effect 顺序：远程候选拉取、可输入下拉框、请求头浮层。
-    const cleanup = harness.flushEffect(2)
+    // effect 顺序：远程候选拉取、可输入下拉框（外部点击、列表定位）、请求头浮层。
+    const cleanup = harness.flushEffect(3)
     handlers.get('keydown')?.({ key: 'Escape', stopPropagation: () => {} })
     harness.render()
     expect(harness.nodes.some((node) => node.props.role === 'dialog')).toBe(false)
     if (typeof cleanup === 'function') cleanup()
     harness.click('请求头')
-    const outsideCleanup = harness.flushEffect(2)
+    const outsideCleanup = harness.flushEffect(3)
     handlers.get('pointerdown')?.({ target: new FakeNode() })
     harness.render()
     expect(harness.nodes.some((node) => node.type === 'textarea')).toBe(false)

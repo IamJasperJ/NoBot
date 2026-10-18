@@ -58,6 +58,16 @@ interface Props {
   cast: ChatCast
 }
 
+/**
+ * 非轮播图片的显示宽度：放进 320×320 的框里按原比例缩放。
+ * 框的宽度必须明确给出，否则外层按图片的百分比 max-width 反推宽度，框会比图片宽、露出底色。
+ */
+function fitWidth(image: { width?: number | null; height?: number | null }) {
+  if (!image.width || !image.height) return 'min(320px, 100%)'
+  const width = Math.min(320, image.width, (320 * image.width) / image.height)
+  return `min(${Math.round(width)}px, 100%)`
+}
+
 /** 媒体独立于工具正文显示，异步任务更新元数据后直接替换占位内容。 */
 export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string }) {
   const qc = useQueryClient()
@@ -145,14 +155,16 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
                   target="_blank"
                   rel="noreferrer"
                   className="block overflow-hidden rounded-xl bg-zinc-100 ring-1 ring-black/5 dark:bg-zinc-800 dark:ring-white/10"
-                  style={carousel ? { width: 'min(320px, 100%)' } : undefined}
+                  style={{ width: carousel ? 'min(320px, 100%)' : fitWidth(image) }}
                 >
                   <img
                     src={image.url}
                     alt={t('图片 {index}', { index: index + 1 })}
                     loading="lazy"
-                    className={cx('block object-contain', carousel ? 'h-auto w-full' : 'max-h-80 max-w-full')}
-                    style={carousel ? undefined : { maxWidth: 'min(320px, 100%)' }}
+                    className="block h-auto w-full object-contain"
+                    style={
+                      image.width && image.height ? { aspectRatio: `${image.width} / ${image.height}` } : undefined
+                    }
                   />
                 </a>
               ),

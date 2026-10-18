@@ -1,7 +1,8 @@
-import { readdir, realpath } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { cp, mkdir, readdir, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { BuildInput } from '@ai-parter/core'
-import type { ChatMessage, ExtensionDTO } from '@ai-parter/shared'
+import type { ChatMessage, ExtensionDTO, ExtensionGitInfo, ExtensionSettingField } from '@ai-parter/shared'
 import { eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -12,6 +13,7 @@ import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { translateMetadata, translateSettingsSchema } from '../i18n/metadata'
 import { validate } from '../lib/validate'
+import { cleanupExtensionStaging, readGitInfo } from '../services/extension-git'
 import { profileChatScope, selectProfile } from '../services/profiles'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
@@ -19,7 +21,9 @@ import caption, { generateCaption } from './builtin/caption'
 import imageGen from './builtin/image-gen'
 import regex from './builtin/regex'
 import summary from './builtin/summary'
+import { directoryRevision, localFile, readManifest } from './files'
 import { createExtensionHost } from './host'
+import { detectPermissions, isApproved, permissionFingerprint, permissionWarnings } from './permissions'
 import type { Extension, ExtensionContext, ExtensionManifest, ServerEvent } from './types'
 import { restoreSecrets, SECRET_MASK } from './types'
 
@@ -36,6 +40,11 @@ interface Loaded {
   directory?: string
   app?: Hono
   loadError?: string
+  revision?: string
+  git?: ExtensionGitInfo | null
+  server?: boolean
+  runtime?: string
+  fileRevision?: string
 }
 
 const host = createExtensionHost(emitServerEvent)
@@ -46,6 +55,8 @@ function createApp(extension: Extension): Hono | undefined {
   if (!extension.routes && !extension.commands?.length) return undefined
   const app = new Hono()
   app.use('*', async (c, next) => {
+    const current = loaded.find((entry) => entry.extension === extension)
+    if (!current || needsApproval(current)) throw notFound(t('扩展接口'))
     let chatId = c.req.query('chatId') ?? ''
     if (c.req.method === 'POST') {
       const body: unknown = await c.req.raw
@@ -128,87 +139,138 @@ registerBuiltinExtension(imageGen)
 registerBuiltinExtension(summary)
 registerBuiltinExtension(caption)
 
-const manifestSchema = z.object({
-  id: z.string().regex(/^[a-z0-9-]+$/),
-  name: z.string().min(1),
-  version: z.string().min(1),
-  description: z.string(),
-  author: z.string().optional(),
-  server: z.string().min(1).optional(),
-  client: z.string().min(1).optional(),
-  style: z.string().min(1).optional(),
-})
-
-/** 解析后的真实路径也必须在扩展目录内，避免软链接绕过目录检查。 */
-async function localFile(directory: string, file: string) {
-  if (isAbsolute(file) || file.includes('\\') || file.split('/').includes('..'))
-    throw new Error(t('扩展文件路径不合法'))
-  const root = await realpath(directory)
-  const path = await realpath(resolve(root, file))
-  const rel = relative(root, path)
-  if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error(t('扩展文件必须位于自己的目录内'))
-  return path
+/** 注销在注册表中的旧对象，之后的请求不能再找到旧路由、命令和钩子。 */
+export async function unloadExtension(id: string) {
+  const index = loaded.findIndex((entry) => entry.extension.id === id && entry.source === 'local')
+  if (index < 0) return
+  const [entry] = loaded.splice(index, 1)
+  try {
+    await entry?.extension.dispose?.()
+  } catch (error) {
+    console.error(`扩展「${id}」清理失败：`, error)
+  } finally {
+    if (entry?.runtime) await rm(entry.runtime, { recursive: true, force: true })
+  }
 }
 
-/** 按目录名加载，manifest 存在时不回退到旧入口。 */
-export async function loadLocalExtensions() {
-  const dir = join(env.dataDir, 'extensions')
-  let names: string[]
+export function extensionLocation(id: string) {
+  const entry = loaded.find((entry) => entry.extension.id === id)
+  if (!entry) throw notFound(t('扩展'))
+  return entry
+}
+
+/** 单扩展替换不触碰其他扩展；唯一运行目录同时刷新入口及其相对依赖。 */
+export async function reloadExtension(id: string, directory: string) {
+  const old = loaded.findIndex((entry) => entry.extension.id === id)
+  if (old >= 0 && loaded[old]?.source === 'builtin')
+    throw new HttpError(400, 'BUILTIN_EXTENSION', t('不能替换或卸载内置扩展'))
+  await unloadExtension(id)
+  const entry = await loadDirectory(directory)
+  if (id && entry.extension.id !== id) {
+    if (!entry.loadError) {
+      await entry.extension.dispose?.()
+      if (entry.runtime) await rm(entry.runtime, { recursive: true, force: true })
+      entry.loadError = t('重载时扩展 id 不能改变')
+    }
+    entry.extension = { id, name: id, description: '', version: '' }
+    entry.app = undefined
+  }
+  if (old >= 0) loaded.splice(Math.min(old, loaded.length), 0, entry)
+  else loaded.push(entry)
+  return toDTO(entry)
+}
+
+async function loadDirectory(directory: string): Promise<Loaded> {
+  const name = directory.split('/').at(-1) ?? directory
+  let runtime: string | undefined
   try {
-    names = (await readdir(dir, { withFileTypes: true }))
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .sort()
-  } catch {
-    return
-  }
-  for (let i = loaded.length - 1; i >= 0; i--) {
-    if (loaded[i]?.source === 'local') loaded.splice(i, 1)
-  }
-  for (const name of names) {
-    const directory = join(dir, name)
-    try {
-      let manifest: ExtensionManifest | undefined
-      let extension: Extension
-      const manifestFile = Bun.file(join(directory, 'manifest.json'))
-      if (await manifestFile.exists()) {
-        const raw: unknown = await manifestFile.json().catch(() => {
-          throw new Error(t('manifest.json 不是合法的 JSON'))
-        })
-        const parsed = manifestSchema.safeParse(raw)
-        if (!parsed.success) {
-          const fields = parsed.error.issues.map((issue) => issue.path.join('.') || t('根对象')).join('、')
-          throw new Error(t('manifest.json 不合法：{fields} 字段缺失或格式错误', { fields }))
-        }
-        manifest = parsed.data
-        extension = manifest.server ? (await import(await localFile(directory, manifest.server))).default : manifest
-        if (!extension || typeof extension !== 'object') throw new Error(t('后端入口必须默认导出扩展对象'))
-        extension = { ...extension, ...manifest }
-      } else {
-        const file = (await Bun.file(join(directory, 'index.ts')).exists()) ? 'index.ts' : 'index.js'
-        if (!(await Bun.file(join(directory, file)).exists())) continue
-        extension = (await import(await localFile(directory, file))).default
-        if (!extension?.id || !extension.name) throw new Error(t('默认导出必须是 defineExtension({ id, name, ... })'))
-      }
-      if (!/^[a-z0-9-]+$/.test(extension.id)) throw new Error(t('扩展 id 只能包含小写字母、数字和连字符'))
-      if (loaded.some((l) => l.extension.id === extension.id))
-        throw new Error(t('扩展 id「{id}」重复', { id: extension.id }))
-      if (manifest?.client) await localFile(directory, manifest.client)
-      if (manifest?.style) await localFile(directory, manifest.style)
-      const entry: Loaded = { extension, source: 'local', manifest, directory }
-      entry.app = createApp(extension)
-      loaded.push(entry)
-      console.log(`已加载扩展：${extension.name}（${extension.id}）`)
-    } catch (e) {
-      const loadError = e instanceof Error ? e.message : String(e)
-      loaded.push({
-        extension: { id: `broken:${name}`, name, description: '', version: '' },
-        source: 'local',
-        loadError,
-      })
-      console.error(`扩展「${name}」加载失败：`, loadError)
+    const git = await readGitInfo(directory)
+    const fileRevision = await directoryRevision(directory)
+    const revision = git?.commit ?? fileRevision
+    let manifest: ExtensionManifest | undefined
+    let extension: Extension
+    let server: string | undefined
+    if (await Bun.file(join(directory, 'manifest.json')).exists()) {
+      manifest = await readManifest(directory)
+      server = manifest.server
+      extension = manifest
+    } else {
+      server = (await Bun.file(join(directory, 'index.ts')).exists()) ? 'index.ts' : 'index.js'
+      if (!(await Bun.file(join(directory, server)).exists())) throw new Error(t('扩展缺少 manifest.json'))
+      extension = {} as Extension
+    }
+    if (server) {
+      await localFile(directory, server)
+      runtime = join(env.dataDir, 'extensions', `.runtime-${crypto.randomUUID()}`)
+      await mkdir(runtime, { recursive: true })
+      await cp(directory, runtime, { recursive: true, filter: (path) => path.split('/').at(-1) !== '.git' })
+      const url = pathToFileURL(await localFile(runtime, server))
+      url.searchParams.set('v', `${revision}-${crypto.randomUUID()}`)
+      extension = (await import(url.href)).default
+      if (!extension || typeof extension !== 'object') throw new Error(t('后端入口必须默认导出扩展对象'))
+      // manifest 是权限与标识的唯一来源，后端导出不能覆盖声明。
+      extension = { ...extension, ...manifest }
+    }
+    if (!extension.id || !extension.name) throw new Error(t('默认导出必须是 defineExtension({ id, name, ... })'))
+    if (!/^[a-z0-9-]+$/.test(extension.id)) throw new Error(t('扩展 id 只能包含小写字母、数字和连字符'))
+    if (loaded.some((entry) => entry.extension.id === extension.id))
+      throw new Error(t('扩展 id「{id}」重复', { id: extension.id }))
+    const entry: Loaded = {
+      extension,
+      source: 'local',
+      manifest,
+      directory,
+      revision,
+      git,
+      server: !!server,
+      runtime,
+      fileRevision,
+    }
+    if (!needsApproval(entry)) entry.app = createApp(extension)
+    return entry
+  } catch (error) {
+    if (runtime) await rm(runtime, { recursive: true, force: true })
+    const loadError = error instanceof Error ? error.message : String(error)
+    console.error(`扩展「${name}」加载失败：`, loadError)
+    return {
+      extension: { id: `broken:${name}`, name, description: '', version: '' },
+      source: 'local',
+      directory,
+      loadError,
     }
   }
+}
+
+/** 扫描时跳过管理目录；未变化的扩展保留原对象及路由。 */
+export async function loadLocalExtensions() {
+  await cleanupExtensionStaging()
+  const dir = join(env.dataDir, 'extensions')
+  // 保持和原目录相同的深度，兼容扩展对宿主的既有相对导入。
+  for (const name of await readdir(dir)) {
+    if (!/^\.runtime-[0-9a-f-]{36}$/.test(name)) continue
+    const path = join(dir, name)
+    if (!loaded.some((entry) => entry.runtime === path)) await rm(path, { recursive: true, force: true })
+  }
+  const names = (await readdir(dir, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => entry.name)
+    .sort()
+  const directories = new Set(names.map((name) => join(dir, name)))
+  for (const entry of [...loaded])
+    if (entry.source === 'local' && entry.directory && !directories.has(entry.directory))
+      await unloadExtension(entry.extension.id)
+  for (const directory of directories) {
+    const existing = loaded.find((entry) => entry.directory === directory)
+    const git = await readGitInfo(directory).catch(() => null)
+    const fileRevision = await directoryRevision(directory).catch(() => '')
+    const revision = git?.commit ?? fileRevision
+    if (existing && existing.revision === revision && existing.fileRevision === fileRevision && !existing.loadError) {
+      existing.git = git
+      continue
+    }
+    await reloadExtension(existing?.extension.id ?? '', directory)
+  }
+  return listExtensions()
 }
 
 function storageOf(id: string): ExtensionContext['storage'] {
@@ -235,11 +297,25 @@ export async function extensionAsset(id: string, kind: 'client' | 'style') {
   }
 }
 
+function optionsSources(fields: ExtensionSettingField[]): string[] {
+  return fields.flatMap((field) => {
+    if (field.type === 'list') return optionsSources(field.itemFields)
+    return 'optionsSource' in field && field.optionsSource ? [field.optionsSource.replace(/^\/+/, '')] : []
+  })
+}
+
 export function forwardExtension(id: string, request: Request) {
-  const entry = loaded.find((l) => l.extension.id === id && isEnabled(l))
-  if (!entry?.app) throw notFound(t('扩展接口'))
+  const entry = loaded.find((l) => l.extension.id === id && !l.loadError)
+  if (!entry || needsApproval(entry)) throw notFound(t('扩展接口'))
+  entry.app ??= createApp(entry.extension)
+  if (!entry.app) throw notFound(t('扩展接口'))
   const url = new URL(request.url)
   url.pathname = url.pathname.slice(`/api/ext/${id}`.length) || '/'
+  // 设置页允许在启用前编辑草稿，因此只放行声明过的候选 POST 接口，其他操作仍需启用扩展。
+  const isOptionsRequest =
+    request.method === 'POST' &&
+    optionsSources(entry.extension.settingsSchema ?? []).includes(url.pathname.replace(/^\/+/, ''))
+  if (!isEnabled(entry) && !isOptionsRequest) throw notFound(t('扩展接口'))
   return entry.app.fetch(new Request(url.toString(), request))
 }
 
@@ -249,7 +325,9 @@ export function emitServerEvent(event: ServerEvent) {
   for (const { ext, ctx } of active(chatId)) {
     if (ext.hooks?.onEvent)
       void Promise.resolve()
-        .then(() => profileChatScope.run(chatId, () => ext.hooks?.onEvent?.(event, ctx)))
+        .then(() =>
+          isCurrentActive(ext) ? profileChatScope.run(chatId, () => ext.hooks?.onEvent?.(event, ctx)) : undefined,
+        )
         .catch((e) => {
           console.error(`扩展「${ext.name}」的 onEvent 出错：`, e)
         })
@@ -260,8 +338,17 @@ function enabledMap(): Record<string, boolean> {
   return getSetting<Record<string, boolean>>(SETTING_KEYS.extensionsEnabled) ?? {}
 }
 
+function needsApproval(l: Loaded): boolean {
+  if (l.source === 'builtin') return false
+  const fingerprint = permissionFingerprint(
+    l.manifest?.permissions ?? null,
+    detectPermissions(l.extension, l.manifest, l.server),
+  )
+  return !isApproved(fingerprint, getSetting<Record<string, string>>('extensionsApproved')?.[l.extension.id])
+}
+
 function isEnabled(l: Loaded): boolean {
-  if (l.loadError) return false
+  if (l.loadError || needsApproval(l)) return false
   return enabledMap()[l.extension.id] ?? l.extension.enabledByDefault ?? l.source === 'builtin'
 }
 
@@ -287,6 +374,18 @@ function toDTO(l: Loaded): ExtensionDTO {
   const e = l.extension
   return {
     id: e.id,
+    permissions:
+      l.source === 'builtin'
+        ? { ...detectPermissions(e, l.manifest, true), network: [] }
+        : (l.manifest?.permissions ?? null),
+    detected: detectPermissions(e, l.manifest, l.source === 'builtin' || l.server),
+    permissionWarnings:
+      l.source === 'builtin'
+        ? []
+        : permissionWarnings(l.manifest?.permissions ?? null, detectPermissions(e, l.manifest, l.server)),
+    needsApproval: needsApproval(l),
+    git: l.git ?? null,
+    revision: l.source === 'builtin' ? 'builtin' : (l.revision ?? ''),
     commands: (e.commands ?? []).map(({ run: _run, ...description }) => description),
     name: translateMetadata(e.name),
     description: translateMetadata(e.description),
@@ -298,7 +397,7 @@ function toDTO(l: Loaded): ExtensionDTO {
     enabled: isEnabled(l),
     provides: {
       macros: Object.keys(e.macros ?? {}),
-      tools: toolsOf(e, '').map((t) => t.name),
+      tools: (Array.isArray(e.tools) ? e.tools : needsApproval(l) ? [] : toolsOf(e, '')).map((t) => t.name),
       hooks: Object.keys(e.hooks ?? {}),
     },
     settingsSchema: translateSettingsSchema(e.settingsSchema ?? []),
@@ -316,14 +415,33 @@ export async function captionUpload(id: string, chatId?: string) {
 
 export const listExtensions = () => loaded.map(toDTO)
 
-export function updateExtension(id: string, patch: { enabled?: boolean; settings?: Record<string, unknown> }) {
+export function updateExtension(
+  id: string,
+  patch: { enabled?: boolean; settings?: Record<string, unknown>; approvePermissions?: boolean },
+) {
   const l = loaded.find((x) => x.extension.id === id)
   if (!l) throw notFound(t('扩展'))
+  if (patch.enabled && needsApproval(l) && !patch.approvePermissions)
+    throw new HttpError(409, 'NEEDS_APPROVAL', t('启用扩展前需要确认权限'))
+  if (patch.approvePermissions) {
+    setSetting('extensionsApproved', {
+      ...getSetting<Record<string, string>>('extensionsApproved'),
+      [id]: permissionFingerprint(
+        l.manifest?.permissions ?? null,
+        detectPermissions(l.extension, l.manifest, l.server),
+      ),
+    })
+    l.app ??= createApp(l.extension)
+  }
   if (patch.enabled !== undefined) setSetting(SETTING_KEYS.extensionsEnabled, { ...enabledMap(), [id]: patch.enabled })
   // 前端传回的密钥如果还是占位串，表示没改，保留原值
   if (patch.settings)
     setSetting(SETTING_KEYS.extensionSettings(id), restoreSecrets(patch.settings, settingsOf(l.extension)))
   return toDTO(l)
+}
+
+function isCurrentActive(extension: Extension) {
+  return loaded.some((entry) => entry.extension === extension && isEnabled(entry))
 }
 
 /** 已启用的扩展及其设置 */
@@ -348,7 +466,8 @@ export function collectMacros(chatId: string): Record<string, (arg: string) => s
   const result: Record<string, (arg: string) => string> = {}
   for (const { ext, ctx } of active(chatId)) {
     for (const [name, fn] of Object.entries(ext.macros ?? {})) {
-      result[name.toLowerCase()] = (arg) => safely(ext, `宏 ${name}`, () => fn(arg, ctx), '')
+      result[name.toLowerCase()] = (arg) =>
+        isCurrentActive(ext) ? safely(ext, `宏 ${name}`, () => fn(arg, ctx), '') : ''
     }
   }
   return result
@@ -416,8 +535,12 @@ setExtensionToolsProvider((chatId = '') =>
       source: ext.name,
       tool: {
         ...tool,
-        run: (args, ctx) =>
-          profileChatScope.run(ctx.chatId, () => tool.run(args, { ...ctx, extension: contextOf(ext, ctx.chatId) })),
+        run: (args, ctx) => {
+          if (!isCurrentActive(ext)) throw new HttpError(400, 'EXTENSION_INACTIVE', t('扩展未启用或已重载'))
+          return profileChatScope.run(ctx.chatId, () =>
+            tool.run(args, { ...ctx, extension: contextOf(ext, ctx.chatId) }),
+          )
+        },
       },
     })),
   ),

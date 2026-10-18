@@ -1,4 +1,4 @@
-import type { ApiPresetDTO } from '@ai-parter/shared'
+import { type ApiPresetDTO, PROVIDERS, type ProviderInfo, providerInfo, providerOptions } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useEffectEvent, useState } from 'react'
 import { api } from '../../api/client'
@@ -9,7 +9,7 @@ import { HeadersEditor } from '../../components/headers'
 import { CheckIcon, RefreshIcon, TrashIcon } from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Menu, MenuEntry } from '../../components/menu'
-import { Button, Field, IconButton } from '../../components/ui'
+import { Button, Field, IconButton, selectClass } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -17,15 +17,28 @@ import { ProfilesManager } from './ProfilesManager'
 
 interface Draft {
   name: string
+  provider: string
+  options: Record<string, string>
   baseUrl: string
   apiKey: string
   headers: Record<string, string>
   model: string
   vision: ApiPresetDTO['vision']
 }
-const emptyDraft = (): Draft => ({ name: '', baseUrl: '', apiKey: '', model: '', headers: {}, vision: 'auto' })
+const emptyDraft = (): Draft => ({
+  name: '',
+  provider: 'openai',
+  options: providerOptions('openai'),
+  baseUrl: providerInfo('openai').baseUrls[0]?.url ?? '',
+  apiKey: '',
+  model: '',
+  headers: {},
+  vision: 'auto',
+})
 const toDraft = (p: ApiPresetDTO): Draft => ({
   name: p.name,
+  provider: p.provider,
+  options: p.options ?? {},
   baseUrl: p.baseUrl,
   apiKey: '',
   model: p.model,
@@ -95,6 +108,8 @@ function ConnectionsManager({ tabs }: { tabs: ReactNode }) {
     setModels([])
     try {
       const result = await api.testConnection({
+        provider: draft.provider,
+        options: draft.options,
         baseUrl: draft.baseUrl.trim(),
         ...(draft.apiKey ? { apiKey: draft.apiKey } : {}),
         headers: draft.headers,
@@ -112,6 +127,7 @@ function ConnectionsManager({ tabs }: { tabs: ReactNode }) {
   }
   const current = query.data?.find((p) => p.id === original?.id) ?? original
   const locked = busy || testing
+  const info = providerInfo(draft?.provider)
   return (
     <ManagerLayout
       detailIn="panel"
@@ -147,7 +163,8 @@ function ConnectionsManager({ tabs }: { tabs: ReactNode }) {
                 if (!locked && p.id !== original?.id && canLeave()) pick(p)
               }}
             >
-              <span className="truncate">{p.name}</span>
+              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              <span className="shrink-0 truncate text-xs text-zinc-400">{providerLabel(providerInfo(p.provider))}</span>
               {p.isDefault && (
                 <span className="shrink-0 rounded bg-violet-100 px-1.5 text-xs text-violet-700 dark:bg-violet-950 dark:text-violet-300">
                   {t('默认')}
@@ -174,6 +191,8 @@ function ConnectionsManager({ tabs }: { tabs: ReactNode }) {
                 void run(async () => {
                   const input = {
                     name: draft.name.trim(),
+                    provider: draft.provider,
+                    options: draft.options,
                     baseUrl: draft.baseUrl.trim(),
                     model: draft.model.trim(),
                     headers: draft.headers,
@@ -195,7 +214,14 @@ function ConnectionsManager({ tabs }: { tabs: ReactNode }) {
                     type="submit"
                     size="sm"
                     variant="primary"
-                    disabled={locked || !dirty || !draft.name.trim() || !draft.baseUrl.trim() || !draft.model.trim()}
+                    disabled={
+                      locked ||
+                      !dirty ||
+                      !draft.name.trim() ||
+                      !draft.baseUrl.trim() ||
+                      !draft.model.trim() ||
+                      (info.options ?? []).some((o) => o.required && !draft.options[o.key]?.trim())
+                    }
                   >
                     {t('保存')}
                   </Button>
@@ -257,24 +283,75 @@ function ConnectionsManager({ tabs }: { tabs: ReactNode }) {
                   value={draft.name}
                   onChange={(name) => setDraft({ ...draft, name })}
                 />
-                <TextField
-                  label={t('接口地址')}
-                  hint={t('OpenAI 兼容接口，一般以 /v1 结尾')}
-                  type="url"
-                  value={draft.baseUrl}
-                  onChange={(baseUrl) => {
-                    setDraft({ ...draft, baseUrl })
+                <ProviderSelect
+                  value={draft.provider}
+                  disabled={locked}
+                  onChange={(provider) => {
+                    const next = providerInfo(provider)
+                    // 地址为空或还是上一个提供方的预设地址时，换成新提供方的默认地址；用户手填过的地址保留
+                    const presets = providerInfo(draft.provider).baseUrls.map((u) => u.url)
+                    const keepUrl = draft.baseUrl.trim() && !presets.includes(draft.baseUrl.trim())
+                    setDraft({
+                      ...draft,
+                      provider,
+                      options: providerOptions(provider),
+                      baseUrl: keepUrl ? draft.baseUrl : (next.baseUrls[0]?.url ?? ''),
+                    })
                     setModels([])
                   }}
                 />
+                <Field label={t('接口地址')} hint={baseUrlHint(info)}>
+                  <Combobox
+                    label={t('接口地址')}
+                    value={draft.baseUrl}
+                    options={info.baseUrls.map((u) => ({ value: u.url, label: u.label ? pt(u.label) : u.url }))}
+                    disabled={locked}
+                    placeholder={info.protocol === 'azure' ? 'https://<resource>.openai.azure.com' : 'https://…/v1'}
+                    onChange={(baseUrl) => {
+                      setDraft({ ...draft, baseUrl })
+                      setModels([])
+                    }}
+                  />
+                </Field>
+                {(info.options ?? [])
+                  .filter((o) => !o.when || (draft.options[o.when.key] ?? '') === o.when.equals)
+                  .map((o) =>
+                    o.type === 'select' ? (
+                      <SelectField
+                        key={o.key}
+                        label={pt(o.label)}
+                        hint={o.hint ? pt(o.hint) : undefined}
+                        value={draft.options[o.key] ?? o.default ?? ''}
+                        options={(o.choices ?? []).map((c) => ({ value: c.value, label: pt(c.label) }))}
+                        onChange={(value) => setDraft({ ...draft, options: { ...draft.options, [o.key]: value } })}
+                      />
+                    ) : (
+                      <TextField
+                        key={o.key}
+                        label={o.required ? `${pt(o.label)} *` : pt(o.label)}
+                        hint={o.hint ? pt(o.hint) : undefined}
+                        placeholder={o.placeholder}
+                        value={draft.options[o.key] ?? ''}
+                        onChange={(value) => setDraft({ ...draft, options: { ...draft.options, [o.key]: value } })}
+                      />
+                    ),
+                  )}
                 <TextField
-                  label="API Key"
+                  label={
+                    info.protocol === 'vertex' && draft.options.authMode === 'service_account'
+                      ? t('服务账号 JSON')
+                      : 'API Key'
+                  }
                   hint={
                     original
                       ? t('已保存：{maskedKey}；留空则不修改。', {
                           maskedKey: original.apiKeyMasked || t('未设置密钥'),
                         })
-                      : t('填写服务商提供的 API Key；无需密钥的本地接口可以留空。')
+                      : info.keyHint
+                        ? pt(info.keyHint)
+                        : info.keyRequired
+                          ? t('填写服务商提供的 API Key。')
+                          : t('填写服务商提供的 API Key；无需密钥的本地接口可以留空。')
                   }
                   type="password"
                   value={draft.apiKey}
@@ -285,16 +362,23 @@ function ConnectionsManager({ tabs }: { tabs: ReactNode }) {
                 />
                 <Field
                   label={t('模型')}
-                  hint={t(
-                    '可以从接口拉取全部模型后选择，也可以直接手填任意模型 ID；拉取使用当前表单的地址、密钥和请求头',
-                  )}
+                  hint={
+                    info.protocol === 'azure'
+                      ? t('填部署对应的模型名，仅用于显示和判断能力；实际请求按上面的部署名发送')
+                      : t(
+                          '可以从接口拉取全部模型后选择，也可以直接手填任意模型 ID；拉取使用当前表单的地址、密钥和请求头',
+                        )
+                  }
                 >
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
                       <Combobox
                         label={t('模型')}
                         value={draft.model}
-                        options={models.map((model) => ({ value: model, label: model }))}
+                        options={[...new Set([...(info.staticModels ?? []), ...models])].map((model) => ({
+                          value: model,
+                          label: model,
+                        }))}
                         disabled={locked}
                         placeholder={t('直接输入，或点右侧按钮拉取')}
                         onChange={(model) => setDraft({ ...draft, model })}
@@ -344,4 +428,123 @@ function ConnectionsManager({ tabs }: { tabs: ReactNode }) {
       }
     />
   )
+}
+
+/** 品牌名不翻译，只有「自定义」这类中文名需要 t() */
+function providerLabel(info: ProviderInfo) {
+  return info.group === 'custom' ? pt(info.label) : info.label
+}
+
+function baseUrlHint(info: ProviderInfo) {
+  if (info.protocol === 'azure') return t('Azure 资源的地址，不含 /openai 部分')
+  if (info.protocol === 'anthropic' || info.protocol === 'google' || info.protocol === 'vertex')
+    return t('一般不用改；走反向代理时换成代理地址')
+  if (info.baseUrls.length > 1) return t('点右侧箭头切换站点，也可以直接改成代理地址')
+  return t('OpenAI 兼容接口，一般以 /v1 结尾')
+}
+
+const groups: { id: ProviderInfo['group']; label: string }[] = [
+  { id: 'cloud', label: '云端服务' },
+  { id: 'local', label: '本地 / 自部署' },
+  { id: 'custom', label: '其他' },
+]
+
+/** 提供方下拉：按云端 / 本地 / 其他分组 */
+function ProviderSelect({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string
+  disabled: boolean
+  onChange: (provider: string) => void
+}) {
+  const info = providerInfo(value)
+  return (
+    <Field
+      label={t('提供方')}
+      hint={
+        info.protocol === 'openai'
+          ? t('按 OpenAI 兼容接口发送，自动处理这家的地址和参数差异')
+          : t('使用这家的原生接口，支持思考过程、图片和工具调用')
+      }
+    >
+      <select
+        className={selectClass}
+        value={value}
+        disabled={disabled}
+        aria-label={t('提供方')}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {groups.map((g) => (
+          <optgroup key={g.id} label={pt(g.label)}>
+            {PROVIDERS.filter((p) => p.group === g.id).map((p) => (
+              <option key={p.id} value={p.id}>
+                {providerLabel(p)}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      {info.docsUrl && (
+        <a
+          className="mt-1 inline-block text-xs text-violet-600 hover:underline"
+          href={info.docsUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {t('查看文档')}
+        </a>
+      )}
+    </Field>
+  )
+}
+
+/**
+ * 提供方目录（shared/providers.ts）里的中文原文 → 当前界面语言。
+ * 每条都写成显式的 t 字面量调用，i18n 测试才能检查到；目录新增文字时这里也要补。
+ */
+function pt(text: string): string {
+  switch (text) {
+    case '国际站':
+      return t('国际站')
+    case '国内站':
+      return t('国内站')
+    case '国际站（编程套餐）':
+      return t('国际站（编程套餐）')
+    case '带 Key':
+      return t('带 Key')
+    case '匿名':
+      return t('匿名')
+    case '快速模式填 API Key；服务账号模式粘贴整份服务账号 JSON':
+      return t('快速模式填 API Key；服务账号模式粘贴整份服务账号 JSON')
+    case '鉴权方式':
+      return t('鉴权方式')
+    case '快速模式（API Key）':
+      return t('快速模式（API Key）')
+    case '服务账号（JSON）':
+      return t('服务账号（JSON）')
+    case '区域':
+      return t('区域')
+    case '项目 ID':
+      return t('项目 ID')
+    case '留空时从服务账号 JSON 里读取':
+      return t('留空时从服务账号 JSON 里读取')
+    case '部署名':
+      return t('部署名')
+    case 'API 版本':
+      return t('API 版本')
+    case '账户 ID':
+      return t('账户 ID')
+    case '自定义（OpenAI 兼容）':
+      return t('自定义（OpenAI 兼容）')
+    case '云端服务':
+      return t('云端服务')
+    case '本地 / 自部署':
+      return t('本地 / 自部署')
+    case '其他':
+      return t('其他')
+    default:
+      return text
+  }
 }

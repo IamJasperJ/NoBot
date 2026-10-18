@@ -14,7 +14,7 @@ import { chats, messages } from '../db/schema'
 import { HttpError, notFound, promptBudgetMessage } from '../errors'
 import { emitServerEvent, runTransform } from '../extensions/registry'
 import { t } from '../i18n'
-import { buildRequestBody, chatCompletion } from '../llm/openai'
+import { buildRequestBody, chatCompletion, toLlmConnection } from '../llm/openai'
 import { enabledToolNames, runTool, toOpenAITools } from '../tools'
 import { getAttachment, redactImages, resolveImages } from './attachments'
 import { applyAutomaticBackground, loreBackgroundId } from './auto-background'
@@ -426,9 +426,7 @@ async function generateOne(
     })
     requestBody = redactImages(body, images)
     for await (const chunk of chatCompletion({
-      baseUrl: connection.baseUrl,
-      apiKey: connection.apiKey,
-      headers: connection.headers,
+      connection: toLlmConnection(connection),
       body,
       signal: job.controller.signal,
     })) {
@@ -537,9 +535,7 @@ export async function* impersonate(chatId: string, signal: AbortSignal): AsyncGe
   let error = ''
   try {
     for await (const chunk of chatCompletion({
-      baseUrl: connection.baseUrl,
-      apiKey: connection.apiKey,
-      headers: connection.headers,
+      connection: toLlmConnection(connection),
       body,
       signal,
     })) {

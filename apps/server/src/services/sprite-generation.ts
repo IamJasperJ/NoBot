@@ -15,7 +15,7 @@ import { cleanPrompt, promptInstruction, templates } from '../extensions/builtin
 import { type Context, renderImage } from '../extensions/builtin/image-gen/pipeline'
 import { parseSettings } from '../extensions/builtin/image-gen/settings'
 import { t } from '../i18n'
-import { chatCompletion } from '../llm/openai'
+import { chatCompletion, toLlmConnection } from '../llm/openai'
 import { getCharacter } from './characters'
 import { getApiPresetRow, resolveApiPreset } from './connections'
 import { insertLog } from './logs'
@@ -103,9 +103,7 @@ export async function generateSpriteSet(
         appearance = ''
         const started = Date.now()
         for await (const chunk of chatCompletion({
-          baseUrl: connection.baseUrl,
-          apiKey: connection.apiKey,
-          headers: connection.headers,
+          connection: toLlmConnection(connection),
           body,
           signal: new AbortController().signal,
         }))

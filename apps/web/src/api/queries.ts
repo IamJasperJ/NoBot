@@ -38,6 +38,9 @@ export const keys = {
   logs: (chatId?: string) => ['logs', chatId ?? 'all'] as const,
   log: (id: string) => ['log', id] as const,
   extensions: ['extensions'] as const,
+  gitStatus: ['gitStatus'] as const,
+  extensionCatalog: ['extensionCatalog'] as const,
+  catalogSources: ['catalogSources'] as const,
   tools: ['tools'] as const,
 }
 

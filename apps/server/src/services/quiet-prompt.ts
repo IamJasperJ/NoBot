@@ -1,7 +1,7 @@
 import { HttpError } from '../errors'
 import type { ExtensionHost } from '../extensions/types'
 import { t } from '../i18n'
-import { buildRequestBody, chatCompletion } from '../llm/openai'
+import { buildRequestBody, chatCompletion, toLlmConnection } from '../llm/openai'
 import { redactImages, resolveImages } from './attachments'
 import { replaceImageAttachments } from './caption'
 import { getApiPresetRow } from './connections'
@@ -80,9 +80,7 @@ async function requestCompletion(
       : redactImages(body, images)
     let text = ''
     for await (const chunk of chatCompletion({
-      baseUrl: connection.baseUrl,
-      apiKey: connection.apiKey,
-      headers: connection.headers,
+      connection: toLlmConnection(connection),
       body,
       signal: opts.signal ?? new AbortController().signal,
     }))

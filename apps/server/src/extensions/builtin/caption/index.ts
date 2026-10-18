@@ -3,13 +3,13 @@ import { z } from 'zod'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { validate } from '../../../lib/validate'
-import { buildRequestBody, chatCompletion } from '../../../llm/openai'
+import { buildRequestBody, chatCompletion, listModels, toLlmConnection } from '../../../llm/openai'
 import { getAttachment, resolveImages, setAttachmentCaption } from '../../../services/attachments'
 import { getChatRow } from '../../../services/chats'
-import { getApiPresetRow } from '../../../services/connections'
+import { getApiPresetRow, listApiPresets } from '../../../services/connections'
 import { resolveProfile } from '../../../services/profiles'
 import { getLanguage } from '../../../services/settings'
-import { defineExtension } from '../../types'
+import { defineExtension, draftChatId, parseSettingsDraft } from '../../types'
 
 export const captionSettings = z.object({
   connectionId: z.string().default(''),
@@ -18,14 +18,20 @@ export const captionSettings = z.object({
   alwaysText: z.boolean().default(false),
 })
 
+/** 候选接口和实际生成共用解析，避免草稿跟随的连接与生成时不同。 */
+function resolveCaptionConnection(config: z.infer<typeof captionSettings>, chatId?: string) {
+  const resolved = resolveProfile(chatId ? getChatRow(chatId) : undefined, !config.connectionId)
+  const connection = config.connectionId ? getApiPresetRow(config.connectionId) : resolved.connection
+  if (!connection) throw new HttpError(400, 'NO_CONNECTION', t('没有可用的模型连接'))
+  return connection
+}
+
 /** 上传和手动重试共用同一请求，说明失败不影响原图和聊天。 */
 export async function generateCaption(id: string, settings: Record<string, unknown>, chatId?: string) {
   const attachment = getAttachment(id)
   try {
     const config = captionSettings.parse(settings)
-    const resolved = resolveProfile(chatId ? getChatRow(chatId) : undefined, !config.connectionId)
-    const connection = config.connectionId ? getApiPresetRow(config.connectionId) : resolved.connection
-    if (!connection) throw new HttpError(400, 'NO_CONNECTION', t('没有可用的模型连接'))
+    const connection = resolveCaptionConnection(config, chatId)
     const prompt = [
       {
         role: 'user' as const,
@@ -43,9 +49,7 @@ export async function generateCaption(id: string, settings: Record<string, unkno
     })
     let text = ''
     for await (const chunk of chatCompletion({
-      baseUrl: connection.baseUrl,
-      apiKey: connection.apiKey,
-      headers: connection.headers,
+      connection: toLlmConnection(connection),
       body,
       signal: AbortSignal.timeout(60000),
     }))
@@ -74,11 +78,29 @@ export default defineExtension({
       optionsSource: 'connections',
       options: [{ value: '', label: '跟随当前会话的连接' }],
     },
-    { key: 'model', label: '看图模型', type: 'string' },
+    { key: 'model', label: '看图模型', type: 'string', optionsSource: 'models', hint: '留空使用连接的模型' },
     { key: 'prompt', label: '说明提示词', type: 'textarea' },
     { key: 'alwaysText', label: '总是用文字描述代替图片', type: 'boolean' },
   ],
   routes(app, ctx) {
+    app.post('/connections', (c) =>
+      c.json({
+        options: [
+          { value: '', label: t('跟随当前会话的连接') },
+          ...listApiPresets().map((connection) => ({ value: connection.id, label: connection.name })),
+        ],
+      }),
+    )
+    app.post('/models', async (c) => {
+      const settings = captionSettings.parse(await parseSettingsDraft(c, ctx.settings))
+      const connection = resolveCaptionConnection(settings, await draftChatId(c))
+      return c.json({
+        options: (await listModels(toLlmConnection(connection))).map((value) => ({
+          value,
+          label: value,
+        })),
+      })
+    })
     app.post('/attachments/:id', validate('json', z.object({ chatId: z.string().optional() })), async (c) =>
       c.json(await generateCaption(c.req.param('id'), ctx.settings, c.req.valid('json').chatId)),
     )

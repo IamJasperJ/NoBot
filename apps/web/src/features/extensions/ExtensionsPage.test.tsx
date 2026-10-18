@@ -19,6 +19,12 @@ const extension: ExtensionDTO = {
   source: 'local',
   enabled: true,
   client: { script: true, style: false },
+  permissions: null,
+  detected: { server: false, client: false, routes: false, tools: false, hooks: false },
+  permissionWarnings: [],
+  needsApproval: false,
+  git: null,
+  revision: '1',
   hasRoutes: false,
   provides: { macros: [], tools: [], hooks: [] },
   settingsSchema: [],
@@ -53,6 +59,7 @@ function setup() {
         onDirtyChange={() => {}}
         update={async () => extension}
         busy={false}
+        requestApproval={() => {}}
       />,
     )
   return { client, render, detail }

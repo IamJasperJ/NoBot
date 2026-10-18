@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { t } from '../i18n'
 import { denseControlClass, useDense } from './form'
 import { ChevronDownIcon } from './icons'
@@ -46,13 +47,53 @@ export function Combobox({
   useEffect(() => {
     if (!open) return
     const close = (event: PointerEvent) => {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) {
+      if (
+        event.target instanceof Node &&
+        !root.current?.contains(event.target) &&
+        !document.getElementById(listId)?.contains(event.target)
+      ) {
         setOpen(false)
         setQuery(null)
       }
     }
     document.addEventListener('pointerdown', close)
     return () => document.removeEventListener('pointerdown', close)
+  }, [open, listId])
+  // 列表用 fixed 定位：放在可滚动的侧栏、对话框里时不会被父容器的 overflow 裁掉。
+  // 滚动或改变窗口大小时重新对齐
+  const [place, setPlace] = useState<CSSProperties>({})
+  useLayoutEffect(() => {
+    if (!open) return
+    const update = () => {
+      const rect = root.current?.getBoundingClientRect()
+      if (!rect) return
+      const gutter = 8
+      // 默认右边与输入框对齐向左展开；输入框靠左、右侧空间更大时改为左边对齐向右展开。
+      // 宽度上限取展开那一侧的可用空间，保证列表不越出视口
+      const leftRoom = rect.right - gutter
+      const rightRoom = window.innerWidth - rect.left - gutter
+      const toRight = rightRoom > leftRoom
+      const maxWidth = Math.min(512, toRight ? rightRoom : leftRoom)
+      const below = window.innerHeight - rect.bottom - gutter
+      const above = rect.top - gutter
+      // 下方放不下且上方更宽敞时向上弹出
+      const up = below < 160 && above > below
+      setPlace({
+        position: 'fixed',
+        minWidth: Math.min(rect.width, maxWidth),
+        maxWidth,
+        ...(toRight ? { left: rect.left } : { right: window.innerWidth - rect.right }),
+        ...(up ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 }),
+        maxHeight: Math.min(256, up ? above : below),
+      })
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
   }, [open])
   const pick = (option: Option) => {
     onChange(option.value)
@@ -111,39 +152,45 @@ export function Combobox({
       >
         <ChevronDownIcon className={cx('size-4 transition-transform', open && 'rotate-180')} />
       </button>
-      {open && filtered.length > 0 && (
-        <div
-          id={listId}
-          role="listbox"
-          className="absolute top-full right-0 left-0 z-30 mt-1 max-h-64 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-        >
-          {filtered.map((option, index) => (
-            <div
-              key={option.value}
-              role="option"
-              tabIndex={-1}
-              aria-selected={option.value === value}
-              onPointerDown={(e) => {
-                e.preventDefault()
-                pick(option)
-              }}
-              onPointerEnter={() => setActive(index)}
-              className={cx(
-                'flex cursor-pointer items-center gap-2 px-3 py-1.5',
-                index === active && 'bg-zinc-100 dark:bg-zinc-800',
-                option.value === value && 'font-medium text-violet-700 dark:text-violet-300',
-              )}
-            >
-              <span className="min-w-0 flex-1 truncate">{option.label}</span>
-              {option.label !== option.value && (
-                <span className="max-w-[45%] shrink-0 truncate font-mono text-[11px] text-zinc-400">
-                  {option.value}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      {open &&
+        filtered.length > 0 &&
+        createPortal(
+          // 列表至少和输入框一样宽，候选名更长时向左展开（不越出视口），仍放不下就换行，保证能看到完整名字
+          <div
+            id={listId}
+            role="listbox"
+            style={place}
+            className="z-50 w-max overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {filtered.map((option, index) => (
+              <div
+                key={option.value}
+                role="option"
+                tabIndex={-1}
+                aria-selected={option.value === value}
+                onPointerDown={(e) => {
+                  e.preventDefault()
+                  pick(option)
+                }}
+                onPointerEnter={() => setActive(index)}
+                className={cx(
+                  'flex cursor-pointer items-center gap-2 px-3 py-1.5',
+                  index === active && 'bg-zinc-100 dark:bg-zinc-800',
+                  option.value === value && 'font-medium text-violet-700 dark:text-violet-300',
+                )}
+              >
+                <span className="min-w-0 flex-1 break-all">{option.label}</span>
+                {option.label !== option.value && (
+                  <span className="max-w-[45%] shrink-0 font-mono text-[11px] break-all text-zinc-400">
+                    {option.value}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>,
+          // 渲染到 body（在模态对话框里时渲染到对话框，保证仍在顶层之上），避免被祖先的 overflow 裁剪、被毛玻璃的 backdrop-filter 改变 fixed 的参照
+          root.current?.closest('dialog') ?? document.body,
+        )}
     </div>
   )
 }

@@ -183,7 +183,7 @@ test('扩展 v2：manifest、旧入口、接口、资源、存储、钩子与生
     expect(disabled.status).toBe(404)
     expect(await disabled.json()).toMatchObject({ error: { code: 'NOT_FOUND' } })
     expect((await request('/extensions/fixture/client.js')).status).toBe(404)
-    await json('/extensions/fixture', 'PATCH', { enabled: true })
+    await json('/extensions/fixture', 'PATCH', { enabled: true, approvePermissions: true })
     expect(await json('/ext/fixture/echo?value=中文')).toEqual({ query: '中文' })
     const echo = await app.request('/api/ext/fixture/echo', {
       method: 'POST',
@@ -266,7 +266,7 @@ test('扩展 v2：manifest、旧入口、接口、资源、存储、钩子与生
     expect(registry.collectMacros('chat').hello).toBeUndefined()
     expect(registry.runBeforePrompt(input)).toBe(input)
     expect((await request('/extensions/fixture/style.css')).status).toBe(404)
-    await json('/extensions/fixture', 'PATCH', { enabled: true })
+    await json('/extensions/fixture', 'PATCH', { enabled: true, approvePermissions: true })
     expect(await json('/ext/fixture/stats')).toMatchObject({ calls: 1 })
     list = await json<ExtensionDTO[]>('/extensions')
     expect(list.find((x) => x.id === 'fixture')?.enabled).toBe(true)

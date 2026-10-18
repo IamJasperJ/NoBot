@@ -116,7 +116,123 @@ export interface ExtensionDTO {
   hasRoutes: boolean
   /** 加载失败时的错误 */
   loadError?: string
+  /**
+   * manifest 声明的权限；null 表示没有声明（旧扩展），此时按检测到的能力请用户确认，并给出警告。
+   * 内置扩展等于检测到的能力
+   */
+  permissions: ExtensionPermissions | null
+  /** 实际加载后检测到的能力（network 检测不到，不在这里） */
+  detected: Omit<ExtensionPermissions, 'network'>
+  /** 声明和实际不符等警告（已翻译成界面语言） */
+  permissionWarnings: string[]
+  /** 需要用户确认权限后才能启用：首次安装、没确认过，或者更新后权限变多了 */
+  needsApproval: boolean
+  /** 通过 Git 安装的扩展的仓库信息；手动放进目录的、内置的为 null */
+  git: ExtensionGitInfo | null
+  /** 代码版本标识（Git 提交或文件修改时间），前端热重载 client.js / style.css 时拼进地址绕过缓存 */
+  revision: string
 }
+
+/** G4：扩展在 manifest.permissions 里声明自己会用到的能力，安装和启用时给用户确认 */
+export interface ExtensionPermissions {
+  /** 运行后端代码（manifest.server） */
+  server: boolean
+  /** 在浏览器里运行前端脚本（manifest.client）或注入样式 */
+  client: boolean
+  /** 注册自定义接口 /api/ext/<id>/... */
+  routes: boolean
+  /** 提供给模型调用的工具 */
+  tools: boolean
+  /** 介入提示词组装、输入输出改写等钩子 */
+  hooks: boolean
+  /** 会访问的外部域名，仅声明，做不到强制 */
+  network: string[]
+}
+
+export const extensionPermissionsSchema = z.object({
+  server: z.boolean().default(false),
+  client: z.boolean().default(false),
+  routes: z.boolean().default(false),
+  tools: z.boolean().default(false),
+  hooks: z.boolean().default(false),
+  network: z.array(z.string().trim().min(1)).default([]),
+})
+
+export interface ExtensionGitInfo {
+  url: string
+  /** 当前分支或标签；分离头指针时为提交号 */
+  ref: string
+  commit: string
+  /** 最近一次检查更新时远端的提交；没检查过为 null */
+  remoteCommit: string | null
+  /** 有没有更新；没检查过为 null */
+  hasUpdate: boolean | null
+  checkedAt: number | null
+}
+
+/** 服务器上的 Git 可用性（安装功能的前提） */
+export interface GitStatusDTO {
+  available: boolean
+  version?: string
+}
+
+export const extensionInstallInput = z.object({
+  /** 只接受 https:// 或 git@host:path 形式 */
+  url: z.string().trim().min(1),
+  /** 分支或标签，留空用默认分支 */
+  ref: z.string().trim().default(''),
+})
+export type ExtensionInstallInput = z.input<typeof extensionInstallInput>
+
+/** 安装第一步：克隆到暂存目录后返回预览，由用户确认权限后再真正安装 */
+export interface ExtensionInstallPreview {
+  /** 暂存标识，确认或取消时带上；一段时间不确认会被清理 */
+  token: string
+  manifest: { id: string; name: string; version: string; description: string; author: string }
+  permissions: ExtensionPermissions | null
+  /** 从仓库文件静态推断出的能力（有没有 server / client 入口），只能推断这两项 */
+  detected: Pick<ExtensionPermissions, 'server' | 'client'>
+  warnings: string[]
+  ref: string
+  commit: string
+  /** 同 id 的扩展已经安装过（确认后会被覆盖） */
+  exists: boolean
+}
+
+export const extensionInstallConfirmInput = z.object({
+  token: z.string().min(1),
+  /** 同时确认权限并启用 */
+  enable: z.boolean().default(false),
+})
+
+export interface ExtensionUpdateResult {
+  extension: ExtensionDTO
+  /** 更新后权限变多：扩展已被停用，等待重新确认 */
+  permissionsChanged: boolean
+}
+
+/** 扩展目录（类似酒馆的 Download Extensions）：一个公开的 JSON 索引，列出可安装的扩展 */
+export interface ExtensionCatalogItem {
+  id: string
+  name: string
+  description: string
+  author: string
+  /** Git 仓库地址 */
+  repo: string
+  ref?: string
+  version?: string
+  tags: string[]
+  permissions?: ExtensionPermissions
+  /** 由服务器补上：是否已安装、已装版本 */
+  installed: boolean
+  installedVersion?: string
+}
+
+export interface ExtensionCatalogDTO {
+  sources: { url: string; ok: boolean; error?: string; items: ExtensionCatalogItem[] }[]
+}
+
+export const extensionCatalogSourcesInput = z.object({ urls: z.array(z.url()).max(20) })
 
 /** 工具（function calling）的说明，展示用 */
 export interface ToolInfo {

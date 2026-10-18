@@ -20,6 +20,12 @@ test('后端扩展命令自动注册、别名调用、重载和停用清理', as
     settings: {},
     author: '',
     client: { script: false, style: false },
+    permissions: null,
+    detected: { server: false, client: false, routes: false, tools: false, hooks: false },
+    permissionWarnings: [],
+    needsApproval: false,
+    git: null,
+    revision: '1',
     hasRoutes: true,
     commands: [{ name: 'test-remote-command', aliases: ['test-remote-alias'], description: 'test', args: [] }],
   })

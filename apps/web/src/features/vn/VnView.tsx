@@ -701,12 +701,12 @@ function Backlog({
   )
 }
 
-/** CG 拍：全屏显示生成的插图；还在画时显示占位 */
+/** CG 拍：全屏铺满显示生成的插图（和背景一样按屏幕裁切，不留黑边）；还在画时显示占位 */
 function VnCg({ cg }: { cg: NonNullable<ReturnType<typeof useVnPlayer>['cg']> }) {
   return (
     <div className="vn-cg pointer-events-none absolute inset-0 z-[6] flex items-center justify-center bg-black">
       {cg.url ? (
-        <img key={cg.url} src={cg.url} alt={cg.prompt} className="vn-cg-image size-full object-contain" />
+        <img key={cg.url} src={cg.url} alt={cg.prompt} className="vn-cg-image size-full object-cover" />
       ) : (
         <div className="flex flex-col items-center gap-3 text-sm text-white/70">
           <span className="size-8 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />

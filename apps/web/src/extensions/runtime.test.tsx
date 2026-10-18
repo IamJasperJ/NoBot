@@ -1,6 +1,7 @@
 import { expect, mock, spyOn, test } from 'bun:test'
 import type { ExtensionDTO, MessageDTO } from '@ai-parter/shared'
 import { QueryClient } from '@tanstack/react-query'
+import { getCommand } from '../commands/registry'
 import type { ClientExtensionAPI } from './types'
 
 // 模块 mock 和极小 DOM 仅存在于子进程，避免污染其他前端测试。
@@ -35,12 +36,13 @@ test('前端扩展：注册排序、页面、事件、变换、失败隔离与�
   let cleanups = 0
   let events = 0
   let extensionAPI: ClientExtensionAPI | undefined
-  mock.module('/api/extensions/client-one/client.js', () => ({
+  mock.module('/api/extensions/client-one/client.js?v=1', () => ({
     default: (api: ClientExtensionAPI) => {
       extensionAPI = api
       activations++
       api.registerSlot('chat.header.actions', { id: 'late', order: 200, render: () => '后' })
       api.registerSlot('chat.header.actions', { id: 'early', order: 10, render: () => '前' })
+      api.registerCommand({ name: 'runtime-owned', description: '测试', args: [], run: async () => '' })
       api.registerPage({ id: 'page', label: '测试页面', icon: '👋', render: () => '页面正文' })
       api.registerMessageTransform((text) => text.replaceAll('[[闪光]]', '✨'))
       api.on('generation:complete', () => {
@@ -51,13 +53,27 @@ test('前端扩展：注册排序、页面、事件、变换、失败隔离与�
       }
     },
   }))
-  mock.module('/api/extensions/client-broken/client.js', () => ({
+  mock.module('/api/extensions/client-one/client.js?v=2', () => ({
+    default: (api: ClientExtensionAPI) => {
+      expect(cleanups).toBe(2)
+      expect(getCommand('runtime-owned')).toBeUndefined()
+      expect(api.id).toBe('client-one')
+      activations++
+      api.registerCommand({ name: 'runtime-new', description: '新版', args: [], run: async () => '' })
+      api.registerPage({ id: 'new-page', label: '新版页面', icon: '', render: () => '新版' })
+      api.registerSlot('sidebar.footer', { id: 'new-slot', render: () => '新版' })
+      return () => {
+        cleanups++
+      }
+    },
+  }))
+  mock.module('/api/extensions/client-broken/client.js?v=1', () => ({
     default: (api: ClientExtensionAPI) => {
       api.registerSlot('sidebar.footer', { id: 'partial', render: () => '不能残留' })
       throw new Error('模拟激活失败')
     },
   }))
-  mock.module('/api/extensions/client-two/client.js', () => ({
+  mock.module('/api/extensions/client-two/client.js?v=1', () => ({
     default: (api: ClientExtensionAPI) => {
       api.registerMessageTransform((text) => `${text}！`)
       api.registerMessageTransform(() => {
@@ -74,6 +90,12 @@ test('前端扩展：注册排序、页面、事件、变换、失败隔离与�
     source: 'local',
     enabled: true,
     client: { script: true, style: true },
+    permissions: null,
+    detected: { server: false, client: false, routes: false, tools: false, hooks: false },
+    permissionWarnings: [],
+    needsApproval: false,
+    git: null,
+    revision: '1',
     hasRoutes: true,
     settingsSchema: [],
     settings: { greeting: '你好' },
@@ -147,11 +169,37 @@ test('前端扩展：注册排序、页面、事件、变换、失败隔离与�
     expect(activations).toBe(2)
     expect(runtime.useExtensionsRuntime.getState().pages).toHaveLength(1)
     expect(runtime.useExtensionsRuntime.getState().slots).toHaveLength(2)
+    extensions[0]!.revision = '2'
+    await runtime.loadExtensions(qc)
+    expect(activations).toBe(3)
+    expect(cleanups).toBe(2)
+    expect(runtime.useExtensionsRuntime.getState().pages.map((page) => page.id)).toEqual(['new-page'])
+    expect(runtime.useExtensionsRuntime.getState().slots.map((slot) => slot.id)).toEqual(['new-slot'])
+    expect([...links].map((link) => (link as { href: string }).href)).toContain(
+      '/api/extensions/client-one/style.css?v=2',
+    )
+    expect(getCommand('runtime-new')).toBeDefined()
+    extensions[0]!.needsApproval = true
+    await runtime.loadExtensions(qc)
+    expect(cleanups).toBe(3)
+    expect(getCommand('runtime-new')).toBeUndefined()
+    expect(runtime.useExtensionsRuntime.getState().pages).toHaveLength(0)
+    expect(runtime.useExtensionsRuntime.getState().slots).toHaveLength(0)
+    expect([...links].map((link) => (link as { href: string }).href)).not.toContain(
+      '/api/extensions/client-one/style.css?v=2',
+    )
+    await runtime.loadExtensions(qc)
+    expect(activations).toBe(3)
+    // 列表中消失代表已卸载，仍在运行的另一个扩展也必须清理样式与变换。
+    extensions.splice(2, 1)
+    await runtime.loadExtensions(qc)
+    expect(links.size).toBe(0)
+    expect(runtime.useExtensionsRuntime.getState().transforms).toHaveLength(0)
     extensions.forEach((extension) => {
       extension.enabled = false
     })
     await runtime.loadExtensions(qc)
-    expect(cleanups).toBe(2)
+    expect(cleanups).toBe(3)
     expect(links.size).toBe(0)
     expect(runtime.useExtensionsRuntime.getState()).toMatchObject({
       slots: [],

@@ -113,6 +113,8 @@ export const lorebookVectors = sqliteTable('lorebook_vectors', {
 
 /** 连接配置：地址、Key、模型 */
 export const apiPresets = sqliteTable('api_presets', {
+  provider: text('provider').notNull().default('custom'),
+  options: text('options', { mode: 'json' }).$type<Record<string, string>>().notNull().default(sql`'{}'`),
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   baseUrl: text('base_url').notNull(),

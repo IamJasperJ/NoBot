@@ -12,7 +12,7 @@ import {
 import { z } from 'zod'
 import { HttpError, notFound } from '../../../errors'
 import { t } from '../../../i18n'
-import { listModels } from '../../../llm/openai'
+import { listModels, toLlmConnection } from '../../../llm/openai'
 import { getChatRow, loadMessage, loadPath } from '../../../services/chats'
 import { getApiPresetRow, listApiPresets } from '../../../services/connections'
 import { loadGenerationContext, toHistory } from '../../../services/context'
@@ -215,7 +215,7 @@ export default defineExtension({
         ? getApiPresetRow(settings.connectionId)
         : resolveProfile(chatId ? getChatRow(chatId) : undefined).connection!
       return c.json({
-        options: (await listModels(connection.baseUrl, connection.apiKey, connection.headers)).map((value) => ({
+        options: (await listModels(toLlmConnection(connection))).map((value) => ({
           value,
           label: value,
         })),

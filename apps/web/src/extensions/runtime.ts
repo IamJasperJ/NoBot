@@ -29,6 +29,7 @@ export const useExtensionsRuntime = create<{
 }>(() => ({ slots: [], pages: [], transforms: [], listeners: [] }))
 
 interface Running {
+  revision: string
   active: boolean
   cleanup?: () => void
   style?: HTMLLinkElement
@@ -143,13 +144,13 @@ function makeAPI(id: string, entry: Running, queryClient: QueryClient): ClientEx
 
 async function activate(extension: ExtensionDTO, queryClient: QueryClient, existing?: Running) {
   const id = extension.id
-  const entry: Running = existing ?? { active: true }
+  const entry: Running = existing ?? { active: true, revision: extension.revision }
   running.set(id, entry)
   try {
     if (extension.client.style) {
       entry.style = document.createElement('link')
       entry.style.rel = 'stylesheet'
-      entry.style.href = `/api/extensions/${id}/style.css`
+      entry.style.href = `/api/extensions/${encodeURIComponent(id)}/style.css?v=${encodeURIComponent(extension.revision)}`
       document.head.append(entry.style)
     }
     const builtin = extension.source === 'builtin' ? BUILTIN_CLIENTS[id] : undefined
@@ -157,7 +158,7 @@ async function activate(extension: ExtensionDTO, queryClient: QueryClient, exist
       const cleanup = await builtin(makeAPI(id, entry, queryClient))
       if (typeof cleanup === 'function') entry.cleanup = cleanup
     } else if (extension.client.script) {
-      const path = `/api/extensions/${id}/client.js`
+      const path = `/api/extensions/${encodeURIComponent(id)}/client.js?v=${encodeURIComponent(extension.revision)}`
       const module = await import(/* @vite-ignore */ path)
       if (typeof module.default !== 'function') throw new Error(t('前端入口必须默认导出 activate 函数'))
       const cleanup = await (module.default as ActivateFn)(makeAPI(id, entry, queryClient))
@@ -179,14 +180,23 @@ export function loadExtensions(queryClient: QueryClient, reloadId?: string) {
         if (
           id === reloadId ||
           (running.get(id)?.commandLanguage && running.get(id)?.commandLanguage !== getLanguage()) ||
-          !extensions.some((x) => x.id === id && x.enabled && !x.loadError)
+          !extensions.some(
+            (x) =>
+              x.id === id && x.enabled && !x.loadError && !x.needsApproval && x.revision === running.get(id)?.revision,
+          )
         )
           remove(id)
       }
       for (const extension of extensions) {
-        if (!extension.enabled || extension.loadError || !extension.commands?.length || running.has(extension.id))
+        if (
+          !extension.enabled ||
+          extension.needsApproval ||
+          extension.loadError ||
+          !extension.commands?.length ||
+          running.has(extension.id)
+        )
           continue
-        const entry: Running = { active: true, commandLanguage: getLanguage() }
+        const entry: Running = { active: true, revision: extension.revision, commandLanguage: getLanguage() }
         // 后端命令也属于扩展生命周期，停用或重载时统一注销。
         running.set(extension.id, entry)
         try {
@@ -211,6 +221,7 @@ export function loadExtensions(queryClient: QueryClient, reloadId?: string) {
       for (const extension of extensions) {
         if (
           extension.enabled &&
+          !extension.needsApproval &&
           !extension.loadError &&
           !running.has(extension.id) &&
           (extension.client.script ||

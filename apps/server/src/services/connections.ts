@@ -2,6 +2,7 @@ import {
   type ApiPresetDTO,
   type ApiPresetInput,
   apiPresetInput,
+  providerInfo,
   type TestConnectionInput,
   type TestConnectionResult,
 } from '@ai-parter/shared'
@@ -10,11 +11,13 @@ import { db, getSetting, newId, setSetting } from '../db/client'
 import { type ApiPresetRow, apiPresets } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
-import { listModels } from '../llm/openai'
+import { chatCompletion, listModels, toLlmConnection } from '../llm/openai'
 import { SETTING_KEYS } from './settings'
 
 // Zod 4 的 partial 仍会填充内部默认值，PATCH 必须显式移除 headers 默认值。
 export const apiPresetPatchInput = apiPresetInput.partial().extend({
+  provider: apiPresetInput.shape.provider.removeDefault().optional(),
+  options: apiPresetInput.shape.options.removeDefault().optional(),
   headers: apiPresetInput.shape.headers.removeDefault().optional(),
   vision: apiPresetInput.shape.vision.removeDefault().optional(),
 })
@@ -29,6 +32,8 @@ function toDTO(row: ApiPresetRow, defaultId: string | undefined): ApiPresetDTO {
   return {
     id: row.id,
     name: row.name,
+    provider: row.provider,
+    options: row.options,
     baseUrl: row.baseUrl,
     model: row.model,
     vision: row.vision,
@@ -98,12 +103,35 @@ export function setDefaultApiPreset(id: string) {
 /** 测试连接：可以测已保存的预设，也可以测表单里还没保存的地址和 Key */
 export async function testConnection(input: TestConnectionInput): Promise<TestConnectionResult> {
   const saved = input.presetId ? getApiPresetRow(input.presetId) : null
-  const baseUrl = input.baseUrl ?? saved?.baseUrl
+  const provider = input.provider ?? saved?.provider ?? 'custom'
+  const baseUrl = input.baseUrl ?? saved?.baseUrl ?? providerInfo(provider).baseUrls[0]?.url
   // 表单里 Key 留空表示沿用已保存的 Key
   const apiKey = input.apiKey || saved?.apiKey || ''
   if (!baseUrl) throw new HttpError(400, 'BAD_REQUEST', t('缺少接口地址'))
   try {
-    return { ok: true, models: await listModels(baseUrl, apiKey, input.headers ?? saved?.headers ?? {}) }
+    const connection = toLlmConnection({
+      provider,
+      baseUrl,
+      apiKey,
+      headers: input.headers ?? saved?.headers ?? {},
+      options: input.options ?? saved?.options ?? {},
+    })
+    const models = await listModels(connection)
+    if (providerInfo(provider).models === 'static') {
+      for await (const _chunk of chatCompletion({
+        connection,
+        body: {
+          model: saved?.model ?? models[0] ?? connection.options.deployment,
+          stream: false,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'Reply with OK.' }],
+        },
+        signal: AbortSignal.timeout(15_000),
+      })) {
+        // 完整消费响应以捕获上游在响应体中返回的鉴权错误。
+      }
+    }
+    return { ok: true, models }
   } catch (e) {
     return { ok: false, models: [], error: e instanceof Error ? e.message : String(e) }
   }

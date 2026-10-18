@@ -19,11 +19,16 @@ import type {
   ChatPage,
   ChatSummary,
   CreateChatInput,
+  ExtensionCatalogDTO,
   ExtensionDTO,
+  ExtensionInstallInput,
+  ExtensionInstallPreview,
+  ExtensionUpdateResult,
   GenerateSpritesInput,
   GenerationLogDTO,
   GenerationLogSummary,
   GenerationType,
+  GitStatusDTO,
   GroupDTO,
   GroupInput,
   LorebookDTO,
@@ -384,7 +389,27 @@ export const api = {
 
   // ---- 扩展 ----
   listExtensions: () => request<ExtensionDTO[]>('GET', '/extensions'),
-  updateExtension: (id: string, patch: { enabled?: boolean; settings?: Record<string, unknown> }) =>
-    request<ExtensionDTO>('PATCH', `/extensions/${id}`, patch),
+  updateExtension: (
+    id: string,
+    patch: { enabled?: boolean; settings?: Record<string, unknown>; approvePermissions?: boolean },
+  ) => request<ExtensionDTO>('PATCH', `/extensions/${enc(id)}`, patch),
+  getGitStatus: () => request<GitStatusDTO>('GET', '/extensions/git'),
+  previewExtensionInstall: (input: ExtensionInstallInput) =>
+    request<ExtensionInstallPreview>('POST', '/extensions/install/preview', input),
+  confirmExtensionInstall: (token: string, enable: boolean) =>
+    request<ExtensionDTO>('POST', '/extensions/install/confirm', { token, enable }),
+  cancelExtensionInstall: (token: string) => request<Ok>('POST', '/extensions/install/cancel', { token }),
+  checkExtensionUpdate: (id: string) => request<ExtensionDTO>('POST', `/extensions/${enc(id)}/check-update`),
+  updateExtensionCode: (id: string) => request<ExtensionUpdateResult>('POST', `/extensions/${enc(id)}/update`),
+  getExtensionBranches: (id: string) =>
+    request<{ current: string; branches: string[] }>('GET', `/extensions/${enc(id)}/branches`),
+  switchExtensionRef: (id: string, ref: string) =>
+    request<ExtensionDTO>('POST', `/extensions/${enc(id)}/switch`, { ref }),
+  uninstallExtension: (id: string) => request<Ok>('DELETE', `/extensions/${enc(id)}`),
+  reloadExtensions: () => request<ExtensionDTO[]>('POST', '/extensions/reload'),
+  getExtensionCatalog: (refresh = false) =>
+    request<ExtensionCatalogDTO>('GET', `/extensions/catalog${refresh ? '?refresh=1' : ''}`),
+  getCatalogSources: () => request<{ urls: string[] }>('GET', '/extensions/catalog/sources'),
+  saveCatalogSources: (urls: string[]) => request<{ urls: string[] }>('PUT', '/extensions/catalog/sources', { urls }),
   listTools: () => request<ToolInfo[]>('GET', '/extensions/tools'),
 }

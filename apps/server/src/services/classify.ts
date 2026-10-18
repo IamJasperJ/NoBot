@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { characters, messages, sprites } from '../db/schema'
 import { t } from '../i18n'
-import { buildRequestBody, chatCompletion } from '../llm/openai'
+import { buildRequestBody, chatCompletion, toLlmConnection } from '../llm/openai'
 import { getChatRow, loadPath } from './chats'
 import { getApiPresetRow } from './connections'
 import { loadGenerationContext } from './context'
@@ -89,9 +89,7 @@ export function classifyMessage(messageId: string): void {
         delete body.tool_choice
         request = body
         for await (const chunk of chatCompletion({
-          baseUrl: connection.baseUrl,
-          apiKey: connection.apiKey,
-          headers: connection.headers,
+          connection: toLlmConnection(connection),
           body,
           signal: AbortSignal.timeout(60000),
         }))

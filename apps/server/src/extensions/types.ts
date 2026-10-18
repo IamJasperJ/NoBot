@@ -6,6 +6,7 @@ import type {
   ChatDTO,
   ChatMessage,
   CommandDescription,
+  ExtensionPermissions,
   ExtensionSettingField,
   MessageDTO,
   MessageMeta,
@@ -35,6 +36,7 @@ export interface ExtensionManifest {
   version: string
   description: string
   author?: string
+  permissions?: ExtensionPermissions
   /** 后端入口文件（相对扩展目录） */
   server?: string
   /** 前端入口文件（ES 模块，浏览器直接加载，不经过打包） */
@@ -158,6 +160,8 @@ export interface ExtensionHooks {
 }
 
 export interface Extension {
+  /** 热重载或卸载时释放扩展自行创建的资源。 */
+  dispose?: () => void | Promise<void>
   id: string
   name: string
   description: string

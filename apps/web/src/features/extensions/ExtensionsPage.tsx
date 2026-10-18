@@ -1,9 +1,11 @@
-import type { ExtensionDTO } from '@ai-parter/shared'
+import type { ExtensionCatalogItem, ExtensionDTO } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
+import { useReloadExtensions } from '../../api/extensionManager'
 import { keys, useExtensions } from '../../api/queries'
-import { Toggle } from '../../components/form'
+import { Tabs, Toggle } from '../../components/form'
+import { PlusIcon, RefreshIcon } from '../../components/icons'
 import { DetailHeader, EmptyDetail, ManagerLayout } from '../../components/layout'
 import { Button, badgeClass, cx, IconButton } from '../../components/ui'
 import { loadExtensions, useExtensionsRuntime } from '../../extensions/runtime'
@@ -11,6 +13,7 @@ import { ExtensionPage, Slot } from '../../extensions/Slot'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { ApprovalDialog, CatalogList, GitPanel, InstallDialog, PermissionList } from './ExtensionManagerUi'
 import { SettingsEditor } from './SettingsEditor'
 
 type UpdateExtension = (
@@ -24,12 +27,15 @@ export function ExtensionDetail({
   onDirtyChange,
   update,
   busy,
+  requestApproval,
 }: {
   extension: ExtensionDTO
   onBack: () => void
   onDirtyChange: (dirty: boolean) => void
   update: UpdateExtension
   busy: boolean
+  /** 启用需要确认权限的扩展时，交给页面弹出确认框 */
+  requestApproval: (extension: ExtensionDTO) => void
 }) {
   const pages = useExtensionsRuntime((s) => s.pages).filter((page) => page.extensionId === extension.id)
   const pageId = useUi((s) => s.extensionPageId)
@@ -150,9 +156,10 @@ export function ExtensionDetail({
                   label={t('启用{name}', { name: extension.name })}
                   checked={extension.enabled}
                   disabled={busy}
-                  onChange={(enabled) =>
-                    void update(extension.id, { enabled }).catch((e: unknown) => toast.error(errorMessage(e)))
-                  }
+                  onChange={(enabled) => {
+                    if (enabled && extension.needsApproval) requestApproval(extension)
+                    else void update(extension.id, { enabled }).catch((e: unknown) => toast.error(errorMessage(e)))
+                  }}
                 />
               </div>
             </div>
@@ -178,6 +185,49 @@ export function ExtensionDetail({
               )
             })()}
           </div>
+          {extension.needsApproval && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-[13px] text-violet-800 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300">
+              <span className="min-w-0 flex-1">
+                {extension.enabled ? t('权限有变化，确认前扩展暂不生效。') : t('首次启用前需要确认这个扩展的权限。')}
+              </span>
+              <Button size="sm" variant="primary" disabled={busy} onClick={() => requestApproval(extension)}>
+                {t('查看并确认')}
+              </Button>
+            </div>
+          )}
+          {extension.source === 'local' && !extension.loadError && (
+            <div className="space-y-3 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/40">
+              <GitPanel
+                extension={extension}
+                onUninstalled={onBack}
+                onPermissionsChanged={(next) => {
+                  toast.info(t('更新后权限有变化，扩展已暂停，请重新确认'))
+                  requestApproval(next)
+                }}
+              />
+              <details
+                className="group border-t border-zinc-100 pt-2 dark:border-zinc-800"
+                open={extension.permissionWarnings.length > 0}
+              >
+                <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
+                  {t('权限')}
+                  {extension.permissionWarnings.length > 0 && (
+                    <span className="rounded bg-amber-100 px-1 text-[11px] font-normal text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                      {t('{count} 条警告', { count: extension.permissionWarnings.length })}
+                    </span>
+                  )}
+                  <span className="ml-auto text-xs font-normal text-zinc-400 group-open:hidden">{t('展开')}</span>
+                </summary>
+                <div className="pt-2">
+                  <PermissionList
+                    declared={extension.permissions}
+                    detected={extension.detected}
+                    warnings={extension.permissionWarnings}
+                  />
+                </div>
+              </details>
+            </div>
+          )}
           {extension.loadError && (
             <div
               role="alert"
@@ -221,7 +271,12 @@ export function ExtensionsPage() {
   const pages = useExtensionsRuntime((s) => s.pages)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<'installed' | 'catalog'>('installed')
+  const [installing, setInstalling] = useState<{ url: string; ref?: string | undefined } | null>(null)
+  const [approving, setApproving] = useState<ExtensionDTO | null>(null)
+  const reload = useReloadExtensions()
   const extension = query.data?.find((item) => item.id === selectedId)
+  const installFromCatalog = (item: ExtensionCatalogItem) => setInstalling({ url: item.repo, ref: item.ref })
 
   function select(id: string | null, pageId?: string) {
     if (busy) return
@@ -252,6 +307,10 @@ export function ExtensionsPage() {
   }
 
   async function toggle(item: ExtensionDTO, enabled: boolean) {
+    if (enabled && item.needsApproval) {
+      setApproving(item)
+      return
+    }
     try {
       await update(item.id, { enabled })
     } catch (e) {
@@ -263,9 +322,43 @@ export function ExtensionsPage() {
     <ManagerLayout
       title={t('扩展')}
       showDetailOnMobile={selectedId !== null}
+      actions={
+        <div className="flex items-center gap-1">
+          <IconButton
+            label={t('重新扫描扩展目录')}
+            disabled={busy || reload.busy}
+            onClick={() =>
+              void reload
+                .reload()
+                .then((list) => toast.info(t('已重新加载，共 {count} 个扩展', { count: list.length })))
+                .catch((e: unknown) => toast.error(errorMessage(e)))
+            }
+          >
+            <RefreshIcon className={reload.busy ? 'animate-spin' : ''} />
+          </IconButton>
+          <Button disabled={busy} onClick={() => setInstalling({ url: '' })}>
+            <PlusIcon className="size-4" />
+            {t('安装')}
+          </Button>
+        </div>
+      }
       list={
         <>
-          {query.isPending ? (
+          <div className="mb-2 px-1">
+            <Tabs
+              value={tab}
+              onChange={setTab}
+              tabs={[
+                { id: 'installed', label: t('已安装') },
+                { id: 'catalog', label: t('扩展目录') },
+              ]}
+            />
+          </div>
+          {tab === 'catalog' ? (
+            <div className="px-1">
+              <CatalogList onInstall={installFromCatalog} />
+            </div>
+          ) : query.isPending ? (
             <p className="p-2 text-sm">{t('加载中…')}</p>
           ) : query.isError ? (
             <p role="alert" className="p-2 text-sm text-red-600">
@@ -312,17 +405,48 @@ export function ExtensionsPage() {
                         {page.icon || page.label.slice(0, 1)}
                       </IconButton>
                     ))}
-                <span className={`${badgeClass} shrink-0`} title={item.loadError || undefined}>
-                  {item.loadError ? t('失败') : item.source === 'builtin' ? t('内置') : t('本地')}
+                {item.git?.hasUpdate && (
+                  <span
+                    className="size-2 shrink-0 rounded-full bg-violet-500"
+                    title={t('有新版本')}
+                    role="img"
+                    aria-label={t('有新版本')}
+                  />
+                )}
+                <span
+                  className={cx(badgeClass, 'shrink-0', item.needsApproval && 'text-amber-700 dark:text-amber-300')}
+                  title={item.loadError || undefined}
+                >
+                  {item.loadError
+                    ? t('失败')
+                    : item.needsApproval
+                      ? t('待确认')
+                      : item.source === 'builtin'
+                        ? t('内置')
+                        : item.git
+                          ? 'Git'
+                          : t('本地')}
                 </span>
               </div>
             ))
           )}
-          <p className="mt-4 px-2 text-xs leading-relaxed text-zinc-500">
-            {t('第三方扩展放在')}
-            <code className="break-all">{t('data/extensions/&lt;目录&gt;/manifest.json')}</code>
-            {t('，重启后加载。扩展代码在后端和浏览器中运行，只安装你信任的扩展。')}
-          </p>
+          {tab === 'installed' && (
+            <p className="mt-4 px-2 text-xs leading-relaxed text-zinc-500">
+              {t('点「安装」从 Git 地址安装，或把扩展放进')}
+              <code className="break-all">{t('data/extensions/<目录>/manifest.json')}</code>
+              {t('后点刷新按钮加载。扩展代码在后端和浏览器中运行，只安装你信任的扩展。')}
+            </p>
+          )}
+          <InstallDialog
+            open={!!installing}
+            initial={installing ?? undefined}
+            onClose={() => setInstalling(null)}
+            onInstalled={(installed) => {
+              setTab('installed')
+              select(installed.id)
+            }}
+          />
+          <ApprovalDialog extension={approving} onClose={() => setApproving(null)} />
         </>
       }
       detail={
@@ -334,6 +458,7 @@ export function ExtensionsPage() {
             onDirtyChange={setDirty}
             update={update}
             busy={busy}
+            requestApproval={setApproving}
           />
         ) : (
           <>

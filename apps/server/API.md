@@ -22,6 +22,16 @@
 | POST | `/connections/:id/default` | 设为默认 | — | ok |
 | POST | `/connections/test` | 测试连接 | `TestConnectionInput` | `TestConnectionResult` |
 
+连接的 `provider` 默认为 `custom`，`options` 默认为 `{}`。提供方与专用选项见共享契约 `providers.ts`：
+`azure_openai` 使用 `deployment` / `apiVersion`，`workers_ai` 使用 `accountId`，`vertexai` 使用
+`authMode`（`express` / `service_account`）、`region`、`projectId`。选项默认值在调用模型时合并。
+Vertex 服务账号模式的 `apiKey` 保存完整服务账号 JSON；响应仅返回打码后的 `apiKeyMasked`。
+PATCH 不传 `provider` / `options` 时保留原值；传 `options` 时完整替换已保存选项。
+
+`POST /connections/test` 支持草稿的 `provider` / `options` 覆盖保存配置，Key 留空沿用已保存值。
+模型列表按协议拉取，Gemini 仅返回支持 `generateContent` 的模型；静态目录提供方通过最小生成请求验证连接。
+Azure 模型就是部署名，因此返回空模型列表。所有聊天、静默生成、分类和图片说明使用同一连接协议适配层；日志保留转换前的 OpenAI 请求格式。
+
 ## 生成预设 `/presets`
 
 | 方法 | 路径 | 说明 | 请求 | 返回 |
@@ -182,10 +192,32 @@
 | 方法 | 路径 | 说明 | 请求 | 返回 |
 | --- | --- | --- | --- | --- |
 | GET | `/extensions` | 列出内置和本地扩展 | — | `ExtensionDTO[]` |
-| PATCH | `/extensions/:id` | 修改开关或整体替换设置 | `{ enabled?, settings? }` | `ExtensionDTO` |
+| PATCH | `/extensions/:id` | 修改开关或整体替换设置 | `{ enabled?, settings?, approvePermissions? }` | `ExtensionDTO` |
 | GET | `/extensions/tools` | 列出当前可用工具 | — | `ToolInfo[]` |
 | GET | `/extensions/:id/client.js` | 获取前端脚本 | — | JavaScript |
 | GET | `/extensions/:id/style.css` | 获取样式 | — | CSS |
+| GET | `/extensions/git` | 检查系统 Git | — | `GitStatusDTO` |
+| POST | `/extensions/install/preview` | 浅克隆暂存、只读 manifest 预览 | `{ url, ref? }` | `ExtensionInstallPreview` |
+| POST | `/extensions/install/confirm` | 安装并可同时确认权限启用 | `{ token, enable? }` | `ExtensionDTO` |
+| POST | `/extensions/install/cancel` | 删除暂存 | `{ token }` | `{ ok: true }` |
+| POST | `/extensions/:id/check-update` | fetch 后检查上游提交 | — | `ExtensionDTO` |
+| POST | `/extensions/:id/update` | 仅快进更新并热重载 | — | `ExtensionUpdateResult` |
+| GET | `/extensions/:id/branches` | 分支及标签（含 origin 远端分支） | — | `{ current, branches }` |
+| POST | `/extensions/:id/switch` | 切换并热重载 | `{ ref }` | `ExtensionDTO` |
+| DELETE | `/extensions/:id` | 卸载本地扩展并删除设置和存储 | — | `{ ok: true }` |
+| POST | `/extensions/reload` | 重扫本地目录并重载变化项 | — | `ExtensionDTO[]` |
+| GET | `/extensions/catalog/sources` | 获取索引源 | — | `{ urls: string[] }` |
+| PUT | `/extensions/catalog/sources` | 保存索引源（最多 20 个 HTTP/HTTPS URL） | `{ urls: string[] }` | `{ urls: string[] }` |
+| GET | `/extensions/catalog` | 获取目录（`?refresh=1` 绕过 5 分钟缓存） | — | `ExtensionCatalogDTO` |
+
+`ExtensionDTO` 还包含 permissions（未声明为 null）、detected、permissionWarnings、needsApproval、git 和 revision。
+本地扩展未确认或权限集合超出已确认集合时不生效，enabled=true 未同时传 approvePermissions=true 返回
+409 / `NEEDS_APPROVAL`。权限减少无需再次确认。network 仅声明，无法强制限制访问。
+Git 地址仅允许 HTTPS 或 git@host:path，ref 支持分支和标签；预览不执行代码，token 30 分钟到期。
+更新和切换拒绝有本地修改的仓库，内置扩展不可替换或卸载，非 Git 本地扩展调用 Git 接口返回 400。
+热重载使用独立版本运行目录，移除旧路由、工具、宏和钩子，并调用可选 dispose 清理函数。
+索引支持数组或 `{ extensions: [...] }`，逐项宽松校验，单源失败不影响其他源；每源 15 秒、2MB 上限。
+权限、安装流程及索引示例见 [扩展开发文档](../../docs/extensions.md)。
 
 ## 扩展自定义接口 `/ext/:id`
 
@@ -202,7 +234,7 @@ secret 字段返回 `••••••••`，原样传回表示保留原值�
 前端资源设置 `Cache-Control: no-cache`；扩展停用、不存在、未声明资源或文件不可用返回 404。
 资源接口没有任意路径参数，manifest 文件路径不得越过扩展目录（包括软链接）。
 扩展未启用或未提供自定义接口时 `/ext/:id/*` 返回 404。错误统一使用 `{ error: { code, message } }`。
-routes 在加载扩展时注册一次，ctx.settings 每次读取返回当前合并配置，ctx.storage 使用 settings 表中的
+routes 在已确认权限的扩展每次加载版本时注册一次，ctx.settings 每次读取返回当前合并配置，ctx.storage 使用 settings 表中的
 `extdata:<扩展id>:<key>` 命名空间。
 
 宿主更新消息元数据时广播 `message:updated`。生成流程异步广播 `message:saved`（用户插入、助手最终保存、工具插入）和 `generation:complete`（任务 finally）；

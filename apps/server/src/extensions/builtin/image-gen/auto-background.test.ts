@@ -135,6 +135,9 @@ test('自动背景：缺失才生成、同名并发去重、按指令名字保�
     expect(listBackgrounds()).toHaveLength(1)
     expect(listBackgrounds()[0]?.name).toBe('Moonlit garden')
     expect(getChatRow(chat.id).backgroundId).toBe(listBackgrounds()[0]!.id)
+    const backgroundMessage = loadPath(getChatRow(chat.id).activeLeafId).at(-1)!
+    expect(backgroundMessage.meta.images).toHaveLength(1)
+    expect(backgroundMessage.meta.imageGen).toMatchObject({ mode: 'background', status: 'done' })
     expect(quietCalls[0]?.instruction).toContain('Location name: Moonlit garden; place: Garden; time: Night')
     expect(completeCalls[0]?.messages).toHaveLength(1)
     expect(completeCalls[0]?.messages[0]?.role).toBe('user')

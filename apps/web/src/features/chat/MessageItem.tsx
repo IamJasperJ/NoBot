@@ -482,7 +482,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
                   <RefreshIcon />
                 </IconButton>
               )}
-              <details className="relative">
+              <details className="message-actions relative">
                 <summary className="list-none">
                   <span className="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800">
                     <DotsIcon />

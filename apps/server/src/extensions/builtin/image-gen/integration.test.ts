@@ -346,14 +346,17 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     expect(() => loadMessage(emptyFailure.message.id)).toThrow()
     expect(() => loadMessage(child.id)).toThrow()
     const beforeBackground = getChatRow(chat.id).activeLeafId
-    const bg = await json<{ background: BackgroundDTO }>('/ext/image-gen/generate', {
+    const bg = await json<{ background: BackgroundDTO; message: MessageDTO }>('/ext/image-gen/generate', {
       chatId: chat.id,
       mode: 'background',
     })
     expect(bg.background.source).toBe('generated')
     expect(bg.background.name).toBe('1girl, blue hair')
     expect(getChatRow(chat.id).backgroundId).toBe(bg.background.id)
-    expect(getChatRow(chat.id).activeLeafId).toBe(beforeBackground)
+    expect(bg.message.parentId).toBe(beforeBackground)
+    expect(getChatRow(chat.id).activeLeafId).toBe(bg.message.id)
+    expect(bg.message.meta.images).toHaveLength(1)
+    expect(bg.message.meta.imageGen).toMatchObject({ mode: 'background', status: 'done' })
     await json('/ext/image-gen/to-background', { messageId: error.id })
     expect(listBackgrounds()).toHaveLength(2)
     // 起名请求不带对话历史，输出语言必须跟随界面设置。
@@ -925,6 +928,8 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     expect(selectedPrompt).toContain(actor2.name)
     const backgroundResult = await invoke({ mode: 'background', prompt: 'a lake' })
     expect(backgroundResult.content).toBe('Image generated and set as the chat background.')
+    expect(backgroundResult.meta?.images).toHaveLength(1)
+    expect(backgroundResult.meta?.imageGen).toMatchObject({ mode: 'background', status: 'done' })
     configure({ refineModelPrompts: true, promptStyle: 'natural' })
     await invoke({ mode: 'portrait', prompt: 'a detailed portrait' })
     expect(JSON.stringify(chatRequests.at(-1))).toContain('a detailed portrait')
@@ -951,14 +956,20 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     const bgPlaceholder = host.appendMessage(chat.id, { role: 'tool', content: asyncBg.content, meta: asyncBg.meta })
     asyncBg.onSaved?.(bgPlaceholder.id)
     expect(JSON.parse(loadMessage(bgPlaceholder.id).content).task_id).toBe(bgPlaceholder.id)
-    await wait(bgPlaceholder.id)
+    const completedBg = await wait(bgPlaceholder.id)
+    expect(completedBg.meta.images).toHaveLength(1)
+    const imageBeforeRetry = completedBg.meta.images![0]!.id
     const backgroundBeforeRetry = getChatRow(chat.id).backgroundId
     const backgroundRetry = await json<{ message: MessageDTO }>('/ext/image-gen/retry', {
       messageId: bgPlaceholder.id,
       prompt: 'a new garden',
     })
     expect(backgroundRetry.message.id).toBe(bgPlaceholder.id)
-    await wait(bgPlaceholder.id)
+    const retriedBg = await wait(bgPlaceholder.id)
+    expect(retriedBg.meta.images).toHaveLength(2)
+    expect(retriedBg.meta.images![0]!.id).toBe(imageBeforeRetry)
+    expect(retriedBg.meta.images![1]!.id).not.toBe(imageBeforeRetry)
+    expect(retriedBg.meta.imageIndex).toBe(1)
     expect(getChatRow(chat.id).backgroundId).not.toBe(backgroundBeforeRetry)
 
     const logs = listLogs({})

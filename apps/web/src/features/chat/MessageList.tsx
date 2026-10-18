@@ -137,7 +137,8 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
                 data-index={item.index}
                 ref={virtualizer.measureElement}
                 className={cx(
-                  'relative transition-colors duration-700',
+                  // 毛玻璃气泡会建立层叠上下文，菜单展开时需提升整行才能覆盖后续消息。
+                  'relative transition-colors duration-700 has-[.message-actions[open]]:z-20',
                   flash === msg.id && 'bg-violet-100/70 dark:bg-violet-900/30',
                   selecting && selected.includes(msg.id) && 'bg-violet-50 dark:bg-violet-950/40',
                 )}

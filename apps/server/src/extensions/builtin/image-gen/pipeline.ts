@@ -475,9 +475,10 @@ export async function generate(ctx: Context, input: GenerateInput) {
         stage,
       )
       stage('saving')
+      let generatedBackground: Awaited<ReturnType<typeof background>> | undefined
       if (input.mode === 'background') {
         controller.signal.throwIfAborted()
-        return await background(
+        generatedBackground = await background(
           ctx,
           input.chatId,
           bytes,
@@ -505,7 +506,7 @@ export async function generate(ctx: Context, input: GenerateInput) {
             meta: final,
           })
       ctx.storage.set(`request:${message.id}`, snapshot)
-      return { message }
+      return { message, ...generatedBackground }
     } catch (error) {
       await pendingReady
       if (!pending) throw error
@@ -639,7 +640,6 @@ export async function retry(
       stage('saving')
       if (old.mode === 'background') {
         await background(ctx, message.chatId, bytes, message.meta.name ?? '', settings, prompt!)
-        return { message: ctx.host.updateMessageMeta(messageId, { imageGen: { ...meta, status: 'done' } }) }
       }
       const image = await ctx.host.saveImage(bytes)
       controller.signal.throwIfAborted()
@@ -797,13 +797,14 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
         stage('saving')
         if (mode === 'background') {
           await background(ctx, ctx.chatId, bytes, prepared.character.name, settings, snapshot.prompt!)
-          if (messageId) ctx.host.updateMessageMeta(messageId, { imageGen: { ...meta, status: 'done' } })
-          return { content: 'Image generated and set as the chat background.' }
         }
         const image = await ctx.host.saveImage(bytes)
         controller.signal.throwIfAborted()
         const result = {
-          content: 'Image generated and shown to the user.',
+          content:
+            mode === 'background'
+              ? 'Image generated and set as the chat background.'
+              : 'Image generated and shown to the user.',
           meta: { images: [image], imageIndex: 0, imageGen: { ...meta, status: 'done' as const } },
         }
         if (messageId) ctx.host.updateMessageMeta(messageId, result.meta)

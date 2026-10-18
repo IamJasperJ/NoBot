@@ -22,6 +22,9 @@ export interface PromptSegment {
   source: string
   /** 给人看的来源名 */
   label: string
+  /** 稳定的显示代码；旧日志缺省时使用原始 label。 */
+  labelCode?: string
+  labelParams?: Record<string, string>
   role: ChatMessage['role']
   content: string
   tokens: number

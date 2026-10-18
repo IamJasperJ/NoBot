@@ -74,18 +74,19 @@ describe('世界书编辑器', () => {
     expect(outlet).not.toContain('插入深度')
   })
 
-  test('完整编辑器包含全部分组、三态继承、字数及五个未实现标记', () => {
+  test('完整编辑器包含全部分组、三态继承、字数及已实现的定时效果', () => {
     const html = renderEntry(lorebookEntryDataSchema.parse({ content: '龙🐉' }))
-    for (const title of ['基本', '触发', '插入', '匹配', '递归', '包含组', '暂未实现']) expect(html).toContain(title)
+    for (const title of ['基本', '触发', '插入', '匹配', '递归', '包含组', '定时效果与自动化'])
+      expect(html).toContain(title)
     expect(html).toContain('字数：2')
     expect(html).toContain('value="inherit" selected=""')
     expect(html).toContain('placeholder="跟随全局" value=""')
-    expect(html.match(/aria-label="未实现"/g)?.length).toBe(5)
-    expect(html).toMatch(/<details class="[^"]*"><summary[^>]*>.*?暂未实现/)
+    expect(html).not.toContain('aria-label="未实现"')
+    expect(html).toMatch(/<details class="[^"]*"><summary[^>]*>.*?定时效果与自动化/)
     expect(html).toContain('都不选表示全部类型')
   })
 
-  test('全局设置包括预算、递归、来源排序和未实现的最少激活数', () => {
+  test('全局设置包括预算、递归、来源排序和最少激活数', () => {
     const html = render(<SettingsEditor settings={worldInfoSettingsSchema.parse({})} guard={guard} onBack={noop} />)
     for (const text of [
       '扫描深度',
@@ -101,6 +102,6 @@ describe('世界书编辑器', () => {
     ])
       expect(html).toContain(text)
     for (const value of ['evenly', 'character_first', 'global_first']) expect(html).toContain(`value="${value}"`)
-    expect(html.match(/aria-label="未实现"/g)?.length).toBe(1)
+    expect(html).not.toContain('aria-label="未实现"')
   })
 })

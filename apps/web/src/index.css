@@ -307,8 +307,35 @@ body {
 .vn-actor.vn-actor-adjusting {
   transition: none;
 }
+/* 时长跟玩法预设的「转场时长」（--vn-ms，设在 .vn-view 上；转场选「无」时是 0） */
 .vn-fade {
-  animation: vn-fade 0.3s ease-out;
+  animation: vn-fade var(--vn-ms, 300ms) ease-out;
+}
+/* 「溶解」和「淡入」的区别在背景（见 Background）；立绘和 CG 都是淡入 */
+.vn-cg {
+  animation: vn-fade var(--vn-ms, 300ms) ease-out;
+}
+.vn-cg-image {
+  animation: vn-fade calc(var(--vn-ms, 300ms) * 2) ease-out;
+}
+/* 电影模式：上下黑边，对话框换成字幕 */
+.vn-cinema {
+  --vn-letterbox: 11vh;
+}
+.vn-letterbox {
+  height: var(--vn-letterbox);
+  background: #000;
+  animation: vn-fade var(--vn-ms, 300ms) ease-out;
+}
+.vn-subtitle,
+.vn-subtitle-name {
+  color: #fff;
+  text-shadow:
+    0 1px 3px rgb(0 0 0 / 0.9),
+    0 0 12px rgb(0 0 0 / 0.6);
+}
+.vn-subtitle-name {
+  color: rgb(255 255 255 / 0.75);
 }
 @keyframes vn-fade {
   from {

@@ -1,3 +1,4 @@
+import { rollDice } from '@ai-parter/core'
 import {
   activateMessageInput,
   branchInput,
@@ -17,11 +18,13 @@ import { type Context, Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import { HttpError } from '../errors'
+import { createExtensionHost } from '../extensions/host'
+import { emitServerEvent } from '../extensions/registry'
 import { t } from '../i18n'
 import { validate } from '../lib/validate'
 import * as bookmarks from '../services/bookmarks'
 import * as chats from '../services/chats'
-import { assemble, loadGenerationContext } from '../services/context'
+import { assembleWithVectors, loadGenerationContext } from '../services/context'
 import * as generation from '../services/generation'
 import { resolvedProfileDTO } from '../services/profiles'
 import { computeStage, initialVars } from '../services/stage'
@@ -105,6 +108,17 @@ export const chatRoutes = new Hono()
   .post('/:id/bookmarks', validate('json', createBookmarkInput), (c) =>
     c.json(bookmarks.createBookmark(c.req.param('id'), c.req.valid('json'))),
   )
+  .post('/:id/messages', validate('json', z.object({ role: z.enum(['user', 'system']), content: z.string() })), (c) =>
+    c.json(createExtensionHost(emitServerEvent).appendMessage(c.req.param('id'), c.req.valid('json'))),
+  )
+  .post('/:id/roll', validate('json', z.object({ expression: z.string().max(100) })), (c) => {
+    const expression = c.req.valid('json').expression
+    const value = rollDice(expression, Math.random)
+    if (value === null || !Number.isFinite(value)) throw new HttpError(400, 'INVALID_DICE', t('掷骰表达式无效'))
+    const result = `${expression} = ${value}`
+    createExtensionHost(emitServerEvent).appendMessage(c.req.param('id'), { role: 'system', content: result })
+    return c.json({ result })
+  })
   .post('/:id/vars', validate('json', setVarsInput), (c) =>
     c.json(chats.setVars(c.req.param('id'), c.req.valid('json'))),
   )
@@ -141,10 +155,10 @@ export const chatRoutes = new Hono()
         speakerId: z.string().optional(),
       }),
     ),
-    (c) => {
+    async (c) => {
       const { type, text, speakerId } = c.req.valid('json')
       const ctx = loadGenerationContext(c.req.param('id'), { requireConnection: false })
-      const { messages, report } = assemble(ctx, {
+      const { messages, report } = await assembleWithVectors(ctx, {
         type: type ?? 'normal',
         speakerId: speakerId ?? (ctx.members.find((m) => !m.muted) ?? ctx.members[0])?.id ?? '',
         leafId: ctx.chat.activeLeafId,

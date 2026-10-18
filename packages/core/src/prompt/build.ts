@@ -59,12 +59,14 @@ export interface HistoryMessage {
   toolCallId?: string
   /** 附件 id，由调用方解析成实际图片 */
   images?: string[]
+  activated?: string[]
 }
 
 export interface PromptInjection {
   /** 报告里的片段标识和中文名称 */
   id: string
   label: string
+  labelCode?: string
   content: string
   /** 角色设定之后、作者注释之后、指定聊天深度，或所有预设条目之后（end） */
   position: 'after_char' | 'author_note' | 'depth' | 'end'
@@ -95,7 +97,13 @@ export interface BuildInput {
    */
   history: HistoryMessage[]
   /** 已挂载的全部世界书条目，以及全局激活设置 */
-  lore: { entries: ScanEntry[]; settings: WorldInfoSettings; scanText?: string }
+  lore: {
+    entries: ScanEntry[]
+    settings: WorldInfoSettings
+    scanText?: string
+    vectorMatches?: readonly string[]
+    activationHistory?: readonly { activated?: readonly string[] }[]
+  }
   /** 状态阶段用于内置 stage 宏，与世界书扫描开关无关。 */
   stages?: Record<string, string>
   chat: {
@@ -196,7 +204,7 @@ export interface BuildInput {
  *    strict 在 semi_strict 基础上，若第一条非 system 消息不是 user，在它前面插入一条 user 消息 "[开始]"；
  *    single_user 全部内容合成一条 user 消息（"\n\n" 连接，丢弃 name 和工具字段）
  *
- * 【报告】report.segments 按最终发送顺序列出每个片段（后处理合并前），label 用中文
+ * 【报告】report.segments 按最终发送顺序列出每个片段（后处理合并前），label 保留原名，labelCode 用于界面翻译
  *  （预设条目用条目 name，历史用「历史消息」，世界书注入用「世界书：条目备注」，作者注释、角色备注、结尾提示各自命名）。
  *  totalTokens 是最终 messages 的 token 总和；historyTotal / historyKept 是消息条数；worldInfo 用扫描结果的 report。
  */
@@ -226,11 +234,13 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   const cost = (message: ChatMessage) =>
     countTokens(message.content) + MESSAGE_OVERHEAD_TOKENS + (message.images?.length ?? 0) * IMAGE_TOKENS
   const sum = (pieces: Piece[]) => pieces.reduce((total, piece) => total + cost(piece.message), 0)
-  const piece = (source: string, label: string, role: ChatMessage['role'], content: string): Piece => ({
-    source,
-    label,
-    message: { role, content },
-  })
+  const piece = (
+    source: string,
+    label: string,
+    role: ChatMessage['role'],
+    content: string,
+    labelCode?: string,
+  ): Piece => ({ source, label, labelCode, message: { role, content } })
   const joined = group !== null && group.mode !== 'swap'
   const members = joined
     ? group.members.filter((member) => group.mode === 'join_include_muted' || !member.muted || member.id === speaker.id)
@@ -253,6 +263,8 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   // 【1】世界书只扫描一次，扫描报告直接交给预览；包装后的 outlet 供后续宏引用。
   const scanned = scanWorldInfo({
     entries: input.lore.entries,
+    vectorMatches: input.lore.vectorMatches,
+    activationHistory: input.lore.activationHistory,
     scanText: input.lore.scanText,
     settings: input.lore.settings,
     history: promptHistory.filter((message) => message.role === 'user' || message.role === 'assistant'),
@@ -297,9 +309,16 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     text: string,
     depth: number,
     order: number,
+    labelCode?: string,
+    labelParams?: Record<string, string>,
   ) => {
     const content = macro(text)
-    if (content) injections.push({ piece: { ...piece(source, label, role, content), depth }, depth, order })
+    if (content)
+      injections.push({
+        piece: { ...piece(source, label, role, content, labelCode), labelParams, depth },
+        depth,
+        order,
+      })
   }
 
   // 【2】列表顺序就是相对顺序，历史与示例保留占位，预算确定后再填充。
@@ -369,12 +388,19 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     if (!content) continue
     if (block.position === 'in_chat') {
       injections.push({
-        piece: { ...piece(block.id, block.name, block.role, content), depth: block.depth },
+        piece: {
+          ...piece(block.id, block.name, block.role, content),
+          labelCode: `preset:${block.id}`,
+          depth: block.depth,
+        },
         depth: block.depth,
         order: block.order,
       })
     } else {
-      slots.push({ kind: 'piece', piece: piece(block.id, block.name, block.role, content) })
+      slots.push({
+        kind: 'piece',
+        piece: { ...piece(block.id, block.name, block.role, content), labelCode: `preset:${block.id}` },
+      })
       if (['char_description', 'char_personality', 'scenario', 'wi_after'].includes(block.id))
         stageAnchor = slots.length
     }
@@ -417,7 +443,8 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     for (const raw of rawBlocks) {
       const messages: Piece[] = []
       const start = macro(utility.newExampleChat)
-      if (start) messages.push({ ...piece('examples', '示例对话标记', 'system', start), example: true })
+      if (start)
+        messages.push({ ...piece('examples', '示例对话标记', 'system', start, 'example_start'), example: true })
       for (const parsed of parseExample(
         raw,
         input.persona.name,
@@ -428,7 +455,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
         if (!content) continue
         const name = parsed.role === 'user' ? input.persona.name : speaker.name
         messages.push({
-          ...piece('examples', '示例对话', parsed.role, content),
+          ...piece('examples', '示例对话', parsed.role, content, 'examples'),
           message: applyName({ role: parsed.role, content }, name, behavior, group !== null),
           example: true,
         })
@@ -446,6 +473,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
       [worldText('before_an'), input.chat.authorNote, worldText('after_an')].filter(Boolean).join('\n'),
       input.chat.authorNoteDepth,
       0,
+      'author_note',
     )
   }
   addInjection(
@@ -455,6 +483,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     speaker.extras.characterNote,
     speaker.extras.characterNoteDepth,
     0,
+    'character_note',
   )
   for (const { entry, content } of world) {
     if (entry.position === 'at_depth') {
@@ -465,6 +494,8 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
         content,
         entry.depth,
         entry.order,
+        'world_info',
+        { title: entry.comment || entry.keys[0] || '' },
       )
     }
   }
@@ -504,6 +535,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     return {
       source: 'history',
       label: '历史消息',
+      labelCode: 'history',
       messageId: message.id,
       message: output,
       imageBoundary: Boolean(message.images?.length),
@@ -513,11 +545,12 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
 
   // 【6】结尾片段也属于固定部分；续写原文保留空白，不再作宏替换或名字前缀处理。
   const ending: Piece[] = []
-  const appendEnding = (source: string, label: string, role: PromptRole, text: string) => {
+  const appendEnding = (source: string, label: string, role: PromptRole, text: string, labelCode: string) => {
     const content = macro(text)
-    if (content) ending.push(piece(source, label, role, content))
+    if (content) ending.push(piece(source, label, role, content, labelCode))
   }
-  if (group && input.type !== 'impersonate') appendEnding('nudge', '群聊提示', 'system', utility.groupNudge)
+  if (group && input.type !== 'impersonate')
+    appendEnding('nudge', '群聊提示', 'system', utility.groupNudge, 'group_nudge')
   const last = promptHistory.at(-1)
   const continuation =
     input.type === 'continue' &&
@@ -532,12 +565,14 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
       const tail = historyPiece(continuation, true)
       tail.message.role = 'assistant'
       tail.label = '续写预填充'
+      tail.labelCode = 'continue_prefill'
       ending.push(tail)
-    } else if (!behavior.continuePrefill) appendEnding('nudge', '续写提示', 'system', utility.continueNudge)
+    } else if (!behavior.continuePrefill)
+      appendEnding('nudge', '续写提示', 'system', utility.continueNudge, 'continue_nudge')
   } else if (input.type === 'impersonate') {
-    appendEnding('nudge', '代写提示', 'system', utility.impersonation)
-    appendEnding('prefill', '代写预填充', 'assistant', behavior.assistantImpersonationPrefill)
-  } else appendEnding('prefill', '回复预填充', 'assistant', behavior.assistantPrefill)
+    appendEnding('nudge', '代写提示', 'system', utility.impersonation, 'impersonate_nudge')
+    appendEnding('prefill', '代写预填充', 'assistant', behavior.assistantImpersonationPrefill, 'impersonate_prefill')
+  } else appendEnding('prefill', '回复预填充', 'assistant', behavior.assistantPrefill, 'reply_prefill')
 
   // 【4】工具调用与紧随的对应结果组成不可拆分单元，从最新单元开始连续保留。
   const hasHistory = slots.some((slot) => slot.kind === 'history')
@@ -559,7 +594,9 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   }
   const newChat = macro(group ? utility.newGroupChat : utility.newChat)
   const start =
-    newChat && rawHistory.length ? [piece('new_chat', group ? '新群聊提示' : '新对话提示', 'system', newChat)] : []
+    newChat && rawHistory.length
+      ? [piece('new_chat', group ? '新群聊提示' : '新对话提示', 'system', newChat, group ? 'new_group' : 'new_chat')]
+      : []
   const fixed = slots.flatMap((slot) => (slot.kind === 'piece' ? [slot.piece] : []))
   const keptExamples = behavior.exampleBehavior === 'keep' ? exampleBlocks.flat() : []
   let used = sum([
@@ -602,7 +639,15 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   return {
     messages,
     report: {
-      segments: ordered.map((item) => segmentOf(item, cost(item.message))),
+      segments: ordered.map((item) =>
+        segmentOf(
+          {
+            ...item,
+            labelCode: item.labelCode ?? input.injections?.find((injection) => injection.id === item.source)?.labelCode,
+          },
+          cost(item.message),
+        ),
+      ),
       totalTokens: messages.reduce((total, message) => total + cost(message), 0),
       budget,
       historyTotal: input.history.length,

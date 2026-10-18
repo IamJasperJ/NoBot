@@ -1,9 +1,9 @@
 import { toDisplayText } from '@ai-parter/core/stage'
-import type { ChoiceOption, MessageDTO } from '@ai-parter/shared'
+import type { AttachmentDTO, ChoiceOption, MessageDTO } from '@ai-parter/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { memo, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, refreshChatState, replaceMessage, resetChat, useBookmarks } from '../../api/queries'
+import { keys, refreshChatState, replaceMessage, resetChat, useBookmarks, useSetAttachmentCg } from '../../api/queries'
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -19,6 +19,7 @@ import {
   ListCheckIcon,
   LogIcon,
   RefreshIcon,
+  StarIcon,
   TrashIcon,
 } from '../../components/icons'
 import { Avatar, Button, cx, IconButton, inputClass } from '../../components/ui'
@@ -261,6 +262,7 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
             })()}
           </div>
         )}
+        {!showTaskFrame && images[imageIndex] && <CgToggle image={images[imageIndex]} />}
         {task && <Slot name="chat.message.media" props={{ chatId, message: msg }} />}
       </div>
       {editingPrompt && task && (
@@ -311,6 +313,10 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
 
   if (msg.role === 'tool')
     return <ToolMessage msg={msg} chatId={chatId} text={transformMessage(msg.content, msg, transforms)} />
+  // 旁白 / 系统消息（/sys、/roll 等命令插入的）：居中的一行，不显示角色头像和名字
+  // 带图片的系统消息（图片生成等插入的）照常按普通消息显示
+  if (msg.role === 'system' && !msg.meta.images?.length && !msg.meta.imageGen)
+    return <NarrationMessage msg={msg} chatId={chatId} />
 
   const isUser = msg.role === 'user'
   const speaker = msg.speakerId ? cast.speakers[msg.speakerId] : undefined
@@ -720,5 +726,49 @@ function Choices({
         </button>
       ))}
     </fieldset>
+  )
+}
+
+/** 图片工具栏上的星标：收进 / 移出这个角色的 CG 画廊 */
+function CgToggle({ image }: { image: AttachmentDTO }) {
+  const setCg = useSetAttachmentCg()
+  return (
+    <IconButton
+      label={image.isCg ? t('移出 CG 画廊') : t('收进 CG 画廊')}
+      disabled={setCg.isPending}
+      className={image.isCg ? 'text-amber-500' : undefined}
+      onClick={() =>
+        setCg.mutate({ id: image.id, isCg: !image.isCg }, { onError: (e) => toast.error(errorMessage(e)) })
+      }
+    >
+      <StarIcon filled={image.isCg} />
+    </IconButton>
+  )
+}
+
+/** 旁白消息：居中、无头像，悬停时右侧出现删除按钮 */
+function NarrationMessage({ msg, chatId }: { msg: MessageDTO; chatId: string }) {
+  const qc = useQueryClient()
+  return (
+    <div className="group/narration chat-column flex items-center justify-center gap-1 px-4 py-2">
+      <p className="max-w-[85%] rounded-xl bg-zinc-100/80 px-3.5 py-1.5 text-center text-[13px] leading-relaxed whitespace-pre-wrap text-zinc-600 backdrop-blur dark:bg-zinc-800/70 dark:text-zinc-300">
+        {msg.content}
+      </p>
+      <IconButton
+        label={t('删除')}
+        className="opacity-0 group-hover/narration:opacity-100 focus-visible:opacity-100"
+        onClick={async () => {
+          if (!confirm(t('删除这条消息？它后面的所有分支也会一起删除。'))) return
+          try {
+            await api.deleteMessage(msg.id)
+            await resetChat(qc, chatId)
+          } catch (e) {
+            toast.error(errorMessage(e))
+          }
+        }}
+      >
+        <TrashIcon />
+      </IconButton>
+    </div>
   )
 }

@@ -1,5 +1,6 @@
 import type { Language } from '@ai-parter/shared'
 import { create } from 'zustand'
+import { queryClient } from '../api/queryClient'
 import { en } from './en'
 
 /**
@@ -38,6 +39,7 @@ export function getLanguage(): Language {
 
 /** 切换语言（只改本地；保存到服务器由设置页调用接口） */
 export function applyLanguage(language: Language) {
+  const changed = current !== language
   current = language
   try {
     localStorage.setItem(STORAGE_KEY, language)
@@ -45,6 +47,8 @@ export function applyLanguage(language: Language) {
     // 忽略
   }
   document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN'
+  // 服务端也会翻译接口数据，必须在界面重新挂载前让所有缓存失效。
+  if (changed) void queryClient.invalidateQueries()
   useLanguage.setState({ language })
 }
 

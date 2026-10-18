@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { CommandDescription } from './quickReply'
 /**
  * 日志、扩展这类「系统」功能的类型。
  */
@@ -92,6 +93,7 @@ export type ExtensionSettingField =
   | (SettingFieldBase & { type: 'heading'; defaultCollapsed?: boolean })
 
 export interface ExtensionDTO {
+  commands?: CommandDescription[]
   id: string
   name: string
   description: string

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Section } from '../../components/form'
 import { Button, cx } from '../../components/ui'
 import { t } from '../../i18n'
+import { promptSegmentLabel, wiActivationLabel } from '../../i18n-labels'
 import { errorMessage, toast } from '../../stores/toast'
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -90,10 +91,10 @@ function isActivation(value: unknown): value is WIActivation {
     typeof value.lorebookId === 'string' &&
     typeof value.lorebookName === 'string' &&
     typeof value.comment === 'string' &&
-    typeof value.reason === 'string' &&
+    typeof value.reasonCode === 'string' &&
     typeof value.activated === 'boolean' &&
     typeof value.tokens === 'number' &&
-    (value.skippedReason === undefined || typeof value.skippedReason === 'string')
+    (value.skippedCode === undefined || typeof value.skippedCode === 'string')
   )
 }
 
@@ -130,7 +131,7 @@ export function ReportSection({ report }: { report: unknown }) {
                 className="min-w-0 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
               >
                 <div className="mb-2 flex flex-wrap gap-2 text-sm font-medium">
-                  <span>{segment.label}</span>
+                  <span>{promptSegmentLabel(segment)}</span>
                   <span className="text-zinc-500">
                     {roleLabel(segment.role)} · {segment.tokens} token
                   </span>
@@ -164,8 +165,8 @@ export function ReportSection({ report }: { report: unknown }) {
                       <td className="p-2">{entry.comment || t('（无备注）')}</td>
                       <td className="p-2">{entry.lorebookName}</td>
                       <td className="p-2">{entry.activated ? t('是') : t('否')}</td>
-                      <td className="p-2">{entry.reason || '—'}</td>
-                      <td className="p-2">{entry.skippedReason || '—'}</td>
+                      <td className="p-2">{wiActivationLabel({ ...entry, activated: true }) || '—'}</td>
+                      <td className="p-2">{entry.activated ? '—' : wiActivationLabel(entry) || '—'}</td>
                       <td className="p-2">{entry.tokens}</td>
                     </tr>
                   ))}

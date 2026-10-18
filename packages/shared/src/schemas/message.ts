@@ -23,6 +23,8 @@ export interface ToolCall {
 
 /** 消息的附加信息，存成 json */
 export interface MessageMeta {
+  /** 当前回复实际插入的世界书；沿消息树重放定时效果。 */
+  lore?: { activated: string[]; automationIds: string[] }
   model?: string
   finishReason?: string
   usage?: { promptTokens?: number; completionTokens?: number }
@@ -52,6 +54,10 @@ export interface MessageMeta {
   varsManual?: Record<string, unknown>
   /** assistant 消息正文里的舞台指令解析结果（玩法预设开启指令时才有），见 schemas/stage.ts */
   stage?: MessageStage
+  /** 自动补全演员立绘的异步状态，供数据层刷新舞台。 */
+  spriteGeneration?: 'pending' | 'done' | 'error'
+  /** CG 拍在 beats 中的下标与生成附件的对应，失败不阻塞正文播放。 */
+  cg?: { beat: number; attachmentId: string | null; status: 'pending' | 'done' | 'error'; prompt: string }[]
   /**
    * 消息附带的图片（附件 id 和原图尺寸），文件在 data/assets/attachments/。
    * 用户消息的图片会发给模型（看图）；其他角色的图片（比如生成的图片）只显示，不发给模型
@@ -119,6 +125,7 @@ export interface ImageGenMeta {
 
 /** 上传的图片附件 */
 export interface AttachmentDTO {
+  isCg?: boolean
   caption?: string
   id: string
   /** 显示用的地址 */
@@ -151,3 +158,9 @@ export const editMessageInput = z.object({
   reasoning: z.string().optional(),
 })
 export type EditMessageInput = z.infer<typeof editMessageInput>
+
+export interface CharacterCgDTO extends AttachmentDTO {
+  chatId: string
+  messageId: string
+  createdAt: number
+}

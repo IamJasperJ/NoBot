@@ -264,3 +264,19 @@ export const FolderIcon = (p: P) => (
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
   </Icon>
 )
+
+export const FilmIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4" />
+  </Icon>
+)
+
+export const StarIcon = ({ filled, ...p }: P & { filled?: boolean }) => (
+  <Icon {...p}>
+    <path
+      d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"
+      fill={filled ? 'currentColor' : 'none'}
+    />
+  </Icon>
+)

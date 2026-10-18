@@ -844,3 +844,14 @@ test.each(['normal', 'continue', 'impersonate'] as const)('end 注入在 post-hi
   )
   expect(segments[index]?.role).toBe('user')
 })
+
+test('片段携带稳定代码，预设名称保持原样，系统历史不会加发言人前缀', () => {
+  const value = minimal()
+  value.preset.prompts.unshift(custom('main', { name: '自定主提示词' }))
+  value.preset.behavior.namesBehavior = 'content'
+  value.history.push(history('roll', 'system', '2d1+3 = 5'))
+  const result = buildPrompt(value)
+  expect(result.report.segments[0]).toMatchObject({ label: '自定主提示词', labelCode: 'preset:main' })
+  expect(result.report.segments.at(-1)).toMatchObject({ labelCode: 'history', role: 'system' })
+  expect(result.messages.at(-1)).toEqual({ role: 'system', content: '2d1+3 = 5' })
+})

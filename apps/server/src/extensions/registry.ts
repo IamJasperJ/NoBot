@@ -11,6 +11,7 @@ import { env } from '../env'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { translateMetadata, translateSettingsSchema } from '../i18n/metadata'
+import { validate } from '../lib/validate'
 import { profileChatScope, selectProfile } from '../services/profiles'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
@@ -42,7 +43,7 @@ const loaded: Loaded[] = []
 const requestChat = profileChatScope
 
 function createApp(extension: Extension): Hono | undefined {
-  if (!extension.routes) return undefined
+  if (!extension.routes && !extension.commands?.length) return undefined
   const app = new Hono()
   app.use('*', async (c, next) => {
     let chatId = c.req.query('chatId') ?? ''
@@ -76,7 +77,36 @@ function createApp(extension: Extension): Hono | undefined {
     ),
   )
   app.notFound((c) => c.json({ error: { code: 'NOT_FOUND', message: t('扩展接口不存在') } }, 404))
-  extension.routes(app, {
+  for (const command of extension.commands ?? []) {
+    app.post(
+      `/commands/${command.name}`,
+      validate(
+        'json',
+        z.object({
+          chatId: z.string().nullable().optional(),
+          args: z.record(z.string(), z.string()),
+          text: z.string(),
+        }),
+      ),
+      async (c) => {
+        const body = c.req.valid('json')
+        const ctx = contextOf(extension, body.chatId ?? '')
+        for (const arg of command.args) {
+          const value = body.args[arg.name]
+          if (
+            (arg.required && value === undefined) ||
+            (value !== undefined &&
+              ((arg.type === 'number' && (!value.trim() || !Number.isFinite(Number(value)))) ||
+                (arg.type === 'boolean' && !['true', 'false'].includes(value)) ||
+                (arg.enum && !arg.enum.includes(value))))
+          )
+            throw new HttpError(400, 'INVALID_ARG', t('参数无效：{name}', { name: arg.name }))
+        }
+        return c.json({ result: (await command.run(ctx, body.args, body.text)) ?? '' })
+      },
+    )
+  }
+  extension.routes?.(app, {
     get settings() {
       return contextOf(extension, requestChat.getStore() ?? '').settings
     },
@@ -257,13 +287,14 @@ function toDTO(l: Loaded): ExtensionDTO {
   const e = l.extension
   return {
     id: e.id,
+    commands: (e.commands ?? []).map(({ run: _run, ...description }) => description),
     name: translateMetadata(e.name),
     description: translateMetadata(e.description),
     version: e.version,
     source: l.source,
     author: l.manifest?.author ?? '',
     client: { script: !!l.manifest?.client, style: !!l.manifest?.style },
-    hasRoutes: !!e.routes,
+    hasRoutes: !!e.routes || !!e.commands?.length,
     enabled: isEnabled(l),
     provides: {
       macros: Object.keys(e.macros ?? {}),
@@ -391,3 +422,20 @@ setExtensionToolsProvider((chatId = '') =>
     })),
   ),
 )
+
+/** 角色立绘生成与扩展共用真实设置和配置组连接，禁用扩展时拒绝启动。 */
+export function imageGenerationContext(chatId = '', characterId?: string): ExtensionContext {
+  const entry = loaded.find((entry) => entry.extension.id === 'image-gen' && isEnabled(entry))
+  if (!entry) throw new HttpError(400, 'IMAGE_DISABLED', t('图片生成扩展未启用'))
+  const context = contextOf(entry.extension, chatId)
+  if (!chatId && characterId) {
+    const profile = selectProfile({ characterId, groupId: null, profileId: null }).profile
+    const settings = settingsOf(entry.extension)
+    const source = settings.source ?? 'openai'
+    if (source === 'openai') settings.openaiConnectionId ||= profile?.imageConnectionId ?? ''
+    if (source === 'openrouter') settings.openrouterConnectionId ||= profile?.imageConnectionId ?? ''
+    settings.promptConnectionId ||= profile?.promptConnectionId ?? ''
+    context.settings = settings
+  }
+  return context
+}

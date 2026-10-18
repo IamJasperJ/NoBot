@@ -66,6 +66,8 @@ export interface CastMember {
    * 匹配不到（临时 NPC）时为 null，前端显示剪影或头像
    */
   characterId?: string | null
+  /** 会话级临时演员的透明立绘 */
+  spriteUrl?: string
 }
 
 export interface StageScene {
@@ -252,6 +254,7 @@ const spritesSchema = z.object({
 
 const stageSettingsSchema = z.object({
   autoBackground: z.boolean().default(true),
+  cgAuto: z.boolean().default(true),
   maxCast: z.number().int().min(1).max(5).default(3),
   focus: z.boolean().default(true),
   dim: z.number().int().min(0).max(90).default(40),

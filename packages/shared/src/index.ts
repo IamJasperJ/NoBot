@@ -21,3 +21,4 @@ export * from './sse'
 export interface ApiError {
   error: { code: string; message: string }
 }
+export * from './schemas/quickReply'

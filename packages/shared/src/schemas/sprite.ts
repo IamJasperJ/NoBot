@@ -44,3 +44,28 @@ export interface SpriteImportResult {
   /** 没导入的文件和原因，如「readme.txt：不是图片」 */
   skipped: string[]
 }
+
+/** 生成任务只接受可作为立绘名称的表情，避免异步保存阶段才发现输入错误。 */
+export const generateSpritesInput = z.object({
+  outfit: z.string().trim().max(40),
+  expressions: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(40)
+        .regex(/^[a-z0-9_-]+$/i)
+        .transform((v) => v.toLowerCase()),
+    )
+    .min(1)
+    .max(100),
+  basePrompt: z.string().trim().min(1).max(10000).optional(),
+})
+export type GenerateSpritesInput = z.infer<typeof generateSpritesInput>
+export interface SpriteJobDTO {
+  total: number
+  done: number
+  failed: number
+  status: 'pending' | 'running' | 'done' | 'error'
+}

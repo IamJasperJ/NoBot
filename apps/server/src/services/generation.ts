@@ -21,7 +21,7 @@ import { applyAutomaticBackground, loreBackgroundId } from './auto-background'
 import { replaceImageAttachments } from './caption'
 import { computeVars, loadMessage, loadPath } from './chats'
 import { classifyMessage } from './classify'
-import { assemble, type GenerationContext, loadGenerationContext } from './context'
+import { assemble, assembleWithVectors, type GenerationContext, loadGenerationContext } from './context'
 import { insertLog, logError } from './logs'
 import { applyStageParse, backfillStage, initialVars } from './stage'
 
@@ -395,12 +395,23 @@ async function generateOne(
   let lastFlush = Date.now()
 
   try {
-    const assembled = assemble(ctx, {
+    const assembled = await assembleWithVectors(ctx, {
       type: step.type,
       speakerId: speaker.id,
       leafId: step.continueTarget ? step.continueTarget.id : step.parentId,
       enabledTools,
     })
+    meta.lore = {
+      activated: assembled.report.worldInfo.filter((entry) => entry.activated).map((entry) => entry.entryId),
+      automationIds: [
+        ...new Set(
+          assembled.input.lore.entries
+            .filter((entry) => assembled.report.worldInfo.some((item) => item.entryId === entry.id && item.activated))
+            .map((entry) => entry.automationId.trim())
+            .filter(Boolean),
+        ),
+      ],
+    }
     report = assembled.report
     loreId = loreBackgroundId(assembled.report.worldInfo, ctx.loreEntries)
     const images = await resolveImages(assembled.messages, ctx.preset.samplers.imageMaxSize)
@@ -512,7 +523,7 @@ export async function* impersonate(chatId: string, signal: AbortSignal): AsyncGe
   // 群聊里代写时，{{char}} 用最后一位发言的角色
   const last = ctx.chat.activeLeafId ? loadMessage(ctx.chat.activeLeafId) : null
   const lastSpeaker = last?.speakerId && ctx.members.some((m) => m.id === last.speakerId) ? last.speakerId : null
-  const { messages: prompt, report } = assemble(ctx, {
+  const { messages: prompt, report } = await assembleWithVectors(ctx, {
     type: 'impersonate',
     speakerId: lastSpeaker ?? (ctx.members[0]?.id as string),
     leafId: ctx.chat.activeLeafId,

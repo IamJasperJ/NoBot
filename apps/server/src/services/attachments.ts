@@ -1,11 +1,11 @@
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AttachmentDTO, ChatMessage } from '@ai-parter/shared'
+import type { AttachmentDTO, CharacterCgDTO, ChatMessage } from '@ai-parter/shared'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
-import { ulid } from 'ulid'
+import { decodeTime, ulid } from 'ulid'
 import { db } from '../db/client'
-import { messages } from '../db/schema'
+import { chats, messages } from '../db/schema'
 import { paths } from '../env'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
@@ -58,6 +58,7 @@ export function getAttachment(id: string): AttachmentDTO {
       url: `/api/assets/attachments/${id}.webp`,
       width: data.width,
       height: data.height,
+      ...('isCg' in data && typeof data.isCg === 'boolean' ? { isCg: data.isCg } : {}),
       ...('caption' in data && typeof data.caption === 'string' ? { caption: data.caption } : {}),
     }
   } catch {
@@ -66,7 +67,18 @@ export function getAttachment(id: string): AttachmentDTO {
 }
 
 export async function setAttachmentCaption(id: string, caption: string): Promise<AttachmentDTO> {
-  const attachment = { ...getAttachment(id), caption }
+  return updateAttachment(id, { caption })
+}
+
+export async function setAttachmentCg(id: string, isCg: boolean): Promise<AttachmentDTO> {
+  return updateAttachment(id, { isCg })
+}
+
+async function updateAttachment(
+  id: string,
+  patch: Partial<Pick<AttachmentDTO, 'caption' | 'isCg'>>,
+): Promise<AttachmentDTO> {
+  const attachment = { ...getAttachment(id), ...patch }
   await Bun.write(join(paths.attachments, `${id}.json`), JSON.stringify(attachment))
   db.transaction(() => {
     for (const row of db.select().from(messages).all()) {
@@ -75,7 +87,7 @@ export async function setAttachmentCaption(id: string, caption: string): Promise
         .set({
           meta: {
             ...row.meta,
-            images: row.meta.images.map((image) => (image.id === id ? { ...image, caption } : image)),
+            images: row.meta.images.map((image) => (image.id === id ? { ...image, ...patch } : image)),
           },
         })
         .where(eq(messages.id, row.id))
@@ -115,4 +127,37 @@ export function redactImages(body: Record<string, unknown>, images: Map<string, 
   return JSON.parse(
     JSON.stringify(body, (_key, value: unknown) => (typeof value === 'string' ? (ids.get(value) ?? value) : value)),
   ) as Record<string, unknown>
+}
+
+/** 单聊归会话角色，群聊严格按发言者归属；包含分支中已经解锁的 CG。 */
+export function characterCgs(characterId: string): CharacterCgDTO[] {
+  const owners = new Map(
+    db
+      .select()
+      .from(chats)
+      .all()
+      .map((chat) => [chat.id, chat]),
+  )
+  return db
+    .select()
+    .from(messages)
+    .all()
+    .filter((message) => {
+      const chat = owners.get(message.chatId)
+      return chat && (chat.groupId ? message.speakerId === characterId : chat.characterId === characterId)
+    })
+    .flatMap((message) =>
+      (message.meta.images ?? [])
+        .filter((image) => image.isCg)
+        .map((image) => {
+          let createdAt = message.createdAt
+          try {
+            createdAt = decodeTime(image.id)
+          } catch {
+            /* 非 ULID 的历史附件使用消息时间。 */
+          }
+          return { ...image, chatId: message.chatId, messageId: message.id, createdAt }
+        }),
+    )
+    .sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id))
 }

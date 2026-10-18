@@ -2,8 +2,8 @@ import { type WorldInfoSettings, worldInfoSettingsSchema } from '@ai-parter/shar
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../api/client'
-import { keys } from '../../api/queries'
-import { NumberField, Section, SelectField, SwitchField } from '../../components/form'
+import { keys, useConnections } from '../../api/queries'
+import { NumberField, Section, SelectField, SwitchField, TextField } from '../../components/form'
 import { DetailHeader } from '../../components/layout'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
@@ -19,6 +19,7 @@ export function SettingsEditor({
   onBack: () => void
 }) {
   const qc = useQueryClient()
+  const connections = useConnections()
   const [base, setBase] = useState(settings)
   const [draft, setDraft] = useState(() => structuredClone(settings))
   const [pending, setPending] = useState(false)
@@ -109,7 +110,7 @@ export function SettingsEditor({
           />
           <NumberField
             label={t('最大递归轮数')}
-            hint={t('限制递归扫描轮数，0 表示不额外限制，实际最多 10 轮。')}
+            hint={t('限制递归扫描轮数，0 表示扫描至收敛。')}
             value={draft.maxRecursionSteps}
             onChange={(v) => set('maxRecursionSteps', v)}
             min={0}
@@ -130,12 +131,80 @@ export function SettingsEditor({
           />
           <NumberField
             label={t('最少激活数')}
-            hint={t('期望至少激活的条目数量；目前仅保存设置，扫描时暂不生效。')}
-            notImplemented
+            hint={t('期望至少激活的条目数量；不足时扩大扫描深度。')}
             value={draft.minActivations}
             onChange={(v) => set('minActivations', v)}
             min={0}
             max={Number.MAX_SAFE_INTEGER}
+            slider={false}
+          />
+          <NumberField
+            label={t('最大扫描深度')}
+            hint={t('为凑够「最少激活数」往前扫描的最多消息数，0 表示可以扫到最早的消息')}
+            value={draft.maxDepth}
+            onChange={(v) => set('maxDepth', Math.round(v))}
+            min={0}
+            max={1000}
+            slider={false}
+          />
+        </Section>
+        <Section
+          dense
+          title={t('向量匹配')}
+          description={t('按意思相近触发条目（对应酒馆的 Vector Storage），只对勾了「向量匹配」的条目生效')}
+        >
+          <SwitchField
+            label={t('启用向量匹配')}
+            hint={t('每次生成会把最近几条消息和条目内容做向量比较；条目内容的向量会缓存，改了才重新计算')}
+            checked={draft.vectorEnabled}
+            onChange={(v) => set('vectorEnabled', v)}
+          />
+          <SelectField
+            label={t('向量接口')}
+            hint={t('用哪个连接的 /embeddings 接口（OpenAI 兼容）')}
+            disabled={!draft.vectorEnabled}
+            value={draft.embeddingConnectionId ?? ''}
+            onChange={(v) => set('embeddingConnectionId', v || null)}
+            options={[
+              { value: '', label: t('选择连接') },
+              ...(connections.data ?? []).map((c) => ({ value: c.id, label: c.name })),
+            ]}
+          />
+          <TextField
+            label={t('向量模型')}
+            hint={t('例如 text-embedding-3-small；换模型后所有条目会重新计算')}
+            disabled={!draft.vectorEnabled}
+            value={draft.embeddingModel}
+            onChange={(v) => set('embeddingModel', v.trim())}
+          />
+          <NumberField
+            label={t('相似度阈值')}
+            hint={t('0–1，越高越严格。一般 0.2–0.4')}
+            disabled={!draft.vectorEnabled}
+            value={draft.vectorThreshold}
+            onChange={(v) => set('vectorThreshold', v)}
+            min={0}
+            max={1}
+            step={0.05}
+          />
+          <NumberField
+            label={t('最多命中条目')}
+            hint={t('每次最多按向量触发几条，0 表示不限')}
+            disabled={!draft.vectorEnabled}
+            value={draft.vectorMaxEntries}
+            onChange={(v) => set('vectorMaxEntries', Math.round(v))}
+            min={0}
+            max={100}
+            slider={false}
+          />
+          <NumberField
+            label={t('查询用的消息数')}
+            hint={t('拿最近几条消息去比较')}
+            disabled={!draft.vectorEnabled}
+            value={draft.vectorQueryMessages}
+            onChange={(v) => set('vectorQueryMessages', Math.round(v))}
+            min={1}
+            max={20}
             slider={false}
           />
         </Section>

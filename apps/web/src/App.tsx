@@ -29,6 +29,7 @@ import { PersonasPage } from './features/personas/PersonasPage'
 import { PresetsPage } from './features/presets/PresetsPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { useMobile } from './hooks/useMobile'
+import { useQuickReplyAutomation } from './hooks/useQuickReplyAutomation'
 import { t } from './i18n'
 import { useAppearance } from './stores/appearance'
 import { useToasts } from './stores/toast'
@@ -207,6 +208,7 @@ function PanelContent({ view }: { view: View }) {
 }
 
 export function App() {
+  useQuickReplyAutomation()
   const qc = useQueryClient()
   useEffect(() => {
     void loadExtensions(qc)

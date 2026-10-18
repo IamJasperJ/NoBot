@@ -1,7 +1,9 @@
+import { parseStateSchema } from '@ai-parter/core/stage'
 import { type PlayPresetData, playPresetDataSchema, type StateSchema } from '@ai-parter/shared'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { playPresets } from '../db/schema'
 import { t } from '../i18n'
+import { en } from '../i18n/en'
 import { SETTING_KEYS } from './settings'
 
 function galgame(): StateSchema {
@@ -187,4 +189,20 @@ export function restoreBuiltinPlayPresets(): number {
 /** 把内置预设的名字和全部设置恢复成内置默认；不是内置预设时返回 null */
 export function builtinDefinition(key: string | null) {
   return BUILTIN_PLAY_PRESETS.find((def) => def.key === key) ?? null
+}
+
+/** 只转换同一内置字段的默认标签，不覆盖用户自定义字段或改名，也不回写数据库。 */
+export function translateBuiltinStateLabels(key: string | null, data: PlayPresetData): PlayPresetData {
+  const definition = builtinDefinition(key)
+  if (!definition || !data.state.schema.trim()) return data
+  const defaults = parseStateSchema(definition.build().state.schema).schema
+  const parsed = parseStateSchema(data.state.schema)
+  if (parsed.error) return data
+  for (const [field, value] of Object.entries(parsed.schema)) {
+    const defaultLabel = defaults[field]?.label
+    if (!defaultLabel) continue
+    const zh = Object.entries(en).find(([key, english]) => key === defaultLabel || english === defaultLabel)?.[0]
+    if (zh && (value.label === zh || value.label === en[zh])) value.label = t(zh)
+  }
+  return { ...data, state: { ...data.state, schema: JSON.stringify(parsed.schema, null, 2) } }
 }

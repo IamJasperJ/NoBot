@@ -100,6 +100,17 @@ export const lorebookEntries = sqliteTable(
   (t) => [index('lorebook_entries_book_idx').on(t.lorebookId, t.sort)],
 )
 
+/** 内容和模型共同决定缓存；连接也纳入标识，避免同名模型来自不同供应商。 */
+export const lorebookVectors = sqliteTable('lorebook_vectors', {
+  key: text('key').primaryKey(),
+  entryId: text('entry_id')
+    .notNull()
+    .references(() => lorebookEntries.id, { onDelete: 'cascade' }),
+  contentHash: text('content_hash').notNull(),
+  model: text('model').notNull(),
+  vector: text('vector', { mode: 'json' }).$type<number[]>().notNull(),
+})
+
 /** 连接配置：地址、Key、模型 */
 export const apiPresets = sqliteTable('api_presets', {
   id: text('id').primaryKey(),

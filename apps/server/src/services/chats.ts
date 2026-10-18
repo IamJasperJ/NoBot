@@ -34,6 +34,7 @@ import { deleteBackground, getBackgroundSettings, requireBackground } from './ba
 import { isGenerating } from './generation'
 import { getPlayPreset } from './playPresets'
 import { getProfile } from './profiles'
+import { quickReplyScope, setQuickReplyScope } from './quick-replies'
 import { SETTING_KEYS } from './settings'
 import {
   applyStageParse,
@@ -165,6 +166,7 @@ function chatLorebookIds(chatId: string): string[] {
 function toDTO(row: ChatRow): ChatDTO {
   return {
     ...toSummary(row),
+    quickReplySetIds: quickReplyScope('chat', row.id),
     backgroundId: row.backgroundId,
     backgroundPinned: row.backgroundPinned,
     autoBackground: row.autoBackground,
@@ -406,8 +408,9 @@ export function updateChat(chatId: string, input: UpdateChatInput): ChatDTO {
   if (input.profileId != null) getProfile(input.profileId)
   if (input.playPresetId != null) getPlayPreset(input.playPresetId)
   if (input.backgroundId != null) requireBackground(input.backgroundId)
-  const { lorebookIds, ...rest } = input
+  const { lorebookIds, quickReplySetIds, ...rest } = input
   db.transaction((tx) => {
+    if (quickReplySetIds) setQuickReplyScope('chat', chatId, quickReplySetIds)
     tx.update(chats)
       .set({ ...rest, updatedAt: Date.now() })
       .where(eq(chats.id, chatId))

@@ -5,9 +5,12 @@ import { HttpError } from '../errors'
 import { t } from '../i18n'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'
+import { spriteJob, startSpriteJob } from '../services/sprite-generation'
 import * as service from '../services/sprites'
 
 export const spriteRoutes = new Hono()
+  .post('/generate', async (c) => c.json(await startSpriteJob(c.req.param('id')!, await c.req.json())))
+  .get('/generate/:jobId', (c) => c.json(spriteJob(c.req.param('id')!, c.req.param('jobId'))))
   .get('/', (c) => c.json(service.listSprites(c.req.param('id')!)))
   .post('/', async (c) => {
     const body = await c.req.parseBody({ all: true })

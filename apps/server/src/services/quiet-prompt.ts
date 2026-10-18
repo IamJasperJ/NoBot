@@ -5,7 +5,7 @@ import { buildRequestBody, chatCompletion } from '../llm/openai'
 import { redactImages, resolveImages } from './attachments'
 import { replaceImageAttachments } from './caption'
 import { getApiPresetRow } from './connections'
-import { assemble, loadGenerationContext } from './context'
+import { assembleWithVectors, loadGenerationContext } from './context'
 import { insertLog } from './logs'
 
 /** 与扩展宿主共用静默生成，保持上下文、图片处理和日志行为一致。 */
@@ -34,13 +34,15 @@ async function requestCompletion(
     let prompt =
       'messages' in opts
         ? [...opts.messages]
-        : assemble(ctx, {
-            type: 'normal',
-            speakerId: opts.speakerId ?? ctx.members[0]?.id ?? '',
-            leafId: opts.includeHistory === false ? null : ctx.chat.activeLeafId,
-            toolsEnabled: false,
-            quiet: true,
-          }).messages
+        : (
+            await assembleWithVectors(ctx, {
+              type: 'normal',
+              speakerId: opts.speakerId ?? ctx.members[0]?.id ?? '',
+              leafId: opts.includeHistory === false ? null : ctx.chat.activeLeafId,
+              toolsEnabled: false,
+              quiet: true,
+            })
+          ).messages
     if ('instruction' in opts) prompt.push({ role: instructionRole(prompt, opts.role), content: opts.instruction })
     prompt = replaceImageAttachments(prompt, { ...connection, model })
     const images = await resolveImages(prompt, ctx.preset.samplers.imageMaxSize)

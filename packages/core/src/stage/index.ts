@@ -265,7 +265,7 @@ export interface SpriteCandidate {
  */
 export function pickSprite<T extends SpriteCandidate>(
   sprites: T[],
-  opts: { expression: string; outfit: string; fallback: string; random: boolean; seed: string; avoidId?: string },
+  opts: Parameters<typeof spriteHelpers.pickSprite>[1],
 ): T | null {
   return spriteHelpers.pickSprite(sprites, opts)
 }
@@ -289,4 +289,5 @@ export function stateStageName(stages: [number, string][] | undefined, value: un
 }
 
 export { resolveBackgroundId } from './backgrounds'
+export { EXPRESSION_TAGS, removeSpriteBackground, spritePrompt } from './image'
 export { renderDirectiveReminder } from './instructions'

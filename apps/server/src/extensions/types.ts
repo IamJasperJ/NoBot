@@ -5,6 +5,7 @@ import type {
   CharacterDTO,
   ChatDTO,
   ChatMessage,
+  CommandDescription,
   ExtensionSettingField,
   MessageDTO,
   MessageMeta,
@@ -168,6 +169,10 @@ export interface Extension {
   /** 宏：名字（小写）→ 处理函数，参数是 {{名字::参数}} 里 :: 之后的部分 */
   macros?: Record<string, (arg: string, ctx: ExtensionContext) => string>
   tools?: ToolDefinition[] | ((ctx: ExtensionContext) => ToolDefinition[])
+  commands?: (CommandDescription & {
+    // biome-ignore lint/suspicious/noConfusingVoidType: 命令允许只产生副作用，保持扩展实现的 void 返回类型。
+    run: (ctx: ExtensionContext, args: Record<string, string>, text: string) => Promise<string | void>
+  })[]
   hooks?: ExtensionHooks
   /**
    * 自定义后端接口：在传入的 Hono 子应用上注册路由，挂载在 /api/ext/<扩展 id>/ 下。

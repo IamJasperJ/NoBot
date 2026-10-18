@@ -1,4 +1,3 @@
-import { pickSprite } from '@ai-parter/core/stage'
 import type { CastMember, PlayPresetData, SpriteDTO, StagePosition, StageState } from '@ai-parter/shared'
 import { useQueries } from '@tanstack/react-query'
 import { type ReactNode, useMemo, useRef } from 'react'
@@ -9,6 +8,7 @@ import { t } from '../../i18n'
 import { type SpriteAdjust, useSpriteLayout } from '../../stores/spriteLayout'
 import { useOpaqueBox } from './opaqueBox'
 import { spriteGesture } from './spriteGesture'
+import { usePreviousSprites } from './usePreviousSprites'
 
 /**
  * VN 的立绘层：台上的人按站位排开，脚底贴着对话框上沿。
@@ -38,6 +38,7 @@ export function VnStage({
   speakerKey,
   avatars,
   seed,
+  beatKey,
   mobile,
   adjusting,
 }: {
@@ -49,6 +50,8 @@ export function VnStage({
   avatars: Record<string, string | null>
   /** 多张立绘时稳定随机的种子（用消息 id，同一条消息不会来回换图） */
   seed: string
+  /** 当前这一拍（换拍时「重复表情换一张」才重新挑图） */
+  beatKey: string
   mobile: boolean
   /** 正在调整立绘：可以拖动、缩放，不变暗 */
   adjusting: boolean
@@ -81,6 +84,24 @@ export function VnStage({
   const dim = play.stage.focus && speakerKey && !adjusting ? play.stage.dim / 100 : 0
   const scale = (play.stage.spriteScale / 100) * (layout?.all ?? 1)
 
+  const selectedSprites = usePreviousSprites<SpriteDTO>(
+    chatId,
+    beatKey,
+    cast.map((m) => ({
+      key: m.key,
+      sprites: m.characterId ? (byCharacter.get(m.characterId) ?? []) : [],
+      options: {
+        expression: m.expression,
+        // 手动选的服装（「+」菜单里切换）优先于剧情里写的
+        outfit: (m.characterId ? outfits?.[m.characterId] : undefined) ?? m.outfit ?? '',
+        fallback: play.sprites.fallback,
+        random: play.sprites.randomMultiple,
+        rerollSame: play.sprites.rerollSame,
+        seed: `${seed}:${m.key}`,
+      },
+    })),
+  )
+
   return (
     <div
       ref={root}
@@ -89,19 +110,13 @@ export function VnStage({
       className={cx('absolute inset-0', adjusting ? 'pointer-events-auto' : 'pointer-events-none')}
     >
       {cast.map((m, i) => {
-        const sprite = m.characterId
-          ? pickSprite(byCharacter.get(m.characterId) ?? [], {
-              expression: m.expression,
-              // 手动选的服装（「+」菜单里切换）优先于剧情里写的
-              outfit: (m.characterId ? outfits?.[m.characterId] : undefined) ?? m.outfit ?? '',
-              fallback: play.sprites.fallback,
-              random: play.sprites.randomMultiple,
-              seed: `${seed}:${m.key}`,
-            })
-          : null
+        const sprite = selectedSprites[m.key] ?? null
         const avatar = m.characterId ? avatars[m.characterId] : null
+        // 没有立绘集的演员：unknownActor = generate 时后端会给他生成一张临时立绘（spriteUrl）
+        const generated = !sprite && m.spriteUrl ? m.spriteUrl : null
         const focused = !speakerKey || m.key === speakerKey || adjusting
-        if (!sprite && !(play.sprites.avatarFallback && avatar) && play.stage.unknownActor === 'hide') return null
+        if (!sprite && !generated && !(play.sprites.avatarFallback && avatar) && play.stage.unknownActor === 'hide')
+          return null
         const adjust = layout?.actors[m.key]
         return (
           <Actor
@@ -112,7 +127,7 @@ export function VnStage({
             root={root}
             adjust={adjust}
             adjusting={adjusting}
-            src={sprite?.url}
+            src={sprite?.url ?? generated ?? undefined}
             style={{
               left: `${adjust?.x ?? spread(m, i)}%`,
               bottom: `${-(adjust?.y ?? 0)}%`,
@@ -127,6 +142,14 @@ export function VnStage({
               <img
                 key={sprite.id}
                 src={sprite.url}
+                alt=""
+                draggable={false}
+                className="vn-fade h-full w-auto max-w-none object-contain object-bottom drop-shadow-[0_10px_30px_rgb(0_0_0/0.35)]"
+              />
+            ) : generated ? (
+              <img
+                key={generated}
+                src={generated}
                 alt=""
                 draggable={false}
                 className="vn-fade h-full w-auto max-w-none object-contain object-bottom drop-shadow-[0_10px_30px_rgb(0_0_0/0.35)]"

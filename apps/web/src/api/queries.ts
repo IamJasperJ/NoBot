@@ -8,6 +8,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { api } from './client'
 
 /** 所有缓存的 key 集中在这里，避免拼错。改了数据后用 invalidateQueries 刷新对应的 key */
@@ -20,6 +21,8 @@ export const keys = {
   connections: ['connections'] as const,
   presets: ['presets'] as const,
   playPresets: ['playPresets'] as const,
+  characterCgs: (characterId: string) => ['characterCgs', characterId] as const,
+  spriteJob: (characterId: string, jobId: string) => ['spriteJob', characterId, jobId] as const,
   sprites: (characterId: string) => ['sprites', characterId] as const,
   bookmarks: (chatId: string) => ['bookmarks', chatId] as const,
   personas: ['personas'] as const,
@@ -147,15 +150,44 @@ export const useChats = (owner: { characterId?: string; groupId?: string } | nul
  * 会话消息分页加载。pages[0] 是最新的一页，往后是越来越旧的页。
  * 消息只会被我们自己的操作改变，所以不自动重新拉取（staleTime: Infinity）。
  */
-export const useChatPages = (chatId: string | null) =>
-  useInfiniteQuery({
+export function useChatPages(chatId: string | null) {
+  const qc = useQueryClient()
+  const query = useInfiniteQuery({
     queryKey: keys.chat(chatId ?? ''),
     queryFn: ({ pageParam }) => api.getChatPage(chatId as string, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.hasMore ? last.messages[0]?.id : undefined),
     enabled: !!chatId,
     staleTime: Number.POSITIVE_INFINITY,
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) =>
+        page.messages.some(
+          (message) =>
+            message.meta.cg?.some((cg) => cg.status === 'pending') || message.meta.spriteGeneration === 'pending',
+        ),
+      )
+        ? 1000
+        : false,
   })
+  const completedSprites = query.data?.pages
+    .flatMap((page) => page.messages)
+    .filter((message) => message.meta.spriteGeneration === 'done' || message.meta.spriteGeneration === 'error')
+    .map((message) => `${message.id}:${message.meta.spriteGeneration}`)
+    .join(',')
+  const completedCgs = query.data?.pages
+    .flatMap((page) => page.messages)
+    .flatMap((message) =>
+      (message.meta.cg ?? []).filter((entry) => entry.status === 'done').map((entry) => entry.attachmentId),
+    )
+    .join(',')
+  useEffect(() => {
+    if (completedSprites) void qc.invalidateQueries({ queryKey: ['sprites'] })
+  }, [qc, completedSprites])
+  useEffect(() => {
+    if (completedCgs) void qc.invalidateQueries({ queryKey: ['characterCgs'] })
+  }, [qc, completedCgs])
+  return query
+}
 
 type ChatCache = InfiniteData<ChatPage, string | undefined>
 
@@ -277,3 +309,49 @@ export const useDeleteBackgroundFolder = () => useBackgroundLibraryMutation(api.
 export const useAddBackgroundsToFolder = () => useBackgroundLibraryMutation(api.addBackgroundsToFolder)
 export const useRemoveBackgroundsFromFolder = () => useBackgroundLibraryMutation(api.removeBackgroundsFromFolder)
 export const useBatchDeleteBackgrounds = () => useBackgroundLibraryMutation(api.batchDeleteBackgrounds)
+
+export const useCharacterCgs = (characterId: string | null | undefined) =>
+  useQuery({
+    queryKey: keys.characterCgs(characterId ?? ''),
+    queryFn: () => api.listCharacterCgs(characterId!),
+    enabled: !!characterId,
+  })
+
+export function useSetAttachmentCg() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, isCg }: { id: string; isCg: boolean }) => api.setAttachmentCg(id, isCg),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['characterCgs'] }),
+        qc.invalidateQueries({ queryKey: ['chat'] }),
+      ])
+    },
+  })
+}
+
+export function useGenerateSprites(characterId: string) {
+  return useMutation({
+    mutationFn: (input: Parameters<typeof api.generateSprites>[1]) => api.generateSprites(characterId, input),
+  })
+}
+
+/** 终态停止轮询，部分失败也要刷新，因为已成功的立绘已经入库。 */
+export function useSpriteJob(characterId: string | null | undefined, jobId: string | null | undefined) {
+  const qc = useQueryClient()
+  const query = useQuery({
+    queryKey: keys.spriteJob(characterId ?? '', jobId ?? ''),
+    queryFn: () => api.spriteJob(characterId!, jobId!),
+    enabled: !!characterId && !!jobId,
+    refetchInterval: (query) =>
+      query.state.data && ['done', 'error'].includes(query.state.data.status) ? false : 1000,
+  })
+  const status = query.data?.status
+  useEffect(() => {
+    if (characterId && (status === 'done' || status === 'error')) {
+      void qc.invalidateQueries({ queryKey: keys.sprites(characterId) })
+      void qc.invalidateQueries({ queryKey: ['chat'] })
+    }
+  }, [qc, characterId, jobId, status])
+  return query
+}

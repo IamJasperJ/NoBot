@@ -34,6 +34,7 @@ import { avatarUrl, deleteAvatar, readAvatar, saveAvatar } from '../lib/files'
 import { requireBackground } from './backgrounds'
 import { createEntry, createLorebook, getLorebookWithEntries } from './lorebooks'
 import { getProfile } from './profiles'
+import { quickReplyScope, setQuickReplyScope } from './quick-replies'
 import { saveSprite } from './sprites'
 
 export function toSummary(row: CharacterRow): CharacterSummary {
@@ -97,6 +98,7 @@ export function getCharacter(id: string): CharacterDTO {
   const row = getCharacterRow(id)
   return {
     ...toFields(row),
+    ...(quickReplyScope('character', id).length ? { quickReplySetIds: quickReplyScope('character', id) } : {}),
     id,
     avatarUrl: avatarUrl(row.avatarFile, row.updatedAt),
     extensions: row.extensions,
@@ -203,6 +205,7 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
   if (defaultBackgroundId !== null) requireBackground(defaultBackgroundId)
   checkRelations(lorebookIds, defaultPersonaId)
   return db.transaction(() => {
+    if (data.quickReplySetIds) setQuickReplyScope('character', id, data.quickReplySetIds)
     db.update(characters)
       .set({
         ...fromFields(fields),

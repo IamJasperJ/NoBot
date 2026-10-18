@@ -9,6 +9,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   EyeOffIcon,
+  FilmIcon,
   ImageIcon,
   LogIcon,
   MoveIcon,
@@ -20,11 +21,12 @@ import { useMobile } from '../../hooks/useMobile'
 import { t } from '../../i18n'
 import { useSpriteLayout } from '../../stores/spriteLayout'
 import { errorMessage, toast } from '../../stores/toast'
-import { useVn } from '../../stores/vn'
+import { useCinema, useVn } from '../../stores/vn'
 import { Composer } from '../chat/Composer'
 import { displayMacros } from '../chat/format'
 import { runGeneration } from '../chat/generate'
 import type { ChatCast } from '../chat/MessageItem'
+import { useCgRefresh } from './useCgRefresh'
 import { useVnPlayer } from './useVnPlayer'
 import { VnHud } from './VnHud'
 import { useVnImages, VnImageCard } from './VnImages'
@@ -73,6 +75,13 @@ export function VnView({
   const { beat, current, ended } = player
   const images = useVnImages(messages)
   const [saves, setSaves] = useState(false)
+  // 电影模式：上下黑边、只留字幕；默认跟玩法预设，工具栏可以临时切换（只记在这次打开的页面里）
+  const cinema = useCinema(chatId, play.stage.letterbox)
+  const toggleCinema = useVn((s) => s.toggleCinema)
+  // 这条回复的 CG 还在画：定时刷新会话，画好后自动显示
+  useCgRefresh(chatId, current)
+  // 转场时长给 CSS 用（立绘进出场、CG 淡入）；「无」就是 0
+  const transitionMs = play.stage.transition === 'none' ? 0 : play.stage.transitionMs
   // 调整立绘：拖动位置、缩放（玩法预设「允许拖动立绘」开着时才有这个入口）
   const [adjusting, setAdjusting] = useState(false)
 
@@ -182,7 +191,13 @@ export function VnView({
   const text = displayMacros(player.revealedText, { char: speakerName ?? cast.fallback.name, user: cast.user.name })
 
   return (
-    <div className="vn-view relative flex h-full min-w-0 flex-1 flex-col overflow-hidden select-none">
+    <div
+      className={cx(
+        'vn-view relative flex h-full min-w-0 flex-1 flex-col overflow-hidden select-none',
+        cinema && 'vn-cinema',
+      )}
+      style={{ ['--vn-ms' as string]: `${transitionMs}ms` }}
+    >
       {/* 点画面推进；隐藏界面时点一下恢复 */}
       <button
         type="button"
@@ -201,6 +216,7 @@ export function VnView({
           speakerKey={player.speakerKey}
           avatars={avatars}
           seed={current?.id ?? chatId}
+          beatKey={player.beatKey ?? chatId}
           mobile={mobile}
         />
       </div>
@@ -208,7 +224,7 @@ export function VnView({
       {/* 顶部：场景信息 + 操作 */}
       {!hidden && (
         <div className="relative z-10 flex items-start gap-2 p-3 pl-14 md:pl-3">
-          {(scene.place || scene.time) && (
+          {!cinema && (scene.place || scene.time) && (
             <div className="vn-chip max-w-[45%] truncate rounded-full px-3 py-1 text-xs">
               {[scene.place, scene.time].filter(Boolean).join(' · ')}
             </div>
@@ -257,6 +273,13 @@ export function VnView({
             >
               <span className="text-[11px] font-semibold">SKIP</span>
             </VnButton>
+            <VnButton
+              label={cinema ? t('退出电影模式') : t('电影模式（上下黑边，只留字幕）')}
+              active={cinema}
+              onClick={() => toggleCinema(chatId, play.stage.letterbox)}
+            >
+              <FilmIcon />
+            </VnButton>
             <VnButton label={t('隐藏界面（点画面恢复）')} onClick={() => setHidden(true)}>
               <EyeOffIcon />
             </VnButton>
@@ -268,7 +291,7 @@ export function VnView({
       )}
 
       {/* 状态面板：宽屏是角上的面板；手机 / 「顶部一行」是一行摘要 */}
-      {!hidden && showHud && !saves && !backlog && (
+      {!hidden && !cinema && showHud && !saves && !backlog && (
         <VnHud
           schema={stateSchema}
           vars={hudVars}
@@ -277,6 +300,17 @@ export function VnView({
           mobile={mobile}
           onEdit={player.pinned || !play.interaction.varEdit ? undefined : editVar}
         />
+      )}
+
+      {/* CG：盖住立绘和背景，点画面继续（推进按钮在最底层，CG 层不拦点击） */}
+      {player.cg && <VnCg cg={player.cg} />}
+
+      {/* 电影模式的上下黑边 */}
+      {cinema && (
+        <>
+          <div aria-hidden="true" className="vn-letterbox pointer-events-none absolute inset-x-0 top-0 z-[5]" />
+          <div aria-hidden="true" className="vn-letterbox pointer-events-none absolute inset-x-0 bottom-0 z-[5]" />
+        </>
       )}
 
       {/* 生成的图片：右上角浮动卡片，不挡对话框 */}
@@ -335,7 +369,18 @@ export function VnView({
       )}
 
       {/* ADV：底部对话框 */}
-      {!hidden && !nvl && (
+      {!hidden && !nvl && cinema && !player.cg && (
+        <div className="pointer-events-none relative z-10 mx-auto w-full max-w-3xl px-6 pb-[calc(var(--vn-letterbox)*0.5)] text-center">
+          {speakerName && play.dialog.nameplate && (
+            <div className="vn-subtitle-name mb-1 text-sm font-semibold">{speakerName}</div>
+          )}
+          <p className="vn-subtitle leading-relaxed whitespace-pre-wrap" style={{ fontSize: play.dialog.fontSize }}>
+            {said ? text : player.streaming ? '……' : ''}
+          </p>
+        </div>
+      )}
+
+      {!hidden && !nvl && !cinema && !player.cg && (
         <div className="pointer-events-none relative z-10 mx-auto w-full max-w-4xl px-3 pb-2 md:px-6">
           <div
             className="vn-box relative min-h-32 rounded-2xl px-5 pt-6 pb-8 md:px-7"
@@ -652,6 +697,22 @@ function Backlog({
           {list.length === 0 && <p className="text-sm opacity-60">{t('还没有对话。')}</p>}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** CG 拍：全屏显示生成的插图；还在画时显示占位 */
+function VnCg({ cg }: { cg: NonNullable<ReturnType<typeof useVnPlayer>['cg']> }) {
+  return (
+    <div className="vn-cg pointer-events-none absolute inset-0 z-[6] flex items-center justify-center bg-black">
+      {cg.url ? (
+        <img key={cg.url} src={cg.url} alt={cg.prompt} className="vn-cg-image size-full object-contain" />
+      ) : (
+        <div className="flex flex-col items-center gap-3 text-sm text-white/70">
+          <span className="size-8 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+          {t('正在绘制 CG…')}
+        </div>
+      )}
     </div>
   )
 }

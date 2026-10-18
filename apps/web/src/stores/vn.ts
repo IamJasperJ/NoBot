@@ -1,3 +1,5 @@
+import type { PlayPresetData } from '@ai-parter/shared'
+import { useEffect } from 'react'
 import { create } from 'zustand'
 
 /**
@@ -27,6 +29,8 @@ function save(key: string, value: unknown) {
 
 interface VnState {
   mode: Record<string, 'vn' | 'chat'>
+  cinema: Record<string, boolean>
+  toggleCinema: (chatId: string, presetDefault?: boolean) => void
   read: string[]
   setMode: (chatId: string, mode: 'vn' | 'chat') => void
   markRead: (keys: string[]) => void
@@ -34,6 +38,9 @@ interface VnState {
 
 export const useVn = create<VnState>((set, get) => ({
   mode: load(MODE_KEY, {}),
+  cinema: {},
+  toggleCinema: (chatId, presetDefault = false) =>
+    set({ cinema: { ...get().cinema, [chatId]: !(get().cinema[chatId] ?? presetDefault) } }),
   read: load(READ_KEY, []),
   setMode: (chatId, mode) => {
     const next = { ...get().mode, [chatId]: mode }
@@ -54,4 +61,30 @@ export const useVn = create<VnState>((set, get) => ({
 export function useVnMode(chatId: string, presetDefault: boolean): boolean {
   const chosen = useVn((s) => s.mode[chatId])
   return chosen ? chosen === 'vn' : presetDefault
+}
+
+/** 临时电影模式只在内存中按会话记录，尚未切换时跟随当前玩法预设。 */
+export function useCinema(chatId: string, presetDefault: boolean): boolean {
+  return useVn((state) => state.cinema[chatId] ?? presetDefault)
+}
+
+/**
+ * 背景切换的转场：聊天页按当前会话的玩法预设设置，Background 组件读取。
+ * dissolve：新图在旧图上面淡入（交叉溶解）；fade：旧图淡出到黑、新图淡入；none：直接切换
+ */
+export interface StageTransition {
+  kind: 'none' | 'fade' | 'dissolve'
+  ms: number
+}
+export const useStageTransition = create<{ value: StageTransition; set: (value: StageTransition) => void }>((set) => ({
+  value: { kind: 'dissolve', ms: 300 },
+  set: (value) => set({ value }),
+}))
+
+/** 按当前会话预设同步全局背景转场；关闭舞台指令时恢复默认值。 */
+export function useSyncStageTransition(play: PlayPresetData | undefined) {
+  const set = useStageTransition((state) => state.set)
+  const kind = play?.directives.enabled ? play.stage.transition : 'dissolve'
+  const ms = play?.directives.enabled ? play.stage.transitionMs : 300
+  useEffect(() => set({ kind, ms }), [set, kind, ms])
 }

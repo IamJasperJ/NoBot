@@ -4,7 +4,6 @@ import { generationTypeSchema } from './preset'
 
 /**
  * 世界书（Lorebook / World Info）。对照酒馆的世界书条目字段设计，
- * 标了「未实现」的字段会保存、会导入导出，但扫描时暂不生效。
  */
 
 /** 插入位置 */
@@ -85,13 +84,13 @@ export const lorebookEntryDataSchema = z.object({
   /** 组内优先：按 order 最大的保留，而不是按权重随机 */
   groupPrioritize: z.boolean().default(false),
   groupWeight: z.number().int().min(1).default(100),
-  /** 组内计分。未实现 */
+  /** 组内计分 */
   groupScoring: z.boolean().default(false),
   /** 延迟：聊天里至少有这么多条消息才能触发 */
   delay: z.number().int().min(0).default(0),
-  /** 粘滞：触发后持续生效 N 条消息。未实现 */
+  /** 粘滞：触发后持续生效 N 条消息 */
   sticky: z.number().int().min(0).default(0),
-  /** 冷却：触发后 N 条消息内不能再触发。未实现 */
+  /** 冷却：触发后 N 条消息内不能再触发 */
   cooldown: z.number().int().min(0).default(0),
   /** 角色过滤：只对这些角色名生效（exclude 为 true 时反过来） */
   characterFilter: z
@@ -103,9 +102,9 @@ export const lorebookEntryDataSchema = z.object({
   outletName: z.string().default(''),
   /** 额外的匹配来源 */
   matchSources: z.array(matchSourceSchema).default([]),
-  /** 自动化 ID（配合快捷回复脚本）。未实现 */
+  /** 自动化 ID（配合快捷回复脚本） */
   automationId: z.string().default(''),
-  /** 向量匹配。未实现 */
+  /** 向量匹配 */
   vectorized: z.boolean().default(false),
 })
 export type LorebookEntryData = z.infer<typeof lorebookEntryDataSchema>
@@ -142,14 +141,22 @@ export const worldInfoSettingsSchema = z.object({
   /** 扫描时给每条消息加上发言人名字前缀 */
   includeNames: z.boolean().default(true),
   recursive: z.boolean().default(true),
-  /** 最多递归几轮，0 表示不限（实际最多 10 轮） */
+  /** 最多递归几轮，0 表示不限 */
   maxRecursionSteps: z.number().int().min(0).max(10).default(3),
   caseSensitive: z.boolean().default(false),
   matchWholeWords: z.boolean().default(true),
   /** 多个来源的条目怎么排：均匀排序 / 角色优先 / 全局优先 */
   insertionStrategy: z.enum(['evenly', 'character_first', 'global_first']).default('character_first'),
-  /** 最少激活数。未实现 */
+  /** 最少激活数 */
   minActivations: z.number().int().min(0).default(0),
+  /** 扩大扫描的最大深度，0 表示扫描全部历史 */
+  maxDepth: z.number().int().min(0).max(1000).default(0),
+  vectorEnabled: z.boolean().default(false),
+  embeddingConnectionId: z.string().nullable().default(null),
+  embeddingModel: z.string().default(''),
+  vectorThreshold: z.number().min(0).max(1).default(0.25),
+  vectorMaxEntries: z.number().int().min(0).default(5),
+  vectorQueryMessages: z.number().int().min(1).default(2),
 })
 export type WorldInfoSettings = z.infer<typeof worldInfoSettingsSchema>
 
@@ -161,9 +168,13 @@ export interface WIActivation {
   comment: string
   position: WIPosition
   /** 触发原因：常驻 / 命中的关键词 / 递归 */
-  reason: string
+  reasonCode: 'none' | 'constant' | 'sticky' | 'vector' | 'keyword' | 'recursive'
+  reasonParams?: { key: string }
   activated: boolean
   /** 没有插入时的原因：预算、概率、包含组…… */
-  skippedReason?: string
+  skippedCode?: 'no_match' | 'cooldown' | 'budget' | 'probability' | 'group' | 'delay'
+  skippedParams?: { group: string }
+  /** 是否因世界书预算被淘汰 */
+  dropped?: boolean
   tokens: number
 }

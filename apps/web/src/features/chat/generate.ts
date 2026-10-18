@@ -1,7 +1,14 @@
-import { type GenerateEvent, type GenerateInput, type ImpersonateEvent, parseSSE } from '@ai-parter/shared'
+import {
+  type GenerateEvent,
+  type GenerateInput,
+  type ImpersonateEvent,
+  type MessageDTO,
+  parseSSE,
+} from '@ai-parter/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import { readError } from '../../api/client'
 import { applyNewMessage, markIdle, refreshChatState, replaceMessage, resetChat } from '../../api/queries'
+import { emitCommandEvent } from '../../commands/events'
 import { emitClientEvent } from '../../extensions/runtime'
 import { t } from '../../i18n'
 import { useStreaming } from '../../stores/streaming'
@@ -9,6 +16,17 @@ import { toast } from '../../stores/toast'
 
 /** 正在读流的会话。同一个会话同时只读一条流，否则内容会重复 */
 const activeStreams = new Set<string>()
+const idleWaiters = new Map<string, Set<() => void>>()
+
+/** 自动执行可以排在已有生成后面，避免切换会话或命令管道占用同一条流。 */
+export function waitForGenerationIdle(chatId: string): Promise<void> {
+  if (!activeStreams.has(chatId)) return Promise.resolve()
+  return new Promise((resolve) => {
+    const waiters = idleWaiters.get(chatId) ?? new Set()
+    waiters.add(resolve)
+    idleWaiters.set(chatId, waiters)
+  })
+}
 
 /**
  * 发起生成（或重新接上进行中的生成），读取后端推送的 SSE 事件并更新界面。
@@ -21,24 +39,50 @@ const activeStreams = new Set<string>()
  *
  * 发起失败（比如没配置连接）时抛出异常，由调用方提示并恢复输入框内容。
  */
-export async function runGeneration(qc: QueryClient, chatId: string, input: GenerateInput | 'reconnect') {
+export async function runGeneration(
+  qc: QueryClient,
+  chatId: string,
+  input: GenerateInput | 'reconnect',
+  automationDepth = 0,
+) {
   if (activeStreams.has(chatId)) {
     if (input === 'reconnect') return
     throw new Error(t('这个会话正在生成中'))
   }
   activeStreams.add(chatId)
   emitClientEvent({ type: 'generation:start', chatId })
+  const completedMessages: MessageDTO[] = []
+  let userSent = false
   try {
-    await readStream(qc, chatId, input)
+    await readStream(
+      qc,
+      chatId,
+      input,
+      (message) => completedMessages.push(message),
+      () => {
+        userSent = true
+      },
+    )
   } finally {
-    emitClientEvent({ type: 'generation:complete', chatId })
     activeStreams.delete(chatId)
+    for (const resolve of idleWaiters.get(chatId) ?? []) resolve()
+    idleWaiters.delete(chatId)
+    emitClientEvent({ type: 'generation:complete', chatId })
+    if (userSent) emitCommandEvent({ type: 'onUser', chatId, depth: automationDepth })
+    if (completedMessages.length)
+      emitCommandEvent({ type: 'onAi', chatId, depth: automationDepth, messages: completedMessages })
     // 不管怎么结束的，后端这次生成都已经结束（或已断开），清掉「生成中」标记
     markIdle(qc, chatId)
   }
 }
 
-async function readStream(qc: QueryClient, chatId: string, input: GenerateInput | 'reconnect') {
+async function readStream(
+  qc: QueryClient,
+  chatId: string,
+  input: GenerateInput | 'reconnect',
+  onDone: (message: MessageDTO) => void,
+  onUser: () => void,
+) {
   const res =
     input === 'reconnect'
       ? await fetch(`/api/chats/${chatId}/stream`)
@@ -71,6 +115,7 @@ async function readStream(qc: QueryClient, chatId: string, input: GenerateInput 
       const e = JSON.parse(msg.data) as GenerateEvent
       switch (e.type) {
         case 'start': {
+          if (e.userMessage) onUser()
           // 先放用户消息，再放助手消息；父节点找不到说明缓存过期了，整页重拉
           const ok =
             (!e.userMessage || applyNewMessage(qc, chatId, e.userMessage)) &&
@@ -86,6 +131,7 @@ async function readStream(qc: QueryClient, chatId: string, input: GenerateInput 
           frame ||= requestAnimationFrame(flush)
           break
         case 'done':
+          onDone(e.message)
           cancelAnimationFrame(frame)
           flush()
           // 先把最终内容写进缓存，再清空流式状态，避免画面闪一下空白
@@ -93,6 +139,7 @@ async function readStream(qc: QueryClient, chatId: string, input: GenerateInput 
           useStreaming.getState().end()
           break
         case 'message':
+          if (e.message.role === 'user') onUser()
           if (!applyNewMessage(qc, chatId, e.message)) void resetChat(qc, chatId)
           break
         case 'error':

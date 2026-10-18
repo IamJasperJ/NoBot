@@ -252,7 +252,9 @@ export async function renderImage(
     const bytes = await imageQueue.run(
       async () => {
         stage?.('generating')
-        return (await getBackend(settings).generate({ settings, prompt, width, height }, signal)).bytes
+        const result = await getBackend(settings).generate({ settings, prompt, width, height }, signal)
+        if (result.seed !== undefined) settings.seed = result.seed
+        return result.bytes
       },
       signal,
       (position) => stage?.('queued', position),
@@ -921,4 +923,35 @@ export async function autoBackground(ctx: Context, chatId: string): Promise<void
       summary: t('自动背景生成失败：{error}', { error: errorText(error) }),
     })
   }
+}
+
+/** 为舞台资产出图，不创建独立消息，保留现有改写、风格合成及队列行为。 */
+export async function stageImage(
+  ctx: Context,
+  chatId: string,
+  prompt: string,
+  mode: 'free' | 'character',
+  characterId?: string,
+  landscape = mode === 'free',
+) {
+  const snapshot = await freeze(ctx, { chatId, mode, characterId, input: prompt, prompt })
+  const settings = snapshot.settings
+  if (settings.refineModelPrompts || mode === 'character') {
+    try {
+      await writePrompt(ctx, snapshot, undefined, settings.refineModelPrompts)
+      prompt = snapshot.rawPrompt ?? prompt
+    } catch (error) {
+      ctx.host.log({ chatId, kind: 'image', status: 'error', summary: safeError(error, settings) })
+      if (mode === 'character') throw error
+    }
+  }
+  const composed = composePrompt(settings, mode, prompt, snapshot.character)
+  settings.negativePrompt = composed.negative
+  const requested = dimensions(settings, landscape, mode)
+  const size = backendDimensions(
+    settings,
+    landscape ? Math.max(requested.width, requested.height) : Math.min(requested.width, requested.height),
+    landscape ? Math.min(requested.width, requested.height) : Math.max(requested.width, requested.height),
+  )
+  return renderImage(ctx, settings, composed.prompt, size.width, size.height, chatId)
 }

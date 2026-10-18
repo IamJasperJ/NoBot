@@ -22,10 +22,13 @@ export interface ScanMessage {
   /** 发言人名字（includeNames 时作为前缀） */
   name: string
   content: string
+  activated?: string[]
 }
 
 export interface ScanInput {
   entries: ScanEntry[]
+  vectorMatches?: readonly string[]
+  activationHistory?: readonly { activated?: readonly string[] }[]
   /** 聊天记录，从旧到新排列（调用方已去掉 system / tool 消息） */
   history: ScanMessage[]
   settings: WorldInfoSettings
@@ -35,7 +38,7 @@ export interface ScanInput {
   characterName: string
   /** 额外匹配来源的文本（条目的 matchSources 引用它们） */
   sources: Partial<Record<MatchSource, string>>
-  /** 仅参与首轮关键词扫描的虚拟文本，不计入历史深度，也不作为模型消息发送。 */
+  /** 注入扫描缓冲区的虚拟文本，不计入历史深度，也不作为模型消息发送。 */
   scanText?: string
   /** 世界书可用的 token 预算，调用方已按 settings 和上下文长度算好 */
   budget: number
@@ -51,7 +54,8 @@ export interface ActivatedEntry {
   /** 宏替换后的内容 */
   content: string
   /** 触发原因，如「常驻」「关键词：龙」「递归：龙」 */
-  reason: string
+  reasonCode: WIActivation['reasonCode']
+  reasonParams?: WIActivation['reasonParams']
   tokens: number
 }
 
@@ -63,6 +67,7 @@ export interface ScanResult {
   activated: ActivatedEntry[]
   /** 所有参与扫描的条目的结果（含没插入的原因），给 Prompt 预览用 */
   report: WIActivation[]
+  automationIds: string[]
 }
 
 /**
@@ -86,66 +91,23 @@ export function matchKey(key: string, text: string, opts: { caseSensitive: boole
   }
 
   // 关键词规则：含空格的短语不加边界，普通关键词须转义，避免被当成正则。
-  if (opts.wholeWords && !trimmed.includes(' ')) {
+  if (opts.wholeWords && !/\s/.test(trimmed)) {
     const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     return new RegExp(`(?:^|\\W)${escaped}(?:$|\\W)`, opts.caseSensitive ? '' : 'i').test(text)
   }
   return opts.caseSensitive ? text.includes(trimmed) : text.toLowerCase().includes(trimmed.toLowerCase())
 }
 
-/**
- * 扫描世界书，返回要插入的条目。规则：
- *
- * 1. 候选条目：enabled 为 true；triggers 为空或包含 input.type；
- *    characterFilter.names 为空，或（exclude=false 时）包含 characterName、（exclude=true 时）不包含；
- *    history.length >= delay。position 为 outlet 但 outletName 为空的条目跳过。
- *    sticky / cooldown / groupScoring / automationId / vectorized 暂不生效（只保存）。
- *
- * 2. 扫描文本：每个条目单独计算 ——
- *    取最后 (entry.scanDepth ?? settings.scanDepth) 条消息，includeNames 时每条写成 "\x01名字: 内容"，
- *    否则只写内容，用 "\n" 连接；再拼上 scanText 和条目 matchSources 引用的 sources 文本；
- *    递归轮次里再拼上「递归缓冲区」（之前各轮被激活、且没有 preventRecursion 的条目内容）。
- *    scanDepth 为 0 时聊天记录部分为空（只能靠常驻、额外来源和递归触发）。
- *
- * 3. 激活判定（关键词和内容都先经过 input.macro）：
- *    - constant 为 true：直接激活，reason「常驻」
- *    - 否则任一主关键词匹配（matchKey，大小写和全词取条目设置 ?? 全局设置）
- *      且通过可选过滤：secondaryKeys 为空则通过；否则按 selectiveLogic ——
- *      and_any 至少一个匹配；and_all 全部匹配；not_any 全都不匹配；not_all 不是全部都匹配
- *    - 第 0 轮（非递归）：delayUntilRecursion 的条目不参与
- *    - 递归轮：excludeRecursion 的条目不参与；且只匹配递归缓冲区里的文本（reason 写「递归：关键词」）
- *
- * 4. 概率：useProbability 为 true 且 probability < 100 时，用 seed + 条目 id 生成的可复现随机数决定是否保留；
- *    没通过的记为 skipped「概率未命中」。
- *
- * 5. 包含组：每一轮激活后，按 group（逗号分隔，trim，可属于多个组）分组；同组有多个时只留一个：
- *    组里有 groupPrioritize 的条目时留 order 最大的；否则按 groupWeight 加权随机（同样用 seed）。
- *    被淘汰的记为 skipped「包含组：组名」。常驻条目也参与包含组。
- *
- * 6. 递归：settings.recursive 为 true 时，把本轮新激活条目里没有 preventRecursion 的内容加入递归缓冲区，
- *    进入下一轮，直到没有新激活或达到 maxRecursionSteps 轮（0 表示最多 10 轮）。
- *
- * 7. 预算：全部轮次结束后，按优先级「常驻优先，然后 order 降序」依次累加 countTokens(content)，
- *    超过 budget 的条目以及之后的所有条目都记为 skipped「超出预算」（预算用尽后不再插入任何条目）。
- *
- * 8. 排序（插入顺序）：来源优先级 chat → persona → 然后按 insertionStrategy：
- *    character_first：character → global；global_first：global → character；evenly：character 和 global 同级。
- *    同级内按 order 升序；order 相同按条目在输入数组中的顺序。
- *
- * report 里每个候选条目一条：activated 为 true 表示最终插入；否则 skippedReason 说明原因
- * （没匹配到关键词的条目也要列出，skippedReason「未命中关键词」，reason 为空字符串）。
- * 不满足候选条件（禁用、触发类型、角色过滤、延迟）的条目不列入 report。
- */
+/** 扫描时逐轮结算包含组、概率和预算，只有插入成功的内容参与递归。 */
 export function scanWorldInfo(input: ScanInput): ScanResult {
   const { settings } = input
-  // 第 1 条：不符合候选条件的条目完全不进入报告。
   const candidates = input.entries.filter((entry) => {
     const filter = entry.characterFilter
     return (
       entry.enabled &&
       (entry.triggers.length === 0 || entry.triggers.includes(input.type)) &&
       (filter.names.length === 0 || filter.names.includes(input.characterName) !== filter.exclude) &&
-      input.history.length >= entry.delay &&
+      (input.activationHistory?.length ?? input.history.length) >= entry.delay &&
       (entry.position !== 'outlet' || entry.outletName !== '')
     )
   })
@@ -155,9 +117,10 @@ export function scanWorldInfo(input: ScanInput): ScanResult {
     lorebookName: entry.lorebookName,
     comment: entry.comment,
     position: entry.position,
-    reason: '',
+    reasonCode: 'none',
     activated: false,
-    skippedReason: '未命中关键词',
+    dropped: false,
+    skippedCode: 'no_match',
     tokens: 0,
   }))
   const prepared = candidates.map((entry, index) => ({
@@ -173,36 +136,62 @@ export function scanWorldInfo(input: ScanInput): ScanResult {
   const selected: Prepared[] = []
   const historyByDepth = new Map<number, string>()
   const buffer: string[] = []
-  const recursiveRounds = settings.recursive ? settings.maxRecursionSteps || 10 : 0
+  const timed = new Map(
+    candidates.map((entry) => [entry.id, timedEffect(entry, input.activationHistory ?? input.history)]),
+  )
+  const recursiveRounds = settings.recursive ? settings.maxRecursionSteps || Number.POSITIVE_INFINITY : 0
+  let recursionSteps = 0
+  let depth = settings.scanDepth
+  let state: 'initial' | 'recursive' | 'minimum' = 'initial'
+  const rank: Record<LoreSource, number> = {
+    chat: 0,
+    persona: 1,
+    character: settings.insertionStrategy === 'global_first' ? 3 : 2,
+    global: settings.insertionStrategy === 'character_first' ? 3 : 2,
+  }
+  let delayedScanPending = candidates.some((entry) => entry.delayUntilRecursion)
+  let usedText = ''
+  let exhausted = false
 
-  for (let round = 0; round <= recursiveRounds; round++) {
+  for (let round = 0; ; round++) {
+    if (state === 'recursive') delayedScanPending = false
     const activated: Prepared[] = []
     const recursiveText = buffer.join('\n')
+    // 关键词判定与组内评分必须读取完全相同的缓冲区；补扫时暂不包含递归文本。
+    const textFor = (entry: ScanEntry) => {
+      const scanDepth = entry.scanDepth ?? depth
+      let historyText = historyByDepth.get(scanDepth)
+      if (historyText === undefined) {
+        historyText = (scanDepth === 0 ? [] : input.history.slice(-scanDepth))
+          .map((message) => `\x01${settings.includeNames ? `${message.name}: ` : ''}${message.content.trim()}`)
+          .join('\n')
+        historyByDepth.set(scanDepth, historyText)
+      }
+      return [
+        historyText,
+        ...(input.scanText ? [input.scanText] : []),
+        ...entry.matchSources.map((source) => input.sources[source] ?? ''),
+        ...(state === 'recursive' ? [recursiveText] : []),
+      ].join('\n')
+    }
     for (const item of prepared) {
       const { entry, result } = item
       if (settled.has(item)) continue
-      // 第 3 条：首轮延迟与禁止递归分别只影响对应轮次。
-      if (round === 0 ? entry.delayUntilRecursion : entry.excludeRecursion) continue
-      let reason = '常驻'
-      if (!entry.constant) {
-        let text = recursiveText
-        if (round === 0) {
-          // 第 2 条：按每个条目的深度缓存聊天文本；深度为 0 不能用 slice(-0)。
-          const depth = entry.scanDepth ?? settings.scanDepth
-          let historyText = historyByDepth.get(depth)
-          if (historyText === undefined) {
-            historyText = (depth === 0 ? [] : input.history.slice(-depth))
-              .map((message) => (settings.includeNames ? `\x01${message.name}: ${message.content}` : message.content))
-              .join('\n')
-            historyByDepth.set(depth, historyText)
-          }
-          text = [
-            historyText,
-            ...(input.scanText ? [input.scanText] : []),
-            ...entry.matchSources.map((source) => input.sources[source] ?? ''),
-          ].join('\n')
-        }
-        // 第 3 条：递归轮只匹配缓冲区；主关键词与可选过滤使用同一匹配设置。
+      const effect = timed.get(entry.id)!
+      if (effect.cooldown && !effect.sticky) {
+        result.skippedCode = 'cooldown'
+        continue
+      }
+      if (!effect.sticky && (state !== 'recursive' ? entry.delayUntilRecursion : entry.excludeRecursion)) {
+        if (entry.delayUntilRecursion && state !== 'recursive') result.skippedCode = 'delay'
+        continue
+      }
+      if (result.skippedCode === 'delay') result.skippedCode = 'no_match'
+      let reason: WIActivation['reasonCode'] = 'constant'
+      if (effect.sticky) reason = 'sticky'
+      else if (entry.vectorized && input.vectorMatches?.includes(entry.id)) reason = 'vector'
+      else if (!entry.constant) {
+        const text = textFor(entry)
         const opts = {
           caseSensitive: entry.caseSensitive ?? settings.caseSensitive,
           wholeWords: entry.matchWholeWords ?? settings.matchWholeWords,
@@ -219,23 +208,13 @@ export function scanWorldInfo(input: ScanInput): ScanResult {
           }[entry.selectiveLogic]
           if (!passes) continue
         }
-        reason = `${round === 0 ? '关键词' : '递归'}：${key}`
+        reason = state === 'recursive' ? 'recursive' : 'keyword'
+        result.reasonParams = { key }
       }
-      result.reason = reason
-      // 第 4 条：每个条目使用固定种子，失败后不在后续轮次重复抽签。
-      settled.add(item)
-      if (
-        entry.useProbability &&
-        entry.probability < 100 &&
-        seededRandom(hashString(`${input.seed}|${entry.id}`))() >= entry.probability / 100
-      ) {
-        result.skippedReason = '概率未命中'
-        continue
-      }
+      result.reasonCode = reason
       activated.push(item)
     }
 
-    // 第 5 条：按输入顺序处理包含组；多组条目被任一组淘汰后不再参加后续组。
     const groups = new Map<string, Prepared[]>()
     for (const item of activated) {
       for (const group of new Set(
@@ -251,13 +230,56 @@ export function scanWorldInfo(input: ScanInput): ScanResult {
     }
     const survivors = new Set(activated)
     for (const [group, members] of groups) {
-      const competing = members.filter((item) => survivors.has(item))
+      let competing = members.filter((item) => survivors.has(item))
+      const remove = (item: Prepared) => {
+        survivors.delete(item)
+        item.result.skippedCode = 'group'
+        item.result.skippedParams = { group }
+      }
+      const sticky = competing.filter((item) => timed.get(item.entry.id)!.sticky)
+      if (sticky.length) {
+        for (const item of competing) if (!sticky.includes(item)) remove(item)
+        continue
+      }
+      if (
+        selected.some((item) =>
+          item.entry.group
+            .split(',')
+            .map((name) => name.trim())
+            .includes(group),
+        )
+      ) {
+        for (const item of competing) remove(item)
+        continue
+      }
+      const scores = competing.map((item) => {
+        const entry = item.entry
+        const text = textFor(entry)
+        const opts = {
+          caseSensitive: entry.caseSensitive ?? settings.caseSensitive,
+          wholeWords: entry.matchWholeWords ?? settings.matchWholeWords,
+        }
+        const primary = item.keys.filter((key) => matchKey(key, text, opts)).length
+        const secondary = item.secondaryKeys.filter((key) => matchKey(key, text, opts)).length
+        return item.keys.length
+          ? primary +
+              (entry.selectiveLogic === 'and_any' ||
+              (entry.selectiveLogic === 'and_all' && secondary === item.secondaryKeys.length)
+                ? secondary
+                : 0)
+          : 0
+      })
+      const maxScore = Math.max(...scores)
+      competing.forEach((item, index) => {
+        if (item.entry.groupScoring && scores[index]! < maxScore) remove(item)
+      })
+      competing = competing.filter((item) => survivors.has(item))
       if (competing.length < 2) continue
       let winner = competing[0]!
       if (competing.some((item) => item.entry.groupPrioritize)) {
-        for (const item of competing) {
-          if (item.entry.order > winner.entry.order) winner = item
-        }
+        winner = competing
+          .filter((item) => item.entry.groupPrioritize)
+          .sort((a, b) => b.entry.order - a.entry.order)[0]!
       } else {
         const total = competing.reduce((sum, item) => sum + item.entry.groupWeight, 0)
         let draw = seededRandom(hashString(`${input.seed}|group|${round}|${group}`))() * total
@@ -272,45 +294,75 @@ export function scanWorldInfo(input: ScanInput): ScanResult {
       for (const item of competing) {
         if (item === winner) continue
         survivors.delete(item)
-        item.result.skippedReason = `包含组：${group}`
+        item.result.skippedCode = 'group'
+        item.result.skippedParams = { group }
       }
     }
-    // 第 6 条：只有本轮实际保留且允许传播的内容能进入后续轮次的缓冲区。
-    if (survivors.size === 0) break
-    for (const item of survivors) {
+    const ordered = [...survivors].sort(
+      (a, b) =>
+        Number(timed.get(b.entry.id)!.sticky) - Number(timed.get(a.entry.id)!.sticky) ||
+        rank[a.entry.source] - rank[b.entry.source] ||
+        b.entry.order - a.entry.order ||
+        a.index - b.index,
+    )
+    let propagated = false
+    for (const item of ordered) {
+      const { entry, result } = item
+      settled.add(item)
+      if (
+        !timed.get(entry.id)!.sticky &&
+        entry.useProbability &&
+        seededRandom(hashString(`${input.seed}|${entry.id}`))() >= entry.probability / 100
+      ) {
+        result.skippedCode = 'probability'
+        continue
+      }
+      result.tokens = input.countTokens(item.content)
+      const next = `${usedText}${item.content}\n`
+      if (exhausted || input.countTokens(next) >= input.budget) {
+        exhausted = true
+        result.skippedCode = 'budget'
+        result.dropped = true
+        continue
+      }
+      usedText = next
       selected.push(item)
-      if (!item.entry.preventRecursion) buffer.push(item.content)
+      result.activated = true
+      delete result.skippedCode
+      delete result.skippedParams
+      if (!entry.preventRecursion) {
+        buffer.push(item.content)
+        propagated = true
+      }
     }
-  }
-
-  // 第 7 条：先常驻，再按 order 降序；遇到首个超预算条目后永久停止插入。
-  selected.sort(
-    (a, b) => Number(b.entry.constant) - Number(a.entry.constant) || b.entry.order - a.entry.order || a.index - b.index,
-  )
-  let used = 0
-  let exhausted = false
-  const inserted: Prepared[] = []
-  for (const item of selected) {
-    const tokens = exhausted ? 0 : input.countTokens(item.content)
-    if (exhausted || used + tokens > input.budget) {
-      exhausted = true
-      item.result.skippedReason = '超出预算'
+    if (exhausted) break
+    if (
+      settings.recursive &&
+      recursionSteps < recursiveRounds &&
+      (propagated || (state === 'minimum' && buffer.length > 0))
+    ) {
+      state = 'recursive'
+      recursionSteps++
       continue
     }
-    used += tokens
-    item.result.activated = true
-    item.result.tokens = tokens
-    delete item.result.skippedReason
-    inserted.push(item)
+    if (
+      selected.length < settings.minActivations &&
+      depth < Math.min(settings.maxDepth || input.history.length, input.history.length)
+    ) {
+      depth++
+      state = 'minimum'
+      continue
+    }
+    if (delayedScanPending && settings.recursive && recursionSteps < recursiveRounds) {
+      delayedScanPending = false
+      state = 'recursive'
+      recursionSteps++
+      continue
+    }
+    break
   }
+  const inserted = selected
 
-  // 第 8 条：来源同级时统一比较 order，相同 order 保持输入顺序。
-  const rank: Record<LoreSource, number> = {
-    chat: 0,
-    persona: 1,
-    character: settings.insertionStrategy === 'global_first' ? 3 : 2,
-    global: settings.insertionStrategy === 'character_first' ? 3 : 2,
-  }
   inserted.sort(
     (a, b) => rank[a.entry.source] - rank[b.entry.source] || a.entry.order - b.entry.order || a.index - b.index,
   )
@@ -318,9 +370,50 @@ export function scanWorldInfo(input: ScanInput): ScanResult {
     activated: inserted.map(({ entry, content, result }) => ({
       entry,
       content,
-      reason: result.reason,
+      reasonCode: result.reasonCode,
+      ...(result.reasonParams ? { reasonParams: result.reasonParams } : {}),
       tokens: result.tokens,
     })),
     report,
+    automationIds: [...new Set(inserted.map(({ entry }) => entry.automationId.trim()).filter(Boolean))],
   }
+}
+
+/** 重放激活路径；粘滞期间的重复激活不续期，冷却从粘滞结束后计算。 */
+export function timedEffect(
+  entry: Pick<ScanEntry, 'id' | 'sticky' | 'cooldown'>,
+  history: readonly { activated?: readonly string[] }[],
+) {
+  let start = -1
+  for (let index = 0; index < history.length; index++) {
+    if (!history[index]?.activated?.includes(entry.id)) continue
+    if (start < 0 || index >= start + entry.sticky + entry.cooldown) start = index
+  }
+  const distance = history.length - start
+  return {
+    sticky: start >= 0 && distance < entry.sticky,
+    cooldown: start >= 0 && distance >= entry.sticky && distance < entry.sticky + entry.cooldown,
+  }
+}
+
+/** 余弦相似度只处理有限且维度一致的向量，零向量视为未命中。 */
+export function vectorMatches(
+  entries: readonly { id: string; vector: number[] }[],
+  query: number[],
+  threshold: number,
+  limit: number,
+): string[] {
+  return entries
+    .map(({ id, vector }) => {
+      const dot = vector.reduce((sum, value, index) => sum + value * (query[index] ?? 0), 0)
+      const norm = Math.sqrt(
+        vector.reduce((sum, value) => sum + value * value, 0) * query.reduce((sum, value) => sum + value * value, 0),
+      )
+      const score = vector.length === query.length && norm > 0 ? dot / norm : 0
+      return { id, score }
+    })
+    .filter(({ score }) => Number.isFinite(score) && score > threshold)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ id }) => id)
 }

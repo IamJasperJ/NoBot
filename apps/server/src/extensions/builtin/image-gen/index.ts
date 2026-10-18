@@ -20,6 +20,7 @@ import {
   toBackground,
 } from './pipeline'
 import { defaultSettings, parseSettings, settingsSchema } from './settings'
+import { autoActors, autoCgs } from './vn6'
 import { placeholders, workflowSource } from './workflow'
 import { workflowValidationError } from './workflow-validation'
 
@@ -36,6 +37,54 @@ const generateInput = z.object({
 const messageInput = z.object({ messageId: z.string().min(1), index: z.number().int().nonnegative().default(0) })
 export default defineExtension({
   id: 'image-gen',
+  commands: [
+    {
+      name: 'imagine',
+      aliases: ['sd'],
+      get description() {
+        return t('生成图片')
+      },
+      args: [
+        {
+          name: 'mode',
+          type: 'enum',
+          enum: ['free', 'character', 'portrait', 'face', 'user', 'last', 'raw_last', 'scene', 'background'],
+          get description() {
+            return t('生成模式')
+          },
+        },
+        {
+          name: 'character',
+          type: 'string',
+          get description() {
+            return t('角色名')
+          },
+        },
+        {
+          name: 'orientation',
+          type: 'enum',
+          enum: ['portrait', 'landscape', 'square'],
+          get description() {
+            return t('图片方向')
+          },
+        },
+      ],
+      get unnamed() {
+        return { description: t('图片描述') }
+      },
+      run: async (ctx, args, text) => {
+        // 命令没有工具消息的保存回调，使用同步路径并将图片元数据追加到会话。
+        const result = await runImageTool(
+          { ...ctx, settings: { ...ctx.settings, async: false, visibleFromTool: true } },
+          { ...args, mode: args.mode ?? 'free', ...(text ? { prompt: text } : {}) },
+        )
+        if (result.meta?.imageGen?.status === 'error') throw new Error(result.meta.imageGen.error)
+        if (result.meta?.images?.length)
+          ctx.host.appendMessage(ctx.chatId, { role: 'system', content: text, meta: result.meta })
+        return result.content
+      },
+    },
+  ],
   name: '图片生成',
   version: '1.0.0',
   description: '根据角色和聊天场景生成图片，支持 OpenAI、ComfyUI、OpenRouter 与 A1111 / Forge。',
@@ -192,6 +241,8 @@ export default defineExtension({
     onEvent(event, ctx) {
       if (event.type === 'generation:complete') {
         void autoBackground(ctx, event.chatId)
+        void autoCgs(ctx, event.chatId)
+        void autoActors(ctx, event.chatId)
         return
       }
       if (

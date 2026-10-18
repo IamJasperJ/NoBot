@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'
+import { characterCgs } from '../services/attachments'
 import * as service from '../services/characters'
 import { characterUsage } from '../services/trash'
 import { spriteRoutes } from './sprites'
@@ -27,6 +28,10 @@ export const characterRoutes = new Hono()
       `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)}`,
     )
     return c.body(new Uint8Array(file.bytes))
+  })
+  .get('/:id/cgs', (c) => {
+    service.getCharacterRow(c.req.param('id'))
+    return c.json(characterCgs(c.req.param('id')))
   })
   .get('/:id/usage', (c) => c.json(characterUsage(c.req.param('id'))))
   .get('/:id', (c) => c.json(service.getCharacter(c.req.param('id'))))

@@ -3,7 +3,8 @@ import type { QueryClient } from '@tanstack/react-query'
 import * as React from 'react'
 import { create } from 'zustand'
 import { api } from '../api/client'
-import { t } from '../i18n'
+import { registerCommand } from '../commands/registry'
+import { getLanguage, t } from '../i18n'
 import { errorMessage, toast } from '../stores/toast'
 import { useUi, type View } from '../stores/ui'
 import { BUILTIN_CLIENTS } from './builtin'
@@ -31,6 +32,8 @@ interface Running {
   active: boolean
   cleanup?: () => void
   style?: HTMLLinkElement
+  commands?: (() => void)[]
+  commandLanguage?: string
 }
 const running = new Map<string, Running>()
 
@@ -38,6 +41,7 @@ function remove(id: string) {
   const entry = running.get(id)
   if (entry) {
     entry.active = false
+    for (const dispose of entry.commands ?? []) dispose()
     try {
       entry.cleanup?.()
     } catch (e) {
@@ -91,6 +95,13 @@ function makeAPI(id: string, entry: Running, queryClient: QueryClient): ClientEx
       }
       return fetch(url, init)
     },
+    registerCommand: (command) => {
+      if (entry.active) {
+        entry.commandLanguage = getLanguage()
+        entry.commands ??= []
+        entry.commands.push(registerCommand(command))
+      }
+    },
     registerSlot: (slot, contribution) => {
       if (!entry.active) return
       useExtensionsRuntime.setState((s) => ({
@@ -130,9 +141,9 @@ function makeAPI(id: string, entry: Running, queryClient: QueryClient): ClientEx
   }
 }
 
-async function activate(extension: ExtensionDTO, queryClient: QueryClient) {
+async function activate(extension: ExtensionDTO, queryClient: QueryClient, existing?: Running) {
   const id = extension.id
-  const entry: Running = { active: true }
+  const entry: Running = existing ?? { active: true }
   running.set(id, entry)
   try {
     if (extension.client.style) {
@@ -165,7 +176,37 @@ export function loadExtensions(queryClient: QueryClient, reloadId?: string) {
     try {
       const extensions = await api.listExtensions()
       for (const id of running.keys()) {
-        if (id === reloadId || !extensions.some((x) => x.id === id && x.enabled && !x.loadError)) remove(id)
+        if (
+          id === reloadId ||
+          (running.get(id)?.commandLanguage && running.get(id)?.commandLanguage !== getLanguage()) ||
+          !extensions.some((x) => x.id === id && x.enabled && !x.loadError)
+        )
+          remove(id)
+      }
+      for (const extension of extensions) {
+        if (!extension.enabled || extension.loadError || !extension.commands?.length || running.has(extension.id))
+          continue
+        const entry: Running = { active: true, commandLanguage: getLanguage() }
+        // 后端命令也属于扩展生命周期，停用或重载时统一注销。
+        running.set(extension.id, entry)
+        try {
+          entry.commands ??= []
+          for (const command of extension.commands)
+            entry.commands.push(
+              registerCommand({
+                ...command,
+                run: async (ctx, args, text) => {
+                  const result = await api.extensionCommand(extension.id, command.name, ctx.chatId, args, text)
+                  await ctx.refresh()
+                  return result.result
+                },
+              }),
+            )
+          await activate(extension, queryClient, entry)
+        } catch (e) {
+          remove(extension.id)
+          toast.error(t('扩展 {name} 加载失败：{error}', { name: extension.name, error: errorMessage(e) }))
+        }
       }
       for (const extension of extensions) {
         if (

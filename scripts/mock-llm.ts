@@ -84,6 +84,7 @@ Bun.serve({
       '<show who="艾莉丝" at="left" />',
       '公会里人声鼎沸，冒险者们围着任务板讨论着今天的委托。',
       '艾莉丝[joy]：「你终于来啦！我还以为你忘了今天的约定呢。」',
+      '<cg prompt="1girl, tavern, warm light, smiling" />',
       '她把一杯热麦酒推到你面前，耳尖却悄悄红了。',
       '艾莉丝[embarrassment]：「……才、才不是特意等你的！」',
       '<state>',

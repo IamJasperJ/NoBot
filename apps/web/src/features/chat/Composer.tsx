@@ -7,13 +7,17 @@ import { PlusIcon, SendIcon, StopIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
+import { useCommandInput } from '../../hooks/useCommandInput'
 import { useMobile } from '../../hooks/useMobile'
 import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
+import { useCommandDrafts } from '../../stores/commandInput'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { useVn, useVnMode } from '../../stores/vn'
+import { CommandHints } from './CommandHints'
 import { runGeneration, runImpersonate } from './generate'
+import { QuickReplyBar } from './QuickReplyBar'
 
 /**
  * 输入框。Enter 发送，Shift+Enter 换行；输入框为空时按 Enter 让角色接着说。
@@ -37,7 +41,12 @@ export function Composer({
   const play = usePlayPresets().data?.find((p) => p.id === page?.playPresetId)?.data
   const inVn = useVnMode(chatId, !!play?.basic.openInVn)
   const setVnMode = useVn((s) => s.setMode)
-  const [text, setText] = useState('')
+  const text = useCommandDrafts((s) => s.drafts[chatId] ?? '')
+  const setText = (value: string | ((previous: string) => string)) =>
+    useCommandDrafts
+      .getState()
+      .set(chatId, typeof value === 'function' ? value(useCommandDrafts.getState().drafts[chatId] ?? '') : value)
+  const commandInput = useCommandInput(text)
   const [images, setImages] = useState<{ key: string; attachment?: AttachmentDTO }[]>([])
   const imagesRef = useRef(images)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -89,6 +98,18 @@ export function Composer({
 
   const send = async () => {
     if (busy || sending || images.some((image) => !image.attachment)) return
+    if (commandInput.isCommand) {
+      setSending(true)
+      try {
+        await commandInput.execute(text)
+        if (useCommandDrafts.getState().drafts[chatId] === text) setText('')
+      } catch (e) {
+        fail(e)
+      } finally {
+        setSending(false)
+      }
+      return
+    }
     const content = text
     // 输入框为空：不发用户消息，直接让角色接着说
     if (!content.trim() && !images.length) return trigger()
@@ -145,6 +166,12 @@ export function Composer({
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Tab：补全第一个候选命令
+    if (e.key === 'Tab' && commandInput.typing && commandInput.suggestions[0]) {
+      e.preventDefault()
+      setText(commandInput.complete(commandInput.suggestions[0].name))
+      return
+    }
     // isComposing：中文输入法正在选字时按回车是确认候选词，不能当成发送
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
@@ -156,6 +183,20 @@ export function Composer({
 
   return (
     <div className="composer-bar border-t border-zinc-200 bg-white/80 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
+      {!commandInput.isCommand && <QuickReplyBar chatId={chatId} disabled={busy || sending} />}
+      {commandInput.isCommand && (
+        <CommandHints
+          typing={commandInput.typing}
+          suggestions={commandInput.suggestions}
+          command={commandInput.command}
+          activeArg={commandInput.activeArg}
+          error={commandInput.error}
+          onPick={(name) => {
+            setText(commandInput.complete(name))
+            ref.current?.focus()
+          }}
+        />
+      )}
       {images.length > 0 && (
         <div className="chat-column mb-2 flex gap-2 overflow-x-auto">
           {images.map((item, index) => (

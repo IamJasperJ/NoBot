@@ -5,7 +5,7 @@ import { api } from '../../api/client'
 import { RefreshIcon, XIcon } from '../../components/icons'
 import { cx, IconButton, selectClass } from '../../components/ui'
 import { t } from '../../i18n'
-import { generationTypeLabels } from '../../i18n-labels'
+import { generationTypeLabels, promptSegmentLabel, wiActivationLabel } from '../../i18n-labels'
 import { errorMessage } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 
@@ -32,7 +32,7 @@ function Segment({ s }: { s: PromptSegment }) {
       )}
     >
       <div className="mb-1 flex items-center gap-2 text-xs text-zinc-500">
-        <span className="font-medium">{s.label}</span>
+        <span className="font-medium">{promptSegmentLabel(s)}</span>
         <span>{s.role}</span>
         {s.depth !== undefined && <span>{t('深度 {depth}', { depth: s.depth })}</span>}
         <span className="ml-auto tabular-nums">{s.tokens} token</span>
@@ -133,7 +133,17 @@ export function PromptPreview({ chatId }: { chatId: string }) {
                         {w.activated ? '✓' : '·'}
                       </span>
                       <span className="min-w-0 flex-1 truncate">{w.comment || t('（无备注）')}</span>
-                      <span className="shrink-0 text-xs text-zinc-500">{w.activated ? w.reason : w.skippedReason}</span>
+                      <span
+                        className={cx('shrink-0 text-xs', w.dropped ? 'text-amber-600' : 'text-zinc-500')}
+                        title={w.lorebookName}
+                      >
+                        {wiActivationLabel(w)}
+                      </span>
+                      {w.activated && w.tokens > 0 && (
+                        <span className="w-14 shrink-0 text-right text-xs text-zinc-400 tabular-nums">
+                          {t('{count} token', { count: w.tokens })}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

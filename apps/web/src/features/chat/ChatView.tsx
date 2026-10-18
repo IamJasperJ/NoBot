@@ -10,7 +10,7 @@ import { useChatOps } from '../../stores/chatOps'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
-import { useVnMode } from '../../stores/vn'
+import { useSyncStageTransition, useVnMode } from '../../stores/vn'
 import { VnView } from '../vn/VnView'
 import { Composer } from './Composer'
 import { runGeneration } from './generate'
@@ -51,6 +51,8 @@ export function ChatView({ chatId }: { chatId: string }) {
   // 会话里出场的人：群聊是全部成员，单人会话是那个角色；用户是会话绑定的人设（没有就用默认人设）
   const persona = personas.data?.find((p) => p.id === chat?.personaId) ?? personas.data?.find((p) => p.isDefault)
   const play = playPresets.data?.find((p) => p.id === firstPage?.playPresetId)?.data
+  // 背景转场跟着这个会话的玩法预设走
+  useSyncStageTransition(play)
   const stageCast = firstPage?.stage?.cast
   const cast = useMemo<ChatCast>(() => {
     const speakers: ChatCast['speakers'] = {}

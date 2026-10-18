@@ -1,5 +1,18 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  '参数无效：{name}': 'Invalid argument: {name}',
+  图片描述: 'Image description',
+  图片方向: 'Image orientation',
+  快速回复集: 'Quick reply set',
+  快速回复集名称重复: 'Duplicate quick reply set name',
+  掷骰表达式无效: 'Invalid dice expression',
+  生成图片: 'Generate an image',
+  生成模式: 'Generation mode',
+  角色名: 'Character name',
+  图片生成扩展未启用: 'The image generation extension is disabled',
+  该角色正在生成立绘: 'Sprites are already being generated for this character',
+  立绘生成任务: 'sprite generation job',
+  立绘外貌提示词: 'Sprite appearance prompt',
   仅列出支持图片输出的模型: 'Only list models with image output support',
   复用连接时覆盖同名请求头: 'Override headers with the same names when reusing a connection',
   'A1111 / Forge 地址': 'A1111 / Forge URL',

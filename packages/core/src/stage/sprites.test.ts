@@ -51,3 +51,19 @@ describe('立绘纯函数', () => {
     expect(extractExpressionLabel('joy', [])).toBeNull()
   })
 })
+
+test('重复表情换图遵守开关、单张兜底、服装优先与稳定随机', () => {
+  const sprites = [
+    { id: 'a', outfit: '', expression: 'joy' },
+    { id: 'b', outfit: '', expression: 'joy' },
+    { id: 'c', outfit: 'formal', expression: 'joy' },
+  ]
+  const options = { expression: 'joy', outfit: '', fallback: 'neutral', random: false, seed: 'same' }
+  expect(pickSprite(sprites, { ...options, previousId: 'a' })?.id).toBe('a')
+  expect(pickSprite(sprites, { ...options, previousId: 'a', rerollSame: true })?.id).toBe('b')
+  expect(pickSprite(sprites, { ...options, previousId: 'b', rerollSame: true })?.id).toBe('a')
+  expect(pickSprite(sprites, { ...options, outfit: 'formal', previousId: 'c', rerollSame: true })?.id).toBe('c')
+  const random = { ...options, random: true, rerollSame: true, previousId: 'a' }
+  expect(pickSprite(sprites, random)).toBe(pickSprite(sprites, random))
+  expect(pickSprite(sprites, random)?.id).toBe('b')
+})

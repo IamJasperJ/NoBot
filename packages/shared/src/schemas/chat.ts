@@ -15,6 +15,7 @@ export interface ChatSummary {
 }
 
 export interface ChatDTO extends ChatSummary {
+  quickReplySetIds?: string[]
   profileId: string | null
   personaId: string | null
   activeLeafId: string | null
@@ -69,6 +70,7 @@ export const createChatInput = z
 export type CreateChatInput = z.input<typeof createChatInput>
 
 export const updateChatInput = z.object({
+  quickReplySetIds: z.array(z.string()).optional(),
   profileId: z.string().nullable().optional(),
   title: z.string().trim().min(1).optional(),
   personaId: z.string().nullable().optional(),

@@ -8,6 +8,7 @@ import type {
   BackgroundFolderInput,
   BackgroundSettings,
   BookmarkDTO,
+  CharacterCgDTO,
   CharacterDTO,
   CharacterImportLorebook,
   CharacterImportPreview,
@@ -19,6 +20,7 @@ import type {
   ChatSummary,
   CreateChatInput,
   ExtensionDTO,
+  GenerateSpritesInput,
   GenerationLogDTO,
   GenerationLogSummary,
   GenerationType,
@@ -39,9 +41,13 @@ import type {
   ProfileInput,
   PromptPresetDTO,
   PromptPreview,
+  QuickReplySet,
+  QuickReplySetInput,
+  QuickReplyState,
   ResolvedProfileDTO,
   SpriteDTO,
   SpriteImportResult,
+  SpriteJobDTO,
   StageState,
   SummaryStateDTO,
   SwipeInput,
@@ -55,6 +61,7 @@ import type {
   UsageDTO,
   WorldInfoSettings,
 } from '@ai-parter/shared'
+import { emitCommandEvent } from '../commands/events'
 import { t } from '../i18n'
 
 /** 后端返回的错误。message 是可以直接展示给用户的中文提示 */
@@ -110,6 +117,18 @@ type Ok = { ok: true }
 
 /** 所有后端接口。路径和 apps/server/API.md 一一对应 */
 export const api = {
+  listQuickReplySets: () => request<QuickReplyState>('GET', '/quick-replies'),
+  createQuickReplySet: (input: QuickReplySetInput) => request<QuickReplySet>('POST', '/quick-replies', input),
+  updateQuickReplySet: (id: string, input: QuickReplySetInput) =>
+    request<QuickReplySet>('PUT', `/quick-replies/${enc(id)}`, input),
+  deleteQuickReplySet: (id: string) => request<Ok>('DELETE', `/quick-replies/${enc(id)}`),
+  setGlobalQuickReplySets: (setIds: string[]) => request<QuickReplyState>('PUT', '/quick-replies/global', { setIds }),
+  appendMessage: (chatId: string, role: 'user' | 'system', content: string) =>
+    request<MessageDTO>('POST', `/chats/${enc(chatId)}/messages`, { role, content }),
+  roll: (chatId: string, expression: string) =>
+    request<{ result: string }>('POST', `/chats/${enc(chatId)}/roll`, { expression }),
+  extensionCommand: (id: string, name: string, chatId: string | null, args: Record<string, string>, text: string) =>
+    request<{ result: string }>('POST', `/ext/${enc(id)}/commands/${enc(name)}`, { chatId, args, text }),
   listProfiles: () => request<ProfileDTO[]>('GET', '/profiles'),
   createProfile: (input: ProfileInput) => request<ProfileDTO>('POST', '/profiles', input),
   updateProfile: (id: string, input: ProfileInput) => request<ProfileDTO>('PUT', `/profiles/${enc(id)}`, input),
@@ -175,6 +194,12 @@ export const api = {
   exportPreset: (id: string) => downloadUrl(`/presets/${id}/export`),
 
   // ---- 立绘（VN 模式） ----
+  listCharacterCgs: (characterId: string) => request<CharacterCgDTO[]>('GET', `/characters/${enc(characterId)}/cgs`),
+  setAttachmentCg: (id: string, isCg: boolean) => request<AttachmentDTO>('PATCH', `/attachments/${enc(id)}`, { isCg }),
+  generateSprites: (characterId: string, input: GenerateSpritesInput) =>
+    request<{ jobId: string }>('POST', `/characters/${enc(characterId)}/sprites/generate`, input),
+  spriteJob: (characterId: string, jobId: string) =>
+    request<SpriteJobDTO>('GET', `/characters/${enc(characterId)}/sprites/generate/${enc(jobId)}`),
   listSprites: (characterId: string) => request<SpriteDTO[]>('GET', `/characters/${characterId}/sprites`),
   /** 上传多张立绘；不给 expression 时后端按文件名推断（joy.png、joy-2.png） */
   uploadSprites: (characterId: string, files: File[], opts: { outfit?: string; expression?: string } = {}) => {
@@ -271,7 +296,11 @@ export const api = {
       'GET',
       `/chats?${filter.characterId ? `characterId=${enc(filter.characterId)}` : `groupId=${enc(filter.groupId ?? '')}`}`,
     ),
-  createChat: (input: CreateChatInput) => request<ChatDTO>('POST', '/chats', input),
+  createChat: async (input: CreateChatInput) => {
+    const chat = await request<ChatDTO>('POST', '/chats', input)
+    emitCommandEvent({ type: 'onNewChat', chatId: chat.id, depth: 0 })
+    return chat
+  },
   /** 某条消息之前的舞台和变量（VN 重演旧回复时用） */
   getStageBefore: (chatId: string, messageId: string) =>
     request<{ stage: StageState | null; vars: Record<string, unknown> }>(

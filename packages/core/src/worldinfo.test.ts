@@ -74,22 +74,23 @@ describe('scanWorldInfo', () => {
   test('常驻无视关键词及可选过滤；报告包含未命中项和完整元数据', () => {
     const result = scan(
       [
-        entry('常驻', { constant: true, keys: [], secondaryKeys: ['无'], comment: '标题', content: '内容' }),
+        entry('constant', { constant: true, keys: [], secondaryKeys: ['无'], comment: '标题', content: '内容' }),
         entry('未中', { keys: ['海'] }),
       ],
       { history: [] },
     )
-    expect(ids(result)).toEqual(['常驻'])
-    expect(result.activated[0]).toMatchObject({ content: '内容', reason: '常驻', tokens: 2 })
+    expect(ids(result)).toEqual(['constant'])
+    expect(result.activated[0]).toMatchObject({ content: '内容', reasonCode: 'constant', tokens: 2 })
     expect(result.report).toEqual([
       {
-        entryId: '常驻',
+        entryId: 'constant',
         lorebookId: 'book',
         lorebookName: '测试世界书',
         comment: '标题',
         position: 'before_char',
-        reason: '常驻',
+        reasonCode: 'constant',
         activated: true,
+        dropped: false,
         tokens: 2,
       },
       {
@@ -98,10 +99,11 @@ describe('scanWorldInfo', () => {
         lorebookName: '测试世界书',
         comment: '',
         position: 'before_char',
-        reason: '',
+        reasonCode: 'none',
         activated: false,
+        dropped: false,
         tokens: 0,
-        skippedReason: '未命中关键词',
+        skippedCode: 'no_match',
       },
     ])
   })
@@ -118,7 +120,7 @@ describe('scanWorldInfo', () => {
       entry('空过滤', { selectiveLogic, secondaryKeys: [] }),
     ])
     expect(ids(result)).toEqual(['通过', '空过滤'])
-    expect(result.report[1]).toMatchObject({ reason: '', skippedReason: '未命中关键词', tokens: 0 })
+    expect(result.report[1]).toMatchObject({ reasonCode: 'none', skippedCode: 'no_match', tokens: 0 })
   })
 
   test('主关键词任一匹配，但可选过滤不能独立激活', () => {
@@ -164,15 +166,15 @@ describe('scanWorldInfo', () => {
       entry('全局'),
       entry('深度二', { scanDepth: 2 }),
       entry('深度零', { scanDepth: 0 }),
-      entry('常驻', { scanDepth: 0, constant: true }),
+      entry('constant', { scanDepth: 0, constant: true }),
     ]
     const history = [
       { name: '用户', content: '龙' },
       { name: '用户', content: '海' },
     ]
-    expect(ids(scan(entries, { history }, { scanDepth: 1, recursive: false }))).toEqual(['深度二', '常驻'])
-    expect(ids(scan(entries, { history }, { scanDepth: 2, recursive: false }))).toEqual(['全局', '深度二', '常驻'])
-    expect(ids(scan(entries, { history }, { scanDepth: 0, recursive: false }))).toEqual(['深度二', '常驻'])
+    expect(ids(scan(entries, { history }, { scanDepth: 1, recursive: false }))).toEqual(['深度二', 'constant'])
+    expect(ids(scan(entries, { history }, { scanDepth: 2, recursive: false }))).toEqual(['全局', '深度二', 'constant'])
+    expect(ids(scan(entries, { history }, { scanDepth: 0, recursive: false }))).toEqual(['深度二', 'constant'])
   })
 
   test('includeNames 控制名字触发并按规定添加前缀和换行', () => {
@@ -230,7 +232,7 @@ describe('scanWorldInfo', () => {
       entry('C', { keys: ['山'], scanDepth: 0 }),
     ])
     expect(ids(result)).toEqual(['A', 'B', 'C'])
-    expect(result.activated.map((item) => item.reason)).toEqual(['关键词：龙', '递归：海', '递归：山'])
+    expect(result.activated.map((item) => item.reasonCode)).toEqual(['keyword', 'recursive', 'recursive'])
   })
 
   test('excludeRecursion 只禁止递归触发，preventRecursion 不传播内容', () => {
@@ -243,7 +245,7 @@ describe('scanWorldInfo', () => {
     expect(ids(scan([entry('A', { excludeRecursion: true })]))).toEqual(['A'])
   })
 
-  test('delayUntilRecursion 首轮跳过，递归只匹配缓冲区，不重新匹配聊天或额外来源', () => {
+  test('delayUntilRecursion 首轮跳过，递归合并聊天和额外来源', () => {
     const result = scan(
       [
         entry('A', { content: '海' }),
@@ -254,8 +256,8 @@ describe('scanWorldInfo', () => {
       ],
       { sources: { char_description: '山' } },
     )
-    expect(ids(result)).toEqual(['A', '缓冲区', '延迟常驻'])
-    expect(ids(scan([entry('延迟', { constant: true, delayUntilRecursion: true })]))).toEqual([])
+    expect(ids(result)).toEqual(['A', '缓冲区', '聊天', '额外来源', '延迟常驻'])
+    expect(ids(scan([entry('延迟', { constant: true, delayUntilRecursion: true })]))).toEqual(['延迟'])
     expect(
       ids(
         scan(
@@ -267,17 +269,17 @@ describe('scanWorldInfo', () => {
     ).toEqual(['A'])
   })
 
-  test('递归可选过滤也只匹配缓冲区，并保留更早轮次的内容', () => {
+  test('递归可选过滤合并聊天和缓冲区，并保留更早轮次的内容', () => {
     const result = scan([
       entry('A', { content: '海' }),
       entry('B', { keys: ['海'], content: '山' }),
       entry('C', { keys: ['山'], secondaryKeys: ['海'] }),
       entry('D', { keys: ['海'], secondaryKeys: ['龙'] }),
     ])
-    expect(ids(result)).toEqual(['A', 'B', 'C'])
+    expect(ids(result)).toEqual(['A', 'B', 'C', 'D'])
   })
 
-  test('maxRecursionSteps 限制递归轮数；0 最多十轮；recursive=false 只扫第 0 轮', () => {
+  test('maxRecursionSteps 限制递归轮数；0 扫描至收敛；recursive=false 只扫第 0 轮', () => {
     const entries = Array.from({ length: 13 }, (_, i) =>
       entry(String(i), { keys: [`词${i}。`], content: `词${i + 1}。` }),
     )
@@ -285,7 +287,7 @@ describe('scanWorldInfo', () => {
     expect(ids(scan(entries, overrides, { maxRecursionSteps: 1 }))).toEqual(['0', '1'])
     expect(ids(scan(entries, overrides, { maxRecursionSteps: 2 }))).toEqual(['0', '1', '2'])
     expect(ids(scan(entries, overrides, { maxRecursionSteps: 0 }))).toEqual(
-      Array.from({ length: 11 }, (_, i) => String(i)),
+      Array.from({ length: 13 }, (_, i) => String(i)),
     )
     expect(ids(scan(entries, overrides, { recursive: false }))).toEqual(['0'])
   })
@@ -298,8 +300,8 @@ describe('scanWorldInfo', () => {
       entry('不能传播', { keys: ['海'] }),
     ])
     expect(ids(result)).toEqual(['百', '关闭'])
-    expect(result.report[0]).toMatchObject({ skippedReason: '概率未命中', reason: '常驻', tokens: 0 })
-    expect(result.report[3]).toMatchObject({ skippedReason: '未命中关键词' })
+    expect(result.report[0]).toMatchObject({ skippedCode: 'probability', reasonCode: 'constant', tokens: 0 })
+    expect(result.report[3]).toMatchObject({ skippedCode: 'no_match' })
   })
 
   test('相同种子完全可复现，不同种子在大量条目上产生差异', () => {
@@ -312,20 +314,20 @@ describe('scanWorldInfo', () => {
     expect(
       first.report
         .filter((item) => !item.activated)
-        .every((item) => item.tokens === 0 && item.skippedReason === '概率未命中'),
+        .every((item) => item.tokens === 0 && item.skippedCode === 'probability'),
     ).toBe(true)
   })
 
-  test('包含组有优先标记时按整个组的最大 order 选择，常驻也参与', () => {
+  test('包含组只在有优先标记的条目中按最大 order 选择，常驻也参与', () => {
     const result = scan([
-      entry('常驻', { constant: true, group: '  组  ', groupPrioritize: true, order: 1, content: '海' }),
+      entry('constant', { constant: true, group: '  组  ', groupPrioritize: true, order: 1, content: '海' }),
       entry('最大', { group: '组', order: 3 }),
       entry('同序', { group: '组', order: 3 }),
       entry('不能传播', { keys: ['海'] }),
     ])
-    expect(ids(result)).toEqual(['最大'])
-    expect(result.report[0]).toMatchObject({ skippedReason: '包含组：组', tokens: 0 })
-    expect(result.report[2]).toMatchObject({ skippedReason: '包含组：组', tokens: 0 })
+    expect(ids(result)).toEqual(['constant', '不能传播'])
+    expect(result.report[1]).toMatchObject({ skippedCode: 'group', skippedParams: { group: '组' }, tokens: 0 })
+    expect(result.report[2]).toMatchObject({ skippedCode: 'group', skippedParams: { group: '组' }, tokens: 0 })
   })
 
   test('包含组加权随机可复现，重权重条目在多个种子中更常被选中', () => {
@@ -350,57 +352,55 @@ describe('scanWorldInfo', () => {
       entry('无组', { group: ' , ' }),
     ])
     expect(ids(result)).toEqual(['乙胜出', '无组'])
-    expect(result.report[0]?.skippedReason).toBe('包含组：乙')
-    expect(result.report[1]?.skippedReason).toBe('包含组：甲')
+    expect(result.report[0]?.skippedCode).toBe('group')
+    expect(result.report[1]?.skippedCode).toBe('group')
   })
 
-  test('包含组按轮次竞争，前一轮的赢家不会淘汰后一轮触发的条目', () => {
+  test('包含组的前轮赢家抑制后轮触发的同组条目', () => {
     expect(ids(scan([entry('A', { group: '组', content: '海' }), entry('B', { group: '组', keys: ['海'] })]))).toEqual([
       'A',
-      'B',
     ])
   })
 
-  test('预算常驻优先，然后 order 降序；首次超限之后即使较小或为空也全部跳过', () => {
+  test('预算按来源和 order 降序；首次超限之后即使较小或为空也全部跳过', () => {
     const result = scan(
       [
         entry('低序', { order: 10, content: 'x' }),
         entry('高序', { order: 20, content: 'yyy' }),
         entry('超限', { order: 15, content: 'zz' }),
-        entry('常驻', { constant: true, order: 0, content: 'ab' }),
+        entry('constant', { constant: true, order: 0, content: 'ab' }),
         entry('空内容', { order: -1, content: '' }),
       ],
-      { budget: 6 },
+      { budget: 8 },
     )
-    expect(ids(result)).toEqual(['常驻', '高序'])
+    expect(ids(result)).toEqual(['超限', '高序'])
     expect(result.activated.map((item) => item.tokens)).toEqual([2, 3])
-    for (const id of ['低序', '超限', '空内容']) {
+    for (const id of ['低序', 'constant', '空内容']) {
       expect(result.report.find((item) => item.entryId === id)).toMatchObject({
         activated: false,
-        skippedReason: '超出预算',
-        tokens: 0,
+        skippedCode: 'budget',
       })
     }
   })
 
-  test('恰好等于预算可插入，零预算可插入空内容；计数使用宏展开内容', () => {
-    expect(ids(scan([entry('A', { content: 'ab' }), entry('B', { content: 'c' })], { budget: 3 }))).toEqual(['A', 'B'])
-    expect(ids(scan([entry('空', { content: '' }), entry('非空')], { budget: 0 }))).toEqual(['空'])
+  test('达到预算时停止，零预算不插入；计数使用宏展开内容', () => {
+    expect(ids(scan([entry('A', { content: 'ab' }), entry('B', { content: 'c' })], { budget: 3 }))).toEqual([])
+    expect(ids(scan([entry('空', { content: '' }), entry('非空')], { budget: 0 }))).toEqual([])
     const result = scan([entry('宏', { content: '{{char}}' })], {
       macro: (text) => text.replaceAll('{{char}}', '小明'),
       countTokens: (text) => text.length * 2,
-      budget: 4,
+      budget: 7,
     })
     expect(result.activated[0]).toMatchObject({ content: '小明', tokens: 4 })
   })
 
-  test('预算最后统一处理：预算淘汰的内容此前仍可触发递归条目', () => {
+  test('预算逐轮处理：预算淘汰的内容不能触发递归条目', () => {
     const result = scan(
       [entry('A', { content: '海', order: 1 }), entry('B', { keys: ['海'], content: 'b', order: 2 })],
       { budget: 1 },
     )
-    expect(ids(result)).toEqual(['B'])
-    expect(result.report[0]?.skippedReason).toBe('超出预算')
+    expect(ids(result)).toEqual([])
+    expect(result.report[0]?.skippedCode).toBe('budget')
   })
 
   test.each([
@@ -427,8 +427,13 @@ describe('scanWorldInfo', () => {
     const original = structuredClone(entries)
     const result = scan(entries, { macro: (text) => text.replaceAll('{{char}}', '龙').replaceAll('{{place}}', '海') })
     expect(ids(result)).toEqual(['A', 'B'])
-    expect(result.activated[0]).toMatchObject({ reason: '关键词：龙', content: '海', tokens: 1 })
-    expect(result.activated[1]?.reason).toBe('递归：海')
+    expect(result.activated[0]).toMatchObject({
+      reasonCode: 'keyword',
+      reasonParams: { key: '龙' },
+      content: '海',
+      tokens: 1,
+    })
+    expect(result.activated[1]?.reasonCode).toBe('recursive')
     expect(entries).toEqual(original)
   })
 
@@ -453,5 +458,149 @@ test('虚拟扫描文本不占历史深度，不绕过 delay 或递归规则', (
   expect(ids(scan(entries, { history: [] }))).toEqual([])
   expect(
     ids(scan([entry('recursive', { keys: ['affection_stage: Lovers'], delayUntilRecursion: true })], input)),
-  ).toEqual([])
+  ).toEqual(['recursive'])
+})
+
+describe('酒馆补齐行为', () => {
+  test('粘滞不续期，结束后冷却；切分支与重新生成从激活路径回退', () => {
+    const entries = [entry('A', { keys: ['trigger'], sticky: 4, cooldown: 3, probability: 0 })]
+    const path = [[], ['A'], [], ['A'], [], [], []].map((activated) => ({ activated }))
+    const run = (length: number) => scan(entries, { history: [], activationHistory: path.slice(0, length) })
+    expect(run(3).activated[0]?.reasonCode).toBe('sticky')
+    expect(run(4).activated[0]?.reasonCode).toBe('sticky')
+    expect(run(5).report[0]?.skippedCode).toBe('cooldown')
+    expect(run(7).report[0]?.skippedCode).toBe('cooldown')
+    expect(scan(entries, { history: [], activationHistory: [...path, { activated: [] }] }).report[0]?.skippedCode).toBe(
+      'no_match',
+    )
+    expect(ids(run(1))).toEqual([])
+    expect(
+      ids(scan(entries, { history: [], activationHistory: [{ activated: [] }, { activated: [] }, { activated: [] }] })),
+    ).toEqual([])
+    expect(run(3).activated[0]?.reasonCode).toBe('sticky')
+  })
+
+  test('delay 按完整消息路径计数', () => {
+    const entries = [entry('A', { constant: true, delay: 3 })]
+    expect(ids(scan(entries, { activationHistory: [{}, {}] }))).toEqual([])
+    expect(ids(scan(entries, { history: [], activationHistory: [{}, {}, {}] }))).toEqual(['A'])
+  })
+
+  test('组内计分计算主关键词和正向可选关键词，负向关键词不加分', () => {
+    const entries = [
+      entry('low', { keys: ['a'], group: 'g', groupScoring: true, groupWeight: 999999 }),
+      entry('high', { keys: ['a', 'b'], secondaryKeys: ['c'], group: 'g', groupScoring: true }),
+    ]
+    const input = { history: [{ name: '', content: 'a b c' }] }
+    expect(ids(scan(entries, input))).toEqual(['high'])
+    const negative = entry('negative', {
+      keys: ['a', 'b'],
+      secondaryKeys: ['absent'],
+      selectiveLogic: 'not_any',
+      group: 'g',
+      groupScoring: true,
+      groupPrioritize: true,
+    })
+    expect(ids(scan([...entries, negative], input))).toEqual(['high'])
+    expect(
+      ids(
+        scan(
+          [
+            entries[0]!,
+            entry('positive', {
+              keys: ['a'],
+              secondaryKeys: ['b', 'c'],
+              selectiveLogic: 'and_all',
+              group: 'g',
+              groupScoring: true,
+            }),
+          ],
+          input,
+        ),
+      ),
+    ).toEqual(['positive'])
+  })
+
+  test('粘滞条目在组内优先，多条粘滞可以共同保留', () => {
+    const entries = [
+      entry('A', { group: 'g', sticky: 5, probability: 0 }),
+      entry('B', { group: 'g', sticky: 5 }),
+      entry('C', { group: 'g', groupPrioritize: true, order: 999 }),
+    ]
+    expect(ids(scan(entries, { activationHistory: [{ activated: ['A', 'B'] }] }))).toEqual(['A', 'B'])
+  })
+
+  test('包含组先于概率判定，优先条目概率失败不会回退到组内另一个条目', () => {
+    expect(
+      ids(scan([entry('A', { group: 'g', groupPrioritize: true, probability: 0 }), entry('B', { group: 'g' })])),
+    ).toEqual([])
+  })
+
+  test('minActivations 按深度补扫且遵守 maxDepth，条目独立深度不随全局扩展', () => {
+    const history = ['old', 'middle', 'latest'].map((content) => ({ name: '', content }))
+    const entries = [
+      entry('old', { keys: ['old'], content: '' }),
+      entry('middle', { keys: ['middle'], content: '' }),
+      entry('fixed', { keys: ['old'], scanDepth: 1 }),
+    ]
+    expect(ids(scan(entries, { history }, { scanDepth: 1, minActivations: 2, maxDepth: 2 }))).toEqual(['middle'])
+    expect(ids(scan(entries, { history }, { scanDepth: 1, minActivations: 2 }))).toEqual(['old', 'middle'])
+    expect(ids(scan(entries, { history }, { scanDepth: 1, minActivations: 1 }))).toEqual(['middle'])
+  })
+
+  test('minActivations 新激活的内容仍参与递归，预算溢出停止补扫', () => {
+    const history = ['old', 'latest'].map((content) => ({ name: '', content }))
+    const entries = [
+      entry('old', { keys: ['old'], content: 'next' }),
+      entry('recursive', { keys: ['next'], delayUntilRecursion: true }),
+    ]
+    expect(ids(scan(entries, { history }, { scanDepth: 1, minActivations: 2 }))).toEqual(['old', 'recursive'])
+    const result = scan(entries, { history, budget: 1 }, { scanDepth: 1, minActivations: 2 })
+    expect(ids(result)).toEqual([])
+    expect(result.report[0]?.skippedCode).toBe('budget')
+  })
+
+  test('automationId 仅收集最终插入的条目，去掉空白并去重', () => {
+    const result = scan([
+      entry('A', { automationId: ' action ' }),
+      entry('B', { automationId: 'action' }),
+      entry('C', { automationId: 'failed', probability: 0 }),
+      entry('D', { keys: [], automationId: 'unmatched' }),
+    ])
+    expect(result.automationIds).toEqual(['action'])
+  })
+
+  test('向量命中使用注入的假 embedding，仍经过概率、预算与位置处理', async () => {
+    const { vectorMatches } = await import('./worldinfo')
+    const embed = async (text: string) => (text === 'unrelated' ? [0, 1] : [1, 0])
+    const entries = [
+      entry('semantic', { keys: [], content: 'meaning', vectorized: true, position: 'at_depth' }),
+      entry('failed', { keys: [], content: 'meaning', vectorized: true, probability: 0 }),
+      entry('other', { keys: [], content: 'unrelated', vectorized: true }),
+    ]
+    const vectors = await Promise.all(entries.map(async (item) => ({ id: item.id, vector: await embed(item.content) })))
+    const matches = vectorMatches(vectors, await embed('query'), 0.25, 5)
+    expect(matches).toEqual(['semantic', 'failed'])
+    const result = scan(entries, { vectorMatches: matches })
+    expect(ids(result)).toEqual(['semantic'])
+    expect(result.report[0]).toMatchObject({ reasonCode: 'vector', position: 'at_depth', tokens: 7 })
+    expect(scan(entries, { vectorMatches: matches, budget: 1 }).report[0]).toMatchObject({
+      reasonCode: 'vector',
+      skippedCode: 'budget',
+      tokens: 7,
+      dropped: true,
+    })
+    expect(vectorMatches(vectors, [1, 0], 0.25, 1)).toEqual(['semantic'])
+    expect(
+      vectorMatches(
+        [
+          { id: 'zero', vector: [0, 0] },
+          { id: 'dimensions', vector: [1] },
+        ],
+        [1, 0],
+        0,
+        5,
+      ),
+    ).toEqual([])
+  })
 })

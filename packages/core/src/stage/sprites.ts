@@ -11,15 +11,25 @@ export function spriteNameFromPath(path: string): { outfit: string; expression: 
 
 export function pickSprite<T extends SpriteCandidate>(
   sprites: T[],
-  opts: { expression: string; outfit: string; fallback: string; random: boolean; seed: string; avoidId?: string },
+  opts: {
+    expression: string
+    outfit: string
+    fallback: string
+    random: boolean
+    seed: string
+    avoidId?: string
+    previousId?: string
+    rerollSame?: boolean
+  },
 ): T | null {
   for (const expression of [opts.expression, opts.fallback]) {
     if (!expression) continue
     for (const outfit of [...new Set([opts.outfit, ''])]) {
       let candidates = sprites.filter((sprite) => sprite.outfit === outfit && sprite.expression === expression)
       if (!candidates.length) continue
-      if (candidates.some((sprite) => sprite.id !== opts.avoidId))
-        candidates = candidates.filter((sprite) => sprite.id !== opts.avoidId)
+      const avoidId = opts.rerollSame ? (opts.previousId ?? opts.avoidId) : opts.avoidId
+      if (candidates.some((sprite) => sprite.id !== avoidId))
+        candidates = candidates.filter((sprite) => sprite.id !== avoidId)
       let hash = 2166136261
       for (const char of opts.seed) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0
       return candidates[opts.random ? hash % candidates.length : 0]!

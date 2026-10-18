@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import type * as ReactNS from 'react'
 import type { ReactNode } from 'react'
 import type { api } from '../api/client'
+import type { SlashCommand } from '../commands/registry'
 import type { View } from '../stores/ui'
 
 /**
@@ -95,6 +96,7 @@ export type ClientEvent =
   | { type: 'message:sent'; chatId: string; text: string }
 
 export interface ClientExtensionAPI {
+  registerCommand: (command: SlashCommand) => void
   /** 扩展 id */
   id: string
   /** 和应用共用的 React 实例 */

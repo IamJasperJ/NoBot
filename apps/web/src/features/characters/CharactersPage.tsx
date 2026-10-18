@@ -11,7 +11,7 @@ import {
   usePersonas,
   useProfiles,
 } from '../../api/queries'
-import { NumberField, Section, SelectField } from '../../components/form'
+import { CheckGroupField, NumberField, Section, SelectField } from '../../components/form'
 import {
   ChatIcon,
   ChevronLeftIcon,
@@ -27,8 +27,10 @@ import { TagInput, tagShape } from '../../components/tags'
 import { Avatar, Button, controlClass, cx, IconButton } from '../../components/ui'
 import { Slot } from '../../extensions/Slot'
 import { getLanguage, t } from '../../i18n'
+import { useQuickReplySets } from '../../quick-replies/hooks'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { CgGallery } from './CgGallery'
 import { AvatarUpload, CountedArea, CountedText, moveItem, useAction } from './editor'
 import { SpriteManager } from './SpriteManager'
 import { TrashDialog } from './TrashDialog'
@@ -193,6 +195,10 @@ export function CharacterEditor({
   const lorebooks = useLorebooks()
   const personas = usePersonas()
   const profiles = useProfiles()
+  const quickSets = useQuickReplySets()
+  const quickOptions = (quickSets.data?.sets ?? [])
+    .filter((set) => !quickSets.data?.setIds.includes(set.id))
+    .map((set) => ({ value: set.id, label: set.name }))
   const backgrounds = useBackgrounds()
   const qc = useQueryClient()
   const openChat = useUi((s) => s.openChat)
@@ -545,6 +551,15 @@ export function CharacterEditor({
             ]}
             onChange={(id) => patch('profileId', id || null)}
           />
+          {quickOptions.length > 0 && (
+            <CheckGroupField
+              label={t('快速回复')}
+              hint={t('和这个角色聊天时额外显示的快速回复组')}
+              value={draft.quickReplySetIds ?? []}
+              onChange={(ids) => patch('quickReplySetIds', ids)}
+              options={quickOptions}
+            />
+          )}
           <SelectField
             label={t('默认背景')}
             hint={t('这个角色的会话没有单独选背景时用它，优先于全局背景')}
@@ -557,6 +572,7 @@ export function CharacterEditor({
           />
         </Section>
         <SpriteManager characterId={character.id} />
+        <CgGallery characterId={character.id} />
         <Slot
           name="character.editor.sections"
           props={{

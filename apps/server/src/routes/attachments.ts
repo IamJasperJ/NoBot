@@ -1,10 +1,12 @@
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
+import { z } from 'zod'
 import { HttpError } from '../errors'
 import { captionUpload } from '../extensions/registry'
 import { t } from '../i18n'
 import { readUpload } from '../lib/files'
-import { saveAttachment } from '../services/attachments'
+import { validate } from '../lib/validate'
+import { saveAttachment, setAttachmentCg } from '../services/attachments'
 
 export const attachmentRoutes = new Hono().post(
   '/',
@@ -21,4 +23,8 @@ export const attachmentRoutes = new Hono().post(
     const chatId = typeof body.chatId === 'string' && body.chatId ? body.chatId : undefined
     return c.json((await captionUpload(attachment.id, chatId)) ?? attachment)
   },
+)
+
+attachmentRoutes.patch('/:id', validate('json', z.object({ isCg: z.boolean() })), async (c) =>
+  c.json(await setAttachmentCg(c.req.param('id'), c.req.valid('json').isCg)),
 )

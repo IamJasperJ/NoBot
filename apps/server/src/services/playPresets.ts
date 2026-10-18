@@ -5,7 +5,7 @@ import { chats, playPresets } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { translateMetadata } from '../i18n/metadata'
-import { builtinDefinition } from './playPresets.builtin'
+import { builtinDefinition, translateBuiltinStateLabels } from './playPresets.builtin'
 import { SETTING_KEYS } from './settings'
 
 export function listPlayPresets(): PlayPresetDTO[] {
@@ -19,7 +19,7 @@ export function listPlayPresets(): PlayPresetDTO[] {
       id: row.id,
       builtin: row.builtinKey !== null,
       name: row.name === builtinDefinition(row.builtinKey)?.name ? translateMetadata(row.name) : row.name,
-      data: playPresetDataSchema.parse(row.data),
+      data: translateBuiltinStateLabels(row.builtinKey, playPresetDataSchema.parse(row.data)),
       updatedAt: row.updatedAt,
       isDefault: row.id === defaultId,
     }))

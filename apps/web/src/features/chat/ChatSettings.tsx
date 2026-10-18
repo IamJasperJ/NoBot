@@ -15,11 +15,21 @@ import {
   usePresets,
   useProfiles,
 } from '../../api/queries'
-import { NumberField, Section, SelectField, SwitchField, TextAreaField, TextField, Toggle } from '../../components/form'
+import {
+  CheckGroupField,
+  NumberField,
+  Section,
+  SelectField,
+  SwitchField,
+  TextAreaField,
+  TextField,
+  Toggle,
+} from '../../components/form'
 import { WandIcon, XIcon } from '../../components/icons'
 import { Avatar, Button, cx, IconButton } from '../../components/ui'
 import { Slot } from '../../extensions/Slot'
 import { t } from '../../i18n'
+import { useQuickReplyMutations, useQuickReplySets } from '../../quick-replies/hooks'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
@@ -28,7 +38,9 @@ import { BookmarksSection } from './BookmarksSection'
 import { runGeneration } from './generate'
 
 // 背景和固定开关在背景页里即时保存，不进会话设置的草稿
-type Draft = Required<Omit<UpdateChatInput, 'title' | 'backgroundId' | 'backgroundPinned'>> & { title: string }
+type Draft = Required<Omit<UpdateChatInput, 'title' | 'backgroundId' | 'backgroundPinned' | 'quickReplySetIds'>> & {
+  title: string
+}
 
 function toDraft(page: ChatPage): Draft {
   const c = page.chat
@@ -282,6 +294,8 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
           </div>
         </Section>
 
+        <QuickReplySection chatId={chatId} value={page.chat.quickReplySetIds ?? []} />
+
         <Section title={t('会话世界书')} description={t('只在这个会话里生效，优先级最高')}>
           {lorebooks.data?.length === 0 && (
             <p className="text-sm text-zinc-500">{t('还没有世界书，去「世界书」页新建或导入')}</p>
@@ -449,6 +463,29 @@ function GroupMembers({ page, onEdit }: { page: ChatPage; onEdit: () => void }) 
         ))}
       </div>
       <Button onClick={onEdit}>{t('编辑群组')}</Button>
+    </Section>
+  )
+}
+
+/** 只在这个会话里启用的快速回复组（即时保存，不进草稿） */
+function QuickReplySection({ chatId, value }: { chatId: string; value: string[] }) {
+  const sets = useQuickReplySets()
+  const m = useQuickReplyMutations()
+  const globalIds = sets.data?.setIds ?? []
+  const list = (sets.data?.sets ?? []).filter((set) => !globalIds.includes(set.id))
+  if (!list.length) return null
+  return (
+    <Section
+      dense
+      title={t('快速回复')}
+      description={t('全局启用的组在所有会话都有；这里勾选的只在这个会话里额外显示')}
+    >
+      <CheckGroupField
+        label={t('这个会话启用')}
+        value={value}
+        onChange={(setIds) => m.chat.mutate({ chatId, setIds }, { onError: (e) => toast.error(errorMessage(e)) })}
+        options={list.map((set) => ({ value: set.id, label: set.name }))}
+      />
     </Section>
   )
 }

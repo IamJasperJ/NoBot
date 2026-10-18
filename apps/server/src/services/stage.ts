@@ -8,6 +8,7 @@ import {
   schemaInitVars,
 } from '@ai-parter/core/stage'
 import {
+  type AttachmentDTO,
   cardVnSchema,
   EXPRESSIONS,
   type MessageMeta,
@@ -17,7 +18,7 @@ import {
   type StateSchema,
 } from '@ai-parter/shared'
 import { and, asc, eq, isNull } from 'drizzle-orm'
-import { db } from '../db/client'
+import { db, getSetting } from '../db/client'
 import { characters, groupMembers, messages } from '../db/schema'
 import { backgroundsForChat } from './backgrounds'
 import { computeVars, getChatRow, loadPath } from './chats'
@@ -106,12 +107,14 @@ export function computeStage(chatId: string, path: { meta: MessageMeta }[]) {
     : undefined
   stage.scene.backgroundId = match?.id ?? null
   const members = stageMembers(chatId)
+  const temporary = getSetting<Record<string, AttachmentDTO>>(`vn-actors:${chatId}`) ?? {}
   for (const actor of stage.cast) {
     actor.characterId =
       (
         members.find((member) => castKey(member.name) === actor.key) ??
         members.find((member) => castKey(member.name.trim().split(/\s+/)[0]!) === actor.key)
       )?.id ?? null
+    actor.spriteUrl = temporary[actor.key]?.url
   }
   return stage
 }

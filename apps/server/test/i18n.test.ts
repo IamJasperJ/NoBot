@@ -99,6 +99,36 @@ describe('服务端双语', () => {
       const seededPersona = (await request<PersonaDTO[]>('/personas'))[0]!
       expect(await missing()).toBe('角色不存在')
       expect((await summary()).settingsSchema.find((f) => f.key === 'auto')?.label).toBe('自动总结')
+      const galgame = originalPresets.find((p) => p.name === 'Galgame')!
+      const { parseStateSchema } = await import('@ai-parter/core/stage')
+      const schemaOf = (preset: PlayPresetDTO) => parseStateSchema(preset.data.state.schema).schema
+      const galSchema = schemaOf(galgame)
+      expect(galSchema.affection?.label).toBe('好感')
+      galSchema.time!.label = '自定时间'
+      galSchema.custom = { type: 'text', label: '日期' }
+      await request(`/play-presets/${galgame.id}`, 'PATCH', {
+        data: { ...galgame.data, state: { ...galgame.data.state, schema: JSON.stringify(galSchema) } },
+      })
+      const { createChat, getChatPage } = await import('../src/services/chats')
+      const hudCharacter = createCharacter({ name: 'HUD' })
+      const hudChat = createChat({ characterId: hudCharacter.id })
+      await request(`/chats/${hudChat.id}`, 'PATCH', { playPresetId: galgame.id })
+      await language('en')
+      const englishGal = await request<PlayPresetDTO>(`/play-presets/${galgame.id}`)
+      expect(schemaOf(englishGal)).toMatchObject({
+        affection: { label: 'Affection' },
+        day: { label: 'Day' },
+        location: { label: 'Location' },
+        time: { label: '自定时间' },
+        custom: { label: '日期' },
+      })
+      expect(getChatPage(hudChat.id, {}, false).stateSchema).toEqual(schemaOf(englishGal))
+      // 英文保存回数据库后切回中文，也只转换默认字段。
+      await request(`/play-presets/${galgame.id}`, 'PATCH', { data: englishGal.data })
+      const customGal = await request<PlayPresetDTO>('/play-presets', 'POST', { name: 'Custom', data: galgame.data })
+      expect(schemaOf(customGal).affection?.label).toBe('好感')
+      await language('zh')
+      expect(schemaOf(await request<PlayPresetDTO>(`/play-presets/${galgame.id}`)).affection?.label).toBe('好感')
       await language('en')
       expect(await missing()).toBe('Character does not exist')
       const englishExtensions = await request<ExtensionDTO[]>('/extensions')

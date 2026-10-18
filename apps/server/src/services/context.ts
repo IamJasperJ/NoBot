@@ -42,6 +42,7 @@ import { enabledToolNames } from '../tools'
 import { backgroundsForChat } from './backgrounds'
 import { replaceImageAttachments } from './caption'
 import { computeVars, getChatRow, loadGroupDTO, loadPath } from './chats'
+import { matchLoreVectors } from './lore-vectors'
 import { resolveProfile } from './profiles'
 import { getWorldInfoSettings, SETTING_KEYS } from './settings'
 import { listSprites } from './sprites'
@@ -277,6 +278,7 @@ export interface AssembleOptions {
   /** 还没入库的用户消息（预览时用） */
   pending?: { role: MessageRole; content: string }
   /** 静默任务不遵循聊天正文的舞台输出格式。 */
+  vectorMatches?: readonly string[]
   quiet?: boolean
   /** 兼容无工具的静默生成；实际启用名单在此按会话统一解析。 */
   toolsEnabled?: boolean
@@ -312,7 +314,15 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
       : null,
     persona: { name: ctx.persona.name, description: ctx.persona.description },
     history,
-    lore: { entries: ctx.loreEntries, settings: getWorldInfoSettings() },
+    lore: {
+      entries: ctx.loreEntries,
+      settings: getWorldInfoSettings(),
+      vectorMatches: opts.vectorMatches,
+      activationHistory: loadPath(opts.leafId)
+        .filter((message) => message.status !== 'error')
+        .map((message) => ({ activated: message.meta.lore?.activated }))
+        .concat(opts.pending ? [{ activated: undefined }] : []),
+    },
     chat: {
       id: ctx.chat.id,
       leafId: opts.leafId,
@@ -373,6 +383,7 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
       input.injections.push({
         id: 'stage',
         label: t('舞台指令'),
+        labelCode: 'stage',
         role: 'system',
         content: renderDirectiveInstructions(instructionInput),
         position: play.directives.position,
@@ -382,6 +393,7 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
       input.injections.push({
         id: 'stage_reminder',
         label: t('舞台指令提醒'),
+        labelCode: 'stage_reminder',
         position: 'end',
         role: play.directives.reminderRole,
         content: renderDirectiveReminder({ ...instructionInput, reminderTemplate: play.directives.reminderTemplate }),
@@ -398,4 +410,22 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
     if (e instanceof PromptBudgetError) throw new HttpError(400, 'PROMPT_TOO_LONG', promptBudgetMessage(e.message))
     throw e
   }
+}
+
+/** 网络与缓存留在服务层，向量命中后仍走同一套纯扫描和预算。 */
+export async function assembleWithVectors(ctx: GenerationContext, opts: AssembleOptions) {
+  const settings = getWorldInfoSettings()
+  const history = toHistory(ctx, opts.leafId).filter(
+    (message) => message.role === 'user' || message.role === 'assistant',
+  )
+  if (opts.pending)
+    history.push({
+      id: 'pending',
+      role: opts.pending.role,
+      content: opts.pending.content,
+      name: ctx.persona.name,
+      speakerId: null,
+    })
+  const vectorMatches = await matchLoreVectors(ctx.loreEntries, history, settings)
+  return assemble(ctx, { ...opts, vectorMatches })
 }

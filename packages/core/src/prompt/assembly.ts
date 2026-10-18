@@ -5,6 +5,8 @@ export interface Piece {
   message: ChatMessage
   source: string
   label: string
+  labelCode?: string
+  labelParams?: Record<string, string>
   messageId?: string
   depth?: number
   example?: boolean
@@ -158,6 +160,8 @@ export function segmentOf(piece: Piece, tokens: number): PromptSegment {
   return {
     source: piece.source,
     label: piece.label,
+    ...(piece.labelCode === undefined ? {} : { labelCode: piece.labelCode }),
+    ...(piece.labelParams === undefined ? {} : { labelParams: piece.labelParams }),
     role: piece.message.role,
     content: piece.message.content,
     tokens,

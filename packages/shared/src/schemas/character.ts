@@ -55,11 +55,14 @@ export const characterInput = characterFieldsSchema.extend(characterExtrasSchema
 })
 export type CharacterInput = z.input<typeof characterInput>
 
-export const characterUpdateInput = characterInput.partial()
+export const characterUpdateInput = characterInput
+  .partial()
+  .extend({ quickReplySetIds: z.array(z.string()).optional() })
 export type CharacterUpdateInput = z.infer<typeof characterUpdateInput>
 
 /** 角色详情 */
 export interface CharacterDTO extends CharacterFields, CharacterExtras {
+  quickReplySetIds?: string[]
   profileId: string | null
   id: string
   avatarUrl: string | null

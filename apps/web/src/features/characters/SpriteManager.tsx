@@ -4,10 +4,11 @@ import { type DragEvent, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useSprites } from '../../api/queries'
 import { Section } from '../../components/form'
-import { CheckIcon, PlusIcon, TrashIcon, UploadIcon } from '../../components/icons'
+import { CheckIcon, PlusIcon, TrashIcon, UploadIcon, WandIcon } from '../../components/icons'
 import { Button, badgeClass, cx, Dialog, IconButton } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
+import { SpriteGenerateDialog, SpriteJobBar } from './SpriteGenerateDialog'
 
 /**
  * 角色编辑器里的「立绘」分组：每套服装一组表情格子（酒馆的 28 种 + 自定义），点格子或把图片拖进格子上传。
@@ -21,6 +22,8 @@ export function SpriteManager({ characterId }: { characterId: string }) {
   const [draftOutfits, setDraftOutfits] = useState<string[]>([])
   const [customs, setCustoms] = useState<string[]>([])
   const [opened, setOpened] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [jobId, setJobId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // 多选删除：选中的是立绘 id；格子按表情整组选，弹窗里可以一张张选
   const [selecting, setSelecting] = useState(false)
@@ -138,6 +141,10 @@ export function SpriteManager({ characterId }: { characterId: string }) {
             >
               {selecting ? t('取消多选') : t('多选')}
             </Button>
+            <Button size="sm" disabled={busy || !!jobId} onClick={() => setGenerating(true)}>
+              <WandIcon />
+              {t('AI 生成')}
+            </Button>
             <Button size="sm" disabled={busy} onClick={() => batchInput.current?.click()}>
               {t('按文件名上传')}
             </Button>
@@ -190,6 +197,15 @@ export function SpriteManager({ characterId }: { characterId: string }) {
             }}
           />
         </div>
+
+        <SpriteGenerateDialog
+          characterId={characterId}
+          outfit={outfit}
+          open={generating}
+          onClose={() => setGenerating(false)}
+          onStarted={setJobId}
+        />
+        {jobId && <SpriteJobBar characterId={characterId} jobId={jobId} onDismiss={() => setJobId(null)} />}
 
         {selecting ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50 px-3 py-1.5 text-[13px] text-violet-800 dark:bg-violet-950/50 dark:text-violet-200">

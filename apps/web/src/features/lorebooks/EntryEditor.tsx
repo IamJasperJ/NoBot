@@ -83,7 +83,6 @@ export function EntryEditor({
     hint: string,
     min = 0,
     max = Number.MAX_SAFE_INTEGER,
-    notImplemented = false,
   ) => (
     <NumberField
       label={label}
@@ -93,7 +92,6 @@ export function EntryEditor({
       min={min}
       max={max}
       slider={false}
-      notImplemented={notImplemented}
     />
   )
   const scanDepthId = useId()
@@ -102,16 +100,7 @@ export function EntryEditor({
     key: keyof { [K in keyof LorebookEntryData as LorebookEntryData[K] extends boolean ? K : never]: boolean },
     label: string,
     hint: string,
-    notImplemented = false,
-  ) => (
-    <SwitchField
-      label={label}
-      hint={hint}
-      checked={draft[key]}
-      onChange={(v) => set(key, v)}
-      notImplemented={notImplemented}
-    />
-  )
+  ) => <SwitchField label={label} hint={hint} checked={draft[key]} onChange={(v) => set(key, v)} />
   return (
     <fieldset disabled={pending} className="min-w-0 space-y-2 border-t border-zinc-200 p-3 dark:border-zinc-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -293,38 +282,24 @@ export function EntryEditor({
         />
         {toggle('groupPrioritize', t('组内按顺序优先'), t('开启后保留插入顺序数字最大的条目，否则按权重随机选择。'))}
         {number('groupWeight', t('组内权重'), t('按权重随机选择时，数字越大，被保留的机会越高。'), 1)}
-        {toggle('groupScoring', t('组内计分'), t('组内使用匹配分数选择条目；目前只保存，暂不生效。'), true)}
+        {toggle('groupScoring', t('组内计分'), t('组内使用匹配分数选择条目。'))}
       </Section>
-      <Section
-        dense
-        title={t('暂未实现')}
-        description={t('这些字段可以保存和导入导出，但当前扫描时不会生效。')}
-        defaultOpen={false}
-      >
-        {number(
-          'sticky',
-          t('粘滞消息数'),
-          t('触发后持续生效多少条消息，0 表示不持续。'),
-          0,
-          Number.MAX_SAFE_INTEGER,
-          true,
-        )}
+      <Section dense title={t('定时效果与自动化')} defaultOpen={false}>
+        {number('sticky', t('粘滞消息数'), t('触发后持续生效多少条消息，0 表示不持续。'), 0, Number.MAX_SAFE_INTEGER)}
         {number(
           'cooldown',
           t('冷却消息数'),
           t('触发后多少条消息内不允许再次触发，0 表示不冷却。'),
           0,
           Number.MAX_SAFE_INTEGER,
-          true,
         )}
         <TextField
           label={t('自动化标识')}
-          hint={t('供快捷回复等自动化脚本关联此条目，目前暂不执行。')}
-          notImplemented
+          hint={t('供快捷回复等自动化脚本关联此条目。')}
           value={draft.automationId}
           onChange={(v) => set('automationId', v)}
         />
-        {toggle('vectorized', t('向量匹配'), t('通过语义相似度匹配条目，目前暂不生效。'), true)}
+        {toggle('vectorized', t('向量匹配'), t('通过语义相似度匹配条目。'))}
       </Section>
     </fieldset>
   )

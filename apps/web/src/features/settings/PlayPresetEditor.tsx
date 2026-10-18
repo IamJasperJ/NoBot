@@ -37,7 +37,7 @@ const KIND_OPTIONS = () =>
     value,
     label: directiveKindLabels()[value],
     // 第一期只处理表情、上下台、场景、变量、选项；其余种类先只隐藏不演出
-    notImplemented: !['expression', 'cast', 'scene', 'state', 'choices'].includes(value),
+    notImplemented: !['expression', 'cast', 'scene', 'state', 'choices', 'cg'].includes(value),
   }))
 
 const LIST_OPTIONS = (): { value: PromptList; label: string }[] => [
@@ -425,8 +425,7 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label={t('重复表情时换一张')}
-          hint={later('VN6', t('连续两次同一个表情时，强制换一张不同的立绘'))}
-          notImplemented
+          hint={t('同一个表情有多张立绘时，换拍后避开上一次显示的那张')}
           checked={sprites.rerollSame}
           onChange={(v) => set('sprites', 'rerollSame', v)}
         />
@@ -476,7 +475,6 @@ export function PlayPresetEditor({
           <NumberField
             label={t('切 NVL 的字数')}
             hint={t('旁白超过这么多字时自动切成全屏文本')}
-            notImplemented
             min={20}
             max={5000}
             slider={false}
@@ -601,14 +599,13 @@ export function PlayPresetEditor({
           onChange={(v) => set('stage', 'unknownActor', v)}
           options={[
             { value: 'silhouette', label: t('剪影 + 名牌') },
-            { value: 'generate', label: t('自动生成头像（未实现）'), disabled: true },
+            { value: 'generate', label: t('自动生成立绘') },
             { value: 'hide', label: t('不显示') },
           ]}
         />
         <SelectField
           label={t('转场效果')}
-          hint={later('VN6', t('换场景、上下台时的过渡'))}
-          notImplemented
+          hint={t('换背景、立绘上台和 CG 出现时的过渡。淡入：旧画面先暗下去；溶解：新画面直接叠上来')}
           value={stage.transition}
           onChange={(v) => set('stage', 'transition', v)}
           options={[
@@ -619,8 +616,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label={t('转场时长（毫秒）')}
-          hint={later('VN6', t('过渡动画的时长'))}
-          notImplemented
+          hint={t('过渡动画的时长')}
           min={0}
           max={5000}
           slider={false}
@@ -629,10 +625,15 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label={t('电影模式')}
-          hint={later('VN6', t('上下黑边，隐藏界面，只剩字幕'))}
-          notImplemented
+          hint={t('默认以电影模式打开：上下黑边，隐藏状态面板，对话变成字幕。VN 视图右上角也可以临时切换')}
           checked={stage.letterbox}
           onChange={(v) => set('stage', 'letterbox', v)}
+        />
+        <SwitchField
+          label={t('自动生成 CG')}
+          hint={t('模型写了 <cg> 指令时，用图片生成扩展画出来，播放到这里全屏显示（需要勾选「CG」指令并配置图片生成）')}
+          checked={stage.cgAuto}
+          onChange={(v) => set('stage', 'cgAuto', v)}
         />
       </Section>
 

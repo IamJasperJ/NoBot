@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useStreaming } from '../../stores/streaming'
 import { useVn } from '../../stores/vn'
+import { autoAdvanceDelay, beatText, currentCg, type ShownBeat, shownBeatIndexes } from './player-logic'
 
 /**
  * VN 播放器（VN3）：一次演一条角色回复，一句一拍。
@@ -22,13 +23,7 @@ const QUOTED = /[「『“"][^」』”"]+[」』”"]/
 /** 成对的 *斜体* / **粗体** 星号 */
 const STARS = /\*{1,3}([^*\n]+?)\*{1,3}/g
 
-/** 会停下来给人看的拍；舞台操作、CG、音效都是「路过」的拍 */
-export type ShownBeat = Extract<Beat, { kind: 'line' | 'narration' | 'choices' }>
-const isShown = (beat: Beat): beat is ShownBeat =>
-  beat.kind === 'line' || beat.kind === 'narration' || beat.kind === 'choices'
-
-/** 拍里要逐字显示的文字（选项拍没有文字） */
-export const beatText = (beat: ShownBeat | undefined) => (beat && beat.kind !== 'choices' ? beat.text : '')
+export { beatText, type ShownBeat } from './player-logic'
 
 /** 一拍对舞台的影响：舞台操作拍是它自己的操作；台词拍是「说话的人上台，并换成这个表情」 */
 function beatOps(beat: Beat): StageOp[] {
@@ -113,7 +108,9 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
       ),
     [quotedBeats],
   )
-  const shownIndexes = useMemo(() => shownBeats.flatMap((b, i) => (isShown(b) ? [i] : [])), [shownBeats])
+  // 有生成任务的 CG 拍（序号对应 meta.stage.beats，流式中的消息还没有，自然不停）
+  const cgEntries = streaming ? undefined : current?.meta.cg
+  const shownIndexes = useMemo(() => shownBeatIndexes(shownBeats, cgEntries), [shownBeats, cgEntries])
 
   // ---- 位置：shown 是 shownIndexes 的下标；revealed 是当前拍已经显示的字数 ----
   const [cursor, setCursor] = useState<{ id: string | null; shown: number; revealed: number }>({
@@ -145,10 +142,11 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   const index = Math.min(cursor.shown, Math.max(0, shownCount - 1))
   const beatIndex = shownIndexes.at(index)
   const beat = beatIndex === undefined ? undefined : (shownBeats.at(beatIndex) as ShownBeat | undefined)
+  const cg = currentCg(shownBeats, beatIndex, streaming ? undefined : current?.meta)
   const text = beatText(beat)
-  // 选项拍本身没有文字：对话框里继续显示它前面那一句（名牌也跟着那一句）
+  // 选项拍、CG 拍本身没有文字：对话框里继续显示它前面那一句（名牌也跟着那一句）
   const lastSaid = useMemo(() => {
-    if (beat?.kind !== 'choices' || beatIndex === undefined) return undefined
+    if ((beat?.kind !== 'choices' && beat?.kind !== 'cg') || beatIndex === undefined) return undefined
     for (let i = beatIndex - 1; i >= 0; i--) {
       const b = shownBeats[i]
       if (b && (b.kind === 'line' || b.kind === 'narration')) return b
@@ -160,7 +158,7 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   const complete = revealed >= textLength
   const atLast = index >= shownCount - 1
   // 演完：最后一拍显示完，并且消息已经生成完（流式中后面可能还有拍）
-  const ended = !current || (atLast && complete && !streaming)
+  const ended = !current || (atLast && complete && !streaming && cg?.status !== 'pending')
 
   // ---- 舞台 ----
   const base = useQuery({
@@ -201,8 +199,8 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   const markRead = useVn((s) => s.markRead)
   const readKey = playKey && beatIndex !== undefined ? `${playKey}:${beatIndex}` : null
   useEffect(() => {
-    if (readKey && complete && !streaming) markRead([readKey])
-  }, [readKey, complete, streaming, markRead])
+    if (readKey && complete && !streaming && cg?.status !== 'pending') markRead([readKey])
+  }, [readKey, complete, streaming, cg?.status, markRead])
   const isRead = (shown: number) => {
     const i = shownIndexes.at(shown)
     return i !== undefined && !!playKey && read.includes(`${playKey}:${i}`)
@@ -287,10 +285,11 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   const [auto, setAuto] = useState(play.dialog.autoDefault)
   useEffect(() => {
     if (!auto || !complete || atLast || beat?.kind === 'choices') return
-    const delay = play.dialog.autoDelay * 1000 + Math.min(textLength * 30, 3000)
+    const delay = autoAdvanceDelay(play.dialog.autoDelay, textLength, cg)
+    if (delay === null) return
     const timer = setTimeout(advance, delay)
     return () => clearTimeout(timer)
-  }, [auto, complete, atLast, beat?.kind, textLength, advance, play.dialog.autoDelay])
+  }, [auto, complete, atLast, beat?.kind, textLength, advance, play.dialog.autoDelay, cg?.status])
 
   // ---- 快进：读过的拍飞快地过；遇到没读过的（设置了「只跳读过的」时）或到头就停 ----
   const [skip, setSkip] = useState(false)
@@ -314,10 +313,14 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
     beat,
     beats: shownBeats,
     index,
+    /** 消息、备选与原始拍序号组成的标识，供立绘记忆区分换拍与普通重渲染。 */
+    beatKey: readKey,
     shownCount,
     revealedText: lastSaid ? lastSaid.text : Array.from(text).slice(0, revealed).join(''),
-    /** 对话框里显示的那一拍：一般就是当前拍；选项拍时是它前面那一句 */
-    said: lastSaid ?? (beat?.kind === 'choices' ? undefined : beat),
+    /** 对话框里显示的那一拍：一般就是当前拍；选项拍、CG 拍时是它前面那一句 */
+    said: lastSaid ?? (beat?.kind === 'choices' || beat?.kind === 'cg' ? undefined : beat),
+    /** 当前拍是 CG 时：出图状态和图片地址（还在画时没有地址） */
+    cg,
     complete,
     ended,
     stage,

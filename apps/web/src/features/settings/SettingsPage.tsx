@@ -7,6 +7,7 @@ import { SIDEBAR_MAX, SIDEBAR_MIN, useAppearance } from '../../stores/appearance
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { usePlayPresetPanel } from './PlayPresets'
+import { useQuickReplyPanel } from './QuickReplies'
 
 /**
  * 设置页：外观和布局。改动立即生效，自动保存在这台设备的浏览器里。
@@ -16,12 +17,13 @@ export function SettingsPage() {
   const a = useAppearance()
   const language = useLanguage((s) => s.language)
   const play = usePlayPresetPanel()
+  const quick = useQuickReplyPanel()
 
   return (
     <ManagerLayout
       title={t('设置')}
-      showDetailOnMobile={play.open}
-      detail={play.detail}
+      showDetailOnMobile={play.open || quick.open}
+      detail={quick.open ? quick.detail : play.detail}
       actions={
         <Button
           size="sm"
@@ -36,6 +38,7 @@ export function SettingsPage() {
       list={
         <div className="space-y-2 px-1">
           {play.list}
+          {quick.list}
           <p className="px-1 pt-1 text-xs text-zinc-500">
             {t('下面的外观设置只保存在当前浏览器里，手机和电脑可以分别设置。改动立即生效。')}
           </p>

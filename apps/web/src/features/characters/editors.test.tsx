@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 import { afterEach, describe, expect, test } from 'bun:test'
-import { type CharacterDTO, characterInput, type LorebookDTO, type PersonaDTO } from '@ai-parter/shared'
+import { type CharacterDTO, characterInput, type LorebookDTO, type PersonaDTO } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'

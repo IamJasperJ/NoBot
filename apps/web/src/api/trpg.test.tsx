@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test'
-import { type CheckResult, playPresetDataSchema } from '@ai-parter/shared'
+import { type CheckResult, playPresetDataSchema } from '@nobot/shared'
 import * as React from 'react'
 import { registerFreshMessage, useFreshMessages } from '../stores/freshMessages'
 import { message, setupHooks } from './hooks.test-utils'

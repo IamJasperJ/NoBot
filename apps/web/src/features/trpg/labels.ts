@@ -1,4 +1,4 @@
-import { type Ability, type CheckResult, DND5E_SKILLS } from '@ai-parter/shared'
+import { type Ability, type CheckResult, DND5E_SKILLS } from '@nobot/shared'
 import { t } from '../../i18n'
 
 /**

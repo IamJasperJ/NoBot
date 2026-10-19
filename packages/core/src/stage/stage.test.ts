@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { CastMember, StageOp, StagePosition, StageState } from '@ai-parter/shared'
+import type { CastMember, StageOp, StagePosition, StageState } from '@nobot/shared'
 import {
   applyStageOps,
   autoPosition,

@@ -1,4 +1,4 @@
-import type { ExtensionPermissions } from '@ai-parter/shared'
+import type { ExtensionPermissions } from '@nobot/shared'
 import { t } from '../i18n'
 import type { Extension, ExtensionManifest } from './types'
 

@@ -1,4 +1,4 @@
-import type { AttachmentDTO } from '@ai-parter/shared'
+import type { AttachmentDTO } from '@nobot/shared'
 
 /** 自动判定只匹配已知视觉型号；手动设置优先于模型名。 */
 export function supportsVision(model: string, vision: 'auto' | 'yes' | 'no' = 'auto'): boolean {

@@ -1,4 +1,4 @@
-import type { CheckResult } from '@ai-parter/shared'
+import type { CheckResult } from '@nobot/shared'
 import { dnd5e } from './dnd5e'
 import type { RuleSystem } from './types'
 

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { WIActivation } from '@ai-parter/shared'
+import type { WIActivation } from '@nobot/shared'
 import { applyLanguage, getLanguage } from './i18n'
 import { promptSegmentLabel, wiActivationLabel } from './i18n-labels'
 

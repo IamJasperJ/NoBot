@@ -1,5 +1,5 @@
-import type { ToolCall } from '@ai-parter/shared'
-import { parseSSE } from '@ai-parter/shared'
+import type { ToolCall } from '@nobot/shared'
+import { parseSSE } from '@nobot/shared'
 import { t } from '../../i18n'
 import { endpoint, headers, toLlmError, toNetworkError } from '../common'
 import { type CompletionRequest, type LlmConnection, LlmError, type StreamChunk } from '../types'
@@ -11,7 +11,7 @@ export function openaiBase(c: LlmConnection): string {
 }
 export function openaiHeaders(c: LlmConnection): Headers {
   return headers(c.apiKey, {
-    ...(c.provider === 'openrouter' ? { 'HTTP-Referer': 'http://localhost:3000', 'X-Title': 'AI-Parter' } : {}),
+    ...(c.provider === 'openrouter' ? { 'HTTP-Referer': 'http://localhost:3000', 'X-Title': 'NoBot' } : {}),
     ...c.headers,
   })
 }

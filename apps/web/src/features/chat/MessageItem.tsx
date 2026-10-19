@@ -1,5 +1,5 @@
-import { toDisplayText } from '@ai-parter/core/stage'
-import type { AttachmentDTO, ChoiceOption, MessageDTO } from '@ai-parter/shared'
+import { toDisplayText } from '@nobot/core/stage'
+import type { AttachmentDTO, ChoiceOption, MessageDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { memo, useState } from 'react'
 import { api } from '../../api/client'

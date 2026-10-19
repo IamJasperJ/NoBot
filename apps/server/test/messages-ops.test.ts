@@ -10,7 +10,7 @@ import type {
   MessageMeta,
   MessageRole,
   PromptPreview,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { mockLlm } from './helpers/mockLlm'
 
@@ -35,7 +35,7 @@ test('消息操作：排除、思考过程、书签和分支式移动', async ()
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-msg-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-msg-'))
   process.env.DATA_DIR = directory
   const { paths } = await import('../src/env')
   paths.db = ':memory:'

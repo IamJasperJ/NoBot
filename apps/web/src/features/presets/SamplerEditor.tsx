@@ -1,4 +1,4 @@
-import type { SamplerSettings } from '@ai-parter/shared'
+import type { SamplerSettings } from '@nobot/shared'
 import { useTools } from '../../api/queries'
 import {
   ListField,

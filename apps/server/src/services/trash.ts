@@ -1,4 +1,4 @@
-import type { TrashDTO, TrashItemDTO, UsageDTO } from '@ai-parter/shared'
+import type { TrashDTO, TrashItemDTO, UsageDTO } from '@nobot/shared'
 import { and, count, eq, isNotNull, isNull } from 'drizzle-orm'
 import { db } from '../db/client'
 import { characters, chats, groupMembers, groups } from '../db/schema'

@@ -8,7 +8,7 @@ import {
   type PromptList,
   type RuleSystem,
   stateSchemaSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { useConnections } from '../../api/queries'
 import {
   CheckGroupField,
@@ -245,7 +245,7 @@ export function PlayPresetEditor({
         />
         <SelectField
           label={t('状态定义来源')}
-          hint={t('角色卡可以自带状态定义（扩展字段 ai_parter_vn.schema）')}
+          hint={t('角色卡可以自带状态定义（扩展字段 nobot_vn.schema）')}
           disabled={off}
           value={state.schemaSource}
           onChange={(v) => set('state', 'schemaSource', v)}

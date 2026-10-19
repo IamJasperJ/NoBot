@@ -1,4 +1,4 @@
-import type { UtilityPrompts } from '@ai-parter/shared'
+import type { UtilityPrompts } from '@nobot/shared'
 import { DenseGrid, TextAreaField } from '../../components/form'
 import { t } from '../../i18n'
 

@@ -112,7 +112,7 @@ const googleEvents = [
 
 describe.skipIf(!process.env.PROVIDERS_TEST_CHILD)('多提供方接口', () => {
   beforeAll(async () => {
-    directory = await mkdtemp(join(tmpdir(), 'ai-parter-providers-'))
+    directory = await mkdtemp(join(tmpdir(), 'nobot-providers-'))
     process.env.DATA_DIR = directory
     const client = await import('../src/db/client')
     sqlite = client.sqlite
@@ -255,7 +255,7 @@ describe.skipIf(!process.env.PROVIDERS_TEST_CHILD)('多提供方接口', () => {
       if (provider === 'azure_openai') expect(sent.body.model).toBeUndefined()
       else expect(sent.body.messages).toEqual(body.messages)
       if (provider === 'openrouter') {
-        expect(sent.headers.get('X-Title')).toBe('AI-Parter')
+        expect(sent.headers.get('X-Title')).toBe('NoBot')
         expect(sent.headers.get('HTTP-Referer')).toBeTruthy()
       }
       expect(chunks[0]).toEqual({ text: 'hello', reasoning: 'think' })

@@ -1,5 +1,5 @@
-import { describeCheck, formatDice, rollDice as rollDetailedDice } from '@ai-parter/core/stage'
-import type { MessageMeta, ToolInfo } from '@ai-parter/shared'
+import { describeCheck, formatDice, rollDice as rollDetailedDice } from '@nobot/core/stage'
+import type { MessageMeta, ToolInfo } from '@nobot/shared'
 import type { ExtensionContext } from '../extensions/types'
 import { chatRules, performCheck } from '../services/trpg'
 

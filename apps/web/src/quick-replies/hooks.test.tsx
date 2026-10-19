@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { quickReplySchema, quickReplySetInput } from '@ai-parter/shared'
+import { quickReplySchema, quickReplySetInput } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { registerCommand } from '../commands/registry'

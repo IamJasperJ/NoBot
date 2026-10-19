@@ -1,4 +1,4 @@
-import type { Beat, MessageMeta } from '@ai-parter/shared'
+import type { Beat, MessageMeta } from '@nobot/shared'
 
 export type ShownBeat = Extract<Beat, { kind: 'line' | 'narration' | 'choices' | 'cg' }>
 

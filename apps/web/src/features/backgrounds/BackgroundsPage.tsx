@@ -1,4 +1,4 @@
-import type { BackgroundDTO, BackgroundFolderDTO } from '@ai-parter/shared'
+import type { BackgroundDTO, BackgroundFolderDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type RefObject, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'

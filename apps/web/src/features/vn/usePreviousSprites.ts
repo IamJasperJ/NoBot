@@ -1,4 +1,4 @@
-import { pickSprite, type SpriteCandidate } from '@ai-parter/core/stage'
+import { pickSprite, type SpriteCandidate } from '@nobot/core/stage'
 import { useState } from 'react'
 
 type Options = Parameters<typeof pickSprite>[1]

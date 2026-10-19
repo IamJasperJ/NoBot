@@ -1,4 +1,4 @@
-import { EXPRESSIONS } from '@ai-parter/shared'
+import { EXPRESSIONS } from '@nobot/shared'
 import { useState } from 'react'
 import { useGenerateSprites, useSpriteJob } from '../../api/queries'
 import { TextAreaField } from '../../components/form'

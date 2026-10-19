@@ -1,4 +1,4 @@
-import { playPresetInput } from '@ai-parter/shared'
+import { playPresetInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'

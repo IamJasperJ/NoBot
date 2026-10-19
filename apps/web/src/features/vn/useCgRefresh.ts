@@ -1,4 +1,4 @@
-import type { MessageDTO } from '@ai-parter/shared'
+import type { MessageDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { keys } from '../../api/queries'

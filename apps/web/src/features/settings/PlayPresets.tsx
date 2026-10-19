@@ -1,4 +1,4 @@
-import { type PlayPresetData, type PlayPresetDTO, playPresetDataSchema } from '@ai-parter/shared'
+import { type PlayPresetData, type PlayPresetDTO, playPresetDataSchema } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useRef, useState } from 'react'
 import { api } from '../../api/client'

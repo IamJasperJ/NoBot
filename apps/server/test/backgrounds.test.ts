@@ -2,12 +2,12 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { BackgroundDTO, ChatDTO } from '@ai-parter/shared'
+import type { BackgroundDTO, ChatDTO } from '@nobot/shared'
 import sharp from 'sharp'
 
 test('背景上传、设置、删除与校验使用独立数据库', async () => {
   if (!process.env.BACKGROUND_TEST_CHILD) {
-    const directory = await mkdtemp(join(tmpdir(), 'ai-parter-backgrounds-'))
+    const directory = await mkdtemp(join(tmpdir(), 'nobot-backgrounds-'))
     try {
       const child = Bun.spawn([process.execPath, 'test', 'apps/server/test/backgrounds.test.ts'], {
         env: { ...process.env, DATA_DIR: directory, BACKGROUND_TEST_CHILD: '1' },

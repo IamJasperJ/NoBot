@@ -1,4 +1,4 @@
-import type { Expression } from '@ai-parter/shared'
+import type { Expression } from '@nobot/shared'
 
 /** 表情标签使用可见的面部特征，避免把抽象情绪直接交给绘图模型。 */
 export const EXPRESSION_TAGS: Record<Expression, string> = {

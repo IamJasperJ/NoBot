@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { characterExtrasSchema, characterFieldsSchema, lorebookEntryDataSchema } from '@ai-parter/shared'
+import { characterExtrasSchema, characterFieldsSchema, lorebookEntryDataSchema } from '@nobot/shared'
 import { parseCardJson } from '../cards/card'
 import { buildCardExport, importSTWorldInfo, readCardExtras } from './index'
 

@@ -1,4 +1,4 @@
-import type { CharacterExtras, CharacterFields, LorebookEntryData, PresetData } from '@ai-parter/shared'
+import type { CharacterExtras, CharacterFields, LorebookEntryData, PresetData } from '@nobot/shared'
 
 /**
  * 与酒馆（SillyTavern）文件格式互转。全部是纯函数：输入 JSON 对象，输出我们的内部格式，反之亦然。

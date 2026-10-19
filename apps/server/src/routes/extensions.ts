@@ -1,4 +1,4 @@
-import { extensionCatalogSourcesInput, extensionInstallConfirmInput, extensionInstallInput } from '@ai-parter/shared'
+import { extensionCatalogSourcesInput, extensionInstallConfirmInput, extensionInstallInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { extensionAsset, listExtensions, loadLocalExtensions, updateExtension } from '../extensions/registry'

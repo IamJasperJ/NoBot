@@ -12,7 +12,7 @@ import type {
   PromptRole,
   RegexScript,
   SaveSnapshot,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { sql } from 'drizzle-orm'
 import { type AnySQLiteColumn, index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 

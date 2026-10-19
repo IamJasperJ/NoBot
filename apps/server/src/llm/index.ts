@@ -1,4 +1,4 @@
-import { providerInfo, providerOptions } from '@ai-parter/shared'
+import { providerInfo, providerOptions } from '@nobot/shared'
 import { t } from '../i18n'
 import { endpoint, type Json, request, toNetworkError, upstreamError } from './common'
 import { anthropicCompletion, anthropicHeaders } from './providers/anthropic'

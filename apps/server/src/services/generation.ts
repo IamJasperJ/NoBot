@@ -1,4 +1,4 @@
-import { buildPrompt, PromptBudgetError, type PromptCharacter, selectSpeakers } from '@ai-parter/core'
+import { buildPrompt, PromptBudgetError, type PromptCharacter, selectSpeakers } from '@nobot/core'
 import type {
   GenerateEvent,
   GenerateInput,
@@ -7,7 +7,7 @@ import type {
   MessageDTO,
   MessageMeta,
   ToolCall,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { chats, messages } from '../db/schema'

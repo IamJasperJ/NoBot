@@ -1,4 +1,4 @@
-import type { BookmarkDTO } from '@ai-parter/shared'
+import type { BookmarkDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../api/client'

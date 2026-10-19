@@ -1,4 +1,4 @@
-import { updateBookmarkInput } from '@ai-parter/shared'
+import { updateBookmarkInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { validate } from '../lib/validate'
 import * as bookmarks from '../services/bookmarks'

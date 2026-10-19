@@ -1,4 +1,4 @@
-import { parsePresetWithEnglishDefaults } from '@ai-parter/core'
+import { parsePresetWithEnglishDefaults } from '@nobot/core'
 import { z } from 'zod'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'

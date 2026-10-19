@@ -1,6 +1,7 @@
 {
-  "name": "@ai-parter/shared",
+  "name": "@nobot/shared",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

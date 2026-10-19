@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { type QuickReplySet, quickReplySchema, quickReplySetInput } from '@ai-parter/shared'
+import { type QuickReplySet, quickReplySchema, quickReplySetInput } from '@nobot/shared'
 import { api } from '../api/client'
 import { registerCommand } from '../commands/registry'
 import type { CommandContext } from '../commands/run'

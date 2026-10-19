@@ -2,7 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ChatMessage, ProfileDTO, PromptPresetDTO, ResolvedProfileDTO } from '@ai-parter/shared'
+import type { ChatMessage, ProfileDTO, PromptPresetDTO, ResolvedProfileDTO } from '@nobot/shared'
 import sharp from 'sharp'
 
 test('配置组优先级、删除、正则、生图连接与图片说明完整流程', async () => {

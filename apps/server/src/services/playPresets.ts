@@ -1,4 +1,4 @@
-import { type PlayPresetDTO, type PlayPresetInput, playPresetDataSchema, playPresetInput } from '@ai-parter/shared'
+import { type PlayPresetDTO, type PlayPresetInput, playPresetDataSchema, playPresetInput } from '@nobot/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { chats, playPresets } from '../db/schema'
@@ -97,7 +97,7 @@ export function getDefault() {
 export function importJson(bytes: Uint8Array) {
   try {
     const value: unknown = JSON.parse(new TextDecoder().decode(bytes))
-    if (!value || typeof value !== 'object' || !('type' in value) || value.type !== 'ai-parter-play-preset')
+    if (!value || typeof value !== 'object' || !('type' in value) || value.type !== 'nobot-play-preset')
       throw new Error(t('格式错误'))
     const parsed = playPresetInput.parse(value)
     return createPlayPreset(parsed)
@@ -109,7 +109,7 @@ export function exportJson(id: string) {
   const preset = getPlayPreset(id)
   return {
     bytes: new TextEncoder().encode(
-      JSON.stringify({ type: 'ai-parter-play-preset', version: 1, name: preset.name, data: preset.data }, null, 2),
+      JSON.stringify({ type: 'nobot-play-preset', version: 1, name: preset.name, data: preset.data }, null, 2),
     ),
     fileName: `${preset.name}.json`,
     contentType: 'application/json',

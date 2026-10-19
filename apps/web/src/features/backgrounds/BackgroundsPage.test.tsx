@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { BackgroundDTO } from '@ai-parter/shared'
+import type { BackgroundDTO } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { keys } from '../../api/queries'

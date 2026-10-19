@@ -8,7 +8,7 @@ import type {
   StagePosition,
   StageState,
   StateSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { renderDirectiveInstructions as renderInstructions } from './instructions'
 import * as parser from './parse'
 import * as spriteHelpers from './sprites'
@@ -18,7 +18,7 @@ import * as variables from './vars'
 /**
  * VN 模式的舞台指令（纯函数，不读数据库、不发请求）。设计见 docs/design/vn-mode.md 第 3 节。
  *
- * 这个模块会被前端直接引用（@ai-parter/core/stage），所以**只能依赖 @ai-parter/shared**，
+ * 这个模块会被前端直接引用（@nobot/core/stage），所以**只能依赖 @nobot/shared**，
  * 不能引入 tokenizer 等只适合后端的模块。
  *
  * 一、能识别的指令（两种风格都认，大小写不敏感，属性值用双引号、单引号或不加引号都行）：

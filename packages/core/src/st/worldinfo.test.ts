@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { lorebookEntryDataSchema } from '@ai-parter/shared'
+import { lorebookEntryDataSchema } from '@nobot/shared'
 import { exportSTWorldInfo, importSTWorldInfo, STFormatError, toCharacterBook } from './index'
 
 const entry = {

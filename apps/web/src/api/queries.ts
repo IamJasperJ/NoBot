@@ -1,5 +1,5 @@
-import { resolveBackgroundId } from '@ai-parter/core/stage'
-import type { ChatPage, MessageDTO } from '@ai-parter/shared'
+import { resolveBackgroundId } from '@nobot/core/stage'
+import type { ChatPage, MessageDTO } from '@nobot/shared'
 import {
   type InfiniteData,
   type QueryClient,

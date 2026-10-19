@@ -1,4 +1,4 @@
-import type { GenerationType, PromptSegment } from '@ai-parter/shared'
+import type { GenerationType, PromptSegment } from '@nobot/shared'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../api/client'

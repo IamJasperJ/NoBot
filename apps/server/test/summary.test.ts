@@ -2,8 +2,8 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { countTokens } from '@ai-parter/core'
-import type { CharacterDTO, ChatDTO, MessageMeta, MessageRole, PromptPreview, SummaryStateDTO } from '@ai-parter/shared'
+import { countTokens } from '@nobot/core'
+import type { CharacterDTO, ChatDTO, MessageMeta, MessageRole, PromptPreview, SummaryStateDTO } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { readSSE } from './helpers/sse'
 
@@ -28,7 +28,7 @@ test('剧情总结：素材、增量、注入、分支、自动、编辑、并�
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-summary-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-summary-'))
   process.env.DATA_DIR = directory
   const { paths } = await import('../src/env')
   paths.db = ':memory:'

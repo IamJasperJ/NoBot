@@ -1,4 +1,4 @@
-import type { ProfileDTO, ProfileInput, RegexScript } from '@ai-parter/shared'
+import type { ProfileDTO, ProfileInput, RegexScript } from '@nobot/shared'
 import { type ReactNode, useState } from 'react'
 import { useConnections, useExtensions, usePresets, useProfileMutations, useProfiles } from '../../api/queries'
 import { Section, SelectField, TextField } from '../../components/form'

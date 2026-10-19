@@ -10,12 +10,12 @@ import type {
   PlayPresetDTO,
   SpriteDTO,
   SpriteJobDTO,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import sharp from 'sharp'
 
 test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetch mock', async () => {
   if (!process.env.VN6_CHILD) {
-    const directory = await mkdtemp(join(tmpdir(), 'ai-parter-vn6-'))
+    const directory = await mkdtemp(join(tmpdir(), 'nobot-vn6-'))
     try {
       const child = Bun.spawn([process.execPath, 'test', import.meta.path], {
         env: { ...process.env, VN6_CHILD: '1', DATA_DIR: directory, MOCK_LLM_FETCH: '1' },

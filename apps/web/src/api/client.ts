@@ -67,7 +67,7 @@ import type {
   UpdateSpriteInput,
   UsageDTO,
   WorldInfoSettings,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { emitCommandEvent } from '../commands/events'
 import { t } from '../i18n'
 

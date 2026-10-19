@@ -55,7 +55,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
 export const SIDEBAR_MIN = 220
 export const SIDEBAR_MAX = 520
 
-const STORAGE_KEY = 'ai-parter:appearance'
+const STORAGE_KEY = 'nobot:appearance'
 
 export function normalizeBackgroundColumns(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(6, Math.max(2, Math.round(value))) : 2

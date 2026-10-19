@@ -6,7 +6,7 @@ import {
   type PromptSegment,
   type WIActivation,
   type WIPosition,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { t } from './i18n'
 import { en } from './i18n/en'
 

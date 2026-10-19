@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { MessageDTO, MessageMeta } from '@ai-parter/shared'
+import type { MessageDTO, MessageMeta } from '@nobot/shared'
 import { z } from 'zod'
 import { getSetting } from '../../../db/client'
 import { HttpError } from '../../../errors'

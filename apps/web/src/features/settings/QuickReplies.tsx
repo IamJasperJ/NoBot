@@ -1,4 +1,4 @@
-import { type QuickReply, type QuickReplySet, quickReplyEvents } from '@ai-parter/shared'
+import { type QuickReply, type QuickReplySet, quickReplyEvents } from '@nobot/shared'
 import { type ReactNode, useRef, useState } from 'react'
 import { Section, SwitchField, TextAreaField, TextField } from '../../components/form'
 import { ChevronDownIcon, PlusIcon, TrashIcon, UploadIcon } from '../../components/icons'

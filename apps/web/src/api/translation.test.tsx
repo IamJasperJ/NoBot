@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test'
-import type { MessageDTO } from '@ai-parter/shared'
+import type { MessageDTO } from '@nobot/shared'
 import { InfiniteQueryObserver } from '@tanstack/react-query'
 import { registerFreshMessage, useFreshMessages } from '../stores/freshMessages'
 import { extension, message, setupHooks } from './hooks.test-utils'

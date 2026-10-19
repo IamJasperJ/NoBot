@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { toDisplayText } from '@ai-parter/core/stage'
+import { toDisplayText } from '@nobot/core/stage'
 import type {
   BookmarkDTO,
   CharacterDTO,
@@ -12,7 +12,7 @@ import type {
   MessageMeta,
   PlayPresetDTO,
   PromptPreview,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import type { ServerEvent } from '../src/extensions/types'
 import { mockLlm } from './helpers/mockLlm'
@@ -34,7 +34,7 @@ test('VN4：手动变量、阶段世界书与固定存档快照', async () => {
     expect(code, `${out}\n${err}`).toBe(0)
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-vn4-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-vn4-'))
   process.env.DATA_DIR = directory
   const { paths } = await import('../src/env')
   paths.db = ':memory:'

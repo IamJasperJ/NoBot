@@ -1,5 +1,5 @@
-import { applyStageOps, castKey, emptyStage, parseStageMessage } from '@ai-parter/core/stage'
-import type { Beat, MessageDTO, PlayPresetData, StageOp, StageState } from '@ai-parter/shared'
+import { applyStageOps, castKey, emptyStage, parseStageMessage } from '@nobot/core/stage'
+import type { Beat, MessageDTO, PlayPresetData, StageOp, StageState } from '@nobot/shared'
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'

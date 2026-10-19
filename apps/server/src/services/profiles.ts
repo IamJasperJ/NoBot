@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { parsePresetWithEnglishDefaults } from '@ai-parter/core'
-import { type ProfileDTO, type ProfileInput, profileInput, type ResolvedProfileDTO } from '@ai-parter/shared'
+import { parsePresetWithEnglishDefaults } from '@nobot/core'
+import { type ProfileDTO, type ProfileInput, profileInput, type ResolvedProfileDTO } from '@nobot/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { type ChatRow, characters, chats, profiles, promptPresets } from '../db/schema'

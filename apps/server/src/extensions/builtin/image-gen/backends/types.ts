@@ -1,4 +1,4 @@
-import type { ExtensionSettingField } from '@ai-parter/shared'
+import type { ExtensionSettingField } from '@nobot/shared'
 import type { Option } from '../options'
 import type { Settings } from '../settings'
 

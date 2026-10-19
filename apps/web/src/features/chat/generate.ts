@@ -1,10 +1,4 @@
-import {
-  type GenerateEvent,
-  type GenerateInput,
-  type ImpersonateEvent,
-  type MessageDTO,
-  parseSSE,
-} from '@ai-parter/shared'
+import { type GenerateEvent, type GenerateInput, type ImpersonateEvent, type MessageDTO, parseSSE } from '@nobot/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import { readError } from '../../api/client'
 import { applyNewMessage, markIdle, refreshChatState, replaceMessage, resetChat } from '../../api/queries'

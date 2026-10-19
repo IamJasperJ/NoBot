@@ -1,4 +1,4 @@
-import { EXPRESSIONS, type SpriteDTO, type SpriteImportResult } from '@ai-parter/shared'
+import { EXPRESSIONS, type SpriteDTO, type SpriteImportResult } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type DragEvent, useRef, useState } from 'react'
 import { api } from '../../api/client'

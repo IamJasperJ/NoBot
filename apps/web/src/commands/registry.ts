@@ -1,4 +1,4 @@
-import type { CommandDescription } from '@ai-parter/shared'
+import type { CommandDescription } from '@nobot/shared'
 import { t } from '../i18n'
 import type { CommandContext } from './run'
 

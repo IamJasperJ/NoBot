@@ -30,7 +30,7 @@ interface State {
   resetSide: (characterId: string) => void
 }
 
-const KEY = 'ai-parter:sprite-layout'
+const KEY = 'nobot:sprite-layout'
 export const SCALE_MIN = 0.3
 export const SCALE_MAX = 3
 export const clampScale = (value: number) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(value * 100) / 100))

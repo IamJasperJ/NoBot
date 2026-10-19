@@ -1,4 +1,4 @@
-import { parsePresetWithEnglishDefaults } from '@ai-parter/core'
+import { parsePresetWithEnglishDefaults } from '@nobot/core'
 import { db, getSetting, initDatabase, newId, setSetting } from './db/client'
 import { personas, promptPresets } from './db/schema'
 import { loadLocalExtensions } from './extensions/registry'

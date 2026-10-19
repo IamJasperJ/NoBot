@@ -120,6 +120,13 @@
       "when": 1792373492779,
       "tag": "0016_naive_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1792401565539,
+      "tag": "0017_rename_extension_keys",
+      "breakpoints": true
     }
   ]
 }

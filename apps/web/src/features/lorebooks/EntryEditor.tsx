@@ -1,4 +1,4 @@
-import type { GenerationType, LorebookEntryData, MatchSource, WIPosition } from '@ai-parter/shared'
+import type { GenerationType, LorebookEntryData, MatchSource, WIPosition } from '@nobot/shared'
 import { useId } from 'react'
 import { useBackgrounds } from '../../api/queries'
 import {

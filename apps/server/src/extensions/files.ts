@@ -1,6 +1,6 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import { extensionPermissionsSchema } from '@ai-parter/shared'
+import { extensionPermissionsSchema } from '@nobot/shared'
 import { z } from 'zod'
 import { t } from '../i18n'
 

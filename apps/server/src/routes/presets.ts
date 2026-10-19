@@ -1,4 +1,4 @@
-import { promptPresetInput } from '@ai-parter/shared'
+import { promptPresetInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'

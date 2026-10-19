@@ -6,7 +6,7 @@ import {
   presetDataSchema,
   promptBlockSchema,
   worldInfoSettingsSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { countTokens, MESSAGE_OVERHEAD_TOKENS } from '../tokenizer'
 import type { ScanEntry } from '../worldinfo'
 import {

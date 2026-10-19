@@ -1,5 +1,5 @@
-import type { QuickReplySet, QuickReplySetInput, QuickReplyState } from '@ai-parter/shared'
-import { quickReplySetInput } from '@ai-parter/shared'
+import type { QuickReplySet, QuickReplySetInput, QuickReplyState } from '@nobot/shared'
+import { quickReplySetInput } from '@nobot/shared'
 import { like, or } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { settings } from '../db/schema'

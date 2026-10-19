@@ -1,4 +1,4 @@
-import { appSettingsSchema } from '@ai-parter/shared'
+import { appSettingsSchema } from '@nobot/shared'
 import { Hono } from 'hono'
 import { validate } from '../lib/validate'
 import { getAppSettings, setAppSettings } from '../services/settings'

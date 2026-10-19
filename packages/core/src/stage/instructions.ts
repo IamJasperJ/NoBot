@@ -1,4 +1,4 @@
-import { DEFAULT_DIRECTIVE_REMINDERS, DEFAULT_DIRECTIVE_TEMPLATES, type DirectiveKind } from '@ai-parter/shared'
+import { DEFAULT_DIRECTIVE_REMINDERS, DEFAULT_DIRECTIVE_TEMPLATES, type DirectiveKind } from '@nobot/shared'
 import type { InstructionsInput } from './index'
 
 /** 默认指令说明模板以 shared 契约为准（英文，保留解析器依赖的标签、属性和台词速记标点；编辑器的「填入默认模板」也用它） */

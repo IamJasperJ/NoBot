@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { type ScanEntry, vectorMatches } from '@ai-parter/core'
-import type { WorldInfoSettings } from '@ai-parter/shared'
+import { type ScanEntry, vectorMatches } from '@nobot/core'
+import type { WorldInfoSettings } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db/client'

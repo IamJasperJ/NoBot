@@ -1,4 +1,4 @@
-import { type QuickReply, type QuickReplySet, quickReplySetInput } from '@ai-parter/shared'
+import { type QuickReply, type QuickReplySet, quickReplySetInput } from '@nobot/shared'
 import { type CommandContext, requireChat, runCommandLine } from '../commands/run'
 import { t } from '../i18n'
 

@@ -1,4 +1,4 @@
-import { type CheckResult, type ChoiceOption, IMPLEMENTED_RULE_SYSTEMS } from '@ai-parter/shared'
+import { type CheckResult, type ChoiceOption, IMPLEMENTED_RULE_SYSTEMS } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { emitClientEvent } from '../extensions/runtime'

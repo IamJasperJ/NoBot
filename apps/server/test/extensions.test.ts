@@ -2,8 +2,8 @@ import { expect, spyOn, test } from 'bun:test'
 import { cp, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import type { BuildInput } from '@ai-parter/core'
-import type { CharacterDTO, ChatDTO, ExtensionDTO, MessageDTO, PromptPresetDTO } from '@ai-parter/shared'
+import type { BuildInput } from '@nobot/core'
+import type { CharacterDTO, ChatDTO, ExtensionDTO, MessageDTO, PromptPresetDTO } from '@nobot/shared'
 import { readSSE } from './helpers/sse'
 
 // 数据库与环境配置是模块单例，整个集成场景在子进程执行，避免影响已有测试。
@@ -27,7 +27,7 @@ test('扩展 v2：manifest、旧入口、接口、资源、存储、钩子与生
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-extensions-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-extensions-'))
   const previous = process.env.DATA_DIR
   process.env.DATA_DIR = directory
   let sqlite: typeof import('../src/db/client').sqlite | undefined

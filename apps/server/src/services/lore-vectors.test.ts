@@ -10,12 +10,12 @@ import type {
   LorebookEntryDTO,
   PromptPreview,
   WorldInfoSettings,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 
 test('世界书服务集成：向量缓存、扫描设置、消息树定时效果及生成元数据', async () => {
   // 数据库和注册表是单例，独立进程避免污染其他服务测试。
   if (!process.env.LORE_TEST_CHILD) {
-    const directory = await mkdtemp(join(tmpdir(), 'ai-parter-lore-'))
+    const directory = await mkdtemp(join(tmpdir(), 'nobot-lore-'))
     try {
       const child = Bun.spawn([process.execPath, 'test', import.meta.path], {
         env: { ...process.env, LORE_TEST_CHILD: '1', DATA_DIR: directory },

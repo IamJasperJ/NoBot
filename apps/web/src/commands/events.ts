@@ -1,4 +1,4 @@
-import type { MessageDTO } from '@ai-parter/shared'
+import type { MessageDTO } from '@nobot/shared'
 
 export type CommandEvent =
   | { type: 'onUser'; chatId: string; depth: number }

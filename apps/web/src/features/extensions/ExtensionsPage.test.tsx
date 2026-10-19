@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from 'bun:test'
-import type { ExtensionDTO } from '@ai-parter/shared'
+import type { ExtensionDTO } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'

@@ -9,7 +9,7 @@ import {
   parseCardJson,
   STFormatError,
   writePngTextChunks,
-} from '@ai-parter/core'
+} from '@nobot/core'
 import {
   type CharacterDTO,
   type CharacterFields,
@@ -21,7 +21,7 @@ import {
   characterInput,
   characterUpdateInput,
   lorebookEntryDataSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, newId } from '../db/client'

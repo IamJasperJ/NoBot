@@ -1,4 +1,4 @@
-import type { AttachmentDTO, MessageMeta } from '@ai-parter/shared'
+import type { AttachmentDTO, MessageMeta } from '@nobot/shared'
 import { getSetting, setSetting } from '../../../db/client'
 import { setAttachmentCg } from '../../../services/attachments'
 import { getChatRow, loadMessage, loadPath } from '../../../services/chats'

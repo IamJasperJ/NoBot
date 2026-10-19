@@ -1,5 +1,5 @@
-import { toDisplayText } from '@ai-parter/core/stage'
-import type { ChoiceOption, GroupDTO, MessageDTO, PlayPresetData, StateSchema } from '@ai-parter/shared'
+import { toDisplayText } from '@nobot/core/stage'
+import type { ChoiceOption, GroupDTO, MessageDTO, PlayPresetData, StateSchema } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'

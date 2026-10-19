@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { ChatPage } from '@ai-parter/shared'
+import type { ChatPage } from '@nobot/shared'
 import { api } from '../api/client'
 import { registerBuiltins } from './builtins'
 import { parseCommandLine } from './parser'

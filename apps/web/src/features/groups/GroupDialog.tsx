@@ -4,7 +4,7 @@ import {
   type GroupGenerationMode,
   type GroupInput,
   groupInput,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'

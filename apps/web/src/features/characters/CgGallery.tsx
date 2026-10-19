@@ -1,4 +1,4 @@
-import type { CharacterCgDTO } from '@ai-parter/shared'
+import type { CharacterCgDTO } from '@nobot/shared'
 import { useState } from 'react'
 import { useCharacterCgs, useSetAttachmentCg } from '../../api/queries'
 import { Section } from '../../components/form'

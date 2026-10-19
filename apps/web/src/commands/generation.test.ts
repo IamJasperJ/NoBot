@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test'
-import type { ChatPage, GenerateEvent, MessageDTO } from '@ai-parter/shared'
+import type { ChatPage, GenerateEvent, MessageDTO } from '@nobot/shared'
 import { QueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { keys } from '../api/queries'

@@ -1,4 +1,4 @@
-import { rollDice } from '@ai-parter/core'
+import { rollDice } from '@nobot/core'
 import {
   activateMessageInput,
   branchInput,
@@ -14,7 +14,7 @@ import {
   setVarsInput,
   swipeInput,
   updateChatInput,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { type Context, Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'

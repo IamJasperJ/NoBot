@@ -1,4 +1,4 @@
-import { exportSTWorldInfo, importSTWorldInfo, STFormatError } from '@ai-parter/core'
+import { exportSTWorldInfo, importSTWorldInfo, STFormatError } from '@nobot/core'
 import {
   type LorebookDTO,
   type LorebookEntryData,
@@ -6,7 +6,7 @@ import {
   type LorebookInput,
   lorebookEntryDataSchema,
   lorebookInput,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { asc, desc, eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { type LorebookEntryRow, type LorebookRow, lorebookEntries, lorebooks } from '../db/schema'

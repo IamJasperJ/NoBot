@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { presetDataSchema } from '@ai-parter/shared'
+import { presetDataSchema } from '@nobot/shared'
 import { DEFAULT_MAIN_PROMPT_EN, DEFAULT_UTILITY_PROMPTS_EN, parsePresetWithEnglishDefaults } from './defaults'
 
 test('英文默认值补齐缺失字段，保留已存储和用户提供的文字', () => {

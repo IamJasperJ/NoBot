@@ -1,4 +1,4 @@
-import { parseCardJson } from '@ai-parter/core'
+import { parseCardJson } from '@nobot/core'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
 import { readZip } from './zip'

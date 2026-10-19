@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 import { describe, expect, test } from 'bun:test'
-import { type LorebookDTO, lorebookEntryDataSchema, worldInfoSettingsSchema } from '@ai-parter/shared'
+import { type LorebookDTO, lorebookEntryDataSchema, worldInfoSettingsSchema } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'

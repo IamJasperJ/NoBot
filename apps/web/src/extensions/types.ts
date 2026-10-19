@@ -1,4 +1,4 @@
-import type { CharacterDTO, MessageDTO } from '@ai-parter/shared'
+import type { CharacterDTO, MessageDTO } from '@nobot/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import type * as ReactNS from 'react'
 import type { ReactNode } from 'react'

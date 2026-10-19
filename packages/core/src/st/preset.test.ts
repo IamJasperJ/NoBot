@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { presetDataSchema, promptBlockSchema } from '@ai-parter/shared'
+import { presetDataSchema, promptBlockSchema } from '@nobot/shared'
 import { parsePresetWithEnglishDefaults } from '../prompt/defaults'
 import { exportSTPreset, importSTPreset, STFormatError } from './index'
 

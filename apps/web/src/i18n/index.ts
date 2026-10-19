@@ -1,4 +1,4 @@
-import type { Language } from '@ai-parter/shared'
+import type { Language } from '@nobot/shared'
 import { create } from 'zustand'
 import { queryClient } from '../api/queryClient'
 import { en } from './en'
@@ -11,7 +11,7 @@ import { en } from './en'
  * 语言存在服务器的全局设置里（GET / PUT /api/app-settings），本机再缓存一份，首屏不闪中文
  */
 
-const STORAGE_KEY = 'ai-parter:language'
+const STORAGE_KEY = 'nobot:language'
 
 function cached(): Language {
   try {

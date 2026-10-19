@@ -1,4 +1,4 @@
-import { type GenerateEvent, parseSSE } from '@ai-parter/shared'
+import { type GenerateEvent, parseSSE } from '@nobot/shared'
 
 /** 可选观察器用于在流尚未结束时同步中止或重新连接。 */
 export async function readSSE(response: Response, onEvent?: (event: GenerateEvent) => void): Promise<GenerateEvent[]> {

@@ -17,7 +17,7 @@ import type {
   PresetData,
   PromptPresetDTO,
   PromptPreview,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { isolatedTest as test } from './helpers/isolated'
 import { mockLlm } from './helpers/mockLlm'
 import { readSSE, waitFor } from './helpers/sse'
@@ -33,7 +33,7 @@ const chatIds: string[] = []
 
 beforeAll(async () => {
   if (!process.env.GENERATION_TEST_CASE) return
-  directory = await mkdtemp(join(tmpdir(), 'ai-parter-generation-'))
+  directory = await mkdtemp(join(tmpdir(), 'nobot-generation-'))
   process.env.DATA_DIR = directory
   await (await import('../src/bootstrap')).bootstrap()
   sqlite = (await import('../src/db/client')).sqlite
@@ -475,7 +475,7 @@ test('预设采样参数和额外请求体正确透传且非流式响应正常�
 
 test('图片上传与生成全链路及发送限制', async () => {
   const { chat } = await setup()
-  const connections = await json<import('@ai-parter/shared').ApiPresetDTO[]>('/connections')
+  const connections = await json<import('@nobot/shared').ApiPresetDTO[]>('/connections')
   await json(`/connections/${connections[0]!.id}`, 'PATCH', { vision: 'yes' })
   const sharp = (await import('sharp')).default
   const form = new FormData()
@@ -493,7 +493,7 @@ test('图片上传与生成全链路及发送限制', async () => {
   )
   const response = await app.request('/api/attachments', { method: 'POST', body: form })
   expect(response.status).toBe(200)
-  const image = (await response.json()) as import('@ai-parter/shared').AttachmentDTO
+  const image = (await response.json()) as import('@nobot/shared').AttachmentDTO
   expect(image).toMatchObject({ width: 3000, height: 1200 })
   const asset = await app.request(image.url)
   expect(asset.status).toBe(200)

@@ -2,7 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { BackgroundDTO, CharacterDTO, ChatDTO, MessageDTO, PromptPresetDTO } from '@ai-parter/shared'
+import type { BackgroundDTO, CharacterDTO, ChatDTO, MessageDTO, PromptPresetDTO } from '@nobot/shared'
 
 // 数据库和环境变量都是模块单例，用独立进程隔离其他测试的 DATA_DIR。
 test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日志', async () => {
@@ -24,7 +24,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-img3-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-img3-'))
   process.env.DATA_DIR = directory
   let sqlite: typeof import('../../../db/client').sqlite | undefined
   let server: ReturnType<typeof Bun.serve> | undefined

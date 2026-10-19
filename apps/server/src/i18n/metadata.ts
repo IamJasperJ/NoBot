@@ -1,4 +1,4 @@
-import type { ExtensionSettingField } from '@ai-parter/shared'
+import type { ExtensionSettingField } from '@nobot/shared'
 import { t } from '.'
 
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */

@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test'
-import type { ExtensionDTO, MessageDTO } from '@ai-parter/shared'
+import type { ExtensionDTO, MessageDTO } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ComponentProps } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'

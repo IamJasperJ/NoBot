@@ -5,7 +5,7 @@ import {
   type CharacterSheet,
   type CheckResult,
   DND5E_SKILLS,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { rollDice } from './dice'
 import type { RuleSystem } from './types'
 

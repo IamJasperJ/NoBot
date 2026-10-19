@@ -1,5 +1,5 @@
-import { countTokens } from '@ai-parter/core'
-import { toDisplayText } from '@ai-parter/core/stage'
+import { countTokens } from '@nobot/core'
+import { toDisplayText } from '@nobot/core/stage'
 import {
   deleteSummaryInput,
   editSummaryInput,
@@ -8,7 +8,7 @@ import {
   type SummaryEntryDTO,
   type SummaryStateDTO,
   summaryChatInput,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { z } from 'zod'
 import { HttpError, notFound } from '../../../errors'
 import { t } from '../../../i18n'

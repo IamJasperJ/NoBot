@@ -1,4 +1,4 @@
-import type { CommandArg, CommandDescription } from '@ai-parter/shared'
+import type { CommandArg, CommandDescription } from '@nobot/shared'
 import { cx } from '../../components/ui'
 import { t } from '../../i18n'
 

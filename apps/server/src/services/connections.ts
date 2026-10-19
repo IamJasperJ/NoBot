@@ -5,7 +5,7 @@ import {
   providerInfo,
   type TestConnectionInput,
   type TestConnectionResult,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { type ApiPresetRow, apiPresets } from '../db/schema'

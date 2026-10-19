@@ -2,11 +2,11 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type CharacterDTO, type ChatDTO, type PlayPresetDTO, playPresetDataSchema } from '@ai-parter/shared'
+import { type CharacterDTO, type ChatDTO, type PlayPresetDTO, playPresetDataSchema } from '@nobot/shared'
 
 test('自动背景：缺失才生成、同名并发去重、按指令名字保存；起名使用单条 user 请求', async () => {
   if (!process.env.AUTO_BACKGROUND_CHILD) {
-    const directory = await mkdtemp(join(tmpdir(), 'ai-parter-auto-bg-'))
+    const directory = await mkdtemp(join(tmpdir(), 'nobot-auto-bg-'))
     try {
       const child = Bun.spawn([process.execPath, 'test', import.meta.path], {
         env: { ...process.env, AUTO_BACKGROUND_CHILD: '1', DATA_DIR: directory },

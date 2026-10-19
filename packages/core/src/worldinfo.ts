@@ -1,4 +1,4 @@
-import type { GenerationType, LorebookEntryData, MatchSource, WIActivation, WorldInfoSettings } from '@ai-parter/shared'
+import type { GenerationType, LorebookEntryData, MatchSource, WIActivation, WorldInfoSettings } from '@nobot/shared'
 import { hashString, seededRandom } from './prompt/macros'
 
 /**

@@ -2,7 +2,7 @@ import { expect, type Mock, spyOn, test } from 'bun:test'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { BackgroundDTO, ChatDTO, ChatPage, PlayPresetDTO, PromptPreview } from '@ai-parter/shared'
+import type { BackgroundDTO, ChatDTO, ChatPage, PlayPresetDTO, PromptPreview } from '@nobot/shared'
 import { mockLlm } from './helpers/mockLlm'
 
 // 环境和数据库是单例，独立进程防止与其他集成测试串库。
@@ -26,7 +26,7 @@ test('BG-SCOPE：字段、范围、清单、自动选择、命名、固定和删
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-bg-scope-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-bg-scope-'))
   process.env.DATA_DIR = directory
   const { paths } = await import('../src/env')
   paths.db = ':memory:'

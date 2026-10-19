@@ -4,7 +4,7 @@ import {
   lorebookEntryDataSchema,
   type WorldInfoSettings,
   worldInfoSettingsSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { matchKey, type ScanEntry, type ScanInput, scanWorldInfo } from './worldinfo'
 
 function entry(id: string, overrides: Partial<LorebookEntryData> & { source?: ScanEntry['source'] } = {}): ScanEntry {

@@ -1,4 +1,4 @@
-import type { ChatMessage, PresetBehavior, PromptSegment } from '@ai-parter/shared'
+import type { ChatMessage, PresetBehavior, PromptSegment } from '@nobot/shared'
 
 /** 来源信息跟随片段移动，避免预览顺序与发送顺序分离。 */
 export interface Piece {

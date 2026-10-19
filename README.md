@@ -1,9 +1,7 @@
-# AI-Parter
+# NoBot
 
 一个轻量、快速的 AI 角色扮演 / 陪伴 / 跑团应用。兼容酒馆（SillyTavern）的角色卡、世界书、生成预设、立绘包和快速回复，长对话也不卡。
 除了普通聊天，还有视觉小说（VN）模式：模型写舞台指令，界面按台词逐句演出立绘、背景、CG、选项和状态面板。界面支持中文 / English。
-
-设计文档：<https://claude.ai/code/artifact/4fbca930-93b0-4d93-a6fe-5fffca832518>
 
 ## 快速开始
 
@@ -126,3 +124,9 @@ packages/core     纯逻辑：Prompt 组装、世界书扫描、宏、群聊发�
 apps/server       Bun + Hono 后端：数据库、接口（约定见 apps/server/API.md）、生成任务、工具、扩展、日志
 apps/web          React 前端
 ```
+
+## 许可证
+
+[GNU AGPL-3.0](LICENSE)。可以自由使用、修改和分发；如果你修改后把它部署成网络服务给别人用，也要公开修改后的源码。
+
+本项目与 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 没有隶属关系，只是兼容它的角色卡、世界书、预设等数据格式，并参考了它的功能设计。

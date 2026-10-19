@@ -7,7 +7,7 @@ import sharp from 'sharp'
 
 test('附件接口校验文件大小、格式、取图路径和持久化尺寸', async () => {
   if (!process.env.ATTACHMENT_TEST_CHILD) {
-    const directory = await mkdtemp(join(tmpdir(), 'ai-parter-attachments-'))
+    const directory = await mkdtemp(join(tmpdir(), 'nobot-attachments-'))
     try {
       const child = Bun.spawn([process.execPath, 'test', 'apps/server/test/attachments.test.ts'], {
         env: { ...process.env, DATA_DIR: directory, ATTACHMENT_TEST_CHILD: '1' },
@@ -50,7 +50,7 @@ test('附件接口校验文件大小、格式、取图路径和持久化尺寸',
     .toBuffer()
   const res = await upload(png)
   expect(res.status).toBe(200)
-  const image = (await res.json()) as import('@ai-parter/shared').AttachmentDTO
+  const image = (await res.json()) as import('@nobot/shared').AttachmentDTO
   expect(getAttachment(image.id)).toEqual(image)
   expect(() => getAttachment('../图片')).toThrow()
   const messages = [{ role: 'user' as const, content: '', images: [image.id] }]

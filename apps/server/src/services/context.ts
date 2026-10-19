@@ -5,14 +5,14 @@ import {
   PromptBudgetError,
   type PromptCharacter,
   type ScanEntry,
-} from '@ai-parter/core'
+} from '@nobot/core'
 import {
   describeCheck,
   renderDirectiveInstructions,
   renderDirectiveReminder,
   stateStageName,
   toDisplayText,
-} from '@ai-parter/core/stage'
+} from '@nobot/core/stage'
 import {
   type ChatMessage,
   type CheckResult,
@@ -23,7 +23,7 @@ import {
   type MessageRole,
   type PresetData,
   type PromptPreview,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { asc, eq, inArray } from 'drizzle-orm'
 import { db, getSetting } from '../db/client'
 import {

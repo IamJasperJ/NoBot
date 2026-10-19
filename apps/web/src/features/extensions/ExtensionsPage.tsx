@@ -1,4 +1,4 @@
-import type { ExtensionCatalogItem, ExtensionDTO } from '@ai-parter/shared'
+import type { ExtensionCatalogItem, ExtensionDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'

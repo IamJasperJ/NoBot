@@ -1,4 +1,4 @@
-import type { AttachmentDTO } from '@ai-parter/shared'
+import type { AttachmentDTO } from '@nobot/shared'
 import { useId, useMemo, useState } from 'react'
 import { DenseRow, denseSelectClass, TextAreaField } from '../../components/form'
 import { EditIcon, PlusIcon, TrashIcon } from '../../components/icons'

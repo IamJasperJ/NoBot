@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { EXPRESSIONS } from '@ai-parter/shared'
+import { EXPRESSIONS } from '@nobot/shared'
 import { EXPRESSION_TAGS, removeSpriteBackground, spritePrompt } from './image'
 
 test('28 种表情都有英文可见标签，提示词包含立绘构图限制', () => {

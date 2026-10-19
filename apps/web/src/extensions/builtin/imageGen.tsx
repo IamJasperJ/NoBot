@@ -1,4 +1,4 @@
-import type { AttachmentDTO, CharacterDTO, CharacterSummary, ChatPage, MessageDTO } from '@ai-parter/shared'
+import type { AttachmentDTO, CharacterDTO, CharacterSummary, ChatPage, MessageDTO } from '@nobot/shared'
 import { createPortal } from 'react-dom'
 import { ImagePromptDialog } from '../../features/chat/ImagePromptDialog'
 import { t } from '../../i18n'

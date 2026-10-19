@@ -1,5 +1,5 @@
-import { castKey, pickSprite, toDisplayText } from '@ai-parter/core/stage'
-import type { BookmarkDTO, CreateBookmarkInput, CreateSaveInput, MessageDTO, SaveSnapshot } from '@ai-parter/shared'
+import { castKey, pickSprite, toDisplayText } from '@nobot/core/stage'
+import type { BookmarkDTO, CreateBookmarkInput, CreateSaveInput, MessageDTO, SaveSnapshot } from '@nobot/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { bookmarks, characters } from '../db/schema'

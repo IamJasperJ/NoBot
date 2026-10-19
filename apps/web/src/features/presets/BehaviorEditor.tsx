@@ -1,4 +1,4 @@
-import type { PresetBehavior } from '@ai-parter/shared'
+import type { PresetBehavior } from '@nobot/shared'
 import { Section, SelectField, SwitchField, TextAreaField } from '../../components/form'
 import { t } from '../../i18n'
 

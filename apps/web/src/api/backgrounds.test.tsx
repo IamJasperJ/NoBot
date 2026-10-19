@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test'
-import { type ChatPage, characterInput } from '@ai-parter/shared'
+import { type ChatPage, characterInput } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { api } from './client'

@@ -1,4 +1,4 @@
-import { type ApiPresetDTO, PROVIDERS, type ProviderInfo, providerInfo, providerOptions } from '@ai-parter/shared'
+import { type ApiPresetDTO, PROVIDERS, type ProviderInfo, providerInfo, providerOptions } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useEffectEvent, useState } from 'react'
 import { api } from '../../api/client'

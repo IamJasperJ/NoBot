@@ -11,7 +11,7 @@ import {
   lorebookEntryDataSchema,
   type UpdateBackgroundInput,
   updateBackgroundInput,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { and, asc, desc, eq, isNull, or } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, getSetting, newId, setSetting } from '../db/client'

@@ -70,7 +70,7 @@ describe('应用外壳', () => {
   test('未打开会话时，引导仍然保留在管理面板旁并使用对话列避让', () => {
     const html = renderApp({ view: 'connections', chatId: null, panelOpen: true })
     expect(html).toContain('还没有连接')
-    expect(html).toContain('AI-Parter')
+    expect(html).toContain('NoBot')
     expect(html).toContain('class="chat-column ')
   })
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { characterSheetSchema, type StageOp } from '@ai-parter/shared'
+import { characterSheetSchema, type StageOp } from '@nobot/shared'
 import { applyMacros, type MacroContext, rollDice as macroRoll } from '../../prompt/macros'
 import { applyStageOps, emptyStage, parseStageMessage, resolveCombatStart, toDisplayText } from '../index'
 import { abilityModifier, describeCheck, formatDice, getRuleSystem, rollDice } from './index'

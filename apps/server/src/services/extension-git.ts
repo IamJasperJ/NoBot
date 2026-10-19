@@ -6,7 +6,7 @@ import type {
   ExtensionInstallPreview,
   ExtensionUpdateResult,
   GitStatusDTO,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { db, getSetting, setSetting } from '../db/client'
 import { settings } from '../db/schema'

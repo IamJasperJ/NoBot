@@ -353,7 +353,7 @@ export const playPresetInput = z.object({
 export type PlayPresetInput = z.input<typeof playPresetInput>
 
 /**
- * 角色卡里的 VN 配置（character.extensions.ai_parter_vn），卡作者可以随卡分发。
+ * 角色卡里的 VN 配置（character.extensions.nobot_vn），卡作者可以随卡分发。
  * preset：玩法预设的名字（按名字找，找不到就用默认）；schema：状态 schema 的 JSON 文本。
  */
 export const cardVnSchema = z.object({

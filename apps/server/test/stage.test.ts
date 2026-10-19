@@ -13,7 +13,7 @@ import type {
   PlayPresetDTO,
   PromptPresetDTO,
   PromptPreview,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { mockLlm } from './helpers/mockLlm'
 import { readSSE } from './helpers/sse'
@@ -38,7 +38,7 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-vn1-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-vn1-'))
   process.env.DATA_DIR = directory
   const { paths } = await import('../src/env')
   paths.db = ':memory:'
@@ -121,24 +121,24 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     await json(`/play-presets/${copy.id}/default`, 'POST')
     expect(stage.resolvePlayPreset(chat.id).id).toBe(copy.id)
     const exported = await json<Record<string, unknown>>(`/play-presets/${created.id}/export`)
-    expect(exported.type).toBe('ai-parter-play-preset')
+    expect(exported.type).toBe('nobot-play-preset')
     const imported = (await (await upload(JSON.stringify(exported))).json()) as PlayPresetDTO
     expect(imported.data).toEqual(created.data)
     for (const text of [
       '非 JSON',
       '{"type":"wrong"}',
-      '{"type":"ai-parter-play-preset","name":"坏预设","data":{"basic":{"layout":"bad"}}}',
+      '{"type":"nobot-play-preset","name":"坏预设","data":{"basic":{"layout":"bad"}}}',
     ]) {
       const response = await upload(text)
       expect(response.status).toBe(400)
       expect((await response.json()).error.code).toBe('BAD_PLAY_PRESET')
     }
     const minimalImport = (await (
-      await upload('{"type":"ai-parter-play-preset","version":1,"name":"补默认","data":{}}')
+      await upload('{"type":"nobot-play-preset","version":1,"name":"补默认","data":{}}')
     ).json()) as PlayPresetDTO
     expect(minimalImport.data.directives.enabled).toBe(false)
     db.update(characters)
-      .set({ extensions: { ai_parter_vn: { preset: 'Galgame' } } })
+      .set({ extensions: { nobot_vn: { preset: 'Galgame' } } })
       .where(eq(characters.id, actor.id))
       .run()
     expect(stage.resolvePlayPreset(chat.id).id).toBe(gal.id)
@@ -161,11 +161,11 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     await json(`/groups/${group.id}`, 'PATCH', { members: [{ characterId: actor.id }, { characterId: second.id }] })
     const groupChat = await json<ChatDTO>('/chats', 'POST', { groupId: group.id })
     db.update(characters)
-      .set({ extensions: { ai_parter_vn: { preset: 'RPG', schema: '{"共同":{"init":1},"甲":{"init":2}}' } } })
+      .set({ extensions: { nobot_vn: { preset: 'RPG', schema: '{"共同":{"init":1},"甲":{"init":2}}' } } })
       .where(eq(characters.id, actor.id))
       .run()
     db.update(characters)
-      .set({ extensions: { ai_parter_vn: { preset: 'Galgame', schema: '{"共同":{"init":9},"乙":{"init":3}}' } } })
+      .set({ extensions: { nobot_vn: { preset: 'Galgame', schema: '{"共同":{"init":9},"乙":{"init":3}}' } } })
       .where(eq(characters.id, second.id))
       .run()
     expect(stage.resolvePlayPreset(groupChat.id).id).toBe(seeded[3]!.id)

@@ -1,4 +1,4 @@
-import type { GenerationLogDTO, GenerationLogSummary } from '@ai-parter/shared'
+import type { GenerationLogDTO, GenerationLogSummary } from '@nobot/shared'
 import { and, desc, eq, lt, sql } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { generationLogs } from '../db/schema'

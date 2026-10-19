@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import type { ImageGenMeta, MessageMeta, PlayPresetData, StageState } from '@ai-parter/shared'
+import type { ImageGenMeta, MessageMeta, PlayPresetData, StageState } from '@nobot/shared'
 import { paths } from '../../../env'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'

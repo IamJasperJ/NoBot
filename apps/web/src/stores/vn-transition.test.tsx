@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test'
-import { type PlayPresetData, playPresetDataSchema } from '@ai-parter/shared'
+import { type PlayPresetData, playPresetDataSchema } from '@nobot/shared'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { useStageTransition, useSyncStageTransition } from './vn'

@@ -2,7 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CharacterDTO, ChatDTO, MessageDTO } from '@ai-parter/shared'
+import type { CharacterDTO, ChatDTO, MessageDTO } from '@nobot/shared'
 
 // 隔离数据库和 fetch 单例，保证整个后端测试并行运行时不相互污染。
 test('翻译扩展：服务、保护标记、路由、命令与真实生成流程', async () => {
@@ -28,7 +28,7 @@ test('翻译扩展：服务、保护标记、路由、命令与真实生成流�
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-translate-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-translate-'))
   process.env.DATA_DIR = directory
   let sqlite: typeof import('../../../db/client').sqlite | undefined
   let restore: (() => void) | undefined

@@ -1,4 +1,4 @@
-import { profileInput } from '@ai-parter/shared'
+import { profileInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { validate } from '../lib/validate'

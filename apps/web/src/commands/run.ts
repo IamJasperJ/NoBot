@@ -1,4 +1,4 @@
-import type { GenerateInput, QuickReplySet } from '@ai-parter/shared'
+import type { GenerateInput, QuickReplySet } from '@nobot/shared'
 import type { api } from '../api/client'
 import { t } from '../i18n'
 import { parseCommandLine } from './parser'

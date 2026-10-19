@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 import { describe, expect, test } from 'bun:test'
-import { defaultPromptBlocks } from '@ai-parter/shared'
+import { defaultPromptBlocks } from '@nobot/shared'
 import { isExtraBodyValid, movePrompt } from './presetEditor'
 
 describe('额外请求参数校验', () => {

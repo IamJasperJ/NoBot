@@ -1,5 +1,5 @@
 import { spyOn } from 'bun:test'
-import type { ChatMessage, ToolCall } from '@ai-parter/shared'
+import type { ChatMessage, ToolCall } from '@nobot/shared'
 
 export interface MockRequest extends Record<string, unknown> {
   messages: ChatMessage[]

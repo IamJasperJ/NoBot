@@ -1,4 +1,4 @@
-import type { ExtensionSettingField } from '@ai-parter/shared'
+import type { ExtensionSettingField } from '@nobot/shared'
 import { z } from 'zod'
 
 const shape = z.object({

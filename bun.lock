@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "ai-parter",
+      "name": "nobot",
       "devDependencies": {
         "@biomejs/biome": "^2.5.15",
         "@types/bun": "^1.4.3",
@@ -11,11 +11,11 @@
       },
     },
     "apps/server": {
-      "name": "@ai-parter/server",
+      "name": "@nobot/server",
       "dependencies": {
-        "@ai-parter/core": "workspace:*",
-        "@ai-parter/shared": "workspace:*",
         "@hono/zod-validator": "^0.9.1",
+        "@nobot/core": "workspace:*",
+        "@nobot/shared": "workspace:*",
         "drizzle-orm": "^0.45.4",
         "hono": "^4.13.13",
         "sharp": "^0.35.5",
@@ -27,10 +27,10 @@
       },
     },
     "apps/web": {
-      "name": "@ai-parter/web",
+      "name": "@nobot/web",
       "dependencies": {
-        "@ai-parter/core": "workspace:*",
-        "@ai-parter/shared": "workspace:*",
+        "@nobot/core": "workspace:*",
+        "@nobot/shared": "workspace:*",
         "@tanstack/react-query": "^5.104.3",
         "@tanstack/react-virtual": "^3.14.20",
         "react": "^19.3.1",
@@ -47,28 +47,20 @@
       },
     },
     "packages/core": {
-      "name": "@ai-parter/core",
+      "name": "@nobot/core",
       "dependencies": {
-        "@ai-parter/shared": "workspace:*",
+        "@nobot/shared": "workspace:*",
         "js-tiktoken": "^1.0.21",
       },
     },
     "packages/shared": {
-      "name": "@ai-parter/shared",
+      "name": "@nobot/shared",
       "dependencies": {
         "zod": "^4.6.7",
       },
     },
   },
   "packages": {
-    "@ai-parter/core": ["@ai-parter/core@workspace:packages/core"],
-
-    "@ai-parter/server": ["@ai-parter/server@workspace:apps/server"],
-
-    "@ai-parter/shared": ["@ai-parter/shared@workspace:packages/shared"],
-
-    "@ai-parter/web": ["@ai-parter/web@workspace:apps/web"],
-
     "@biomejs/biome": ["@biomejs/biome@2.5.15", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.15", "@biomejs/cli-darwin-x64": "2.5.15", "@biomejs/cli-linux-arm64": "2.5.15", "@biomejs/cli-linux-arm64-musl": "2.5.15", "@biomejs/cli-linux-x64": "2.5.15", "@biomejs/cli-linux-x64-musl": "2.5.15", "@biomejs/cli-win32-arm64": "2.5.15", "@biomejs/cli-win32-x64": "2.5.15" }, "bin": { "biome": "bin/biome" } }, "sha512-WZTW4slm/pdkh92K6t/3aEN++44JD1PQ7squ7RCMLI1flHGl43DVOIGXvCjHiZgBMO1V4uYxoFNtqrIA4qGuIQ=="],
 
     "@biomejs/cli-darwin-arm64": ["@biomejs/cli-darwin-arm64@2.5.15", "", { "os": "darwin", "cpu": "arm64" }, "sha512-BZVzFhJ/mUvTLMYbc9x6el0o2Uv5zP7bACYyhFb6fSc1giroXm7PL0a5KqMJ9F+/BnkYRjagD/ROSDVOZ6eapg=="],
@@ -212,6 +204,14 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.6.0", "", {}, "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@nobot/core": ["@nobot/core@workspace:packages/core"],
+
+    "@nobot/server": ["@nobot/server@workspace:apps/server"],
+
+    "@nobot/shared": ["@nobot/shared@workspace:packages/shared"],
+
+    "@nobot/web": ["@nobot/web@workspace:apps/web"],
 
     "@oxc-project/types": ["@oxc-project/types@0.154.0", "", {}, "sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA=="],
 

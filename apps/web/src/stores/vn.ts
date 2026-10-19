@@ -1,4 +1,4 @@
-import type { PlayPresetData } from '@ai-parter/shared'
+import type { PlayPresetData } from '@nobot/shared'
 import { useEffect } from 'react'
 import { create } from 'zustand'
 

@@ -1,4 +1,4 @@
-import type { CastMember, PlayPresetData, SpriteDTO, StagePosition, StageState } from '@ai-parter/shared'
+import type { CastMember, PlayPresetData, SpriteDTO, StagePosition, StageState } from '@nobot/shared'
 import { useQueries } from '@tanstack/react-query'
 import { type ReactNode, useMemo, useRef } from 'react'
 import { api } from '../../api/client'

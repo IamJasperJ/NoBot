@@ -10,7 +10,7 @@ import type {
   PlayPresetDTO,
   SpriteDTO,
   SpriteImportResult,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { mockLlm } from './helpers/mockLlm'
@@ -37,7 +37,7 @@ test('VN2：立绘、CharX、演员与情绪判断集成', async () => {
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-vn2-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-vn2-'))
   process.env.DATA_DIR = directory
   const { paths } = await import('../src/env')
   paths.db = ':memory:'

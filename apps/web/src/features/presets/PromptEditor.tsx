@@ -4,7 +4,7 @@ import {
   type GenerationType,
   type PromptBlock,
   promptBlockSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { useRef, useState } from 'react'
 import { NumberField, SelectField, TextAreaField, TextField, Toggle } from '../../components/form'
 import { ChevronLeftIcon, ChevronRightIcon } from '../../components/icons'

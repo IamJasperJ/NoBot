@@ -1,4 +1,4 @@
-import type { CastMember, StageOp, StagePosition, StageState } from '@ai-parter/shared'
+import type { CastMember, StageOp, StagePosition, StageState } from '@nobot/shared'
 
 export function castKey(name: string): string {
   return name.trim().toLowerCase().replace(/\s/g, '')

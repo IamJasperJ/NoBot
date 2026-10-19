@@ -1,6 +1,7 @@
 {
-  "name": "@ai-parter/core",
+  "name": "@nobot/core",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -10,7 +11,7 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@ai-parter/shared": "workspace:*",
+    "@nobot/shared": "workspace:*",
     "js-tiktoken": "^1.0.21"
   }
 }

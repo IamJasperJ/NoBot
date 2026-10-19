@@ -4,7 +4,7 @@ import {
   type Language,
   type WorldInfoSettings,
   worldInfoSettingsSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { getSetting, setSetting } from '../db/client'
 
 /**

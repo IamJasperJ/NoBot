@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CharacterDTO, ChatDTO, ChatPage, PromptPreview, QuickReplySet, QuickReplyState } from '@ai-parter/shared'
+import type { CharacterDTO, ChatDTO, ChatPage, PromptPreview, QuickReplySet, QuickReplyState } from '@nobot/shared'
 
 test('快速回复 API、作用域持久化、追加消息、骰子和扩展命令生命周期', async () => {
   // 数据库模块单例需要在子进程里设置临时目录，避免污染其他集成测试。
@@ -25,7 +25,7 @@ test('快速回复 API、作用域持久化、追加消息、骰子和扩展命�
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-quick-reply-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-quick-reply-'))
   process.env.DATA_DIR = directory
   const { bootstrap } = await import('../bootstrap')
   const { sqlite } = await import('../db/client')

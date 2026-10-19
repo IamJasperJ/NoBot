@@ -40,4 +40,4 @@ Bun.serve({
   idleTimeout: 255,
 })
 
-console.log(`AI-Parter 后端已启动：http://${env.host}:${env.port}`)
+console.log(`NoBot 后端已启动：http://${env.host}:${env.port}`)

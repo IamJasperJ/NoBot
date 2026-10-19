@@ -1,5 +1,5 @@
-import { parseStateSchema } from '@ai-parter/core/stage'
-import { type PlayPresetData, playPresetDataSchema, type StateSchema } from '@ai-parter/shared'
+import { parseStateSchema } from '@nobot/core/stage'
+import { type PlayPresetData, playPresetDataSchema, type StateSchema } from '@nobot/shared'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { playPresets } from '../db/schema'
 import { t } from '../i18n'

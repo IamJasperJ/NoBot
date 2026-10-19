@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CharacterDTO, ChatDTO, PromptPresetDTO, PromptPreview } from '@ai-parter/shared'
+import type { CharacterDTO, ChatDTO, PromptPresetDTO, PromptPreview } from '@nobot/shared'
 
 // 注册表和数据库是单例，用子进程隔离，且所有路由直接在内存调用，无需监听端口。
 test('工具启用集合在预览和组装中按会话过滤历史', async () => {
@@ -20,7 +20,7 @@ test('工具启用集合在预览和组装中按会话过滤历史', async () =>
     expect(code, `${out}\n${err}`).toBe(0)
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-tools2-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-tools2-'))
   process.env.DATA_DIR = directory
   let sqlite: typeof import('../db/client').sqlite | undefined
   try {

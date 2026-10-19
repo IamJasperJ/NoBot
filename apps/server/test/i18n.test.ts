@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ExtensionDTO, PersonaDTO, PlayPresetDTO, PromptPresetDTO } from '@ai-parter/shared'
+import type { ExtensionDTO, PersonaDTO, PlayPresetDTO, PromptPresetDTO } from '@nobot/shared'
 import { en } from '../src/i18n/en'
 
 /** 词典自身与说明注释不算调用；延迟翻译的元数据映射也必须完整扫描。 */
@@ -58,7 +58,7 @@ describe('服务端双语', () => {
       }
       return
     }
-    const directory = await mkdtemp(join(tmpdir(), 'ai-parter-i18n-'))
+    const directory = await mkdtemp(join(tmpdir(), 'nobot-i18n-'))
     const previous = process.env.DATA_DIR
     process.env.DATA_DIR = directory
     let sqlite: typeof import('../src/db/client').sqlite | undefined
@@ -100,7 +100,7 @@ describe('服务端双语', () => {
       expect(await missing()).toBe('角色不存在')
       expect((await summary()).settingsSchema.find((f) => f.key === 'auto')?.label).toBe('自动总结')
       const galgame = originalPresets.find((p) => p.name === 'Galgame')!
-      const { parseStateSchema } = await import('@ai-parter/core/stage')
+      const { parseStateSchema } = await import('@nobot/core/stage')
       const schemaOf = (preset: PlayPresetDTO) => parseStateSchema(preset.data.state.schema).schema
       const galSchema = schemaOf(galgame)
       expect(galSchema.affection?.label).toBe('好感')

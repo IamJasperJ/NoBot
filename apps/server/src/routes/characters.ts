@@ -1,4 +1,4 @@
-import { characterImportLorebookSchema, characterInput, characterUpdateInput } from '@ai-parter/shared'
+import { characterImportLorebookSchema, characterInput, characterUpdateInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { readUpload } from '../lib/files'

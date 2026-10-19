@@ -1,4 +1,4 @@
-import type { CharacterSheet, CheckResult, RuleSystem as RuleSystemId } from '@ai-parter/shared'
+import type { CharacterSheet, CheckResult, RuleSystem as RuleSystemId } from '@nobot/shared'
 
 export interface CheckInput {
   who: string

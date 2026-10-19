@@ -1,4 +1,4 @@
-import type { QuickReply, QuickReplySet } from '@ai-parter/shared'
+import type { QuickReply, QuickReplySet } from '@nobot/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { api } from '../api/client'

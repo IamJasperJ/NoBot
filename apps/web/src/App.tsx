@@ -125,7 +125,7 @@ function Welcome() {
       </header>
       <div className="chat-column flex flex-1 flex-col items-center justify-center gap-4 py-8 text-center">
         <div className="welcome-card flex flex-col items-center gap-4">
-          <div className="text-2xl font-semibold tracking-tight">AI-Parter</div>
+          <div className="text-2xl font-semibold tracking-tight">NoBot</div>
           <p className="max-w-sm text-sm text-zinc-500">{tip}</p>
           {action && (
             <Button variant="primary" onClick={action.run}>

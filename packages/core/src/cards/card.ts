@@ -1,4 +1,4 @@
-import { type CharacterExtras, type CharacterFields, characterFieldsSchema } from '@ai-parter/shared'
+import { type CharacterExtras, type CharacterFields, characterFieldsSchema } from '@nobot/shared'
 import { readCardExtras } from '../st'
 import { isPng, readPngTextChunks } from './png'
 

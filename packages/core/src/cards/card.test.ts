@@ -42,7 +42,7 @@ describe('parseCardJson', () => {
   })
 
   test('只有 name 的普通 JSON（比如 package.json）不当成角色卡', () => {
-    expect(() => parseCardJson({ name: 'ai-parter', version: '1.0.0' })).toThrow(CardParseError)
+    expect(() => parseCardJson({ name: 'nobot', version: '1.0.0' })).toThrow(CardParseError)
   })
 
   test('没有名字时报错', () => {

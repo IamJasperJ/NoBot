@@ -12,14 +12,14 @@ import type {
   GroupDTO,
   LorebookEntryDTO,
   MessageDTO,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { mockLlm } from './helpers/mockLlm'
 import { readSSE } from './helpers/sse'
 
 // 数据库与扩展注册表都是单例，子进程隔离保证全量测试不会串库。
 test('背景二期：默认引用、世界书与定期切换、文件夹多对多和批量清理', async () => {
   if (!process.env.BG_PHASE2_CHILD) {
-    const directory = await mkdtemp(join(tmpdir(), 'ai-parter-bg-phase2-'))
+    const directory = await mkdtemp(join(tmpdir(), 'nobot-bg-phase2-'))
     try {
       const child = Bun.spawn([process.execPath, 'test', import.meta.path], {
         env: { ...process.env, DATA_DIR: directory, BG_PHASE2_CHILD: '1', MOCK_LLM_FETCH: '1' },

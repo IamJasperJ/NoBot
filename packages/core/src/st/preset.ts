@@ -5,7 +5,7 @@ import {
   type PresetData,
   promptBlockSchema,
   samplerSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { DEFAULT_UTILITY_PROMPTS_EN, parsePresetWithEnglishDefaults } from '../prompt/defaults'
 import { object, readMap, requireObject, sanitize, strings, writeMap } from './utils'
 
@@ -122,7 +122,7 @@ function importPrompts(json: Record<string, unknown>): PresetData['prompts'] | u
 
 export function importSTPreset(json: unknown): PresetData {
   const input = requireObject(json)
-  const extension = object(input.ai_parter)
+  const extension = object(input.nobot)
   return parsePresetWithEnglishDefaults({
     samplers: sanitize(samplerSchema, {
       ...object(extension.samplers),
@@ -154,7 +154,7 @@ export function exportSTPreset(data: PresetData): Record<string, unknown> {
     names_behavior: Number(reverse(names, data.behavior.namesBehavior)),
     custom_prompt_post_processing: reverse(processing, data.behavior.postProcessing),
     // 规格未定义酒馆字段的设置放在专属扩展内，避免冒用酒馆字段并保证本应用往返无损。
-    ai_parter: {
+    nobot: {
       samplers: {
         logitBias: structuredClone(data.samplers.logitBias),
         stop: [...data.samplers.stop],

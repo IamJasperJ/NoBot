@@ -1,4 +1,4 @@
-import { TRANSLATION_AUTO_MODES, TRANSLATION_LANGUAGES, TRANSLATION_PROVIDERS } from '@ai-parter/shared'
+import { TRANSLATION_AUTO_MODES, TRANSLATION_LANGUAGES, TRANSLATION_PROVIDERS } from '@nobot/shared'
 import { z } from 'zod'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'

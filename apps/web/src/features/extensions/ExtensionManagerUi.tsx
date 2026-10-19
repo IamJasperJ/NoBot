@@ -1,9 +1,4 @@
-import type {
-  ExtensionCatalogItem,
-  ExtensionDTO,
-  ExtensionInstallPreview,
-  ExtensionPermissions,
-} from '@ai-parter/shared'
+import type { ExtensionCatalogItem, ExtensionDTO, ExtensionInstallPreview, ExtensionPermissions } from '@nobot/shared'
 import { useEffect, useState } from 'react'
 import {
   useApproveExtension,

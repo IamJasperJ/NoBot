@@ -1,4 +1,4 @@
-import type { ExtensionSettingField } from '@ai-parter/shared'
+import type { ExtensionSettingField } from '@nobot/shared'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Combobox, type Option } from '../../components/combobox'

@@ -1,4 +1,4 @@
-import type { CombatState } from '@ai-parter/shared'
+import type { CombatState } from '@nobot/shared'
 import { Avatar, cx } from '../../components/ui'
 import { t } from '../../i18n'
 

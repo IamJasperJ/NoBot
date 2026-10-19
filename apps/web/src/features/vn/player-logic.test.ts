@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { Beat, MessageMeta } from '@ai-parter/shared'
+import type { Beat, MessageMeta } from '@nobot/shared'
 import { autoAdvanceDelay, currentCg, shownBeatIndexes } from './player-logic'
 
 const beats: Beat[] = [

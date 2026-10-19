@@ -1,4 +1,4 @@
-import type { DiceResult } from '@ai-parter/shared'
+import type { DiceResult } from '@nobot/shared'
 
 interface Term {
   sign: number

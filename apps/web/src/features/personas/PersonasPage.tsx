@@ -1,4 +1,4 @@
-import type { PersonaDTO } from '@ai-parter/shared'
+import type { PersonaDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'

@@ -23,7 +23,7 @@ export const defaultWorkflow = JSON.stringify({
     },
   },
   '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
-  '9': { class_type: 'SaveImage', inputs: { images: ['6', 0], filename_prefix: 'AI-Parter' } },
+  '9': { class_type: 'SaveImage', inputs: { images: ['6', 0], filename_prefix: 'NoBot' } },
 })
 
 export const avatarWorkflow = JSON.stringify({

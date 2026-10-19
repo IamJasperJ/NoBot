@@ -1,4 +1,4 @@
-import { type CharacterExtras, characterExtrasSchema } from '@ai-parter/shared'
+import { type CharacterExtras, characterExtrasSchema } from '@nobot/shared'
 import type { CardExportInput } from './index'
 import { isObject, object } from './utils'
 import { toCharacterBook } from './worldinfo'

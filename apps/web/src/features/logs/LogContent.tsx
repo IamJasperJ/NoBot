@@ -1,4 +1,4 @@
-import type { BuildReport, PromptSegment, WIActivation } from '@ai-parter/shared'
+import type { BuildReport, PromptSegment, WIActivation } from '@nobot/shared'
 import { useState } from 'react'
 import { Section } from '../../components/form'
 import { Button, cx } from '../../components/ui'

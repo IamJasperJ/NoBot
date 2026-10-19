@@ -1,4 +1,4 @@
-import type { MessageDTO } from '@ai-parter/shared'
+import type { MessageDTO } from '@nobot/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
 import { useFreshMessage } from '../stores/freshMessages'

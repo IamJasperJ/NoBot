@@ -1,4 +1,4 @@
-import { type GroupDTO, type GroupInput, groupInput } from '@ai-parter/shared'
+import { type GroupDTO, type GroupInput, groupInput } from '@nobot/shared'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { characters, groupMembers, groups } from '../db/schema'

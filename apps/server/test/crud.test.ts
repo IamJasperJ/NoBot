@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseCardFile, readPngTextChunks, writePngTextChunks } from '@ai-parter/core'
+import { parseCardFile, readPngTextChunks, writePngTextChunks } from '@nobot/core'
 import type {
   CharacterDTO,
   CharacterImportPreview,
@@ -12,7 +12,7 @@ import type {
   PersonaDTO,
   PromptPresetDTO,
   WorldInfoSettings,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import sharp from 'sharp'
 
 let app: typeof import('../src/app').app
@@ -55,7 +55,7 @@ const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value
 
 describe.skipIf(!process.env.CRUD_TEST_CHILD)('后端 CRUD 接口', () => {
   beforeAll(async () => {
-    directory = await mkdtemp(join(tmpdir(), 'ai-parter-crud-'))
+    directory = await mkdtemp(join(tmpdir(), 'nobot-crud-'))
     process.env.DATA_DIR = directory
     const client = await import('../src/db/client')
     sqlite = client.sqlite

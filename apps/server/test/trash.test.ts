@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CharacterDTO, ChatDTO, ChatPage, GroupDTO, TrashDTO, UsageDTO } from '@ai-parter/shared'
+import type { CharacterDTO, ChatDTO, ChatPage, GroupDTO, TrashDTO, UsageDTO } from '@nobot/shared'
 import sharp from 'sharp'
 
 let app: typeof import('../src/app').app
@@ -30,7 +30,7 @@ async function missing(path: string, method = 'GET', data?: unknown) {
 
 describe.skipIf(!process.env.TRASH_TEST_CHILD)('角色与群组回收站', () => {
   beforeAll(async () => {
-    directory = await mkdtemp(join(tmpdir(), 'ai-parter-trash-'))
+    directory = await mkdtemp(join(tmpdir(), 'nobot-trash-'))
     process.env.DATA_DIR = directory
     const client = await import('../src/db/client')
     sqlite = client.sqlite

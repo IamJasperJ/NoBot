@@ -1,4 +1,4 @@
-import type { CheckResult, DiceResult } from '@ai-parter/shared'
+import type { CheckResult, DiceResult } from '@nobot/shared'
 import type { CSSProperties } from 'react'
 import { cx } from '../../components/ui'
 import { t } from '../../i18n'

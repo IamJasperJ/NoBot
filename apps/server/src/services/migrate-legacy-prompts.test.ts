@@ -8,7 +8,7 @@ import {
   presetDataSchema,
   type StateSchema,
   utilityPromptsSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import {
   LEGACY_DIRECTIVE_TEMPLATES,
   LEGACY_EXTENSION_PROMPTS,
@@ -38,7 +38,7 @@ test('内置变量双语标签和旧默认值精确迁移（独立数据库）',
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-legacy-prompts-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-legacy-prompts-'))
   process.env.DATA_DIR = directory
   const { db, sqlite, initDatabase, setSetting, getSetting } = await import('../db/client')
   try {

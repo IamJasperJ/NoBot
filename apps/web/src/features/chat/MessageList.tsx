@@ -1,4 +1,4 @@
-import type { MessageDTO } from '@ai-parter/shared'
+import type { MessageDTO } from '@nobot/shared'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CheckIcon } from '../../components/icons'

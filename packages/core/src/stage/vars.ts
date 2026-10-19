@@ -1,4 +1,4 @@
-import { type StateSchema, stateSchemaSchema } from '@ai-parter/shared'
+import { type StateSchema, stateSchemaSchema } from '@nobot/shared'
 import { LiteralReader, parseLiteral, put } from './literal'
 import { scanTags } from './scan'
 

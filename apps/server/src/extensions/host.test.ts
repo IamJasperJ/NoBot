@@ -2,7 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CharacterDTO, ChatDTO, MessageDTO, PromptPresetDTO } from '@ai-parter/shared'
+import type { CharacterDTO, ChatDTO, MessageDTO, PromptPresetDTO } from '@nobot/shared'
 import type { ServerEvent } from './types'
 
 // 环境和数据库都是单例，子进程保证加载顺序验证不受其他测试影响。
@@ -26,7 +26,7 @@ test('扩展宿主：消息、静默请求、内置路由、动态工具及保�
     }
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-ext2-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-ext2-'))
   process.env.DATA_DIR = directory
   let sqlite: typeof import('../db/client').sqlite | undefined
   let server: ReturnType<typeof Bun.serve> | undefined

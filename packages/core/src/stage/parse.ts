@@ -1,4 +1,4 @@
-import type { Beat, ChoiceOption, MessageStage, StageOp, StagePosition } from '@ai-parter/shared'
+import type { Beat, ChoiceOption, MessageStage, StageOp, StagePosition } from '@nobot/shared'
 import type { DisplayOptions, ParseOptions, ParseResult } from './index'
 import { nameSet, type Speech, scanTags, shorthand, type Tag } from './scan'
 import { mvuCalls, VariableUpdates } from './vars'

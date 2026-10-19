@@ -1,3 +1,4 @@
+import { zValidator } from '@hono/zod-validator'
 import {
   autoBackgroundInput,
   backgroundFolderInput,
@@ -6,8 +7,7 @@ import {
   batchDeleteBackgroundsInput,
   importBackgroundUrlInput,
   updateBackgroundInput,
-} from '@ai-parter/shared'
-import { zValidator } from '@hono/zod-validator'
+} from '@nobot/shared'
 import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HttpError } from '../errors'

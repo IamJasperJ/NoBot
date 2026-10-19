@@ -1,4 +1,4 @@
-import type { MessageDTO } from '@ai-parter/shared'
+import type { MessageDTO } from '@nobot/shared'
 import { useEffect, useRef, useState } from 'react'
 import { XIcon } from '../../components/icons'
 import { cx } from '../../components/ui'

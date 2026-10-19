@@ -5,7 +5,7 @@ import type {
   ExtensionInstallPreview,
   ExtensionUpdateResult,
   GitStatusDTO,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'

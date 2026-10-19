@@ -1,5 +1,5 @@
-import { spritePrompt } from '@ai-parter/core/stage'
-import { type GenerateSpritesInput, generateSpritesInput, type SpriteJobDTO } from '@ai-parter/shared'
+import { spritePrompt } from '@nobot/core/stage'
+import { type GenerateSpritesInput, generateSpritesInput, type SpriteJobDTO } from '@nobot/shared'
 import { newId } from '../db/client'
 import { HttpError, notFound } from '../errors'
 import { backendDimensions, getBackend } from '../extensions/builtin/image-gen/backends'

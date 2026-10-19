@@ -470,7 +470,7 @@ mode 为 `free / character / portrait / face / user / last / raw_last / scene / 
 
 ### VN5：属性卡、选项检定与战斗
 
-- 角色创建 / 更新 / 详情的 `sheet` 为 `CharacterSheet | null`，与其他 extras 一起提供；存入现有 `extensions.ai_parter.sheet`，角色卡 JSON / PNG 导入导出均使用 `data.extensions.ai_parter.sheet`。同命名空间的其他字段保持原样。
+- 角色创建 / 更新 / 详情的 `sheet` 为 `CharacterSheet | null`，与其他 extras 一起提供；存入现有 `extensions.nobot.sheet`，角色卡 JSON / PNG 导入导出均使用 `data.extensions.nobot.sheet`。同命名空间的其他字段保持原样。
 - 人设创建 / 更新 / 列表返回 `sheet: CharacterSheet | null`，省略时默认 `null`；PATCH 省略字段不改变旧值，传 `null` 清除。
 - `POST /api/chats/:id/check`：body 为 `{ skill: string, dc: integer (0–100), who?: string, advantage?: "advantage" | "disadvantage" }`；返回 `CheckResult`，不写消息或其他数据库状态。舞台指令未启用或规则系统未实现时返回 `400 TRPG_DISABLED`。
 - `POST /api/chats/:id/generate` 的 `send` body 支持可选 `check: CheckResult`，完整校验后存入用户消息 `meta.check`。生成 Prompt 时在正文末尾追加英文检定说明；数据库正文不变。此扩展在 server 入口校验，shared 的 `generateInput` 暂未包含 `check`。

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { MessageDTO } from '@ai-parter/shared'
+import type { MessageDTO } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'

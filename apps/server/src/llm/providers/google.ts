@@ -1,4 +1,4 @@
-import { parseSSE, type ToolCall } from '@ai-parter/shared'
+import { parseSSE, type ToolCall } from '@nobot/shared'
 import { type Json, request, upstreamError } from '../common'
 import type { CompletionRequest, StreamChunk } from '../types'
 import { contentParts } from './anthropic'

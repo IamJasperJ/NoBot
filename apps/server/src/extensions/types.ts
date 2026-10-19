@@ -1,4 +1,4 @@
-import type { BuildInput } from '@ai-parter/core'
+import type { BuildInput } from '@nobot/core'
 import type {
   AttachmentDTO,
   BackgroundDTO,
@@ -11,7 +11,7 @@ import type {
   MessageDTO,
   MessageMeta,
   MessageRole,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import type { Context, Hono } from 'hono'
 import type { ToolDefinition } from '../tools'
 

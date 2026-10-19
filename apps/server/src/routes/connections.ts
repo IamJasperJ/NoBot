@@ -1,4 +1,4 @@
-import { apiPresetInput, testConnectionInput } from '@ai-parter/shared'
+import { apiPresetInput, testConnectionInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { validate } from '../lib/validate'
 import * as connections from '../services/connections'

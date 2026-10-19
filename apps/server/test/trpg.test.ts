@@ -9,7 +9,7 @@ import {
   type GenerateEvent,
   type PersonaDTO,
   type PlayPresetDTO,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { mockLlm } from './helpers/mockLlm'
 import { readSSE } from './helpers/sse'
@@ -29,7 +29,7 @@ test('VN5：属性卡、检定、工具、提示词与战斗分支集成', async
     expect(code, `${out}\n${err}`).toBe(0)
     return
   }
-  const directory = await mkdtemp(join(tmpdir(), 'ai-parter-vn5-'))
+  const directory = await mkdtemp(join(tmpdir(), 'nobot-vn5-'))
   process.env.DATA_DIR = directory
   const { paths } = await import('../src/env')
   paths.db = ':memory:'
@@ -58,12 +58,12 @@ test('VN5：属性卡、检定、工具、提示词与战斗分支集成', async
     expect(personas.updatePersona(persona.id, { description: '勇者' }).sheet).toEqual(sheet)
     expect(personas.updatePersona(persona.id, { sheet: null }).sheet).toBeNull()
     personas.updatePersona(persona.id, { sheet })
-    const actor = chars.createCharacter({ name: 'Ellie Sunleaf', sheet, extensions: { ai_parter: { custom: true } } })
+    const actor = chars.createCharacter({ name: 'Ellie Sunleaf', sheet, extensions: { nobot: { custom: true } } })
     expect(chars.getCharacter(actor.id).sheet).toEqual(sheet)
     expect(chars.updateCharacter(actor.id, { description: '队友' }).sheet).toEqual(sheet)
     const card = await chars.exportCharacter(actor.id, 'json')
     const data = JSON.parse(new TextDecoder().decode(card.bytes))
-    expect(data.data.extensions.ai_parter).toEqual({ custom: true, sheet })
+    expect(data.data.extensions.nobot).toEqual({ custom: true, sheet })
     const imported = await chars.importCharacter(card.bytes)
     expect(imported.sheet).toEqual(sheet)
     const pngCard = await chars.exportCharacter(actor.id, 'png')

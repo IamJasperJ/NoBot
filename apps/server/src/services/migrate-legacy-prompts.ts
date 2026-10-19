@@ -1,4 +1,4 @@
-import { DEFAULT_MAIN_PROMPT, utilityPromptsSchema } from '@ai-parter/shared'
+import { DEFAULT_MAIN_PROMPT, utilityPromptsSchema } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { db, getSetting, setSetting } from '../db/client'
 import { playPresets, promptPresets, settings } from '../db/schema'

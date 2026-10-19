@@ -52,7 +52,7 @@ interface UiState extends Selection {
   setSidebarOpen: (open: boolean) => void
 }
 
-const STORAGE_KEY = 'ai-parter:selection'
+const STORAGE_KEY = 'nobot:selection'
 
 // localStorage 在隐私模式等情况下可能不可用，读写都要包 try/catch
 function load(): Selection {

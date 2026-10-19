@@ -1,4 +1,4 @@
-import { imageDescriptions, supportsVision } from '@ai-parter/core'
+import { imageDescriptions, supportsVision } from '@nobot/core'
 import { getSetting } from '../db/client'
 import type { ApiPresetRow } from '../db/schema'
 import { getAttachment } from './attachments'

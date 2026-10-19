@@ -1,4 +1,4 @@
-import { lorebookEntryDataSchema, lorebookInput, worldInfoSettingsSchema } from '@ai-parter/shared'
+import { lorebookEntryDataSchema, lorebookInput, worldInfoSettingsSchema } from '@nobot/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { readUpload } from '../lib/files'

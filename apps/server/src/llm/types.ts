@@ -1,4 +1,4 @@
-import type { ToolCall } from '@ai-parter/shared'
+import type { ToolCall } from '@nobot/shared'
 export interface LlmConnection {
   provider: string
   baseUrl: string

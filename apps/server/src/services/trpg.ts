@@ -1,5 +1,5 @@
-import type { CheckInput } from '@ai-parter/core/stage'
-import { castKey, getRuleSystem } from '@ai-parter/core/stage'
+import type { CheckInput } from '@nobot/core/stage'
+import { castKey, getRuleSystem } from '@nobot/core/stage'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
 import { computeVars, getChatRow, loadPath } from './chats'

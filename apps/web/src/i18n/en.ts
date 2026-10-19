@@ -1324,8 +1324,8 @@ export const en: Record<string, string> = {
   '指令说明里写上每个变量的当前值，模型更新时不容易算错':
     "Include each variable's current value in the instructions to help the model update it correctly",
   状态定义来源: 'State definition source',
-  '角色卡可以自带状态定义（扩展字段 ai_parter_vn.schema）':
-    'Character cards may include state definitions in ai_parter_vn.schema',
+  '角色卡可以自带状态定义（扩展字段 nobot_vn.schema）':
+    'Character cards may include state definitions in nobot_vn.schema',
   '合并（角色卡优先）': 'Merge (card first)',
   角色卡有就用角色卡的: 'Use card if available',
   只用这里的: 'Use this preset only',

@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test'
-import type { ExtensionDTO } from '@ai-parter/shared'
+import type { ExtensionDTO } from '@nobot/shared'
 import { QueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { loadExtensions } from '../extensions/runtime'

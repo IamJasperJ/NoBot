@@ -1,5 +1,5 @@
-import { exportSTPreset, importSTPreset, parsePresetWithEnglishDefaults, STFormatError } from '@ai-parter/core'
-import { BUILTIN_PROMPTS, type PromptPresetDTO, type PromptPresetInput, promptPresetInput } from '@ai-parter/shared'
+import { exportSTPreset, importSTPreset, parsePresetWithEnglishDefaults, STFormatError } from '@nobot/core'
+import { BUILTIN_PROMPTS, type PromptPresetDTO, type PromptPresetInput, promptPresetInput } from '@nobot/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { promptPresets } from '../db/schema'

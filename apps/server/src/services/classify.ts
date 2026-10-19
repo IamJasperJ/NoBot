@@ -1,5 +1,5 @@
-import { castKey, DEFAULT_CLASSIFY_PROMPT, extractExpressionLabel, toDisplayText } from '@ai-parter/core/stage'
-import { EXPRESSIONS } from '@ai-parter/shared'
+import { castKey, DEFAULT_CLASSIFY_PROMPT, extractExpressionLabel, toDisplayText } from '@nobot/core/stage'
+import { EXPRESSIONS } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { characters, messages, sprites } from '../db/schema'

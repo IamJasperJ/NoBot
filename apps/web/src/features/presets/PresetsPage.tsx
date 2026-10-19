@@ -1,4 +1,4 @@
-import { type PresetData, type PromptPresetDTO, presetDataSchema } from '@ai-parter/shared'
+import { type PresetData, type PromptPresetDTO, presetDataSchema } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { api } from '../../api/client'

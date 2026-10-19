@@ -1,4 +1,4 @@
-import { generationTypeSchema, type LorebookEntryData, lorebookEntryDataSchema } from '@ai-parter/shared'
+import { generationTypeSchema, type LorebookEntryData, lorebookEntryDataSchema } from '@nobot/shared'
 import {
   enumValue,
   isObject,

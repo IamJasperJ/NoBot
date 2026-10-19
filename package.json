@@ -1,20 +1,21 @@
 {
-  "name": "ai-parter",
+  "name": "nobot",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "dev": "bun run --filter '@ai-parter/server' --filter '@ai-parter/web' dev",
-    "build": "bun run --filter '@ai-parter/web' build",
-    "start": "bun run --filter '@ai-parter/server' start",
+    "dev": "bun run --filter '@nobot/server' --filter '@nobot/web' dev",
+    "build": "bun run --filter '@nobot/web' build",
+    "start": "bun run --filter '@nobot/server' start",
     "test": "bun test",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "db:generate": "bun run --filter '@ai-parter/server' db:generate"
+    "db:generate": "bun run --filter '@nobot/server' db:generate"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AttachmentDTO, CharacterCgDTO, ChatMessage } from '@ai-parter/shared'
+import type { AttachmentDTO, CharacterCgDTO, ChatMessage } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { decodeTime, ulid } from 'ulid'

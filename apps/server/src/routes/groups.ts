@@ -1,4 +1,4 @@
-import { groupInput } from '@ai-parter/shared'
+import { groupInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { validate } from '../lib/validate'
 import * as service from '../services/groups'

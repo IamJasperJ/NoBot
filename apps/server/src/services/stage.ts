@@ -8,7 +8,7 @@ import {
   parseStateSchema,
   resolveCombatStart,
   schemaInitVars,
-} from '@ai-parter/core/stage'
+} from '@nobot/core/stage'
 import {
   type AttachmentDTO,
   cardVnSchema,
@@ -18,7 +18,7 @@ import {
   type MessageStatus,
   type PlayPresetData,
   type StateSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import { db, getSetting } from '../db/client'
 import { characters, groupMembers, messages } from '../db/schema'
@@ -58,7 +58,7 @@ export function matchStageMember(chatId: string, who: string) {
   )
 }
 
-const cardConfig = (extensions: Record<string, unknown>) => cardVnSchema.safeParse(extensions.ai_parter_vn).data
+const cardConfig = (extensions: Record<string, unknown>) => cardVnSchema.safeParse(extensions.nobot_vn).data
 
 export function resolvePlayPreset(chatId: string) {
   const chat = getChatRow(chatId)

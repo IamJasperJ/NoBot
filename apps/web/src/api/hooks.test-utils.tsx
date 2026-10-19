@@ -1,4 +1,4 @@
-import type { ChatPage, ExtensionDTO, MessageDTO } from '@ai-parter/shared'
+import type { ChatPage, ExtensionDTO, MessageDTO } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { keys } from './queries'

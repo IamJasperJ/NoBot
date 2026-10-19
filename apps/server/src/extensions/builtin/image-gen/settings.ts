@@ -1,4 +1,4 @@
-import type { ExtensionSettingField } from '@ai-parter/shared'
+import type { ExtensionSettingField } from '@nobot/shared'
 import { z } from 'zod'
 import { modes, templates } from './modes'
 import { resolutionOptions } from './options'

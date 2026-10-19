@@ -1,4 +1,4 @@
-import type { GroupActivation } from '@ai-parter/shared'
+import type { GroupActivation } from '@nobot/shared'
 
 /**
  * 群聊：决定这一轮由哪些角色发言（纯函数）。行为对照酒馆的 Group Chat 回复顺序。

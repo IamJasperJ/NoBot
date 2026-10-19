@@ -4,7 +4,7 @@ import {
   presetDataSchema,
   type UtilityPrompts,
   utilityPromptsSchema,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 
 /** 默认提示词以 shared 契约为准（已是英文），这里只是给 core / server 用的别名 */
 export const DEFAULT_MAIN_PROMPT_EN = DEFAULT_MAIN_PROMPT

@@ -1,4 +1,4 @@
-import type { LorebookEntryData, WIActivation } from '@ai-parter/shared'
+import type { LorebookEntryData, WIActivation } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { backgrounds } from '../db/schema'

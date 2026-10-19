@@ -1,4 +1,4 @@
-import type { ExtensionDTO, MessageDTO } from '@ai-parter/shared'
+import type { ExtensionDTO, MessageDTO } from '@nobot/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import * as React from 'react'
 import { create } from 'zustand'

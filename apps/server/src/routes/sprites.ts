@@ -1,4 +1,4 @@
-import { updateSpriteInput } from '@ai-parter/shared'
+import { updateSpriteInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { HttpError } from '../errors'

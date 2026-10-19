@@ -6,7 +6,7 @@ import { join } from 'node:path'
 // 延迟加载的服务单例交给既有集成测试隔离；这里仅验证消息角色策略。
 test('静默指令角色：无对话时 user，有历史时 system，显式指定优先', async () => {
   if (!process.env.QUIET_ROLE_CHILD) {
-    const directory = await mkdtemp(join(tmpdir(), 'ai-parter-quiet-'))
+    const directory = await mkdtemp(join(tmpdir(), 'nobot-quiet-'))
     try {
       const child = Bun.spawn([process.execPath, 'test', import.meta.path], {
         env: { ...process.env, QUIET_ROLE_CHILD: '1', DATA_DIR: directory },

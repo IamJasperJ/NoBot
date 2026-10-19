@@ -1,4 +1,4 @@
-import type { ChatSummary } from '@ai-parter/shared'
+import type { ChatSummary } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { api } from '../../api/client'

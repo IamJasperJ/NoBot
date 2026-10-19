@@ -4,7 +4,7 @@ import {
   type PersonaUpdateInput,
   personaInput,
   personaUpdateInput,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db, getSetting, newId, setSetting } from '../db/client'
 import { lorebooks, type PersonaRow, personas } from '../db/schema'

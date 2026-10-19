@@ -1,4 +1,4 @@
-import { type ExtensionCatalogDTO, extensionPermissionsSchema } from '@ai-parter/shared'
+import { type ExtensionCatalogDTO, extensionPermissionsSchema } from '@nobot/shared'
 import { z } from 'zod'
 import { getSetting, setSetting } from '../db/client'
 import { HttpError } from '../errors'

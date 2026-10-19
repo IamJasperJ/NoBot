@@ -1,4 +1,4 @@
-import type { StateField, StateSchema } from '@ai-parter/shared'
+import type { StateField, StateSchema } from '@nobot/shared'
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDownIcon } from '../../components/icons'
 import { cx } from '../../components/ui'

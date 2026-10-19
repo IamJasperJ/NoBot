@@ -1,4 +1,4 @@
-import type { PromptBlock } from '@ai-parter/shared'
+import type { PromptBlock } from '@nobot/shared'
 
 /** 只接受 JSON 对象，避免数组或 null 被合并进请求体。 */
 export function isExtraBodyValid(value: string): boolean {

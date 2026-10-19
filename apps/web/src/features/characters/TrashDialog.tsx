@@ -1,4 +1,4 @@
-import type { TrashItemDTO } from '@ai-parter/shared'
+import type { TrashItemDTO } from '@nobot/shared'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../api/client'

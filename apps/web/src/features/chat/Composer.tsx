@@ -1,4 +1,4 @@
-import type { AttachmentDTO, GroupDTO, MessageDTO } from '@ai-parter/shared'
+import type { AttachmentDTO, GroupDTO, MessageDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, api } from '../../api/client'

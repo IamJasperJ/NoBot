@@ -5,7 +5,7 @@ import {
   characterSheetSchema,
   DND5E_SKILLS,
   type Dnd5eSkill,
-} from '@ai-parter/shared'
+} from '@nobot/shared'
 import { TextAreaField } from '../../components/form'
 import { Button, cx, inputClass } from '../../components/ui'
 import { t } from '../../i18n'

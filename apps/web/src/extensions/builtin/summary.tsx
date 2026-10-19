@@ -1,4 +1,4 @@
-import type { SummaryEntryDTO, SummaryStateDTO } from '@ai-parter/shared'
+import type { SummaryEntryDTO, SummaryStateDTO } from '@nobot/shared'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api as http } from '../../api/client'

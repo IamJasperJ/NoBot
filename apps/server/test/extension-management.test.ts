@@ -35,7 +35,7 @@ test('扩展管理：权限、Git 安装更新切换、热重载及目录缓存'
     const registry = await import('../src/extensions/registry')
     const git = await import('../src/services/extension-git')
     const permissions = await import('../src/extensions/permissions')
-    const { extensionPermissionsSchema } = await import('@ai-parter/shared')
+    const { extensionPermissionsSchema } = await import('@nobot/shared')
     const { app } = await import('../src/app')
     const request = (path: string, method = 'POST', body?: unknown) =>
       app.request(`/api/extensions${path}`, {

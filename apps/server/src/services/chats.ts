@@ -1,4 +1,4 @@
-import { buildChildrenMap, collectSubtree, findLatestLeaf, siblingOf } from '@ai-parter/core'
+import { buildChildrenMap, collectSubtree, findLatestLeaf, siblingOf } from '@nobot/core'
 import type {
   ChatDTO,
   ChatPage,
@@ -12,8 +12,8 @@ import type {
   MessageStatus,
   SetVarsInput,
   UpdateChatInput,
-} from '@ai-parter/shared'
-import { createChatInput } from '@ai-parter/shared'
+} from '@nobot/shared'
+import { createChatInput } from '@nobot/shared'
 import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import { db, getSetting, newId, sqlite } from '../db/client'
 import {

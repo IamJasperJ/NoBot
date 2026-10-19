@@ -1,5 +1,5 @@
-import { pickSprite } from '@ai-parter/core/stage'
-import type { CastMember, MessageDTO, PlayPresetData, StageState } from '@ai-parter/shared'
+import { pickSprite } from '@nobot/core/stage'
+import type { CastMember, MessageDTO, PlayPresetData, StageState } from '@nobot/shared'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { useSprites } from '../../api/queries'
 import { cx } from '../../components/ui'

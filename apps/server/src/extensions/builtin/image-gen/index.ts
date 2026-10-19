@@ -20,6 +20,7 @@ import {
   toBackground,
 } from './pipeline'
 import { defaultSettings, parseSettings, settingsSchema } from './settings'
+import { temporaryActorRoutes } from './temporary-actors'
 import { autoActors, autoCgs } from './vn6'
 import { placeholders, workflowSource } from './workflow'
 import { workflowValidationError } from './workflow-validation'
@@ -106,6 +107,7 @@ export default defineExtension({
         error instanceof z.ZodError ? 400 : 502,
       )
     })
+    temporaryActorRoutes(app, ctx)
     app.get('/background-status', (c) => c.json({ running: isBackgroundRunning(c.req.query('chatId') ?? '') }))
     app.post('/generate', async (c) => c.json(await generate(ctx, generateInput.parse(await c.req.json()))))
     app.post('/prompt', async (c) => c.json(await promptPreview(ctx, generateInput.parse(await c.req.json()))))

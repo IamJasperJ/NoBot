@@ -60,6 +60,7 @@ import type {
   StageState,
   SummaryStateDTO,
   SwipeInput,
+  TemporaryActorDTO,
   TestConnectionInput,
   TestConnectionResult,
   ToolInfo,
@@ -126,6 +127,21 @@ type Ok = { ok: true }
 
 /** 所有后端接口。路径和 apps/server/API.md 一一对应 */
 export const api = {
+  listTemporaryActors: (chatId: string) =>
+    request<TemporaryActorDTO[]>('GET', `/ext/image-gen/temporary-actors?chatId=${enc(chatId)}`),
+  regenerateTemporaryActor: (input: { chatId: string; key: string; prompt?: string }) =>
+    request<TemporaryActorDTO>('POST', '/ext/image-gen/temporary-actors/regenerate', input),
+  uploadTemporaryActor: (input: { chatId: string; key: string; file: File; removeBackground?: boolean }) => {
+    const form = new FormData()
+    form.append('chatId', input.chatId)
+    form.append('key', input.key)
+    form.append('file', input.file)
+    if (input.removeBackground) form.append('removeBackground', 'true')
+    return request<TemporaryActorDTO>('POST', '/ext/image-gen/temporary-actors/upload', form)
+  },
+  removeTemporaryActor: (input: { chatId: string; key: string; purge?: boolean }) =>
+    request<{ ok: true }>('DELETE', '/ext/image-gen/temporary-actors', input),
+
   checkChoice: (chatId: string, input: ChoiceCheckInput) =>
     request<CheckResult>('POST', `/chats/${enc(chatId)}/check`, input),
   translateMessage: (messageId: string) => request<MessageDTO>('POST', '/ext/translate/message', { messageId }),

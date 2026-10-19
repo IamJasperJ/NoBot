@@ -2109,4 +2109,32 @@ export const en: Record<string, string> = {
   '让看图模型给选中的背景起名并写描述（会覆盖原来的名字）':
     'Let the vision model name and describe the selected backgrounds (replaces their current names)',
   '正在起名…': 'Naming…',
+  生成失败: 'Generation failed',
+  已删除立绘: 'Sprite removed',
+  临时立绘: 'Temporary sprites',
+  'VN 里没有角色卡的 NPC 自动生成的立绘，只在这个会话里使用':
+    'Sprites generated for NPCs without a character card in VN mode. Used only in this chat',
+  '已开始重新生成，完成后舞台会自动换上新立绘': 'Regenerating. The stage switches to the new sprite when it finishes',
+  '临时立绘：{name}': 'Temporary sprite: {name}',
+  '立绘已删除，舞台上显示剪影，也不会再自动生成。':
+    'The sprite was removed. The stage shows a silhouette and it will not be generated automatically.',
+  外貌描述: 'Appearance',
+  '英文图片描述，生成时会自动加上「全身、站姿、白底」等要求':
+    'An English image description. "Full body, standing, white background" is added automatically',
+  留空则根据对话重新推断外貌: 'Leave empty to infer the appearance from the conversation',
+  按描述重新生成: 'Regenerate from description',
+  '忽略上面的描述，让模型根据当前对话重新推断外貌':
+    'Ignore the description above and let the model infer the appearance from the current conversation',
+  按对话重新推断: 'Infer from conversation',
+  上传时去除纯色背景: 'Remove solid background on upload',
+  上传替换: 'Upload replacement',
+  已替换立绘: 'Sprite replaced',
+  '删除 {name} 的临时立绘？舞台上会改为剪影，也不再自动生成。':
+    "Remove {name}'s temporary sprite? The stage will show a silhouette and it will not be generated automatically.",
+  删除立绘: 'Remove sprite',
+  '移除这条记录；这个 NPC 下次上台时会重新自动生成':
+    'Remove this entry. The NPC is generated again the next time they appear',
+  '移除 {name} 的记录？下次上台时会重新自动生成立绘。':
+    "Remove {name}'s entry? A sprite is generated again the next time they appear.",
+  移除记录: 'Remove entry',
 }

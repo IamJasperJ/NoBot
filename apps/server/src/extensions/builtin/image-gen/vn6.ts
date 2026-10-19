@@ -1,13 +1,13 @@
-import type { AttachmentDTO, MessageMeta } from '@nobot/shared'
-import { getSetting, setSetting } from '../../../db/client'
+import type { MessageMeta } from '@nobot/shared'
 import { setAttachmentCg } from '../../../services/attachments'
 import { getChatRow, loadMessage, loadPath } from '../../../services/chats'
 import { generateSpriteSet } from '../../../services/sprite-generation'
-import { listSprites, transparentSprite } from '../../../services/sprites'
+import { listSprites } from '../../../services/sprites'
 import { computeStage, resolvePlayPreset } from '../../../services/stage'
+import { readTemporaryActors } from '../../../services/temporary-actors'
 import { type Context, stageImage } from './pipeline'
+import { actorTaskKey, actorTasks, startTemporaryActor } from './temporary-actors'
 
-const actorTasks = new Set<string>()
 const actorRuns = new Set<string>()
 
 /** 元数据先同步占位再等待网络，重复事件与并发事件都不会重复启动。 */
@@ -56,16 +56,14 @@ export async function autoActors(ctx: Context, chatId: string): Promise<void> {
     let failed = false
     let started = false
     for (const actor of stage?.cast ?? []) {
-      const lock = JSON.stringify([chatId, actor.key])
-      const storageKey = `vn-actors:${chatId}`
+      const lock = actorTaskKey(chatId, actor.key)
+      const existing = readTemporaryActors(chatId)[actor.key]
       if (
         actorTasks.has(lock) ||
-        (actor.characterId
-          ? listSprites(actor.characterId).length
-          : getSetting<Record<string, AttachmentDTO>>(storageKey)?.[actor.key]?.url)
+        (actor.characterId ? listSprites(actor.characterId).length : existing && existing.status !== 'error')
       )
         continue
-      actorTasks.add(lock)
+      if (actor.characterId) actorTasks.add(lock)
       if (!started) {
         started = true
         ctx.host.updateMessageMeta(message.id, { spriteGeneration: 'pending' })
@@ -80,24 +78,14 @@ export async function autoActors(ctx: Context, chatId: string): Promise<void> {
           )
           if (result.failed) failed = true
         } else {
-          const prompt = `Create a full body standing character sprite of ${actor.name}. Neutral expression, simple white background, no other characters. Use the conversation to infer appearance. Output only an English image description.`
-          const appearance = await ctx.host.quietPrompt({ chatId, instruction: prompt, includeHistory: true })
-          const bytes = await stageImage(
-            ctx,
-            chatId,
-            `${appearance}. Full body, standing, neutral expression, simple white background, no other characters.`,
-            'free',
-            undefined,
-            false,
-          )
-          const image = await ctx.host.saveImage(await transparentSprite(bytes))
-          setSetting(storageKey, { ...getSetting<Record<string, AttachmentDTO>>(storageKey), [actor.key]: image })
+          const { task } = startTemporaryActor(ctx, chatId, actor.key, actor.name)
+          if (!(await task)) failed = true
         }
       } catch (error) {
         failed = true
         ctx.host.log({ chatId, kind: 'image', status: 'error', summary: String(error) })
       } finally {
-        actorTasks.delete(lock)
+        if (actor.characterId) actorTasks.delete(lock)
       }
     }
     if (started) ctx.host.updateMessageMeta(message.id, { spriteGeneration: failed ? 'error' : 'done' })

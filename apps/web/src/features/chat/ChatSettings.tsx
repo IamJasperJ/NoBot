@@ -36,6 +36,7 @@ import { useUi } from '../../stores/ui'
 import { GroupDialog } from '../groups/GroupDialog'
 import { BookmarksSection } from './BookmarksSection'
 import { runGeneration } from './generate'
+import { TemporaryActorsSection } from './TemporaryActorsSection'
 
 // 背景和固定开关在背景页里即时保存，不进会话设置的草稿
 type Draft = Required<Omit<UpdateChatInput, 'title' | 'backgroundId' | 'backgroundPinned' | 'quickReplySetIds'>> & {
@@ -357,6 +358,8 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
           chatId={chatId}
           owner={page.chat.groupId ? { groupId: page.chat.groupId } : { characterId: page.chat.characterId ?? '' }}
         />
+
+        <TemporaryActorsSection chatId={chatId} />
 
         <Section
           title={t('状态变量')}

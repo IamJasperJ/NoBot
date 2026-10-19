@@ -10,7 +10,6 @@ import {
   schemaInitVars,
 } from '@nobot/core/stage'
 import {
-  type AttachmentDTO,
   cardVnSchema,
   EXPRESSIONS,
   type MessageMeta,
@@ -20,12 +19,13 @@ import {
   type StateSchema,
 } from '@nobot/shared'
 import { and, asc, eq, isNull } from 'drizzle-orm'
-import { db, getSetting } from '../db/client'
+import { db } from '../db/client'
 import { characters, groupMembers, messages } from '../db/schema'
 import { backgroundsForChat } from './backgrounds'
 import { computeVars, getChatRow, loadPath } from './chats'
 import { loadLore, resolvePersona } from './context'
 import { getDefault, listPlayPresets } from './playPresets'
+import { readTemporaryActors } from './temporary-actors'
 import { resolveWho } from './trpg'
 import { readSheet } from './trpg-sheet'
 
@@ -129,10 +129,12 @@ export function computeStage(chatId: string, path: { meta: MessageMeta }[]) {
         .sort((a, b) => b.name.length - a.name.length)[0])
     : undefined
   stage.scene.backgroundId = match?.id ?? null
-  const temporary = getSetting<Record<string, AttachmentDTO>>(`vn-actors:${chatId}`) ?? {}
+  const temporary = readTemporaryActors(chatId)
   for (const actor of stage.cast) {
     actor.characterId = matchStageMember(chatId, actor.key)?.id ?? null
-    actor.spriteUrl = temporary[actor.key]?.url
+    const record = temporary[actor.key]
+    // 生成中或失败时沿用旧图；被用户删掉的显示剪影
+    actor.spriteUrl = record && record.status !== 'removed' ? record.image?.url : undefined
   }
   return stage
 }

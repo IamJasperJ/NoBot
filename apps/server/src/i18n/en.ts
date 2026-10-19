@@ -1,5 +1,7 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  该临时演员正在生成立绘: 'A sprite is already being generated for this temporary actor',
+  '临时立绘生成失败，请重试': 'Temporary sprite generation failed. Please try again.',
   '当前连接不支持看图，请在「图片说明」扩展里设置一个能看图的连接':
     'The current connection does not support vision. Configure a vision-capable connection in the Image Caption extension.',
   '动态视频背景暂不支持 AI 命名': 'AI naming is not yet supported for video backgrounds.',

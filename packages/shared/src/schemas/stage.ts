@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { AttachmentDTO } from './message'
 import type { CombatantState, CombatState } from './trpg'
 
 /**
@@ -402,3 +403,31 @@ Write in the same language as the conversation.`,
 {{vn_rules}}
 Write in the same language as the conversation.`,
 }
+
+/** 会话里自动生成的临时 NPC 立绘，键与舞台 actor.key 一致。 */
+export interface TemporaryActorDTO {
+  key: string
+  /** 生成时舞台上的显示名 */
+  name: string
+  /** 删除或尚未生成成功时为空 */
+  image: AttachmentDTO | null
+  /** 英文外貌描述，不含固定后缀；上传替换时为空串 */
+  prompt: string
+  /** removed 表示用户删除，不再自动生成 */
+  status: 'done' | 'pending' | 'error' | 'removed'
+  error?: string
+  updatedAt: number
+}
+
+export const regenerateTemporaryActorInput = z.object({
+  chatId: z.string(),
+  key: z.string(),
+  /** 留空时按对话重新推断外貌 */
+  prompt: z.string().trim().max(4000).optional(),
+})
+export const removeTemporaryActorInput = z.object({
+  chatId: z.string(),
+  key: z.string(),
+  /** 整条删除后，下次上台会重新自动生成 */
+  purge: z.boolean().default(false),
+})

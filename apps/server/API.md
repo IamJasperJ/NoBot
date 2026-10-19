@@ -217,7 +217,7 @@ Git 地址仅允许 HTTPS 或 git@host:path，ref 支持分支和标签；预览
 更新和切换拒绝有本地修改的仓库，内置扩展不可替换或卸载，非 Git 本地扩展调用 Git 接口返回 400。
 热重载使用独立版本运行目录，移除旧路由、工具、宏和钩子，并调用可选 dispose 清理函数。
 索引支持数组或 `{ extensions: [...] }`，逐项宽松校验，单源失败不影响其他源；每源 15 秒、2MB 上限。
-权限、安装流程及索引示例见 [扩展开发文档](../../docs/extensions.md)。
+示例扩展见 `examples/extensions/hello-world`。
 
 ## 扩展自定义接口 `/ext/:id`
 
@@ -239,7 +239,7 @@ routes 在已确认权限的扩展每次加载版本时注册一次，ctx.settin
 
 宿主更新消息元数据时广播 `message:updated`。生成流程异步广播 `message:saved`（用户插入、助手最终保存、工具插入）和 `generation:complete`（任务 finally）；
 创建会话后广播 `chat:created`。只有启用扩展接收事件，处理异常只记录日志。
-详细契约、插槽、前端事件及安装示例见 [扩展开发文档](../../docs/extensions.md)。
+示例扩展见 `examples/extensions/hello-world`。
 
 ### 扩展命令
 

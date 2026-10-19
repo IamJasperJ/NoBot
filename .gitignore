@@ -4,3 +4,8 @@ data/
 data-old-*/
 *.log
 .DS_Store
+
+# 本地协作与设计文档，不进公开仓库
+AGENTS.md
+docs/
+.claude/

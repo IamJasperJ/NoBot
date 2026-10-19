@@ -91,3 +91,17 @@ export const backgroundFolderItemsInput = z.object({
   backgroundIds: z.array(z.string()).min(1).max(2000),
 })
 export const batchDeleteBackgroundsInput = z.object({ ids: z.array(z.string()).min(1).max(2000) })
+
+/** 让模型看图给背景起名字、写描述 */
+export const nameBackgroundsInput = z.object({
+  ids: z.array(z.string()).min(1).max(50),
+  /** true 时直接写回；false 时只返回建议供编辑表单使用 */
+  apply: z.boolean().default(true),
+})
+export type NameBackgroundsInput = z.input<typeof nameBackgroundsInput>
+export interface NameBackgroundsResult {
+  /** 成功的：apply 为 true 时已写回 */
+  items: { id: string; name: string; description: string }[]
+  /** 单张失败不影响其他张 */
+  failed: { id: string; error: string }[]
+}

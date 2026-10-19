@@ -3,7 +3,7 @@ import { type ChatPage, characterInput } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { api } from './client'
-import { keys, refreshChatState, useResolvedBackgroundId } from './queries'
+import { keys, refreshChatState, useAiNameBackgrounds, useResolvedBackgroundId } from './queries'
 
 function page(): ChatPage {
   return {
@@ -102,6 +102,37 @@ test('生成完成后更新所有分页的会话背景与自动设置，并保�
       expect(item.messages).toBe(old.messages)
     }
     expect(cached.pages[1]?.hasMore).toBe(true)
+  } finally {
+    mock.mockRestore()
+    qc.clear()
+  }
+})
+
+test('AI 命名 mutation：传递请求并仅在写回时失效全部背景列表', async () => {
+  const qc = new QueryClient()
+  const result = { items: [{ id: 'bg', name: '酒馆', description: '温暖的酒馆' }], failed: [] }
+  const mock = spyOn(api, 'aiNameBackgrounds').mockResolvedValue(result)
+  let mutation: ReturnType<typeof useAiNameBackgrounds> | undefined
+  function Capture() {
+    mutation = useAiNameBackgrounds()
+    return null
+  }
+  renderToStaticMarkup(
+    <QueryClientProvider client={qc}>
+      <Capture />
+    </QueryClientProvider>,
+  )
+  const folderKey = [...keys.backgrounds, { folderId: 'folder' }]
+  qc.setQueryData(keys.backgrounds, [])
+  qc.setQueryData(folderKey, [])
+  try {
+    expect(await mutation!.mutateAsync({ ids: ['bg'], apply: false })).toEqual(result)
+    expect(mock).toHaveBeenLastCalledWith({ ids: ['bg'], apply: false }, expect.anything())
+    expect(qc.getQueryState(keys.backgrounds)?.isInvalidated).toBe(false)
+    expect(qc.getQueryState(folderKey)?.isInvalidated).toBe(false)
+    await mutation!.mutateAsync({ ids: ['bg'] })
+    expect(qc.getQueryState(keys.backgrounds)?.isInvalidated).toBe(true)
+    expect(qc.getQueryState(folderKey)?.isInvalidated).toBe(true)
   } finally {
     mock.mockRestore()
     qc.clear()

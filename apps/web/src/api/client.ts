@@ -38,6 +38,8 @@ import type {
   LorebookEntryDTO,
   LorebookInput,
   MessageDTO,
+  NameBackgroundsInput,
+  NameBackgroundsResult,
   PersonaDTO,
   PersonaInput,
   PersonaUpdateInput,
@@ -152,6 +154,8 @@ export const api = {
     request<AttachmentDTO>('POST', `/ext/caption/attachments/${enc(id)}`, { chatId }),
   importBackgroundUrl: (input: { url: string; name?: string }) =>
     request<BackgroundDTO>('POST', '/backgrounds/import-url', input),
+  aiNameBackgrounds: (input: NameBackgroundsInput) =>
+    request<NameBackgroundsResult>('POST', '/backgrounds/ai-name', input),
   autoBackground: (chatId: string) =>
     request<{ background: BackgroundDTO; reply: string }>('POST', '/backgrounds/auto', { chatId }),
   listBackgrounds: (folderId?: string) =>

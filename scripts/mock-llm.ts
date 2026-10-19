@@ -111,7 +111,14 @@ Bun.serve({
       ? (classifyLabels.find((label) => String(lastUser).toLowerCase().includes(label)) ?? classifyLabels[0])
       : null
     // 背景起名请求：回答固定的 JSON
-    const nameRequest = String(msgs.at(-1)?.content ?? '').includes('Output only JSON: {"name"')
+    const lastContent = msgs.at(-1)?.content
+    const nameText = Array.isArray(lastContent)
+      ? lastContent
+          .filter((part) => part.type === 'text')
+          .map((part) => part.text)
+          .join('\n')
+      : String(lastContent ?? '')
+    const nameRequest = nameText.includes('Output only JSON: {"name"')
     const summaryRequest =
       msgs.some((m) => m.role === 'system' && String(m.content).includes('story chronicler')) ||
       String(msgs.at(-1)?.content).includes('[New conversation]')

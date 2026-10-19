@@ -6,6 +6,7 @@ import {
   backgroundSettingsInput,
   batchDeleteBackgroundsInput,
   importBackgroundUrlInput,
+  nameBackgroundsInput,
   updateBackgroundInput,
 } from '@nobot/shared'
 import { Hono } from 'hono'
@@ -13,6 +14,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
 import { autoSelectBackground } from '../services/auto-background'
+import { nameBackgrounds } from '../services/background-naming'
 import {
   batchDeleteBackgrounds,
   changeBackgroundFolderItems,
@@ -58,6 +60,9 @@ export const backgroundRoutes = new Hono()
   )
   .post('/auto', zValidator('json', autoBackgroundInput), async (c) =>
     c.json(await autoSelectBackground(c.req.valid('json').chatId)),
+  )
+  .post('/ai-name', zValidator('json', nameBackgroundsInput), async (c) =>
+    c.json(await nameBackgrounds(c.req.valid('json'))),
   )
   .get('/folders', (c) => c.json(listBackgroundFolders()))
   .post('/folders', zValidator('json', backgroundFolderInput), (c) =>

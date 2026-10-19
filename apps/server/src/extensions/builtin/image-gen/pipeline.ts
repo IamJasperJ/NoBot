@@ -3,6 +3,7 @@ import type { ImageGenMeta, MessageMeta, PlayPresetData, StageState } from '@nob
 import { paths } from '../../../env'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
+import { firstJsonObject } from '../../../lib/json-object'
 import { getAttachment } from '../../../services/attachments'
 import { deleteMessage, editMessage, getChatRow, loadMessage, loadPath } from '../../../services/chats'
 import { getLanguage } from '../../../services/settings'
@@ -355,16 +356,7 @@ Image description: ${prompt}`,
     })
     const start = reply.indexOf('{')
     if (start < 0) throw new Error(t('模型没有返回 JSON'))
-    let value: unknown
-    // 逐个尝试右括号，兼容代码围栏及描述字符串里的花括号，仍只读取第一个对象。
-    for (let end = reply.indexOf('}', start + 1); end >= 0; end = reply.indexOf('}', end + 1)) {
-      try {
-        value = JSON.parse(reply.slice(start, end + 1))
-        break
-      } catch {
-        // 字符串内的右括号或嵌套对象尚未构成完整 JSON，继续向后找。
-      }
-    }
+    const value = firstJsonObject(reply)
     if (!value || typeof value !== 'object') throw new Error(t('模型返回的 JSON 无效'))
     if (!sceneName) {
       if (!('name' in value) || typeof value.name !== 'string' || !value.name.trim()) {

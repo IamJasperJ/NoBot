@@ -1,10 +1,11 @@
-import type { BackgroundDTO, BackgroundFolderDTO } from '@nobot/shared'
+import type { BackgroundDTO, BackgroundFolderDTO, NameBackgroundsResult } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { type RefObject, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import {
   keys,
   useAddBackgroundsToFolder,
+  useAiNameBackgrounds,
   useAutoBackground,
   useBackgroundFolders,
   useBackgroundSettings,
@@ -84,6 +85,15 @@ export function BackgroundsPage() {
   const addToFolder = useAddBackgroundsToFolder()
   const removeFromFolder = useRemoveBackgroundsFromFolder()
   const batchDelete = useBatchDeleteBackgrounds()
+  const aiName = useAiNameBackgrounds()
+  // 批量命名的结果：成功几张，失败的提示第一条原因
+  const reportAiName = (result: NameBackgroundsResult) => {
+    if (result.items.length) toast.info(t('已为 {count} 张背景起名', { count: result.items.length }))
+    if (result.failed.length)
+      toast.error(
+        t('{count} 张起名失败：{error}', { count: result.failed.length, error: result.failed[0]?.error ?? '' }),
+      )
+  }
   const columnsBase = useAppearance((s) => s.backgroundColumns)
   const setAppearance = useAppearance((s) => s.set)
   const gridRef = useRef<HTMLDivElement>(null)
@@ -663,7 +673,9 @@ export function BackgroundsPage() {
           count={picked.length}
           folders={folders.data ?? []}
           inFolder={folder}
-          busy={batchDelete.isPending || addToFolder.isPending || removeFromFolder.isPending}
+          busy={batchDelete.isPending || addToFolder.isPending || removeFromFolder.isPending || aiName.isPending}
+          naming={aiName.isPending}
+          onAiName={() => aiName.mutate({ ids: picked }, { ...mutateOpts, onSuccess: reportAiName })}
           onAll={() => setPicked(picked.length === filtered.length ? [] : filtered.map((b) => b.id))}
           allPicked={picked.length > 0 && picked.length === filtered.length}
           onDelete={() => {
@@ -770,9 +782,34 @@ export function BackgroundsPage() {
             value={description}
             onChange={setDescription}
           />
-          <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
-            {t('保存')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="submit" variant="primary" disabled={busy || aiName.isPending || !name.trim()}>
+              {t('保存')}
+            </Button>
+            <Button
+              disabled={busy || aiName.isPending || !current || current.mime.startsWith('video/')}
+              title={t('让看图模型根据画面起名并写描述，填进表单后由你决定是否保存')}
+              onClick={() =>
+                current &&
+                aiName.mutate(
+                  { ids: [current.id], apply: false },
+                  {
+                    ...mutateOpts,
+                    onSuccess: (result) => {
+                      const item = result.items[0]
+                      if (item) {
+                        setName(item.name)
+                        setDescription(item.description)
+                      } else reportAiName(result)
+                    },
+                  },
+                )
+              }
+            >
+              <WandIcon />
+              {aiName.isPending ? t('正在看图…') : t('AI 起名')}
+            </Button>
+          </div>
         </form>
       </Dialog>
     </div>
@@ -835,8 +872,10 @@ function SelectionBar({
   folders,
   inFolder,
   busy,
+  naming,
   allPicked,
   onAll,
+  onAiName,
   onDelete,
   onAdd,
   onRemove,
@@ -846,8 +885,10 @@ function SelectionBar({
   folders: BackgroundFolderDTO[]
   inFolder: BackgroundFolderDTO | null
   busy: boolean
+  naming: boolean
   allPicked: boolean
   onAll: () => void
+  onAiName: () => void
   onDelete: () => void
   onAdd: (folderId: string) => void
   onRemove: () => void
@@ -878,6 +919,15 @@ function SelectionBar({
           {t('移出文件夹')}
         </Button>
       )}
+      <Button
+        size="sm"
+        disabled={busy || !count}
+        title={t('让看图模型给选中的背景起名并写描述（会覆盖原来的名字）')}
+        onClick={onAiName}
+      >
+        <WandIcon />
+        {naming ? t('正在起名…') : t('AI 起名')}
+      </Button>
       <Button size="sm" variant="danger" disabled={busy || !count} onClick={onDelete}>
         <TrashIcon />
         {t('删除')}

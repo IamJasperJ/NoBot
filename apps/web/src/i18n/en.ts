@@ -2100,4 +2100,13 @@ export const en: Record<string, string> = {
   只有一套立绘: 'Only one outfit',
   '还没有立绘，可以在角色编辑页的「立绘」里上传或 AI 生成。':
     'No sprites yet. Upload or generate them under "Sprites" on the character page.',
+  '已为 {count} 张背景起名': 'Named {count} backgrounds',
+  '{count} 张起名失败：{error}': 'Failed to name {count}: {error}',
+  '让看图模型根据画面起名并写描述，填进表单后由你决定是否保存':
+    'Let the vision model name and describe the image. The form is filled in and you decide whether to save',
+  '正在看图…': 'Looking at the image…',
+  'AI 起名': 'AI name',
+  '让看图模型给选中的背景起名并写描述（会覆盖原来的名字）':
+    'Let the vision model name and describe the selected backgrounds (replaces their current names)',
+  '正在起名…': 'Naming…',
 }

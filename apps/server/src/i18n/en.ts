@@ -1,5 +1,10 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  '当前连接不支持看图，请在「图片说明」扩展里设置一个能看图的连接':
+    'The current connection does not support vision. Configure a vision-capable connection in the Image Caption extension.',
+  '动态视频背景暂不支持 AI 命名': 'AI naming is not yet supported for video backgrounds.',
+  '背景 AI 命名失败或超时': 'AI background naming failed or timed out.',
+
   工具绘图提示词说明: 'Tool image prompt instructions',
   '指导聊天模型编写工具调用中的绘图描述；留空使用内置说明':
     'Instructions for the chat model when writing image prompts in tool calls; leave blank for built-in instructions.',

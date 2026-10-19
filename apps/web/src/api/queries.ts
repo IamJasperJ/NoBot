@@ -358,3 +358,13 @@ export function useSpriteJob(characterId: string | null | undefined, jobId: stri
   }, [qc, characterId, jobId, status])
   return query
 }
+
+export function useAiNameBackgrounds() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: api.aiNameBackgrounds,
+    onSuccess: async (_result, input) => {
+      if (input.apply !== false) await qc.invalidateQueries({ queryKey: keys.backgrounds })
+    },
+  })
+}

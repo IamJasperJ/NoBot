@@ -19,7 +19,7 @@ export const captionSettings = z.object({
 })
 
 /** 候选接口和实际生成共用解析，避免草稿跟随的连接与生成时不同。 */
-function resolveCaptionConnection(config: z.infer<typeof captionSettings>, chatId?: string) {
+export function resolveCaptionConnection(config: z.infer<typeof captionSettings>, chatId?: string) {
   const resolved = resolveProfile(chatId ? getChatRow(chatId) : undefined, !config.connectionId)
   const connection = config.connectionId ? getApiPresetRow(config.connectionId) : resolved.connection
   if (!connection) throw new HttpError(400, 'NO_CONNECTION', t('没有可用的模型连接'))

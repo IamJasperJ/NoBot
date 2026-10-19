@@ -1,5 +1,33 @@
 import type { CastMember, StageOp, StagePosition, StageState } from '@nobot/shared'
 
+const POSITION_X: Record<StagePosition, number> = {
+  1: 12,
+  left: 24,
+  2: 31,
+  center: 50,
+  3: 50,
+  4: 69,
+  right: 76,
+  5: 88,
+}
+
+function repositionCast(cast: CastMember[]): CastMember[] {
+  const positions: StagePosition[] =
+    cast.length === 1
+      ? ['center']
+      : cast.length === 2
+        ? ['left', 'right']
+        : cast.length === 3
+          ? ['left', 'center', 'right']
+          : cast.length === 4
+            ? [1, 2, 4, 5]
+            : [1, 2, 3, 4, 5]
+  return cast
+    .map((member, index) => ({ member, index }))
+    .sort((a, b) => POSITION_X[a.member.at] - POSITION_X[b.member.at] || a.index - b.index)
+    .map(({ member }, index) => ({ ...member, at: positions[index] ?? 'center' }))
+}
+
 export function castKey(name: string): string {
   return name.trim().toLowerCase().replace(/\s/g, '')
 }
@@ -45,7 +73,11 @@ export function applyStageOps(state: StageState, ops: StageOp[]): StageState {
     const key = castKey(op.who)
     const index = next.cast.findIndex((member) => castKey(member.name) === key)
     if (op.op === 'hide') {
-      if (index >= 0) next.cast.splice(index, 1)
+      // 退场当即重排：前端按拍、后端按整条消息应用 ops，逐个 hide 重排两边结果才一致
+      if (index >= 0) {
+        next.cast.splice(index, 1)
+        next.cast = repositionCast(next.cast)
+      }
       continue
     }
     let member = next.cast[index]

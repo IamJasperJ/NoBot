@@ -147,7 +147,9 @@ export function emptyStage(): StageState {
  * - scene：只覆盖写了的字段；bg 变化时清掉 backgroundId（由后端重新匹配）
  * - show：已在台上 → 只更新写了的 at / outfit / expression（都没写时无操作）；
  *         不在台上 → 加到末尾，expression 默认 ''，at 没写时自动选位置（见 autoPosition）
- * - hide：从台上移除（按 castKey 比较）
+ * - hide：从台上移除（按 castKey 比较）；确实移除了人时，立即按当前左右次序重排留下的人，
+ *         同站位保持 cast 原顺序；1 / 2 / 3 人分别用 center / left、right / left、center、right，
+ *         4 人用 1、2、4、5，5 人以上用 1–5，多余的人放 center；之后的 show 显式写的 at 照常生效
  * - expr：在台上 → 改表情；不在台上 → 自动上台并带上这个表情
  * - 名字（name）保留最近一次写法
  */

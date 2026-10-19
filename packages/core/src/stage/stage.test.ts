@@ -394,8 +394,8 @@ describe('舞台折叠', () => {
     const next = applyStageOps(state, ops)
     expect(next.scene).toEqual({ ...state.scene, place: '城' })
     expect(next.cast).toEqual([
+      { key: '丙', name: '丙', expression: 'joy', at: 'left' },
       { key: 'alice', name: 'ALIce', expression: 'sadness', outfit: '礼服', at: 'right' },
-      { key: '丙', name: '丙', expression: 'joy', at: 'center' },
     ])
     expect(state).toEqual(before)
     expect(ops).toEqual(originalOps)
@@ -406,6 +406,104 @@ describe('舞台折叠', () => {
       time: '白天',
     })
     expect(applyStageOps(state, [{ op: 'show', who: 'alice' }]).cast[0]).toEqual({ ...state.cast[0]!, name: 'alice' })
+  })
+
+  test('三人退一人后分站左右', () => {
+    const state: StageState = {
+      scene: {},
+      cast: [member('left', '甲'), member('center', '乙'), member('right', '丙')],
+    }
+    expect(applyStageOps(state, [{ op: 'hide', who: '丙' }]).cast).toEqual([
+      member('left', '甲'),
+      member('right', '乙'),
+    ])
+  })
+
+  test('连续退场后只剩一人居中，全部退场为空舞台', () => {
+    const state: StageState = {
+      scene: {},
+      cast: [member('left', '甲'), member('center', '乙'), member('right', '丙')],
+    }
+    const next = applyStageOps(state, [
+      { op: 'hide', who: '乙' },
+      { op: 'hide', who: '丙' },
+    ])
+    expect(next.cast).toEqual([member('center', '甲')])
+    expect(applyStageOps(next, [{ op: 'hide', who: '甲' }]).cast).toEqual([])
+  })
+
+  test('按横坐标保持左右相对顺序，同坐标保持 cast 顺序，多于五人放中间', () => {
+    const state: StageState = {
+      scene: {},
+      cast: [
+        member('right', '右'),
+        member(5, '最右'),
+        member(3, '中一'),
+        member(2, '偏左'),
+        member('center', '中二'),
+        member(1, '最左'),
+        member(4, '偏右'),
+        member('left', '左'),
+        member('center', '退场'),
+      ],
+    }
+    expect(applyStageOps(state, [{ op: 'hide', who: '退场' }]).cast).toEqual([
+      member(1, '最左'),
+      member(2, '左'),
+      member(3, '偏左'),
+      member(4, '中一'),
+      member(5, '中二'),
+      member('center', '偏右'),
+      member('center', '右'),
+      member('center', '最右'),
+    ])
+  })
+
+  test('hide 不在台上的人时不重排', () => {
+    const state: StageState = { scene: {}, cast: [member(5, '甲'), member(1, '乙')] }
+    expect(applyStageOps(state, [{ op: 'hide', who: '不存在' }])).toEqual(state)
+  })
+
+  test('没有 hide 时保留新旧角色显式指定的 at', () => {
+    const state: StageState = { scene: {}, cast: [member('center', '甲')] }
+    expect(
+      applyStageOps(state, [
+        { op: 'show', who: '甲', at: 5 },
+        { op: 'show', who: '乙', at: 1 },
+      ]).cast,
+    ).toEqual([member(5, '甲'), member(1, '乙')])
+  })
+
+  test('五人退到四人使用 1、2、4、5', () => {
+    const state: StageState = {
+      scene: {},
+      cast: [member(1, '甲'), member(2, '乙'), member(3, '丙'), member(4, '丁'), member(5, '戊')],
+    }
+    expect(applyStageOps(state, [{ op: 'hide', who: '乙' }]).cast).toEqual([
+      member(1, '甲'),
+      member(2, '丙'),
+      member(4, '丁'),
+      member(5, '戊'),
+    ])
+  })
+
+  test('退场当即重排，之后 show 显式写的 at 照常生效，回放结果确定且不修改输入', () => {
+    const initial: StageState = { scene: {}, cast: [member(5, '甲'), member(1, '乙')] }
+    const ops: StageOp[][] = [
+      [
+        { op: 'hide', who: '乙' },
+        { op: 'show', who: '丙', at: 2 },
+        { op: 'show', who: '丁', at: 4 },
+      ],
+    ]
+    const before = structuredClone({ initial, ops })
+    const expected: StageState = {
+      scene: {},
+      cast: [member('center', '甲'), member(2, '丙'), member(4, '丁')],
+    }
+    expect(foldStage(ops, initial)).toEqual(expected)
+    expect(foldStage(ops, initial)).toEqual(expected)
+    expect({ initial, ops }).toEqual(before)
   })
 
   test('foldStage 顺序折叠且不修改初始状态', () => {

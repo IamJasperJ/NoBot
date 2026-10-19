@@ -122,6 +122,8 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
   const selected = useChatOps((s) => s.selected)
   const toggle = useChatOps((s) => s.toggle)
   const order = messages.map((m) => m.id)
+  // 选项挂在最后一条「有正文」的消息上：图片生成追加的纯图片消息不应把上一条回复的选项挤掉
+  const choicesIndex = messages.findLastIndex((m) => !(m.meta.imageGen && !m.content.trim()))
 
   const items = virtualizer.getVirtualItems()
   return (
@@ -167,6 +169,7 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
                   msg={msg}
                   chatId={chatId}
                   isLast={item.index === messages.length - 1}
+                  showChoices={item.index === choicesIndex}
                   busy={busy}
                   cast={cast}
                 />

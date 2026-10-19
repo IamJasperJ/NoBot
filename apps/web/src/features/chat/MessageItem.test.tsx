@@ -105,6 +105,7 @@ test('失败框采用占位尺寸、截断提示词、错误详情和三个操�
           msg={{ ...msg, role: 'tool' }}
           chatId="chat"
           isLast
+          showChoices
           busy={false}
           cast={{ speakers: {}, fallback: { name: '角色', avatarUrl: null }, user: { name: '用户', avatarUrl: null } }}
         />

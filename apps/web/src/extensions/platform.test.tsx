@@ -122,6 +122,7 @@ test('助手与工具显示图片、异步占位和失败信息', () => {
           msg={message}
           chatId="chat"
           isLast={false}
+          showChoices={false}
           busy={false}
           cast={{ speakers: {}, fallback: { name: '画师', avatarUrl: null }, user: { name: '旅人', avatarUrl: null } }}
         />
@@ -219,6 +220,7 @@ test('生成图片仅展示所选一张、计数正确，上传图片仍全部�
           msg={message}
           chatId="chat"
           isLast={false}
+          showChoices={false}
           busy={false}
           cast={{ speakers: {}, fallback: { name: '画师', avatarUrl: null }, user: { name: '旅人', avatarUrl: null } }}
         />

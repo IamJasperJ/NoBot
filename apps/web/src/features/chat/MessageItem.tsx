@@ -63,6 +63,8 @@ interface Props {
   msg: MessageDTO
   chatId: string
   isLast: boolean
+  /** 是否显示这条消息的选项（最后一条非纯图片消息） */
+  showChoices: boolean
   /** 会话里是否有正在进行的生成（生成中禁止改动消息树） */
   busy: boolean
   cast: ChatCast
@@ -336,7 +338,7 @@ function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: string; t
  * 单条消息。用 memo 包起来，只有自己的数据变了才重新渲染。
  * 正在生成的那条消息额外订阅 streaming store 里的文本。
  */
-export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy, cast }: Props) {
+export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, showChoices, busy, cast }: Props) {
   const transforms = useExtensionsRuntime((s) => s.transforms)
   const qc = useQueryClient()
   const liveText = useStreaming((s) => (s.messageId === msg.id ? s.text : null))
@@ -381,7 +383,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
         })
       : raw
   const text = transformMessage(displayMacros(visible, { char: charName, user: cast.user.name }), msg, transforms)
-  const choices = cast.stage?.choices && isLast && !isStreaming ? msg.meta.stage?.choices : undefined
+  const choices = cast.stage?.choices && showChoices && !isStreaming ? msg.meta.stage?.choices : undefined
   const reasoning = liveReasoning || (view.hasTranslation ? view.reasoning : msg.meta.reasoning)
   // 最后一条角色回复可以向右滑出新的回复、可以续写；其他消息只能在已有的 swipe 间切换
   const isReply = msg.role === 'assistant' && msg.parentId !== null

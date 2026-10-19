@@ -7,6 +7,9 @@
 //      最后一条用户消息含「VN」时，回复一段带舞台指令（场景、上台、台词速记、<state>、<choices>）的内容，
 //      说话人固定是「艾莉丝」；
 //      请求带 tools 且最后一条用户消息含「掷骰」、还没有工具结果时，返回一次 roll_dice 调用；
+//      含「检定」且提供 ability_check 工具、没有工具结果时，返回玩家隐匿 DC13 检定；
+//      含「结束战斗」「下一回合」「战斗」时分别回复结束、推进、开始战斗指令及旁白；
+//      系统或用户消息含 translate / Translate 翻译指令时，回复「[译] 」加原文，保留全部标记；
 //      含「画图」且提供了 generate_image 工具时，返回一次 generate_image 调用
 // 64×64 纯色 PNG（直接内嵌，模拟服务不依赖 sharp）
 const mockPng = Buffer.from(
@@ -71,12 +74,14 @@ Bun.serve({
       ? null
       : String(lastUser).includes('掷骰') && toolNames.includes('roll_dice')
         ? { name: 'roll_dice', arguments: '{"expression":"1d20","reason":"潜行检定"}' }
-        : String(lastUser).includes('画图') && toolNames.includes('generate_image')
-          ? {
-              name: 'generate_image',
-              arguments: '{"prompt":"1girl, cozy cafe, sunset light","orientation":"portrait"}',
-            }
-          : null
+        : String(lastUser).includes('检定') && toolNames.includes('ability_check')
+          ? { name: 'ability_check', arguments: '{"who":"player","skill":"stealth","dc":13}' }
+          : String(lastUser).includes('画图') && toolNames.includes('generate_image')
+            ? {
+                name: 'generate_image',
+                arguments: '{"prompt":"1girl, cozy cafe, sunset light","orientation":"portrait"}',
+              }
+            : null
     const wantTool = !!toolCall
     const _last = msgs.at(-1)
     const vnReply = [
@@ -118,17 +123,32 @@ Bun.serve({
         : Array.from(summaryMessage.slice(summaryIndex + '[New conversation]'.length))
             .slice(0, 30)
             .join('')
-    const reply = summaryRequest
-      ? `模拟总结：${summaryText}`
-      : nameRequest
-        ? '{"name": "模拟背景", "description": "模拟模型写的画面描述"}'
-        : classifyAnswer
-          ? classifyAnswer
-          : hasToolResult
-            ? `根据工具结果「${msgs.filter((m) => m.role === 'tool').at(-1).content}」，继续故事。`
-            : String(lastUser).includes('VN')
-              ? vnReply
-              : `你好！这是模拟回复，你刚才说的是「${String(lastUser).slice(0, 20)}」。`
+    // 翻译优先于剧情触发，避免原文里的触发词改变译文和舞台标记。
+    const translationRequest = msgs.some(
+      (m) => ['system', 'user'].includes(m.role) && /\btranslate\b/i.test(String(m.content)),
+    )
+    const combatReply = String(lastUser).includes('结束战斗')
+      ? '<combat end> 战斗结束，公会恢复了平静。'
+      : String(lastUser).includes('下一回合')
+        ? '<combat next> 下一位行动者准备出手。'
+        : String(lastUser).includes('战斗')
+          ? '<combat start: 艾莉丝, 哥布林> 哥布林冲入大厅，艾莉丝拔剑迎战。'
+          : null
+    const reply = translationRequest
+      ? `[译] ${String(lastUser)}`
+      : summaryRequest
+        ? `模拟总结：${summaryText}`
+        : nameRequest
+          ? '{"name": "模拟背景", "description": "模拟模型写的画面描述"}'
+          : classifyAnswer
+            ? classifyAnswer
+            : hasToolResult
+              ? `根据工具结果「${msgs.filter((m) => m.role === 'tool').at(-1).content}」，继续故事。`
+              : combatReply
+                ? combatReply
+                : String(lastUser).includes('VN')
+                  ? vnReply
+                  : `你好！这是模拟回复，你刚才说的是「${String(lastUser).slice(0, 20)}」。`
     const enc = new TextEncoder()
     if (!body.stream) {
       return Response.json({

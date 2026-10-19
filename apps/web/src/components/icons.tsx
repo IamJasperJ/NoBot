@@ -280,3 +280,9 @@ export const StarIcon = ({ filled, ...p }: P & { filled?: boolean }) => (
     />
   </Icon>
 )
+
+export const TranslateIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 5h8M8 3v2M10.5 5c-.8 3.5-3 6.5-6.5 8M6 8c1 2 2.8 3.6 5 4.5M13 21l4-10 4 10M14.4 17.5h5.2" />
+  </Icon>
+)

@@ -484,6 +484,58 @@ export function translateMetadata(text: string): string {
       return t('必须且只能指定角色或群组之一')
     case '群聊至少要有一个成员':
       return t('群聊至少要有一个成员')
+    case '翻译':
+      return t('翻译')
+    case '翻译消息和输入，保留舞台指令与原文。':
+      return t('翻译消息和输入，保留舞台指令与原文。')
+    case '翻译服务':
+      return t('翻译服务')
+    case '模型翻译':
+      return t('模型翻译')
+    case 'Google 网页翻译':
+      return t('Google 网页翻译')
+    case '译文语言':
+      return t('译文语言')
+    case '跟随界面语言':
+      return t('跟随界面语言')
+    case '模型语言':
+      return t('模型语言')
+    case '自动翻译':
+      return t('自动翻译')
+    case '不自动翻译':
+      return t('不自动翻译')
+    case '翻译回复':
+      return t('翻译回复')
+    case '翻译我的输入':
+      return t('翻译我的输入')
+    case '都翻译':
+      return t('都翻译')
+    case '翻译思考过程':
+      return t('翻译思考过程')
+    case '翻译连接':
+      return t('翻译连接')
+    case '翻译模型':
+      return t('翻译模型')
+    case '翻译提示词':
+      return t('翻译提示词')
+    case '翻译温度':
+      return t('翻译温度')
+    case 'DeepL 密钥':
+      return t('DeepL 密钥')
+    case 'DeepL 端点':
+      return t('DeepL 端点')
+    case '免费版':
+      return t('免费版')
+    case '专业版':
+      return t('专业版')
+    case 'DeepLX 地址':
+      return t('DeepLX 地址')
+    case 'LibreTranslate 地址':
+      return t('LibreTranslate 地址')
+    case 'LibreTranslate 密钥':
+      return t('LibreTranslate 密钥')
+    case 'Lingva 地址':
+      return t('Lingva 地址')
     default:
       return text
   }

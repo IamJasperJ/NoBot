@@ -18,6 +18,8 @@ import type {
   ChatDTO,
   ChatPage,
   ChatSummary,
+  CheckResult,
+  ChoiceCheckInput,
   CreateChatInput,
   ExtensionCatalogDTO,
   ExtensionDTO,
@@ -122,6 +124,12 @@ type Ok = { ok: true }
 
 /** 所有后端接口。路径和 apps/server/API.md 一一对应 */
 export const api = {
+  checkChoice: (chatId: string, input: ChoiceCheckInput) =>
+    request<CheckResult>('POST', `/chats/${enc(chatId)}/check`, input),
+  translateMessage: (messageId: string) => request<MessageDTO>('POST', '/ext/translate/message', { messageId }),
+  removeTranslation: (messageId: string) => request<MessageDTO>('DELETE', '/ext/translate/message', { messageId }),
+  translateText: (text: string, lang: string) =>
+    request<{ text: string }>('POST', '/ext/translate/text', { text, lang }),
   listQuickReplySets: () => request<QuickReplyState>('GET', '/quick-replies'),
   createQuickReplySet: (input: QuickReplySetInput) => request<QuickReplySet>('POST', '/quick-replies', input),
   updateQuickReplySet: (id: string, input: QuickReplySetInput) =>

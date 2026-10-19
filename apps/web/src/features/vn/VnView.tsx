@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { refreshChatState, resetChat } from '../../api/queries'
+import { useFreshDice, usePickChoice, useTrpgSettings } from '../../api/trpg'
 import {
   BookmarkIcon,
   ChevronLeftIcon,
@@ -26,6 +27,9 @@ import { Composer } from '../chat/Composer'
 import { displayMacros } from '../chat/format'
 import { runGeneration } from '../chat/generate'
 import type { ChatCast } from '../chat/MessageItem'
+import { CheckCard, DiceCard } from '../trpg/DiceCard'
+import { InitiativeBar } from '../trpg/InitiativeBar'
+import { checkSkillLabel } from '../trpg/labels'
 import { useCgRefresh } from './useCgRefresh'
 import { useVnPlayer } from './useVnPlayer'
 import { VnHud } from './VnHud'
@@ -112,6 +116,18 @@ export function VnView({
   }
 
   const avatars = Object.fromEntries(Object.entries(cast.speakers).map(([id, s]) => [id, s.avatarUrl]))
+  // 跑团：选项检定、刚掷出的骰子演出、战斗先攻条
+  const trpg = useTrpgSettings(chatId)
+  const pickChoice = usePickChoice(chatId)
+  const lastRoll = messages.findLast((m) => m.role === 'tool' && (m.meta.dice || m.meta.check))
+  const rollFresh = useFreshDice(lastRoll?.id ?? '', trpg.diceMs + 1500)
+  const combat = player.stage.combat
+  const avatarOf = (who: { name: string; characterId?: string | null }) =>
+    who.characterId
+      ? (cast.speakers[who.characterId]?.avatarUrl ?? null)
+      : who.name === cast.user.name || who.name.toLowerCase() === 'player'
+        ? cast.user.avatarUrl
+        : (Object.values(cast.speakers).find((s) => s.name === who.name)?.avatarUrl ?? null)
   const choices: ChoiceOption[] | undefined =
     beat?.kind === 'choices' ? beat.options : ended && !player.pinned ? current?.meta.stage?.choices : undefined
   const scene = player.stage.scene
@@ -122,8 +138,6 @@ export function VnView({
       !!choices &&
       choices.length <= 3 &&
       choices.every((c) => Array.from(c.text).length <= 12))
-  const send = (text: string) =>
-    void runGeneration(qc, chatId, { mode: 'send', text, images: [] }).catch((e) => toast.error(errorMessage(e)))
 
   // 切换备选回复 / 备选开场白、重新生成：和聊天视图的规则一样——
   // 只有最后一条回复能重新生成（开场白没有父消息，只能在备选开场白之间切换）；重演旧回复时不显示
@@ -302,6 +316,29 @@ export function VnView({
         />
       )}
 
+      {/* 战斗：顶部居中的先攻条 */}
+      {!hidden && !cinema && combat && trpg.initiativeBar && (
+        <div className="pointer-events-none absolute inset-x-0 top-14 z-[7] flex justify-center px-4">
+          <InitiativeBar combat={combat} vars={hudVars} avatarOf={avatarOf} playerName={cast.user.name} />
+        </div>
+      )}
+
+      {/* 模型刚调用的掷骰 / 检定：在画面上方弹一张卡片，演完淡出 */}
+      {!hidden && lastRoll && rollFresh && !pickChoice.pending && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/4 z-30 flex justify-center px-4">
+          {lastRoll.meta.check ? (
+            <CheckCard
+              result={lastRoll.meta.check}
+              animate={trpg.diceAnimation}
+              ms={trpg.diceMs}
+              showDc={trpg.showDc}
+            />
+          ) : lastRoll.meta.dice ? (
+            <DiceCard result={lastRoll.meta.dice} animate={trpg.diceAnimation} ms={trpg.diceMs} />
+          ) : null}
+        </div>
+      )}
+
       {/* CG：盖住立绘和背景，点画面继续（推进按钮在最底层，CG 层不拦点击） */}
       {player.cg && <VnCg cg={player.cg} />}
 
@@ -350,8 +387,8 @@ export function VnView({
               // 选项在消息定稿后不变，下标做 key 是安全的
               key={i}
               type="button"
-              disabled={busy}
-              onClick={() => send(option.text)}
+              disabled={busy || pickChoice.busy}
+              onClick={() => void pickChoice.pick(option).catch((e: unknown) => toast.error(errorMessage(e)))}
               className={cx(
                 'vn-choice flex min-h-11 items-center gap-3 rounded-xl px-4 py-2 text-left text-sm disabled:opacity-50',
                 choiceRow ? 'min-w-32 justify-center' : 'w-full',
@@ -360,11 +397,19 @@ export function VnView({
               <span className="min-w-0 flex-1">{option.text}</span>
               {option.check && (
                 <span className="shrink-0 rounded-md bg-amber-400/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-200">
-                  {option.check.skill} DC{option.check.dc}
+                  {checkSkillLabel(option.check.skill)}
+                  {trpg.showDc && ` DC${option.check.dc}`}
                 </span>
               )}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* 选项检定的掷骰演出：盖在画面中央，演完自动发送 */}
+      {pickChoice.pending && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
+          <CheckCard result={pickChoice.pending} animate={trpg.diceAnimation} ms={trpg.diceMs} showDc={trpg.showDc} />
         </div>
       )}
 

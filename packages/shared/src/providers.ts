@@ -67,7 +67,16 @@ const cloud = (
   label: string,
   baseUrls: ProviderInfo['baseUrls'],
   extra: Partial<ProviderInfo> = {},
-): ProviderInfo => ({ id, label, protocol: 'openai', baseUrls, keyRequired: true, models: 'list', group: 'cloud', ...extra })
+): ProviderInfo => ({
+  id,
+  label,
+  protocol: 'openai',
+  baseUrls,
+  keyRequired: true,
+  models: 'list',
+  group: 'cloud',
+  ...extra,
+})
 
 export const PROVIDERS: ProviderInfo[] = [
   // ── 原生协议 ──

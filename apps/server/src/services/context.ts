@@ -7,6 +7,7 @@ import {
   type ScanEntry,
 } from '@ai-parter/core'
 import {
+  describeCheck,
   renderDirectiveInstructions,
   renderDirectiveReminder,
   stateStageName,
@@ -14,6 +15,7 @@ import {
 } from '@ai-parter/core/stage'
 import {
   type ChatMessage,
+  type CheckResult,
   EXPRESSIONS,
   type GenerationType,
   type GroupDTO,
@@ -47,6 +49,8 @@ import { resolveProfile } from './profiles'
 import { getWorldInfoSettings, SETTING_KEYS } from './settings'
 import { listSprites } from './sprites'
 import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema } from './stage'
+import { chatRules, describeParty } from './trpg'
+import { readSheet } from './trpg-sheet'
 
 /**
  * 生成上下文：组装 Prompt 需要的一切，一次性从数据库读出来。
@@ -86,6 +90,7 @@ export function toPromptCharacter(row: CharacterRow, muted = false): PromptChara
       character_version: row.characterVersion,
     },
     extras: {
+      sheet: readSheet(row.extensions),
       talkativeness: row.talkativeness,
       characterNote: row.characterNote,
       characterNoteDepth: row.characterNoteDepth,
@@ -100,8 +105,8 @@ export function resolvePersona(chat: ChatRow) {
   const id = chat.personaId ?? getSetting<string>(SETTING_KEYS.defaultPersonaId)
   const row = id ? db.select().from(personas).where(eq(personas.id, id)).get() : undefined
   return row
-    ? { id: row.id, name: row.name, description: row.description, lorebookId: row.lorebookId }
-    : { id: null, name: t('旅人'), description: '', lorebookId: null }
+    ? { id: row.id, name: row.name, description: row.description, lorebookId: row.lorebookId, sheet: row.sheet }
+    : { id: null, name: t('旅人'), description: '', lorebookId: null, sheet: null }
 }
 
 /**
@@ -250,13 +255,13 @@ export function toHistory(ctx: GenerationContext, leafId: string | null): Histor
       id: m.id,
       role: m.role,
       content:
-        !m.content && m.meta.imageGen?.caption
+        (!m.content && m.meta.imageGen?.caption
           ? m.meta.imageGen.caption
           : !m.content && m.role !== 'user' && m.role !== 'tool' && (m.meta.imageGen || m.meta.images?.length)
             ? `(Sent an image${m.meta.imageGen?.prompt ? `: ${m.meta.imageGen.prompt}` : ''})`
             : preset.directives.enabled && m.role === 'assistant' && !keep.has(m.id)
               ? toDisplayText(m.content, { knownNames, narratorNames: [preset.trpg.gmName], speaker: 'plain' })
-              : m.content,
+              : m.content) + (m.role === 'user' && m.meta.check ? `\n${describeCheck(m.meta.check)}` : ''),
       name:
         m.role === 'user'
           ? ctx.persona.name
@@ -276,7 +281,7 @@ export interface AssembleOptions {
   /** 历史的最后一条（新回复挂在它下面；续写时就是被续写的消息） */
   leafId: string | null
   /** 还没入库的用户消息（预览时用） */
-  pending?: { role: MessageRole; content: string }
+  pending?: { role: MessageRole; content: string; check?: CheckResult }
   /** 静默任务不遵循聊天正文的舞台输出格式。 */
   vectorMatches?: readonly string[]
   quiet?: boolean
@@ -294,7 +299,9 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
     history.push({
       id: 'pending',
       role: opts.pending.role,
-      content: opts.pending.content,
+      content: opts.pending.check
+        ? `${opts.pending.content}\n${describeCheck(opts.pending.check)}`
+        : opts.pending.content,
       name: ctx.persona.name,
       speakerId: null,
     })
@@ -385,7 +392,17 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
         label: t('舞台指令'),
         labelCode: 'stage',
         role: 'system',
-        content: renderDirectiveInstructions(instructionInput),
+        content: [
+          renderDirectiveInstructions(instructionInput),
+          ...(play.directives.kinds.includes('combat') || chatRules(ctx.chat.id)
+            ? [
+                'For random outcomes call roll_dice; for ability, skill, or saving throw checks call ability_check. Never invent dice results. Prefix choice checks with [Perception DC 12] using English skill names (legacy Chinese skill names are also accepted).',
+                describeParty(ctx.chat.id, vars),
+              ]
+            : []),
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
         position: play.directives.position,
         depth: play.directives.position === 'author_note' ? ctx.chat.authorNoteDepth : play.directives.depth,
       })
@@ -422,7 +439,9 @@ export async function assembleWithVectors(ctx: GenerationContext, opts: Assemble
     history.push({
       id: 'pending',
       role: opts.pending.role,
-      content: opts.pending.content,
+      content: opts.pending.check
+        ? `${opts.pending.content}\n${describeCheck(opts.pending.check)}`
+        : opts.pending.content,
       name: ctx.persona.name,
       speakerId: null,
     })

@@ -34,7 +34,7 @@ export function classifyMessage(messageId: string): void {
   // 否则 expr 操作会让同一个人以另一个名字再上一次台
   const stage = message.meta.stage
   const written = [
-    ...stage.ops.flatMap((op) => (op.op === 'scene' ? [] : [op.who])),
+    ...stage.ops.flatMap((op) => (op.op === 'scene' || op.op === 'combat' ? [] : [op.who])),
     ...stage.beats.flatMap((beat) => (beat.kind === 'line' ? [beat.speaker] : [])),
   ]
   // 再看台上：已经有对应到这个角色卡的演员（比如开场白写的 Ellie），就沿用他的名字

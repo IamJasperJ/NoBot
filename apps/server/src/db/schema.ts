@@ -1,4 +1,5 @@
 import type {
+  CharacterSheet,
   GenerationLogSummary,
   GroupActivation,
   GroupGenerationMode,
@@ -67,6 +68,7 @@ export const characters = sqliteTable('characters', {
 
 /** 用户人设，即 {{user}} */
 export const personas = sqliteTable('personas', {
+  sheet: text('sheet', { mode: 'json' }).$type<CharacterSheet>(),
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),

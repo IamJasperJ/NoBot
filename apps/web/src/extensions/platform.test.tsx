@@ -225,7 +225,7 @@ test('生成图片仅展示所选一张、计数正确，上传图片仍全部�
       </QueryClientProvider>,
     )
   try {
-    qc.setQueryData(keys.chat('chat'), { pages: [{ messages: [msg] }] })
+    qc.setQueryData(keys.chat('chat'), { pages: [{ messages: [msg], hasMore: false }], pageParams: [undefined] })
     const html = render(msg)
     expect(html).toContain('3/3')
     expect(html.match(/<img /g)).toHaveLength(1)

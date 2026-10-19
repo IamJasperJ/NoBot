@@ -11,6 +11,7 @@ import { Avatar, Button, badgeClass, cx } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { AvatarUpload, CountedArea, CountedText, useAction } from '../characters/editor'
+import { SheetEditor } from '../trpg/SheetEditor'
 
 export function PersonasPage() {
   const personas = usePersonas()
@@ -138,6 +139,7 @@ function PersonaEditor({
                   name: draft.name,
                   description: draft.description,
                   lorebookId: draft.lorebookId,
+                  sheet: draft.sheet,
                 })
                 setDraft(structuredClone(result))
                 setOriginal(structuredClone(result))
@@ -241,6 +243,10 @@ function PersonaEditor({
             onChange={(id) => setDraft((d) => ({ ...d, lorebookId: id || null }))}
           />
         )}
+        <div className="space-y-1.5">
+          <span className="block text-[13px] font-medium text-zinc-800 dark:text-zinc-200">{t('跑团属性')}</span>
+          <SheetEditor value={draft.sheet} onChange={(sheet) => setDraft((d) => ({ ...d, sheet }))} owner="persona" />
+        </div>
       </fieldset>
     </>
   )

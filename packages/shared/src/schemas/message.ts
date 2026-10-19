@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import type { MessageStage } from './stage'
+import type { MessageTranslation } from './translation'
+import type { CheckResult, DiceResult } from './trpg'
 
 /** 发言方。tool 是工具调用的结果 */
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool'])
@@ -80,6 +82,15 @@ export interface MessageMeta {
    * 所以切换分支 / swipe 时总结自动跟着走。见 docs/design/messages-memory.md 第 6 节
    */
   summary?: MessageSummary
+  /** roll_dice 工具（tool 消息）的结构化结果，前端据此演出骰子动画 */
+  dice?: DiceResult
+  /**
+   * 检定结果：ability_check 工具的 tool 消息，或带检定的选项发出的用户消息（选项检定由后端先掷骰，结果随消息存下）。
+   * 用户消息上的检定在组装 Prompt 时以一行英文附在正文后告诉模型，正文本身不含结果
+   */
+  check?: CheckResult
+  /** 翻译扩展写入的译文，见 schemas/translation.ts */
+  translation?: MessageTranslation
 }
 
 export interface MessageSummary {

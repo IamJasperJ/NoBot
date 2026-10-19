@@ -11,6 +11,7 @@ import { applyNewMessage, markIdle, refreshChatState, replaceMessage, resetChat 
 import { emitCommandEvent } from '../../commands/events'
 import { emitClientEvent } from '../../extensions/runtime'
 import { t } from '../../i18n'
+import { registerFreshMessage } from '../../stores/freshMessages'
 import { useStreaming } from '../../stores/streaming'
 import { toast } from '../../stores/toast'
 
@@ -115,7 +116,10 @@ async function readStream(
       const e = JSON.parse(msg.data) as GenerateEvent
       switch (e.type) {
         case 'start': {
-          if (e.userMessage) onUser()
+          if (e.userMessage) {
+            registerFreshMessage(e.userMessage.id)
+            onUser()
+          }
           // 先放用户消息，再放助手消息；父节点找不到说明缓存过期了，整页重拉
           const ok =
             (!e.userMessage || applyNewMessage(qc, chatId, e.userMessage)) &&
@@ -131,6 +135,7 @@ async function readStream(
           frame ||= requestAnimationFrame(flush)
           break
         case 'done':
+          registerFreshMessage(e.message.id)
           onDone(e.message)
           cancelAnimationFrame(frame)
           flush()
@@ -139,6 +144,7 @@ async function readStream(
           useStreaming.getState().end()
           break
         case 'message':
+          registerFreshMessage(e.message.id)
           if (e.message.role === 'user') onUser()
           if (!applyNewMessage(qc, chatId, e.message)) void resetChat(qc, chatId)
           break

@@ -144,7 +144,11 @@ describe('服务端双语', () => {
             expect(value ?? '').not.toMatch(/[\u4e00-\u9fff]/)
           if (field.type === 'list') checkFields(field.itemFields)
           if (field.type === 'select')
-            for (const option of field.options) expect(option.label).not.toMatch(/[\u4e00-\u9fff]/)
+            for (const option of field.options) {
+              // 翻译语言使用契约中的自称，语言切换不翻译这些名称。
+              if (['targetLanguage', 'internalLanguage'].includes(field.key) && option.value) continue
+              expect(option.label).not.toMatch(/[\u4e00-\u9fff]/)
+            }
         }
       }
       for (const extension of englishExtensions) {

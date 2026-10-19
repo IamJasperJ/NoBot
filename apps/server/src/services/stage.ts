@@ -1,10 +1,12 @@
 import {
   castKey,
   foldStage,
+  getRuleSystem,
   mergeStateSchemas,
   parseInitVars,
   parseStageMessage,
   parseStateSchema,
+  resolveCombatStart,
   schemaInitVars,
 } from '@ai-parter/core/stage'
 import {
@@ -24,6 +26,8 @@ import { backgroundsForChat } from './backgrounds'
 import { computeVars, getChatRow, loadPath } from './chats'
 import { loadLore, resolvePersona } from './context'
 import { getDefault, listPlayPresets } from './playPresets'
+import { resolveWho } from './trpg'
+import { readSheet } from './trpg-sheet'
 
 export function stageMembers(chatId: string) {
   const chat = getChatRow(chatId)
@@ -44,6 +48,16 @@ export function stageMembers(chatId: string) {
       .map((row) => row.character)
   )
 }
+/** 完整名字优先，再匹配名字的第一个词，与演员映射保持一致。 */
+export function matchStageMember(chatId: string, who: string) {
+  const key = castKey(who)
+  const members = stageMembers(chatId)
+  return (
+    members.find((member) => castKey(member.name) === key) ??
+    members.find((member) => castKey(member.name.trim().split(/\s+/)[0]!) === key)
+  )
+}
+
 const cardConfig = (extensions: Record<string, unknown>) => cardVnSchema.safeParse(extensions.ai_parter_vn).data
 
 export function resolvePlayPreset(chatId: string) {
@@ -81,8 +95,17 @@ export function initialVars(chatId: string) {
   const { data } = resolvePlayPreset(chatId)
   if (!data.directives.enabled) return { vars: {}, rules: {} }
   const vars = schemaInitVars(resolveStateSchema(chatId, data))
-  if (!data.state.initVar) return { vars, rules: {} }
+  const rules = getRuleSystem(data.trpg.ruleSystem)
   const persona = resolvePersona(getChatRow(chatId))
+  // 优先级：schema 默认值 < sheet < InitVar < 路径上的 varsPatch / 手动值。
+  if (rules) {
+    if (persona.sheet) Object.assign(vars, rules.initVars('player', persona.sheet))
+    for (const member of stageMembers(chatId)) {
+      const sheet = readSheet(member.extensions)
+      if (sheet) Object.assign(vars, rules.initVars(member.name, sheet))
+    }
+  }
+  if (!data.state.initVar) return { vars, rules: {} }
   const init = parseInitVars(
     loadLore(
       chatId,
@@ -106,14 +129,9 @@ export function computeStage(chatId: string, path: { meta: MessageMeta }[]) {
         .sort((a, b) => b.name.length - a.name.length)[0])
     : undefined
   stage.scene.backgroundId = match?.id ?? null
-  const members = stageMembers(chatId)
   const temporary = getSetting<Record<string, AttachmentDTO>>(`vn-actors:${chatId}`) ?? {}
   for (const actor of stage.cast) {
-    actor.characterId =
-      (
-        members.find((member) => castKey(member.name) === actor.key) ??
-        members.find((member) => castKey(member.name.trim().split(/\s+/)[0]!) === actor.key)
-      )?.id ?? null
+    actor.characterId = matchStageMember(chatId, actor.key)?.id ?? null
     actor.spriteUrl = temporary[actor.key]?.url
   }
   return stage
@@ -124,6 +142,7 @@ export function applyStageParse(
   chatId: string,
   message: { role: MessageRole; status: MessageStatus; parentId: string | null; meta: MessageMeta },
   content: string,
+  random: () => number = Math.random,
 ): MessageMeta {
   const meta = { ...message.meta }
   if (message.role !== 'assistant') return meta
@@ -147,6 +166,40 @@ export function applyStageParse(
     expressions: [...EXPRESSIONS, ...data.sprites.customExpressions],
     narrationSplit: data.dialog.narrationSplit,
   })
+  const rules = getRuleSystem(data.trpg.ruleSystem)
+  const vars = { ...computeVars(path, initialVars(chatId).vars), ...result.varsPatch }
+  const previousStarts = message.meta.stage?.ops.filter((op) => op.op === 'combat' && op.action === 'start') ?? []
+  let startIndex = 0
+  const resolve = (op: (typeof result.stage.ops)[number]) => {
+    // 续写会重解析全文，已有且参与者相同的开战操作复用先攻，避免无意重掷。
+    const previous = op.op === 'combat' && op.action === 'start' ? previousStarts[startIndex++] : undefined
+    if (
+      op.op === 'combat' &&
+      op.action === 'start' &&
+      previous?.op === 'combat' &&
+      previous.action === 'start' &&
+      previous.order &&
+      JSON.stringify(previous.who) === JSON.stringify(op.who)
+    )
+      return { ...op, order: previous.order }
+    const resolved = resolveCombatStart(op, (who) => {
+      const actor = resolveWho(chatId, who)
+      return rules?.initiative({ name: actor.prefix, sheet: actor.sheet, vars }, random) ?? 0
+    })
+    if (resolved.op === 'combat' && resolved.action === 'start' && resolved.order) {
+      resolved.order = resolved.order.map((entry) => ({
+        ...entry,
+        characterId: resolveWho(chatId, entry.name).characterId,
+      }))
+    }
+    return resolved
+  }
+  // beats 与 ops 引用同一次掷骰，前端逐拍播放和后端回放必须看到相同先攻。
+  const resolved = new Map(result.stage.ops.map((op) => [op, resolve(op)]))
+  result.stage.ops = result.stage.ops.map((op) => resolved.get(op)!)
+  for (const beat of result.stage.beats) {
+    if (beat.kind === 'stage') beat.ops = beat.ops.map((op) => resolved.get(op) ?? resolve(op))
+  }
   meta.stage = result.stage
   if (result.varsPatch !== null) meta.varsPatch = result.varsPatch
   return meta

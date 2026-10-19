@@ -279,8 +279,7 @@ export function PlayPresetEditor({
       <Section dense title={t('跑团')} description={t('规则系统、骰子和旁白')}>
         <SelectField
           label={t('规则系统')}
-          hint={later('VN5', t('检定、先攻和角色属性模板按这里的规则；目前只有 D&D 5e，其他规则先占位'))}
-          notImplemented
+          hint={t('检定、先攻和角色属性按这里的规则；目前只有 D&D 5e，其他规则先占位')}
           value={trpg.ruleSystem}
           onChange={(v) => set('trpg', 'ruleSystem', v)}
           options={(Object.keys(RULE_LABELS()) as RuleSystem[]).map((v) => ({
@@ -306,15 +305,13 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label={t('骰子动画')}
-          hint={later('VN5', t('掷骰结果显示成骰子卡片'))}
-          notImplemented
+          hint={t('刚掷出的骰子播放翻滚动画；关闭后直接显示结果')}
           checked={trpg.diceAnimation}
           onChange={(v) => set('trpg', 'diceAnimation', v)}
         />
         <NumberField
           label={t('动画时长（毫秒）')}
-          hint={later('VN5', t('骰子动画的时长'))}
-          notImplemented
+          hint={t('骰子动画的时长')}
           min={0}
           max={5000}
           slider={false}
@@ -323,29 +320,25 @@ export function PlayPresetEditor({
         />
         <SwitchField
           label={t('选项检定由前端掷骰')}
-          hint={later('VN5', t('点带检定的选项时，由我们先掷骰再把结果发给模型，模型没法改结果'))}
-          notImplemented
+          hint={t('点带检定的选项时，由我们先掷骰再把结果发给模型，模型没法改结果')}
           checked={trpg.choiceRollClient}
           onChange={(v) => set('trpg', 'choiceRollClient', v)}
         />
         <SwitchField
           label={t('公开 DC')}
-          hint={later('VN5', t('在选项上显示检定难度'))}
-          notImplemented
+          hint={t('在选项和检定卡片上显示检定难度')}
           checked={trpg.showDc}
           onChange={(v) => set('trpg', 'showDc', v)}
         />
         <SwitchField
           label={t('大成功 / 大失败')}
-          hint={later('VN5', t('d20 掷出 20 / 1 时自动成功 / 失败'))}
-          notImplemented
+          hint={t('d20 掷出 20 / 1 时自动成功 / 失败')}
           checked={trpg.critRules}
           onChange={(v) => set('trpg', 'critRules', v)}
         />
         <SwitchField
           label={t('战斗时显示先攻条')}
-          hint={later('VN5', t('战斗开始后在顶部显示行动顺序'))}
-          notImplemented
+          hint={t('战斗开始后在顶部显示行动顺序')}
           checked={trpg.initiativeBar}
           onChange={(v) => set('trpg', 'initiativeBar', v)}
         />

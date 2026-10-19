@@ -117,6 +117,19 @@ function stageOperation(tag: Tag): StageOp | undefined {
     for (const key of ['bg', 'bgm', 'place', 'time'] as const) if (a[key] !== undefined) op[key] = a[key]
     return op
   }
+  if (tag.name === 'combat') {
+    const command = /^\s*(start|next|end)\b\s*[:：]?\s*(.*?)\s*\/?$/i.exec(tag.raw ?? '')
+    const action = (a.action ?? command?.[1])?.toLowerCase()
+    if (action === 'next' || action === 'end') return { op: 'combat', action }
+    if (action === 'start') {
+      const who = (a.who ?? command?.[2] ?? '')
+        .split(/[,，]/)
+        .map((name) => name.trim())
+        .filter(Boolean)
+      return { op: 'combat', action, who }
+    }
+    return
+  }
   if (!a.who?.trim()) return
   const who = a.who.trim()
   if (tag.name === 'hide') return { op: 'hide', who }

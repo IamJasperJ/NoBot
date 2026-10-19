@@ -92,7 +92,8 @@ function guide(input: InstructionsInput, kind: DirectiveKind): string {
     return input.choicesMode === 'always'
       ? '- You MUST end EVERY reply with 2–4 actionable options: <choices>\n- Option one\n- Option two\n</choices>'
       : '- Only when the player faces a choice, you MUST end the reply with 2–4 actionable options: <choices>\n- Option one\n- Option two\n</choices>'
-  if (kind === 'combat') return '- Use <combat>...</combat> for combat directives when combat occurs.'
+  if (kind === 'combat')
+    return '- Start combat with <combat start: A, B> listing all participants; advance turns with <combat next>; finish with <combat end>. Prefix a choice requiring a check with [Perception DC 12] using English skill names; legacy Chinese skill names are also accepted. Call roll_dice for random outcomes and ability_check for checks; never invent dice results.'
   if (kind === 'audio') return '- Use <sfx name="sound" /> or <bgm name="music" /> when audio changes.'
   return DIRECTIVE_KIND_GUIDES[input.style][kind] ?? ''
 }
@@ -119,7 +120,7 @@ function example(input: InstructionsInput): string {
     }
   }
   if (input.kinds.includes('cg')) lines.push('<cg prompt="Soft morning light in a classroom" />')
-  if (input.kinds.includes('combat')) lines.push('<combat>Encounter begins</combat>')
+  if (input.kinds.includes('combat')) lines.push('<combat start: player, Goblin>')
   if (input.kinds.includes('audio')) lines.push('<sfx name="bell" />')
   const path = Object.keys(input.schema)[0] || Object.keys(input.vars)[0]
   if (input.kinds.includes('state') && path) {
@@ -136,7 +137,7 @@ function example(input: InstructionsInput): string {
   // 超过 10 行时先去掉次要的示例（插图、战斗、音效），不把它们拼到别的行上，免得模型学成同一行连写
   while (lines.join('\n').split('\n').length > 10) {
     const index = lines.findIndex(
-      (line) => line.startsWith('<cg ') || line.startsWith('<combat>') || line.startsWith('<sfx '),
+      (line) => line.startsWith('<cg ') || line.startsWith('<combat ') || line.startsWith('<sfx '),
     )
     if (index < 0) break
     lines.splice(index, 1)
@@ -160,7 +161,8 @@ export function renderDirectiveReminder(input: InstructionsInput & { reminderTem
         ? '- End EVERY reply with <choices> containing 2–4 options, one per line prefixed with "- ".'
         : '- When the player faces a choice, end with <choices> containing 2–4 options, one per line prefixed with "- ".',
     cg: '- For a key illustration, use <cg prompt="English image description" /> sparingly.',
-    combat: '- Use <combat>...</combat> for combat directives when combat occurs.',
+    combat:
+      '- Start combat with <combat start: A, B> listing all participants; advance turns with <combat next>; finish with <combat end>. Prefix a choice requiring a check with [Perception DC 12] using English skill names; legacy Chinese skill names are also accepted. Call roll_dice for random outcomes and ability_check for checks; never invent dice results.',
     audio: '- Use <sfx name="sound" /> or <bgm name="music" /> when audio changes.',
   }
   const rules = input.kinds.map((kind) => rulesByKind[kind]).join('\n')

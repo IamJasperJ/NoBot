@@ -43,7 +43,8 @@ import * as variables from './vars'
  *     <cg prompt= />                           → cg 拍
  *     <sfx name= />                            → sfx 拍
  *     <UpdateVariable> … </UpdateVariable>     → MVU 变量块（见三）
- *     <combat …> / <bgm …>                     → 只隐藏不处理（以后用）
+ *     <combat start: A, B> / <combat next> / <combat end> → 战斗操作
+ *     <bgm …>                                 → 只隐藏不处理（以后用）
  *   其他标签（比如 <br>、HTML）原样保留，当普通文本。
  *
  * 二、拍（Beat）的切分（parseStageMessage 的 beats）：
@@ -291,3 +292,5 @@ export function stateStageName(stages: [number, string][] | undefined, value: un
 export { resolveBackgroundId } from './backgrounds'
 export { EXPRESSION_TAGS, removeSpriteBackground, spritePrompt } from './image'
 export { renderDirectiveReminder } from './instructions'
+export { resolveCombatStart } from './state'
+export * from './trpg'

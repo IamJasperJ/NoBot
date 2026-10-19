@@ -1,3 +1,5 @@
+import { rollDice as rollDetailedDice } from '../stage/trpg/dice'
+
 /**
  * 宏替换。数据库里只存原始文本，组装 Prompt 时才替换。
  *
@@ -53,14 +55,7 @@ export function seededRandom(seed: number): () => number {
 
 /** 掷骰：1d20、2d6+3、d100。格式不对返回 null */
 export function rollDice(expr: string, random: () => number): number | null {
-  const m = expr.trim().match(/^(\d*)d(\d+)\s*([+-]\s*\d+)?$/i)
-  if (!m) return null
-  const count = Math.min(Number(m[1] || 1), 100)
-  const sides = Number(m[2])
-  if (sides < 1) return null
-  let total = m[3] ? Number(m[3].replace(/\s/g, '')) : 0
-  for (let i = 0; i < count; i++) total += 1 + Math.floor(random() * sides)
-  return total
+  return rollDetailedDice(expr, random)?.total ?? null
 }
 
 export function applyMacros(text: string, ctx: MacroContext): string {

@@ -31,6 +31,7 @@ const persona: PersonaDTO = {
   avatarUrl: null,
   lorebookId: null,
   isDefault: true,
+  sheet: null,
 }
 const books: LorebookDTO[] = ['first', 'second'].map((id) => ({
   id,

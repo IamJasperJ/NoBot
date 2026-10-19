@@ -21,5 +21,7 @@ export * from './sse'
 export interface ApiError {
   error: { code: string; message: string }
 }
-export * from './schemas/quickReply'
 export * from './providers'
+export * from './schemas/quickReply'
+export * from './schemas/translation'
+export * from './schemas/trpg'

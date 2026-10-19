@@ -302,6 +302,32 @@ mode 为 `free / character / portrait / face / user / last / raw_last / scene / 
 | --- | --- | --- | --- | --- |
 | POST | `/ext/caption/attachments/:id` | 为附件生成 / 重试文字说明 | `{ chatId?: string }` | `AttachmentDTO`（生成失败时返回原附件） |
 
+### 翻译 `/ext/translate`
+
+扩展默认关闭，启用后可访问以下接口。实际路径均以 `/api` 开头。
+
+| 方法 | 路径 | 说明 | 请求 | 返回 |
+| --- | --- | --- | --- | --- |
+| POST | `/ext/translate/message` | 翻译正文和可选思考过程并保存 | `{ messageId, lang? }` | `MessageDTO` |
+| DELETE | `/ext/translate/message` | 清除译文；source 输入同时恢复原文正文 | `{ messageId }` | `MessageDTO` |
+| POST | `/ext/translate/text` | 翻译独立文本 | `{ text, lang?, chatId? }` | `{ text }` |
+| POST | `/ext/translate/connections` | 连接候选 | `{ settings?, chatId? }` | `{ options: [{ value, label }] }` |
+| POST | `/ext/translate/models` | 以草稿设置拉取模型 | `{ settings?, chatId? }` | `{ options: [{ value, label }] }` |
+| POST | `/ext/translate/test` | 以草稿设置翻译固定文本 Hello, world! | `{ settings?, chatId? }` | `{ text }` |
+
+`lang` 缺省使用 targetLanguage，设置留空则跟随界面语言。输入框要翻译为模型语言时传 `lang: internalLanguage`。
+模型服务通过可选 `chatId` 跟随会话的连接和模型；无会话时跟随全局配置组。
+草稿接口恢复未改动的密钥占位值；候选接口在扩展关闭时仍可访问，测试接口需要启用扩展。
+服务 URL 配置为根地址，DeepLX / LibreTranslate 自动追加 `/translate`，Lingva 自动追加 `/api/v1/auto/...`。
+`POST /ext/translate/commands/translate` 复用扩展命令协议 `{ chatId?, args: { lang? }, text }`，返回 `{ result }`。
+命令文本留空时翻译当前分支最后一条已完成助手消息并保存，其他情况只返回译文。
+
+手动消息翻译保存 `direction: display`、`auto: false` 和正文 SHA-256 `sourceHash`；
+已有 source 原文的输入须先 DELETE 还原，避免覆盖其原文。翻译期间内容改变则返回 409。
+服务请求失败或无效响应返回 502 `TRANSLATION_FAILED`（包含服务错误摘要），占位符损坏返回 502 `TRANSLATION_TOKEN`。
+自动模式失败不会阻断发送和回复。自动回复翻译独立于生成完成；后端发出 `message:updated`，
+前端需要轮询现有消息接口中的 `meta.translation` 与 `sourceHash`；当前没有 pending/error 共享状态字段。
+
 正则替换扩展 `regex` 没有自定义路由。
 
 ## 图片附件 `/attachments`
@@ -440,3 +466,15 @@ mode 为 `free / character / portrait / face / user / last / raw_last / scene / 
 | 方法 | 路径 | 说明 | 请求 | 返回 |
 | --- | --- | --- | --- | --- |
 | GET | `/health` | 检查服务可用性 | — | `{ ok: true }` |
+
+
+### VN5：属性卡、选项检定与战斗
+
+- 角色创建 / 更新 / 详情的 `sheet` 为 `CharacterSheet | null`，与其他 extras 一起提供；存入现有 `extensions.ai_parter.sheet`，角色卡 JSON / PNG 导入导出均使用 `data.extensions.ai_parter.sheet`。同命名空间的其他字段保持原样。
+- 人设创建 / 更新 / 列表返回 `sheet: CharacterSheet | null`，省略时默认 `null`；PATCH 省略字段不改变旧值，传 `null` 清除。
+- `POST /api/chats/:id/check`：body 为 `{ skill: string, dc: integer (0–100), who?: string, advantage?: "advantage" | "disadvantage" }`；返回 `CheckResult`，不写消息或其他数据库状态。舞台指令未启用或规则系统未实现时返回 `400 TRPG_DISABLED`。
+- `POST /api/chats/:id/generate` 的 `send` body 支持可选 `check: CheckResult`，完整校验后存入用户消息 `meta.check`。生成 Prompt 时在正文末尾追加英文检定说明；数据库正文不变。此扩展在 server 入口校验，shared 的 `generateInput` 暂未包含 `check`。
+- `who` 默认玩家：`player`、当前人设名、`me` / `myself` / `user` / `我` / `玩家` 指向玩家；会话成员按完整名字（忽略大小写）优先，再匹配名字第一个词；否则作为 NPC 从 vars 只读。玩家变量固定使用 `player.*`，队友使用完整角色名。
+- 初始变量优先级：schema init < sheet `initVars` < 世界书 InitVar < 消息路径 varsPatch / varsManual。仅启用舞台指令且规则系统已实现时加载属性卡。
+- `roll_dice` 工具支持 `reason`，结果保存于工具消息 `meta.dice`；`ability_check(who?, skill, dc?, advantage?)` 使用会话规则和 `critRules`，结果保存于 `meta.check`。不支持规则时，会话工具列表不提供 `ability_check`。
+- `<combat start: player, Ellie, Goblin>` 入库时掷先攻并写入操作的 `order`；`<combat next>` / `<combat end>` 推进 / 结束战斗。聊天详情与舞台接口返回 `StageState.combat`；回放、切分支和续写复用已保存先攻，重新生成的新操作独立掷骰。

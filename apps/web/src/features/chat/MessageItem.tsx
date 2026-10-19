@@ -5,6 +5,13 @@ import { memo, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, refreshChatState, replaceMessage, resetChat, useBookmarks, useSetAttachmentCg } from '../../api/queries'
 import {
+  useMessageTranslation,
+  useTranslateEnabled,
+  useTranslationPending,
+  useTranslationView,
+} from '../../api/translation'
+import { useFreshDice, usePickChoice, useTrpgSettings } from '../../api/trpg'
+import {
   ArrowDownIcon,
   ArrowUpIcon,
   BookmarkIcon,
@@ -20,6 +27,7 @@ import {
   LogIcon,
   RefreshIcon,
   StarIcon,
+  TranslateIcon,
   TrashIcon,
 } from '../../components/icons'
 import { Avatar, Button, cx, IconButton, inputClass } from '../../components/ui'
@@ -30,6 +38,8 @@ import { useChatOps } from '../../stores/chatOps'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { CheckCard, DiceCard } from '../trpg/DiceCard'
+import { checkSkillLabel } from '../trpg/labels'
 import { displayMacros, FormattedText } from './format'
 import { runGeneration } from './generate'
 import { ImagePromptDialog } from './ImagePromptDialog'
@@ -294,13 +304,27 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
 
 /** 工具调用的结果：显示成一张紧凑的小卡片 */
 function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: string; text: string }) {
+  const trpg = useTrpgSettings(chatId)
+  const fresh = useFreshDice(msg.id, trpg.diceMs)
+  const animate = fresh && trpg.diceAnimation
   const label =
-    msg.meta.toolName === 'roll_dice' ? t('🎲 掷骰') : t('🔧 {toolName}', { toolName: msg.meta.toolName ?? t('工具') })
+    msg.meta.toolName === 'roll_dice'
+      ? t('🎲 掷骰')
+      : msg.meta.toolName === 'ability_check'
+        ? t('🎲 检定')
+        : t('🔧 {toolName}', { toolName: msg.meta.toolName ?? t('工具') })
   return (
     <div className="px-4 py-1 pl-[68px]">
-      <div className="inline-flex max-w-full items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-900">
         <span className="shrink-0 font-medium text-zinc-500">{label}</span>
-        <span className="min-w-0 break-words whitespace-pre-wrap">{text}</span>
+        {/* 结构化的掷骰 / 检定结果画成骰子，旧消息或其他工具仍显示文字 */}
+        {msg.meta.check ? (
+          <CheckCard result={msg.meta.check} animate={animate} ms={trpg.diceMs} showDc={trpg.showDc} compact />
+        ) : msg.meta.dice ? (
+          <DiceCard result={msg.meta.dice} animate={animate} ms={trpg.diceMs} compact />
+        ) : (
+          <span className="min-w-0 break-words whitespace-pre-wrap">{text}</span>
+        )}
       </div>
       <MessageMedia msg={msg} chatId={chatId} />
       <Slot name="chat.message.footer" props={{ chatId, message: msg }} />
@@ -322,6 +346,14 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
   const [editingReasoning, setEditingReasoning] = useState<string | null>(null)
   const bookmarks = useBookmarks(chatId)
   const bookmark = bookmarks.data?.find((b) => b.messageId === msg.id && b.kind === 'bookmark')
+  // 跑团：选项检定先掷骰再发送；翻译：正文可以在原文 / 译文间切换
+  const trpg = useTrpgSettings(chatId)
+  const pickChoice = usePickChoice(chatId)
+  const freshCheck = useFreshDice(msg.id, trpg.diceMs)
+  const translateEnabled = useTranslateEnabled()
+  const translation = useMessageTranslation(chatId, msg)
+  const view = useTranslationView(msg)
+  const translating = useTranslationPending(msg)
 
   if (msg.role === 'tool')
     return <ToolMessage msg={msg} chatId={chatId} text={transformMessage(msg.content, msg, transforms)} />
@@ -336,7 +368,8 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
   const isStreaming = liveText !== null || msg.status === 'streaming'
   // {{char}} 用这条消息的角色（用户消息里用会话的角色），{{user}} 用当前人设
   const charName = isUser ? (speaker?.name ?? cast.fallback.name) : who.name
-  const raw = liveText ?? msg.content
+  // 流式时只有原文；定稿后按「显示译文 / 原文」的选择取正文
+  const raw = liveText ?? (view.hasTranslation ? view.text : msg.content)
   // 舞台指令只对角色回复生效：隐藏标签、台词速记改写成「**名字**：台词」，流式时连半截标签一起藏
   const visible =
     cast.stage && msg.role === 'assistant'
@@ -349,7 +382,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
       : raw
   const text = transformMessage(displayMacros(visible, { char: charName, user: cast.user.name }), msg, transforms)
   const choices = cast.stage?.choices && isLast && !isStreaming ? msg.meta.stage?.choices : undefined
-  const reasoning = liveReasoning || msg.meta.reasoning
+  const reasoning = liveReasoning || (view.hasTranslation ? view.reasoning : msg.meta.reasoning)
   // 最后一条角色回复可以向右滑出新的回复、可以续写；其他消息只能在已有的 swipe 间切换
   const isReply = msg.role === 'assistant' && msg.parentId !== null
   // 图片生成插入的纯图片消息，「重新生成」交给图片下方的按钮（再生成一张备选图），不当作文字回复重新生成
@@ -480,6 +513,35 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
               <span className="truncate">{bookmark.name}</span>
             </span>
           )}
+          {view.hasTranslation && !isStreaming && (
+            <button
+              type="button"
+              onClick={view.toggle}
+              title={
+                view.stale
+                  ? t('正文在翻译后被修改过，译文可能过期')
+                  : view.showTranslation
+                    ? t('点击查看原文')
+                    : t('点击查看译文')
+              }
+              className={cx(
+                'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px]',
+                view.stale
+                  ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
+                  : 'bg-sky-50 text-sky-700 hover:bg-sky-100 dark:bg-sky-950/60 dark:text-sky-300',
+              )}
+            >
+              {msg.meta.translation?.direction === 'source'
+                ? view.showTranslation
+                  ? t('已翻译发送')
+                  : t('发送的译文')
+                : view.showTranslation
+                  ? t('译文')
+                  : t('原文')}
+              {view.stale && ' !'}
+            </button>
+          )}
+          {translating && <span className="text-[11px] text-sky-600 dark:text-sky-400">{t('翻译中…')}</span>}
           {msg.meta.toolCalls && msg.meta.toolCalls.length > 0 && (
             <span className="text-xs text-zinc-400">
               {t('调用了 {toolNames}', { toolNames: msg.meta.toolCalls.map((c) => c.name).join('、') })}
@@ -531,6 +593,24 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
                     label={t('多选…')}
                     onClick={() => useChatOps.getState().startSelect(chatId, msg.id)}
                   />
+                  {translateEnabled && msg.content.trim() && (
+                    <MenuItem
+                      icon={<TranslateIcon />}
+                      label={view.hasTranslation ? t('重新翻译') : t('翻译')}
+                      disabled={translation.busy}
+                      onClick={() => void translation.translate().catch((e: unknown) => toast.error(errorMessage(e)))}
+                    />
+                  )}
+                  {translateEnabled && view.hasTranslation && (
+                    <MenuItem
+                      icon={<TranslateIcon />}
+                      label={
+                        msg.meta.translation?.direction === 'source' ? t('撤销翻译（恢复原文发送）') : t('移除译文')
+                      }
+                      disabled={translation.busy}
+                      onClick={() => void translation.remove().catch((e: unknown) => toast.error(errorMessage(e)))}
+                    />
+                  )}
                   <MenuItem
                     icon={<CopyIcon />}
                     label={t('复制文本')}
@@ -631,12 +711,34 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, busy
           </div>
         ) : text || isStreaming ? (
           <div className={cx(isUser && 'text-zinc-800 dark:text-zinc-200', isStreaming && 'streaming-cursor')}>
+            {isUser && msg.meta.check && (
+              <div className="mb-1.5">
+                <CheckCard
+                  result={msg.meta.check}
+                  animate={freshCheck && trpg.diceAnimation}
+                  ms={trpg.diceMs}
+                  showDc={trpg.showDc}
+                  compact
+                />
+              </div>
+            )}
             <FormattedText text={text} />
           </div>
         ) : null}
 
         {choices && choices.length > 0 && (
-          <Choices options={choices} disabled={busy} onPick={(text) => void run({ mode: 'send', text, images: [] })} />
+          <Choices
+            options={choices}
+            disabled={busy || pickChoice.busy}
+            showDc={trpg.showDc}
+            onPick={(option) => void pickChoice.pick(option).catch((e: unknown) => toast.error(errorMessage(e)))}
+          />
+        )}
+        {/* 选项检定：发送前先在屏幕中间演出这次掷骰 */}
+        {pickChoice.pending && (
+          <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-black/10">
+            <CheckCard result={pickChoice.pending} animate={trpg.diceAnimation} ms={trpg.diceMs} showDc={trpg.showDc} />
+          </div>
         )}
 
         <Slot name="chat.message.footer" props={{ chatId, message: { ...msg, content: liveText ?? msg.content } }} />
@@ -704,16 +806,18 @@ function MenuItem({
 
 /**
  * 模型给出的选项（<choices>）：最后一条回复下方的一组按钮，点一下就作为你的发言发出去。
- * 带检定的选项（[察觉 DC12]）先在右侧标出技能和难度，掷骰在 VN5 再做。
+ * 带检定的选项（[察觉 DC12] / [Perception DC 12]）在右侧标出技能和难度；点了之后先掷骰再发送（usePickChoice）。
  */
 function Choices({
   options,
   disabled,
+  showDc,
   onPick,
 }: {
   options: ChoiceOption[]
   disabled: boolean
-  onPick: (text: string) => void
+  showDc: boolean
+  onPick: (option: ChoiceOption) => void
 }) {
   return (
     <fieldset aria-label={t('选项')} className="mt-3 grid gap-1.5">
@@ -723,7 +827,7 @@ function Choices({
           key={index}
           type="button"
           disabled={disabled}
-          onClick={() => onPick(option.text)}
+          onClick={() => onPick(option)}
           className="group flex min-h-9 w-full items-center gap-2.5 rounded-lg border border-zinc-200 bg-white/70 px-3 py-1.5 text-left text-sm transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900/60 dark:hover:border-violet-700 dark:hover:bg-violet-950/50"
         >
           <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[11px] font-medium text-zinc-500 tabular-nums group-hover:bg-violet-100 group-hover:text-violet-700 dark:bg-zinc-800 dark:text-zinc-400 dark:group-hover:bg-violet-900 dark:group-hover:text-violet-300">
@@ -732,7 +836,8 @@ function Choices({
           <span className="min-w-0 flex-1">{option.text}</span>
           {option.check && (
             <span className="shrink-0 rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
-              {option.check.skill} DC{option.check.dc}
+              {checkSkillLabel(option.check.skill)}
+              {showDc && ` DC${option.check.dc}`}
             </span>
           )}
         </button>

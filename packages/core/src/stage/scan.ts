@@ -5,6 +5,7 @@ export interface Tag {
   closing: boolean
   self: boolean
   attrs: Record<string, string>
+  raw?: string
   close?: number
 }
 
@@ -44,6 +45,7 @@ export function scanTags(source: string): Tag[] {
       closing: source[start + 1] === '/',
       self: raw.trimEnd().endsWith('/'),
       attrs: attributes(raw),
+      raw,
     })
   }
   const closes = new Map<string, number[]>()

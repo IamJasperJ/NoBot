@@ -76,10 +76,10 @@ test('快速回复 API、作用域持久化、追加消息、骰子和扩展命�
       ['system', 'narration'],
     ])
     expect((await request('POST', `/chats/${chat.id}/roll`, { expression: 'bad' })).status).toBe(400)
-    const roll = (await (await request('POST', `/chats/${chat.id}/roll`, { expression: '2d1+3' })).json()) as {
+    const roll = (await (await request('POST', `/chats/${chat.id}/roll`, { expression: '2d2dl2+5' })).json()) as {
       result: string
     }
-    expect(roll).toEqual({ result: '2d1+3 = 5' })
+    expect(roll).toEqual({ result: '2d2dl2+5 = 5' })
     const preview = (await (await request('POST', `/chats/${chat.id}/prompt-preview`, {})).json()) as PromptPreview
     const rollSegment = preview.report.segments.find((segment) => segment.content === roll.result)!
     expect(rollSegment).toMatchObject({ source: 'history', role: 'system', content: roll.result })

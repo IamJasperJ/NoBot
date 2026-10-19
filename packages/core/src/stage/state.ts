@@ -13,7 +13,28 @@ export function autoPosition(cast: CastMember[]): StagePosition {
 
 export function applyStageOps(state: StageState, ops: StageOp[]): StageState {
   const next: StageState = { scene: { ...state.scene }, cast: state.cast.map((member) => ({ ...member })) }
+  if (state.combat) next.combat = { ...state.combat, order: state.combat.order.map((actor) => ({ ...actor })) }
   for (const op of ops) {
+    if (op.op === 'combat') {
+      if (op.action === 'start') {
+        const order = op.order ?? op.who.map((name) => ({ key: castKey(name), name, initiative: 0 }))
+        next.combat = {
+          round: 1,
+          turn: 0,
+          order: order.map((actor) => ({ ...actor })).sort((a, b) => b.initiative - a.initiative),
+        }
+      } else if (next.combat) {
+        if (op.action === 'end') delete next.combat
+        else if (next.combat.order.length) {
+          next.combat.turn++
+          if (next.combat.turn >= next.combat.order.length) {
+            next.combat.turn = 0
+            next.combat.round++
+          }
+        }
+      }
+      continue
+    }
     if (op.op === 'scene') {
       if (op.bg !== undefined && op.bg !== next.scene.bg) delete next.scene.backgroundId
       for (const field of ['bg', 'bgm', 'place', 'time'] as const) {
@@ -40,4 +61,10 @@ export function applyStageOps(state: StageState, ops: StageOp[]): StageState {
     }
   }
   return next
+}
+
+/** 已有先攻的操作保持幂等，避免回放时重掷；排序交给舞台折叠处理。 */
+export function resolveCombatStart<T extends StageOp>(op: T, roll: (name: string) => number): T {
+  if (op.op !== 'combat' || op.action !== 'start' || op.order !== undefined) return op
+  return { ...op, order: op.who.map((name) => ({ key: castKey(name), name, initiative: roll(name) })) }
 }

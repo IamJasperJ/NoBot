@@ -3,7 +3,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, api } from '../../api/client'
 import { useChatPages, usePlayPresets } from '../../api/queries'
-import { PlusIcon, SendIcon, StopIcon } from '../../components/icons'
+import { useTranslateEnabled, useTranslateText } from '../../api/translation'
+import { PlusIcon, SendIcon, StopIcon, TranslateIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
@@ -35,6 +36,8 @@ export function Composer({
   lastMessage: MessageDTO | null
 }) {
   const mobile = useMobile()
+  const translateEnabled = useTranslateEnabled()
+  const translator = useTranslateText()
   const qc = useQueryClient()
   // VN 视图切换：玩法预设开了舞台指令时才显示这一项
   const page = useChatPages(chatId).data?.pages[0]
@@ -352,6 +355,21 @@ export function Composer({
           placeholder={stopImpersonate ? t('代写中…') : mobile ? t('说点什么…') : t('说点什么…（Shift+Enter 换行）')}
           className="max-h-[200px] min-w-0 flex-1 resize-none bg-transparent py-1 text-[15px] outline-none placeholder:text-zinc-400"
         />
+        {/* 翻译扩展开着时：把输入框里的文字翻成模型语言再发（命令不翻） */}
+        {translateEnabled && !busy && text.trim() && !commandInput.isCommand && (
+          <IconButton
+            label={translator.busy ? t('翻译中…') : t('翻译输入的文字')}
+            disabled={translator.busy}
+            onClick={() =>
+              void translator
+                .translate(text)
+                .then((translated) => setText(translated))
+                .catch((e: unknown) => toast.error(errorMessage(e)))
+            }
+          >
+            <TranslateIcon className={translator.busy ? 'animate-pulse' : ''} />
+          </IconButton>
+        )}
         {busy ? (
           <IconButton
             label={t('停止')}

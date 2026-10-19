@@ -1,5 +1,7 @@
+import { describeCheck, formatDice, rollDice as rollDetailedDice } from '@ai-parter/core/stage'
 import type { MessageMeta, ToolInfo } from '@ai-parter/shared'
 import type { ExtensionContext } from '../extensions/types'
+import { chatRules, performCheck } from '../services/trpg'
 
 /**
  * 工具调用（function calling）。
@@ -15,6 +17,7 @@ export interface ToolContext {
   chatId: string
   /** 调用前的会话变量（沿激活路径累加得到） */
   vars: Record<string, unknown>
+  random?: () => number
 }
 
 export interface ToolResult {
@@ -40,14 +43,14 @@ export interface ToolDefinition {
 
 /** 掷骰：支持 1d20、2d6+3、d100，返回每颗骰子的点数和总和 */
 export function rollExpression(expr: string, random: () => number = Math.random) {
-  const m = expr.replace(/\s/g, '').match(/^(\d*)d(\d+)([+-]\d+)?$/i)
-  if (!m) return null
-  const count = Math.min(Math.max(Number(m[1] || 1), 1), 100)
-  const sides = Number(m[2])
-  if (sides < 2 || sides > 1000) return null
-  const bonus = m[3] ? Number(m[3]) : 0
-  const rolls = Array.from({ length: count }, () => 1 + Math.floor(random() * sides))
-  return { rolls, bonus, total: rolls.reduce((a, b) => a + b, 0) + bonus }
+  const result = rollDetailedDice(expr, random)
+  if (!result) return null
+  return {
+    rolls: result.groups.flatMap((group) => group.rolls.filter((roll) => roll.kept).map((roll) => roll.value)),
+    bonus: result.modifier,
+    total: result.total,
+    dice: result,
+  }
 }
 
 const rollDice: ToolDefinition = {
@@ -62,13 +65,52 @@ const rollDice: ToolDefinition = {
     },
     required: ['expression'],
   },
-  run(args) {
+  run(args, ctx) {
     const expr = String(args.expression ?? '')
-    const result = rollExpression(expr)
+    const result = rollExpression(expr, ctx.random)
     if (!result) return { content: `Invalid dice expression "${expr}". Use a format such as 1d20 or 2d6+3.` }
-    const reason = args.reason ? `（${String(args.reason)}）` : ''
-    const detail = result.rolls.join('、') + (result.bonus ? `，${result.bonus > 0 ? '+' : ''}${result.bonus}` : '')
-    return { content: `${expr}${reason} = ${result.total}（${detail}）` }
+    if (typeof args.reason === 'string') result.dice.reason = args.reason
+    return {
+      content: `${formatDice(result.dice)}${result.dice.reason ? ` (${result.dice.reason})` : ''}`,
+      meta: { dice: result.dice },
+    }
+  },
+}
+
+const abilityCheck: ToolDefinition = {
+  name: 'ability_check',
+  description:
+    'Call for ability, skill, or saving throw checks; never invent dice results. Use player for the player, a party member name, or an NPC name. DC reference: 5 very easy, 10 easy, 15 medium, 20 hard, 25 very hard, 30 nearly impossible. Omit DC for an opposed or open check.',
+  parameters: {
+    type: 'object',
+    properties: {
+      who: { type: 'string', description: 'Actor name, player, or me; defaults to player.' },
+      skill: { type: 'string', description: 'English skill or ability name, or an ability followed by save.' },
+      dc: { type: 'integer', minimum: 0, maximum: 100 },
+      advantage: { type: 'string', enum: ['advantage', 'disadvantage'] },
+    },
+    required: ['skill'],
+  },
+  run(args, ctx) {
+    if (!chatRules(ctx.chatId)) return { content: 'This chat has no enabled, implemented RPG rule system.' }
+    if (typeof args.skill !== 'string' || !args.skill.trim()) return { content: 'A skill or ability is required.' }
+    if (
+      args.dc !== undefined &&
+      (typeof args.dc !== 'number' || !Number.isInteger(args.dc) || args.dc < 0 || args.dc > 100)
+    )
+      return { content: 'DC must be an integer from 0 to 100.' }
+    const result = performCheck(
+      ctx.chatId,
+      {
+        who: typeof args.who === 'string' ? args.who : undefined,
+        skill: args.skill,
+        dc: typeof args.dc === 'number' ? args.dc : null,
+        advantage: args.advantage === 'advantage' || args.advantage === 'disadvantage' ? args.advantage : undefined,
+      },
+      ctx.vars,
+      ctx.random,
+    )
+    return { content: describeCheck(result), meta: { check: result } }
   },
 }
 
@@ -113,7 +155,7 @@ const setState: ToolDefinition = {
   },
 }
 
-export const BUILTIN_TOOLS: ToolDefinition[] = [rollDice, getTime, getState, setState]
+export const BUILTIN_TOOLS: ToolDefinition[] = [rollDice, abilityCheck, getTime, getState, setState]
 
 /** 当前可用的全部工具：内置 + 已启用扩展提供的。扩展注册表在启动时注入，避免循环依赖 */
 let extensionToolsProvider: (chatId?: string) => { tool: ToolDefinition; source: string }[] = () => []
@@ -126,6 +168,7 @@ export function availableTools(chatId?: string): { tool: ToolDefinition; source:
   // 同名工具以先注册的为准
   const seen = new Set<string>()
   return all.filter(({ tool }) => {
+    if (tool.name === 'ability_check' && chatId && !chatRules(chatId)) return false
     if (seen.has(tool.name)) return false
     seen.add(tool.name)
     return true

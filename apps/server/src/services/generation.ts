@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
 import { chats, messages } from '../db/schema'
 import { HttpError, notFound, promptBudgetMessage } from '../errors'
+import { prepareUserTranslation } from '../extensions/builtin/translate'
 import { emitServerEvent, runTransform } from '../extensions/registry'
 import { t } from '../i18n'
 import { buildRequestBody, chatCompletion, toLlmConnection } from '../llm/openai'
@@ -91,6 +92,7 @@ interface Plan {
   /** 续写时被续写的消息 */
   continueTarget: MessageDTO | null
   userMessage?: MessageDTO
+  pendingUser?: { text: string; meta: MessageMeta }
 }
 
 /** 群聊里自上一条用户消息以来已经说过话的角色（pooled 发言顺序用） */
@@ -199,7 +201,15 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
     speakerId: plan.speakers[0] ?? firstMember,
     leafId: plan.continueTarget ? plan.continueTarget.id : plan.parentId,
     enabledTools,
-    ...(pendingUserText !== null ? { pending: { role: 'user' as const, content: pendingUserText } } : {}),
+    ...(pendingUserText !== null
+      ? {
+          pending: {
+            role: 'user' as const,
+            content: pendingUserText,
+            ...(input.mode === 'send' && input.check ? { check: input.check } : {}),
+          },
+        }
+      : {}),
   })
 
   if (attachments.length) {
@@ -218,24 +228,14 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
   }
 
   if (pendingUserText !== null) {
-    const userId = newId()
-    db.insert(messages)
-      .values({
-        id: userId,
-        chatId,
-        parentId: leafId,
-        role: 'user',
-        content: runTransform('transformInput', pendingUserText, chatId),
-        meta: { name: ctx.persona.name, ...(attachments.length ? { images: attachments } : {}) },
-        createdAt: Date.now(),
-      })
-      .run()
-    setLeaf(chatId, userId)
-    plan.parentId = userId
-    plan.userMessage = loadMessage(userId)
-    emitServerEvent({ type: 'message:saved', message: plan.userMessage })
-    // 群聊：用户发言之后再按发言顺序决定谁来回复
-    if (ctx.group) plan.speakers = pickSpeakers(ctx, userId, true)
+    plan.pendingUser = {
+      text: runTransform('transformInput', pendingUserText, chatId),
+      meta: {
+        name: ctx.persona.name,
+        ...(attachments.length ? { images: attachments } : {}),
+        ...(input.mode === 'send' && input.check ? { check: input.check } : {}),
+      },
+    }
   }
 
   const job: Job = { chatId, controller: new AbortController(), current: null, finished: null, listeners: new Set() }
@@ -251,6 +251,27 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
 async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
   const finished: GenerateEvent[] = []
   try {
+    if (plan.pendingUser) {
+      const input = await prepareUserTranslation(plan.pendingUser, job.chatId)
+      const userId = newId()
+      db.insert(messages)
+        .values({
+          id: userId,
+          chatId: job.chatId,
+          parentId: plan.parentId,
+          role: 'user',
+          content: input.text,
+          meta: input.meta,
+          createdAt: Date.now(),
+        })
+        .run()
+      setLeaf(job.chatId, userId)
+      plan.parentId = userId
+      plan.userMessage = loadMessage(userId)
+      emitServerEvent({ type: 'message:saved', message: plan.userMessage })
+      if (ctx.group) plan.speakers = pickSpeakers(ctx, userId, true)
+    }
+
     // 群聊手动模式下用户发了消息：只保存用户消息，不自动回复
     if (plan.speakers.length === 0 && plan.userMessage) {
       const e: GenerateEvent = { type: 'message', message: plan.userMessage }

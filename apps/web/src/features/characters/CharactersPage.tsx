@@ -30,6 +30,7 @@ import { getLanguage, t } from '../../i18n'
 import { useQuickReplySets } from '../../quick-replies/hooks'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { SheetEditor } from '../trpg/SheetEditor'
 import { CgGallery } from './CgGallery'
 import { AvatarUpload, CountedArea, CountedText, moveItem, useAction } from './editor'
 import { SpriteManager } from './SpriteManager'
@@ -570,6 +571,13 @@ export function CharacterEditor({
             ]}
             onChange={(id) => patch('defaultBackgroundId', id || null)}
           />
+        </Section>
+        <Section
+          title={t('跑团属性')}
+          description={t('D&D 5e 属性卡：这个角色作为队友或 NPC 时，检定、先攻和 HP 按它计算')}
+          defaultOpen={!!draft.sheet}
+        >
+          <SheetEditor value={draft.sheet} onChange={(sheet) => patch('sheet', sheet)} owner="character" />
         </Section>
         <SpriteManager characterId={character.id} />
         <CgGallery characterId={character.id} />

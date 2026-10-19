@@ -250,6 +250,7 @@ describe.skipIf(!process.env.CRUD_TEST_CHILD)('后端 CRUD 接口', () => {
       profileId: _profile,
       defaultBackgroundId: _background,
       extensions: _extensions,
+      sheet: _sheet,
       ...fields
     } = updated
     expect(parsed.fields).toEqual(fields)

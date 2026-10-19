@@ -3,6 +3,7 @@ import { autoBackgroundSettingsSchema } from './background'
 import type { GroupDTO } from './group'
 import type { MessageDTO } from './message'
 import type { StageState, StateSchema } from './stage'
+import { checkResultSchema } from './trpg'
 
 export interface ChatSummary {
   id: string
@@ -100,6 +101,8 @@ export const generateInput = z.discriminatedUnion('mode', [
     text: z.string(),
     /** 附带的图片：先通过 POST /api/attachments 上传拿到 id */
     images: z.array(z.string()).max(10).default([]),
+    /** 选项检定（VN5）：前端先调 POST /chats/:id/check 掷好骰，结果随消息发回，存进用户消息 meta.check */
+    check: checkResultSchema.optional(),
   }),
   z.object({ mode: z.literal('regenerate'), targetId: z.string() }),
   z.object({ mode: z.literal('continue'), targetId: z.string() }),

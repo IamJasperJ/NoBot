@@ -2,6 +2,7 @@ import { rollDice } from '@ai-parter/core'
 import {
   activateMessageInput,
   branchInput,
+  choiceCheckInput,
   createBookmarkInput,
   createChatInput,
   createSaveInput,
@@ -28,6 +29,7 @@ import { assembleWithVectors, loadGenerationContext } from '../services/context'
 import * as generation from '../services/generation'
 import { resolvedProfileDTO } from '../services/profiles'
 import { computeStage, initialVars } from '../services/stage'
+import { performCheck } from '../services/trpg'
 
 /** 把一个生成任务的事件流推给浏览器，直到任务结束或浏览器断开 */
 function streamJob(c: Context, job: NonNullable<ReturnType<typeof generation.getJob>>) {
@@ -110,6 +112,9 @@ export const chatRoutes = new Hono()
   )
   .post('/:id/messages', validate('json', z.object({ role: z.enum(['user', 'system']), content: z.string() })), (c) =>
     c.json(createExtensionHost(emitServerEvent).appendMessage(c.req.param('id'), c.req.valid('json'))),
+  )
+  .post('/:id/check', validate('json', choiceCheckInput), (c) =>
+    c.json(performCheck(c.req.param('id'), c.req.valid('json'))),
   )
   .post('/:id/roll', validate('json', z.object({ expression: z.string().max(100) })), (c) => {
     const expression = c.req.valid('json').expression

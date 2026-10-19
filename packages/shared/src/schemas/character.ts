@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { promptRoleSchema } from './message'
+import { characterSheetSchema } from './trpg'
 
 /** 角色列表里展示的精简信息 */
 export interface CharacterSummary {
@@ -40,6 +41,8 @@ export const characterExtrasSchema = z.object({
   /** 用这个角色新建会话时默认使用的人设，为空则用全局默认 */
   defaultPersonaId: z.string().nullable().default(null),
   defaultBackgroundId: z.string().nullable().default(null),
+  /** 跑团属性卡（VN5），队友 / 固定 NPC 用；null 表示没有 */
+  sheet: characterSheetSchema.nullable().default(null),
 })
 export type CharacterExtras = z.infer<typeof characterExtrasSchema>
 

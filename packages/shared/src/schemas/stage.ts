@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { CombatantState, CombatState } from './trpg'
 
 /**
  * VN 模式（舞台）的契约。设计见 docs/design/vn-mode.md。
@@ -87,6 +88,8 @@ export interface StageState {
   scene: StageScene
   /** 台上的角色，按出场顺序 */
   cast: CastMember[]
+  /** 进行中的战斗（VN5）：先攻顺序和当前回合；没有战斗时省略 */
+  combat?: CombatState
 }
 
 /** 一个舞台操作。一条消息的全部操作按出现顺序存在 meta.stage.ops */
@@ -96,6 +99,12 @@ export type StageOp =
   | { op: 'hide'; who: string }
   /** 只换表情（台词速记里写的表情也会生成这个操作） */
   | { op: 'expr'; who: string; expression: string }
+  /**
+   * 战斗（VN5）：<combat start: 艾莉丝, 哥布林A> 开始，<combat next> 下一个行动者，<combat end> 结束。
+   * start 的先攻由后端在消息入库时掷好写进 order（解析器只填 who），所以重放、切分支时顺序不变
+   */
+  | { op: 'combat'; action: 'start'; who: string[]; order?: CombatantState[] }
+  | { op: 'combat'; action: 'next' | 'end' }
 
 export interface ChoiceOption {
   text: string

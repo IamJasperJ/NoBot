@@ -36,6 +36,7 @@ import { createEntry, createLorebook, getLorebookWithEntries } from './lorebooks
 import { getProfile } from './profiles'
 import { quickReplyScope, setQuickReplyScope } from './quick-replies'
 import { saveSprite } from './sprites'
+import { readSheet, withSheet } from './trpg-sheet'
 
 export function toSummary(row: CharacterRow): CharacterSummary {
   return {
@@ -102,6 +103,7 @@ export function getCharacter(id: string): CharacterDTO {
     id,
     avatarUrl: avatarUrl(row.avatarFile, row.updatedAt),
     extensions: row.extensions,
+    sheet: readSheet(row.extensions),
     talkativeness: row.talkativeness,
     characterNote: row.characterNote,
     characterNoteDepth: row.characterNoteDepth,
@@ -153,6 +155,7 @@ export function createCharacter(input: CharacterInput): CharacterDTO {
     profileId,
     defaultBackgroundId,
     extensions,
+    sheet,
     ...fields
   } = characterInput.parse(input)
   if (profileId) getProfile(profileId)
@@ -171,7 +174,7 @@ export function createCharacter(input: CharacterInput): CharacterDTO {
         defaultPersonaId,
         profileId,
         defaultBackgroundId,
-        extensions,
+        extensions: withSheet(extensions, sheet),
         id,
         createdAt: now,
         updatedAt: now,
@@ -199,6 +202,7 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
     profileId,
     defaultBackgroundId,
     extensions,
+    sheet,
     ...fields
   } = merged
   if (profileId) getProfile(profileId)
@@ -216,7 +220,7 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
         defaultPersonaId,
         profileId,
         defaultBackgroundId,
-        extensions,
+        extensions: withSheet(extensions, sheet),
         updatedAt: Date.now(),
       })
       .where(eq(characters.id, id))
@@ -271,7 +275,13 @@ export async function importCharacter(
         })
         if (lorebook === 'link') lorebookIds.push(created.id)
       }
-      const data = characterInput.parse({ ...card.fields, ...card.extras, extensions: card.extensions, lorebookIds })
+      const data = characterInput.parse({
+        ...card.fields,
+        ...card.extras,
+        sheet: readSheet(card.extensions),
+        extensions: card.extensions,
+        lorebookIds,
+      })
       const {
         lorebookIds: ids,
         talkativeness,
@@ -282,6 +292,7 @@ export async function importCharacter(
         profileId,
         defaultBackgroundId,
         extensions,
+        sheet,
         ...fields
       } = data
       const now = Date.now()
@@ -295,7 +306,7 @@ export async function importCharacter(
           defaultPersonaId,
           profileId,
           defaultBackgroundId,
-          extensions,
+          extensions: withSheet(extensions, sheet),
           id,
           avatarFile,
           raw: card.raw,

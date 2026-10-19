@@ -1,5 +1,29 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  已静音: 'Muted',
+  '音量 {value}%': 'Volume {value}%',
+  取消静音: 'Unmute',
+  静音: 'Mute',
+  总音量: 'Master volume',
+  背景音乐: 'Background music',
+  音效: 'Sound effects',
+  '{name}：{error}': '{name}: {error}',
+  '已添加 {count} 个音频': 'Added {count} audio tracks',
+  'VN 里模型用 <bgm name="名字"> 切换背景音乐、用 <sfx name="名字"> 播放音效，按名字匹配。名字写清楚场景或情绪最好用，比如「酒馆夜晚」「紧张战斗」「开门」。':
+    'In VN, the model uses <bgm name="name"> to change background music and <sfx name="name"> to play sound effects, matching tracks by name. Use names that describe the scene or mood, such as "Tavern at night", "Tense battle", or "Door opening".',
+  没有符合条件的音频: 'No matching audio tracks',
+  '音频库还是空的，上传一些背景音乐和音效吧':
+    'The audio library is empty. Upload some background music and sound effects.',
+  编辑音频: 'Edit audio track',
+  '模型按名字挑选，写场景或情绪最好用': 'The model selects tracks by name. Describe the scene or mood.',
+  种类: 'Kind',
+  '风格、情绪、适合的场景，方便自己查找': 'Style, mood, and suitable scenes to help you find this track',
+  从网址添加音频: 'Add audio from URL',
+  网址: 'URL',
+  留空使用文件名: 'Leave blank to use the filename',
+  '下载中…': 'Downloading…',
+  停止试听: 'Stop preview',
+  试听: 'Preview',
   没有待确认的扩展安装: 'No extension installation is awaiting confirmation.',
   '世界书：{title}': 'World info: {title}',
   舞台指令提醒: 'Stage directions reminder',
@@ -1462,11 +1486,6 @@ export const en: Record<string, string> = {
   存档缩略图: 'Save thumbnails',
   存档时保存一张画面缩略图: 'Capture a thumbnail when saving',
   音频: 'Audio',
-  'BGM、音效和语音，以后做，现在先留好设置':
-    'BGM, sound effects, and voice; settings reserved for future implementation',
-  '启用 BGM': 'Enable BGM',
-  以后: 'a future release',
-  按场景指令播放背景音乐: 'Play background music from scene directives',
   'BGM 音量': 'BGM volume',
   音效音量: 'Sound effect volume',
   语音音量: 'Voice volume',
@@ -2137,4 +2156,12 @@ export const en: Record<string, string> = {
   '移除 {name} 的记录？下次上台时会重新自动生成立绘。':
     "Remove {name}'s entry? A sprite is generated again the next time they appear.",
   移除记录: 'Remove entry',
+  '需要启用「音频」扩展；曲目在扩展页的「音频库」里管理。音量设为 0 即关闭这一路':
+    'Requires the Audio extension. Manage tracks in its Audio library tab. Set a volume to 0 to turn that channel off',
+  '按舞台指令 <bgm> 播放背景音乐': 'Background music played by <bgm> stage directives',
+  '演到 <sfx> 时播放一次音效': 'A sound effect played once when <sfx> is reached',
+  切换背景音乐时的交叉淡入淡出时长: 'Crossfade duration when the background music changes',
+  收起操作栏: 'Collapse toolbar',
+  展开操作栏: 'Expand toolbar',
+  音频库: 'Audio library',
 }

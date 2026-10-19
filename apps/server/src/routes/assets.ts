@@ -28,20 +28,38 @@ assetRoutes.get('/attachments/:file', async (c) => {
   })
 })
 
-assetRoutes.get('/backgrounds/:file', async (c) => {
+assetRoutes.get('/:directory{backgrounds|audio}/:file', async (c) => {
+  const audio = c.req.param('directory') === 'audio'
   const name = c.req.param('file')
-  if (!/^[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\.thumb\.webp|\.(?:webp|gif|mp4|webm))$/.test(name))
+  if (
+    !(
+      audio
+        ? /^[0-7][0-9A-HJKMNP-TV-Z]{25}\.(mp3|ogg|wav|m4a|webm|flac)$/
+        : /^[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\.thumb\.webp|\.(?:webp|gif|mp4|webm))$/
+    ).test(name)
+  )
     throw new HttpError(400, 'BAD_REQUEST', t('文件名不合法'))
-  const file = Bun.file(join(paths.backgrounds, name))
-  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', t('背景不存在'))
+  const file = Bun.file(join(audio ? paths.audio : paths.backgrounds, name))
+  if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', audio ? t('音频不存在') : t('背景不存在'))
   const ext = name.split('.').pop()!
-  const mime = { webp: 'image/webp', gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm' }[ext]!
+  const mime = audio
+    ? (
+        {
+          mp3: 'audio/mpeg',
+          ogg: 'audio/ogg',
+          wav: 'audio/wav',
+          m4a: 'audio/mp4',
+          webm: 'audio/webm',
+          flac: 'audio/flac',
+        } as Record<string, string>
+      )[ext]!
+    : ({ webp: 'image/webp', gif: 'image/gif', mp4: 'video/mp4', webm: 'video/webm' } as Record<string, string>)[ext]!
   const headers = new Headers({
     'Content-Type': mime,
     'Cache-Control': 'public, max-age=31536000, immutable',
     'Content-Length': String(file.size),
   })
-  if (mime.startsWith('video/')) {
+  if (audio || mime.startsWith('video/')) {
     headers.set('Accept-Ranges', 'bytes')
     const range = c.req.header('Range')
     if (range) {

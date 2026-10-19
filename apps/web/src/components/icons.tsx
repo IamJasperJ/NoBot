@@ -286,3 +286,32 @@ export const TranslateIcon = (p: P) => (
     <path d="M4 5h8M8 3v2M10.5 5c-.8 3.5-3 6.5-6.5 8M6 8c1 2 2.8 3.6 5 4.5M13 21l4-10 4 10M14.4 17.5h5.2" />
   </Icon>
 )
+export const PlayIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M8 5.5v13l10.5-6.5L8 5.5z" fill="currentColor" />
+  </Icon>
+)
+export const PauseIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M8.5 5.5v13M15.5 5.5v13" strokeWidth="2.6" />
+  </Icon>
+)
+export const VolumeIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" />
+    <path d="M15.5 9a4 4 0 010 6M18 6.5a7.5 7.5 0 010 11" />
+  </Icon>
+)
+export const VolumeOffIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" />
+    <path d="M16 9.5l5 5M21 9.5l-5 5" />
+  </Icon>
+)
+export const MusicIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M9 18V6l11-2v12" />
+    <circle cx="6.5" cy="18" r="2.5" />
+    <circle cx="17.5" cy="16" r="2.5" />
+  </Icon>
+)

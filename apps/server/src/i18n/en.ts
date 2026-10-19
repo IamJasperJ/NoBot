@@ -1,5 +1,16 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  音频: 'Audio',
+  'BGM、音效和语音。VN 里按舞台指令播放背景音乐和音效。':
+    'BGM, sound effects, and voice. Play background music and sound effects from stage directives in VN.',
+  在指令说明里列出曲目: 'List tracks in directive instructions',
+  '让模型知道有哪些 BGM 和音效可用': 'Tell the model which BGM and sound effects are available',
+  无法识别的音频文件: 'Unrecognized audio file',
+  不允许访问内网地址: 'Private network addresses are not allowed',
+  下载音频失败或超时: 'Audio download failed or timed out',
+  请选择音频文件: 'Please select an audio file',
+  音频参数不合法: 'Invalid audio parameters',
+  音频不存在: 'Audio does not exist',
   该临时演员正在生成立绘: 'A sprite is already being generated for this temporary actor',
   '临时立绘生成失败，请重试': 'Temporary sprite generation failed. Please try again.',
   '当前连接不支持看图，请在「图片说明」扩展里设置一个能看图的连接':

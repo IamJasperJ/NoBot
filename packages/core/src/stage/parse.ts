@@ -112,9 +112,12 @@ function position(value: string | undefined): StagePosition | undefined {
 
 function stageOperation(tag: Tag): StageOp | undefined {
   const a = tag.attrs
+  const bgm = (value: string) => (/^(none|stop|off)?$/i.test(value.trim()) ? '' : value)
+  if (tag.name === 'bgm') return { op: 'scene', bgm: bgm(a.name ?? '') }
   if (tag.name === 'scene') {
     const op: StageOp = { op: 'scene' }
     for (const key of ['bg', 'bgm', 'place', 'time'] as const) if (a[key] !== undefined) op[key] = a[key]
+    if (op.bgm !== undefined) op.bgm = bgm(op.bgm)
     return op
   }
   if (tag.name === 'combat') {

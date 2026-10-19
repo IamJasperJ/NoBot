@@ -44,7 +44,7 @@ import * as variables from './vars'
  *     <sfx name= />                            → sfx 拍
  *     <UpdateVariable> … </UpdateVariable>     → MVU 变量块（见三）
  *     <combat start: A, B> / <combat next> / <combat end> → 战斗操作
- *     <bgm …>                                 → 只隐藏不处理（以后用）
+ *     <bgm name= />                           → scene.bgm，none / stop / off 表示停止
  *   其他标签（比如 <br>、HTML）原样保留，当普通文本。
  *
  * 二、拍（Beat）的切分（parseStageMessage 的 beats）：
@@ -212,6 +212,8 @@ export interface InstructionsInput {
   choicesMode: 'always' | 'auto'
   expressions: string[]
   backgrounds: string[]
+  bgm: string[]
+  sfx: string[]
   schema: StateSchema
   /** InitVar 带来的规则说明，和 schema 的 rule 合并（schema 优先） */
   rules: Record<string, string>
@@ -222,7 +224,7 @@ export interface InstructionsInput {
 /**
  * 渲染注入 Prompt 的指令说明：
  * - {{vn_kinds}}：按 kinds 顺序取 DIRECTIVE_KIND_GUIDES[style] 里有的段落，用换行连接
- * - {{vn_cast}} / {{vn_expressions}} / {{vn_backgrounds}}：对应 lists 启用且非空时用英文逗号连接，否则为空
+ * - {{vn_cast}} / {{vn_expressions}} / {{vn_backgrounds}} / {{vn_bgm}} / {{vn_sfx}}：对应 lists 启用且非空时用英文逗号连接，否则为空
  * - {{vn_outfits}}：服装按角色分组，忽略空串；{{vn_example}}：按风格与启用种类生成示例
  * - {{vn_state}}：kinds 含 state 且 lists 含 vars 时生成，形如
  *     状态变量（路径：类型，规则；当前值）：
@@ -296,3 +298,18 @@ export { EXPRESSION_TAGS, removeSpriteBackground, spritePrompt } from './image'
 export { renderDirectiveReminder } from './instructions'
 export { resolveCombatStart } from './state'
 export * from './trpg'
+
+/** 先匹配完整名字，再取互相包含的最长名字；不改变调用方的清单顺序。 */
+export function matchByName<T extends { name: string }>(query: string, items: T[]): T | undefined {
+  const normalize = (name: string) => name.trim().toLowerCase()
+  const key = normalize(query)
+  if (!key) return undefined
+  return (
+    items.find((item) => normalize(item.name) === key) ??
+    items
+      .filter(
+        (item) => normalize(item.name) && (normalize(item.name).includes(key) || key.includes(normalize(item.name))),
+      )
+      .sort((a, b) => b.name.length - a.name.length)[0]
+  )
+}

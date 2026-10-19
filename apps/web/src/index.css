@@ -345,6 +345,16 @@ body {
     opacity: 0;
   }
 }
+/* VN 右上角操作栏展开时，从右侧滑入 */
+.vn-tools-in {
+  animation: vn-tools-in 180ms ease-out;
+}
+@keyframes vn-tools-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
 /* VN 里的输入框：去掉聊天视图的底色，浮在画面上 */
 .vn-composer .composer-bar {
   background: transparent;

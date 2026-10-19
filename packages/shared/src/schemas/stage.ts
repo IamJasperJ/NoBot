@@ -185,7 +185,7 @@ export const DIRECTIVE_KIND_LABELS: Record<DirectiveKind, string> = {
   audio: '音频',
 }
 
-export const promptListSchema = z.enum(['cast', 'expressions', 'backgrounds', 'vars', 'outfits'])
+export const promptListSchema = z.enum(['cast', 'expressions', 'backgrounds', 'vars', 'outfits', 'audio'])
 export type PromptList = z.infer<typeof promptListSchema>
 
 export const ruleSystemSchema = z.enum(['dnd5e', 'coc7', 'pf2e', 'pbta', 'custom'])
@@ -220,7 +220,7 @@ const directivesSchema = z.object({
   position: z.enum(['after_char', 'author_note', 'depth']).default('after_char'),
   depth: z.number().int().min(0).max(1000).default(4),
   /** 在说明里附带的动态清单 */
-  lists: z.array(promptListSchema).default(['cast', 'expressions', 'backgrounds', 'vars', 'outfits']),
+  lists: z.array(promptListSchema).default(['cast', 'expressions', 'backgrounds', 'vars', 'outfits', 'audio']),
   /** 发给模型的历史里保留指令原文（模型照着学，一致性更好） */
   keepInHistory: z.boolean().default(true),
   /** 只保留最近 N 条消息里的指令，更早的换成去掉指令后的文本；0 表示不限 */
@@ -314,9 +314,8 @@ const trpgSchema = z.object({
   narratorFallback: z.boolean().default(true),
 })
 
-/** 音频：以后做，现在只留设置和接口 */
+/** 音频声道音量与 BGM 转场时长；是否播放由音频扩展决定。 */
 const audioSchema = z.object({
-  bgm: z.boolean().default(false),
   bgmVolume: z.number().int().min(0).max(100).default(60),
   sfxVolume: z.number().int().min(0).max(100).default(80),
   voiceVolume: z.number().int().min(0).max(100).default(100),
@@ -373,6 +372,7 @@ export type CardVn = z.infer<typeof cardVnSchema>
  * - {{vn_cast}}：可登场的角色名
  * - {{vn_expressions}}：可用的表情名
  * - {{vn_backgrounds}}：背景库里的名字
+ * - {{vn_bgm}} / {{vn_sfx}}：音频库里的音乐与音效名字
  * - {{vn_outfits}}：可用服装（按角色分组）
  * - {{vn_example}}：按启用种类生成的示例
  * - {{vn_state}}：变量定义（含规则）和当前值
@@ -384,6 +384,8 @@ These directives are mandatory application output syntax, rendered by a visual n
 Available characters: {{vn_cast}}
 Available expressions: {{vn_expressions}}
 Available backgrounds: {{vn_backgrounds}}
+Available music: {{vn_bgm}}
+Available sound effects: {{vn_sfx}}
 {{vn_outfits}}
 {{vn_state}}
 Example of the structure (write the actual content in the conversation language):

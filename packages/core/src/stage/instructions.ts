@@ -27,7 +27,7 @@ const DIRECTIVE_KIND_GUIDES: Record<'shorthand' | 'xml', Partial<Record<Directiv
 }
 
 export function renderDirectiveInstructions(input: InstructionsInput): string {
-  const list = (kind: 'cast' | 'expressions' | 'backgrounds', values: string[]): string =>
+  const list = (kind: 'cast' | 'expressions' | 'backgrounds' | 'audio', values: string[]): string =>
     input.lists.includes(kind) ? values.join(', ') : ''
   const paths = [...new Set([...Object.keys(input.schema), ...Object.keys(input.vars)])]
   const state: string[] = []
@@ -72,6 +72,8 @@ export function renderDirectiveInstructions(input: InstructionsInput): string {
     vn_cast: list('cast', input.cast),
     vn_expressions: list('expressions', input.expressions),
     vn_backgrounds: list('backgrounds', input.backgrounds),
+    vn_bgm: list('audio', input.bgm),
+    vn_sfx: list('audio', input.sfx),
     vn_state: state.length
       ? `State variables (name: range, update rule${input.valuesInPrompt ? '; current value' : ''}):\n${state.join('\n')}`
       : '',
@@ -94,7 +96,8 @@ function guide(input: InstructionsInput, kind: DirectiveKind): string {
       : '- Only when the player faces a choice, you MUST end the reply with 2–4 actionable options: <choices>\n- Option one\n- Option two\n</choices>'
   if (kind === 'combat')
     return '- Start combat with <combat start: A, B> listing all participants; advance turns with <combat next>; finish with <combat end>. Prefix a choice requiring a check with [Perception DC 12] using English skill names; legacy Chinese skill names are also accepted. Call roll_dice for random outcomes and ability_check for checks; never invent dice results.'
-  if (kind === 'audio') return '- Use <sfx name="sound" /> or <bgm name="music" /> when audio changes.'
+  if (kind === 'audio')
+    return '- Change background music with <bgm name="music" />, copying a name from Available music; <bgm name="none" /> stops it. Play a one-shot sound with <sfx name="sound" /> from Available sound effects. Use only listed names and skip audio tags when nothing fits.'
   return DIRECTIVE_KIND_GUIDES[input.style][kind] ?? ''
 }
 
@@ -121,7 +124,10 @@ function example(input: InstructionsInput): string {
   }
   if (input.kinds.includes('cg')) lines.push('<cg prompt="Soft morning light in a classroom" />')
   if (input.kinds.includes('combat')) lines.push('<combat start: player, Goblin>')
-  if (input.kinds.includes('audio')) lines.push('<sfx name="bell" />')
+  if (input.kinds.includes('audio') && input.lists.includes('audio')) {
+    if (input.bgm[0]) lines.push(`<bgm name="${input.bgm[0]}" />`)
+    else if (input.sfx[0]) lines.push(`<sfx name="${input.sfx[0]}" />`)
+  }
   const path = Object.keys(input.schema)[0] || Object.keys(input.vars)[0]
   if (input.kinds.includes('state') && path) {
     // 数值变量示范增量写法；把当前值原样写回去等于什么都没改，模型会照着学
@@ -137,7 +143,8 @@ function example(input: InstructionsInput): string {
   // 超过 10 行时先去掉次要的示例（插图、战斗、音效），不把它们拼到别的行上，免得模型学成同一行连写
   while (lines.join('\n').split('\n').length > 10) {
     const index = lines.findIndex(
-      (line) => line.startsWith('<cg ') || line.startsWith('<combat ') || line.startsWith('<sfx '),
+      (line) =>
+        line.startsWith('<cg ') || line.startsWith('<combat ') || line.startsWith('<sfx ') || line.startsWith('<bgm '),
     )
     if (index < 0) break
     lines.splice(index, 1)
@@ -163,7 +170,8 @@ export function renderDirectiveReminder(input: InstructionsInput & { reminderTem
     cg: '- For a key illustration, use <cg prompt="English image description" /> sparingly.',
     combat:
       '- Start combat with <combat start: A, B> listing all participants; advance turns with <combat next>; finish with <combat end>. Prefix a choice requiring a check with [Perception DC 12] using English skill names; legacy Chinese skill names are also accepted. Call roll_dice for random outcomes and ability_check for checks; never invent dice results.',
-    audio: '- Use <sfx name="sound" /> or <bgm name="music" /> when audio changes.',
+    audio:
+      '- Use listed names with <bgm name="music" /> or <sfx name="sound" />; <bgm name="none" /> stops music. Skip audio tags when nothing fits.',
   }
   const rules = input.kinds.map((kind) => rulesByKind[kind]).join('\n')
   return (input.reminderTemplate || DEFAULT_DIRECTIVE_REMINDERS[input.style])

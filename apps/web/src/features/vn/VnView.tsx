@@ -18,6 +18,7 @@ import {
   XIcon,
 } from '../../components/icons'
 import { cx } from '../../components/ui'
+import { Slot } from '../../extensions/Slot'
 import { useMobile } from '../../hooks/useMobile'
 import { t } from '../../i18n'
 import { useSpriteLayout } from '../../stores/spriteLayout'
@@ -88,6 +89,20 @@ export function VnView({
   const transitionMs = play.stage.transition === 'none' ? 0 : play.stage.transitionMs
   // 调整立绘：拖动位置、缩放（玩法预设「允许拖动立绘」开着时才有这个入口）
   const [adjusting, setAdjusting] = useState(false)
+  // 右上角操作栏默认收起，只留「展开」和「关闭」；展开后鼠标离开或停留不动 4 秒自动收回（调整立绘时保持展开）
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const armCollapse = () => {
+    clearTimeout(collapseTimer.current)
+    collapseTimer.current = setTimeout(() => setToolsOpen(false), 4000)
+  }
+  // 鼠标在操作栏上时不收起：点「展开」时鼠标本来就在栏里，不会再触发进入事件，所以单独记着
+  const hovering = useRef(false)
+  useEffect(() => {
+    if (toolsOpen && !hovering.current) armCollapse()
+    return () => clearTimeout(collapseTimer.current)
+  }, [toolsOpen])
+  const showTools = toolsOpen || adjusting
 
   // HUD 的变量：跟着最新回复且演完了，就是会话当前的变量；
   // 正在演（或重演旧回复）时是这条回复之前的变量，演完再加上这条的补丁——好感 +3 在回复演完时飘出来
@@ -212,12 +227,28 @@ export function VnView({
       )}
       style={{ ['--vn-ms' as string]: `${transitionMs}ms` }}
     >
+      <Slot
+        name="vn.layer"
+        props={{
+          chatId,
+          stage: player.stage,
+          beats: player.beats,
+          beatIndex: player.beatIndex,
+          playKey: player.playKey,
+          play,
+          skipping: player.skip || player.pinned,
+        }}
+      />
       {/* 点画面推进；隐藏界面时点一下恢复 */}
       <button
         type="button"
         aria-label={hidden ? t('显示界面') : t('下一句')}
         className="absolute inset-0 z-0 cursor-default"
-        onClick={() => (hidden ? setHidden(false) : adjusting ? undefined : player.advance())}
+        onClick={() => {
+          setToolsOpen(false)
+          if (hidden) setHidden(false)
+          else if (!adjusting) player.advance()
+        }}
       />
 
       {/* 立绘 */}
@@ -243,60 +274,97 @@ export function VnView({
               {[scene.place, scene.time].filter(Boolean).join(' · ')}
             </div>
           )}
-          <div className="ml-auto flex items-center gap-1">
-            {images.latest && (
-              <VnButton label={images.open ? t('收起图片') : t('图片')} active={images.open} onClick={images.toggle}>
-                <ImageIcon />
-                {(images.pending || images.unread) && (
-                  <span
-                    aria-hidden="true"
-                    className={cx(
-                      'absolute top-1 right-1 size-2 rounded-full',
-                      images.pending ? 'animate-pulse bg-violet-400' : 'bg-white',
+          {/* 手机上展开后按钮可能一行放不下：工具组自动换行、靠右对齐，展开 / 关闭按钮留在第一行两端 */}
+          <div
+            className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1"
+            onPointerEnter={() => {
+              hovering.current = true
+              clearTimeout(collapseTimer.current)
+            }}
+            onPointerLeave={() => {
+              hovering.current = false
+              if (showTools) armCollapse()
+            }}
+          >
+            <VnButton
+              label={showTools ? t('收起操作栏') : t('展开操作栏')}
+              active={showTools}
+              onClick={() => setToolsOpen(!showTools)}
+            >
+              {showTools ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+              {/* 收起时用小圆点提示：有新图片、正在自动播放或快进 */}
+              {!showTools && (images.pending || images.unread || player.auto || player.skip) && (
+                <span
+                  aria-hidden="true"
+                  className={cx(
+                    'absolute top-1 right-1 size-2 rounded-full',
+                    images.pending ? 'animate-pulse bg-violet-400' : 'bg-white',
+                  )}
+                />
+              )}
+            </VnButton>
+            {showTools && (
+              <div className="vn-tools-in flex min-w-0 flex-wrap items-center justify-end gap-1">
+                {images.latest && (
+                  <VnButton
+                    label={images.open ? t('收起图片') : t('图片')}
+                    active={images.open}
+                    onClick={images.toggle}
+                  >
+                    <ImageIcon />
+                    {(images.pending || images.unread) && (
+                      <span
+                        aria-hidden="true"
+                        className={cx(
+                          'absolute top-1 right-1 size-2 rounded-full',
+                          images.pending ? 'animate-pulse bg-violet-400' : 'bg-white',
+                        )}
+                      />
                     )}
-                  />
+                  </VnButton>
                 )}
-              </VnButton>
+                {play.stage.draggable && (
+                  <VnButton
+                    label={adjusting ? t('完成调整') : t('调整立绘（拖动位置、滚轮缩放）')}
+                    active={adjusting}
+                    onClick={() => setAdjusting(!adjusting)}
+                  >
+                    <MoveIcon />
+                  </VnButton>
+                )}
+                <VnButton label={t('存档 / 读档')} active={saves} onClick={() => setSaves(!saves)}>
+                  <BookmarkIcon />
+                </VnButton>
+                <VnButton label={t('回想')} active={backlog} onClick={() => setBacklog(!backlog)}>
+                  <LogIcon />
+                </VnButton>
+                <Slot name="vn.toolbar" props={{ chatId, play }} />
+                <VnButton
+                  label={player.auto ? t('停止自动播放') : t('自动播放')}
+                  active={player.auto}
+                  onClick={() => player.setAuto(!player.auto)}
+                >
+                  <span className="text-[11px] font-semibold">AUTO</span>
+                </VnButton>
+                <VnButton
+                  label={play.dialog.skipReadOnly ? t('快进（只跳过读过的）') : t('快进')}
+                  active={player.skip}
+                  onClick={() => player.setSkip(!player.skip)}
+                >
+                  <span className="text-[11px] font-semibold">SKIP</span>
+                </VnButton>
+                <VnButton
+                  label={cinema ? t('退出电影模式') : t('电影模式（上下黑边，只留字幕）')}
+                  active={cinema}
+                  onClick={() => toggleCinema(chatId, play.stage.letterbox)}
+                >
+                  <FilmIcon />
+                </VnButton>
+                <VnButton label={t('隐藏界面（点画面恢复）')} onClick={() => setHidden(true)}>
+                  <EyeOffIcon />
+                </VnButton>
+              </div>
             )}
-            {play.stage.draggable && (
-              <VnButton
-                label={adjusting ? t('完成调整') : t('调整立绘（拖动位置、滚轮缩放）')}
-                active={adjusting}
-                onClick={() => setAdjusting(!adjusting)}
-              >
-                <MoveIcon />
-              </VnButton>
-            )}
-            <VnButton label={t('存档 / 读档')} active={saves} onClick={() => setSaves(!saves)}>
-              <BookmarkIcon />
-            </VnButton>
-            <VnButton label={t('回想')} active={backlog} onClick={() => setBacklog(!backlog)}>
-              <LogIcon />
-            </VnButton>
-            <VnButton
-              label={player.auto ? t('停止自动播放') : t('自动播放')}
-              active={player.auto}
-              onClick={() => player.setAuto(!player.auto)}
-            >
-              <span className="text-[11px] font-semibold">AUTO</span>
-            </VnButton>
-            <VnButton
-              label={play.dialog.skipReadOnly ? t('快进（只跳过读过的）') : t('快进')}
-              active={player.skip}
-              onClick={() => player.setSkip(!player.skip)}
-            >
-              <span className="text-[11px] font-semibold">SKIP</span>
-            </VnButton>
-            <VnButton
-              label={cinema ? t('退出电影模式') : t('电影模式（上下黑边，只留字幕）')}
-              active={cinema}
-              onClick={() => toggleCinema(chatId, play.stage.letterbox)}
-            >
-              <FilmIcon />
-            </VnButton>
-            <VnButton label={t('隐藏界面（点画面恢复）')} onClick={() => setHidden(true)}>
-              <EyeOffIcon />
-            </VnButton>
             <VnButton label={t('回到聊天视图')} onClick={() => setMode(chatId, 'chat')}>
               <XIcon />
             </VnButton>

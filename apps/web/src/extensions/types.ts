@@ -1,4 +1,4 @@
-import type { CharacterDTO, MessageDTO } from '@nobot/shared'
+import type { Beat, CharacterDTO, MessageDTO, PlayPresetData, StageState } from '@nobot/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import type * as ReactNS from 'react'
 import type { ReactNode } from 'react'
@@ -21,6 +21,22 @@ import type { View } from '../stores/ui'
 
 /** 界面上的扩展插槽，以及每个插槽渲染时收到的参数 */
 export interface SlotProps {
+  /** VN 不可见层，用于驱动音频等效果。 */
+  'vn.layer': {
+    chatId: string
+    stage: StageState
+    /** 当前消息全部拍，序号与 beatIndex 对应。 */
+    beats: Beat[]
+    beatIndex: number | undefined
+    /** 当前消息与备选共同组成的演出标识。 */
+    playKey: string | null
+    play: PlayPresetData
+    /** 快进或回看时不播放音效。 */
+    skipping: boolean
+  }
+  /** VN 顶部工具栏按钮区。 */
+  'vn.toolbar': { chatId: string; play: PlayPresetData }
+
   'character.editor.sections': {
     character: CharacterDTO
     save: (patch: { extensions: Record<string, unknown> }) => Promise<void>

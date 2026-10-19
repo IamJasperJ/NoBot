@@ -4,6 +4,15 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '音频':
+      return t('音频')
+    case 'BGM、音效和语音。VN 里按舞台指令播放背景音乐和音效。':
+      return t('BGM、音效和语音。VN 里按舞台指令播放背景音乐和音效。')
+    case '在指令说明里列出曲目':
+      return t('在指令说明里列出曲目')
+    case '让模型知道有哪些 BGM 和音效可用':
+      return t('让模型知道有哪些 BGM 和音效可用')
+
     case '仅列出支持图片输出的模型':
       return t('仅列出支持图片输出的模型')
     case '复用连接时覆盖同名请求头':

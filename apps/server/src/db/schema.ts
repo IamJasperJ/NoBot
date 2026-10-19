@@ -1,4 +1,5 @@
 import type {
+  AudioKind,
   CharacterSheet,
   GenerationLogSummary,
   GroupActivation,
@@ -374,3 +375,14 @@ export const bookmarks = sqliteTable(
   },
   (t) => [index('bookmarks_chat_created_idx').on(t.chatId, t.createdAt)],
 )
+
+export const audioTracks = sqliteTable('audio_tracks', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull(),
+  kind: text('kind').$type<AudioKind>().notNull(),
+  mime: text('mime').notNull(),
+  size: integer('size').notNull(),
+  durationMs: integer('duration_ms'),
+  createdAt: integer('created_at').notNull(),
+})

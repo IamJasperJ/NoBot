@@ -17,6 +17,7 @@ import { cleanupExtensionStaging, readGitInfo } from '../services/extension-git'
 import { profileChatScope, selectProfile } from '../services/profiles'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
+import audio from './builtin/audio'
 import caption, { generateCaption } from './builtin/caption'
 import imageGen from './builtin/image-gen'
 import regex from './builtin/regex'
@@ -139,6 +140,7 @@ registerBuiltinExtension(regex)
 registerBuiltinExtension(imageGen)
 registerBuiltinExtension(summary)
 registerBuiltinExtension(caption)
+registerBuiltinExtension(audio)
 registerBuiltinExtension(translate)
 
 /** 注销在注册表中的旧对象，之后的请求不能再找到旧路由、命令和钩子。 */

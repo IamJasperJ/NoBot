@@ -316,6 +316,8 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
     streaming,
     beat,
     beats: shownBeats,
+    beatIndex,
+    playKey,
     index,
     /** 消息、备选与原始拍序号组成的标识，供立绘记忆区分换拍与普通重渲染。 */
     beatKey: readKey,

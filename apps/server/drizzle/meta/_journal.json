@@ -127,6 +127,13 @@
       "when": 1792401565539,
       "tag": "0017_rename_extension_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1792425142519,
+      "tag": "0018_hard_wild_pack",
+      "breakpoints": true
     }
   ]
 }

@@ -41,6 +41,7 @@ import { HttpError, notFound, promptBudgetMessage } from '../errors'
 import { collectMacros, runAfterPrompt, runBeforePrompt } from '../extensions/registry'
 import { t } from '../i18n'
 import { enabledToolNames } from '../tools'
+import { listAudioTracks } from './audio-library'
 import { backgroundsForChat } from './backgrounds'
 import { replaceImageAttachments } from './caption'
 import { computeVars, getChatRow, loadGroupDTO, loadPath } from './chats'
@@ -363,8 +364,14 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
   }
   if (play.directives.enabled && opts.type !== 'impersonate' && !opts.quiet) {
     const stage = computeStage(ctx.chat.id, path)
+    const audioEnabled = getSetting<Record<string, boolean>>(SETTING_KEYS.extensionsEnabled)?.audio === true
+    const audioSettings = getSetting<Record<string, unknown>>(SETTING_KEYS.extensionSettings('audio'))
+    const tracks = audioEnabled && audioSettings?.listInPrompt !== false ? listAudioTracks() : []
     const instructionInput = {
       ...play.directives,
+      kinds: play.directives.kinds.filter((kind) => kind !== 'audio' || audioEnabled),
+      bgm: tracks.filter((track) => track.kind === 'bgm').map((track) => track.name),
+      sfx: tracks.filter((track) => track.kind === 'sfx').map((track) => track.name),
       cast: [
         ...new Set([...ctx.members.map((member) => member.name), ...(stage?.cast.map((actor) => actor.name) ?? [])]),
       ],

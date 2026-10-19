@@ -36,8 +36,8 @@ const KIND_OPTIONS = () =>
   (Object.keys(directiveKindLabels()) as DirectiveKind[]).map((value) => ({
     value,
     label: directiveKindLabels()[value],
-    // 第一期只处理表情、上下台、场景、变量、选项；其余种类先只隐藏不演出
-    notImplemented: !['expression', 'cast', 'scene', 'state', 'choices', 'cg'].includes(value),
+    // 已经能演出的种类；音频需要启用「音频」扩展
+    notImplemented: !['expression', 'cast', 'scene', 'state', 'choices', 'cg', 'combat', 'audio'].includes(value),
   }))
 
 const LIST_OPTIONS = (): { value: PromptList; label: string }[] => [
@@ -699,17 +699,15 @@ export function PlayPresetEditor({
         />
       </Section>
 
-      <Section dense title={t('音频')} description={t('BGM、音效和语音，以后做，现在先留好设置')} defaultOpen={false}>
-        <SwitchField
-          label={t('启用 BGM')}
-          hint={later(t('以后'), t('按场景指令播放背景音乐'))}
-          notImplemented
-          checked={audio.bgm}
-          onChange={(v) => set('audio', 'bgm', v)}
-        />
+      <Section
+        dense
+        title={t('音频')}
+        description={t('需要启用「音频」扩展；曲目在扩展页的「音频库」里管理。音量设为 0 即关闭这一路')}
+        defaultOpen={false}
+      >
         <NumberField
           label={t('BGM 音量')}
-          notImplemented
+          hint={t('按舞台指令 <bgm> 播放背景音乐')}
           min={0}
           max={100}
           value={audio.bgmVolume}
@@ -717,7 +715,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label={t('音效音量')}
-          notImplemented
+          hint={t('演到 <sfx> 时播放一次音效')}
           min={0}
           max={100}
           value={audio.sfxVolume}
@@ -733,7 +731,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label={t('淡入淡出（毫秒）')}
-          notImplemented
+          hint={t('切换背景音乐时的交叉淡入淡出时长')}
           min={0}
           max={10000}
           slider={false}

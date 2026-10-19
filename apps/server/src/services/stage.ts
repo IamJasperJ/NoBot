@@ -2,6 +2,7 @@ import {
   castKey,
   foldStage,
   getRuleSystem,
+  matchByName,
   mergeStateSchemas,
   parseInitVars,
   parseStageMessage,
@@ -119,15 +120,7 @@ export function initialVars(chatId: string) {
 export function computeStage(chatId: string, path: { meta: MessageMeta }[]) {
   if (!resolvePlayPreset(chatId).data.directives.enabled) return null
   const stage = foldStage(path.map((message) => message.meta.stage?.ops ?? []))
-  const normalize = (name: string) => name.trim().toLowerCase()
-  const bg = normalize(stage.scene.bg ?? '')
-  const library = backgroundsForChat(chatId)
-  const match = bg
-    ? (library.find((row) => normalize(row.name) === bg) ??
-      library
-        .filter((row) => normalize(row.name) && (normalize(row.name).includes(bg) || bg.includes(normalize(row.name))))
-        .sort((a, b) => b.name.length - a.name.length)[0])
-    : undefined
+  const match = matchByName(stage.scene.bg ?? '', backgroundsForChat(chatId))
   stage.scene.backgroundId = match?.id ?? null
   const temporary = readTemporaryActors(chatId)
   for (const actor of stage.cast) {

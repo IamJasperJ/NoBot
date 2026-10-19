@@ -21,6 +21,7 @@ export const paths = {
   db: join(env.dataDir, 'app.db'),
   sprites: join(env.dataDir, 'assets/sprites'),
   avatars: join(env.dataDir, 'assets/avatars'),
+  audio: join(env.dataDir, 'assets/audio'),
   backgrounds: join(env.dataDir, 'assets/backgrounds'),
   attachments: join(env.dataDir, 'assets/attachments'),
 }
@@ -31,3 +32,5 @@ mkdirSync(paths.attachments, { recursive: true })
 mkdirSync(paths.backgrounds, { recursive: true })
 
 mkdirSync(paths.sprites, { recursive: true })
+
+mkdirSync(paths.audio, { recursive: true })

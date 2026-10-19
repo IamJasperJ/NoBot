@@ -579,6 +579,8 @@ describe('初始化、schema 与说明模板', () => {
     lists: ['cast', 'expressions', 'backgrounds', 'vars'],
     cast: ['甲', '乙'],
     expressions: ['joy'],
+    bgm: [],
+    sfx: [],
     backgrounds: ['夜'],
     schema: { '艾莉丝.好感': { type: 'meter', min: 0, max: 100, rule: '温柔对待 +1~3' }, 金币: { type: 'number' } },
     rules: { '艾莉丝.好感': '被覆盖', 金币: '花费减少' },

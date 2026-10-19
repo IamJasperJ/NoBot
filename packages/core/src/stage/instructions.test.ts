@@ -16,6 +16,8 @@ const input: InstructionsInput = {
   choicesMode: 'always',
   expressions: ['joy', 'neutral'],
   backgrounds: ['Garden at dusk'],
+  bgm: [],
+  sfx: [],
   schema: { affection: { type: 'number' } },
   rules: {},
   vars: { affection: 5 },
@@ -89,4 +91,27 @@ test('提醒按启用 kinds、风格与选项模式渲染，并删除空占位�
   expect(renderDirectiveInstructions({ ...input, choicesMode: 'auto' })).toContain(
     'Only when the player faces a choice',
   )
+})
+
+test('音频清单、空行删除和示例按可用名字生成', () => {
+  const audio = { ...input, kinds: ['audio'] as const, lists: ['audio'] as const }
+  const render = (bgm: string[], sfx: string[]) =>
+    renderDirectiveInstructions({ ...audio, kinds: [...audio.kinds], lists: [...audio.lists], bgm, sfx })
+  expect(render(['Night'], ['Bell'])).toContain('Available music: Night')
+  expect(render(['Night'], ['Bell'])).toContain('Available sound effects: Bell')
+  expect(render(['Night'], ['Bell'])).toContain('<bgm name="Night" />')
+  expect(render([], ['Bell'])).toContain('<sfx name="Bell" />')
+  expect(render([], [])).not.toContain('Available music:')
+  expect(render([], [])).not.toContain('Available sound effects:')
+  expect(render([], [])).not.toContain('<sfx name="bell" />')
+  const hidden = renderDirectiveInstructions({
+    ...input,
+    kinds: ['audio'],
+    lists: [],
+    bgm: ['Night'],
+    sfx: ['Bell'],
+    template: '{{vn_bgm}}\n{{vn_sfx}}\n{{vn_example}}',
+  })
+  expect(hidden).not.toContain('Night')
+  expect(hidden).not.toContain('Bell')
 })

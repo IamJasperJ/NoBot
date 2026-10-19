@@ -99,7 +99,22 @@ export function nameSet(names: string[]): Set<string> {
 }
 
 export function shorthand(line: string, known: Set<string>, narrators: Set<string>): Speech | undefined {
-  const match = /^([^[\]:：「」<>\r\n]{1,24}?)(?:\[([^\]\r\n]+)\])?\s*[:：]\s*(.*)$/u.exec(line.trimStart())
+  line = line.trimStart()
+  // 已知名字优先取最长前缀，避免名字内的冒号或方括号被当成台词分隔符。
+  const names = [...new Set([...known, ...narrators])].sort((a, b) => b.length - a.length)
+  for (const name of names) {
+    if (!name || line.slice(0, name.length).toLowerCase() !== name) continue
+    const suffix = /^(?:\[([^\]\r\n]+)\])?\s*[:：]\s*(.*)$/u.exec(line.slice(name.length))
+    if (!suffix) continue
+    const expression = suffix[1]?.trim()
+    return {
+      speaker: line.slice(0, name.length),
+      ...(expression !== undefined ? { expression } : {}),
+      text: suffix[2]!,
+      narrator: narrators.has(name),
+    }
+  }
+  const match = /^([^[\]:：「」<>\r\n]{1,24}?)(?:\[([^\]\r\n]+)\])?\s*[:：]\s*(.*)$/u.exec(line)
   if (!match) return
   const speaker = match[1]!.trim()
   if (!speaker || /^[*「」『』“”‘’"']/.test(speaker) || Array.from(speaker).length > 24) return

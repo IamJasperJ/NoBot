@@ -22,6 +22,19 @@ const input: InstructionsInput = {
   valuesInPrompt: true,
 }
 
+test.each(['shorthand', 'xml'] as const)('表情说明与提醒要求按实际说话人归属台词：%s', (style) => {
+  const instructions = renderDirectiveInstructions({ ...input, style })
+  expect(instructions).toContain('The name must identify the character actually speaking.')
+  expect(instructions).toContain('Never attribute another character’s lines to yourself or the card')
+  expect(instructions).toContain('give unnamed NPCs short descriptive names (e.g. Hooded traveler)')
+  const reminder = renderDirectiveReminder({ ...input, style, reminderTemplate: '' })
+  expect(reminder).toContain('Name the actual speaker, never yourself or the card for someone else’s lines')
+  expect(reminder).toContain('use short descriptive names for unnamed NPCs')
+  const disabled = { ...input, style, kinds: [] }
+  expect(renderDirectiveInstructions(disabled)).not.toContain('The name must identify')
+  expect(renderDirectiveReminder({ ...disabled, reminderTemplate: '' })).not.toContain('Name the actual speaker')
+})
+
 test('服装清单去重、忽略默认服装，并遵循 lists 开关', () => {
   expect(renderDirectiveInstructions(input)).toContain('Available outfits: Alice: casual, swimsuit; Bob: armor')
   expect(renderDirectiveInstructions({ ...input, lists: [] })).not.toContain('Available outfits:')

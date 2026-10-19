@@ -31,6 +31,72 @@ const display = (content: string, speaker: 'bold' | 'plain' | 'none' = 'plain', 
   toDisplayText(content, { ...defaults, speaker, streaming })
 
 describe('台词与拍', () => {
+  const specialName = '[D&D] Forgotten Realms: Sword Coast'
+
+  test.each(['', '[neutral]'])('已知特殊长名字保留原文并贯通显示、台词拍和舞台操作：%s', (suffix) => {
+    const speaker = '[d&d] Forgotten Realms: SWORD Coast'
+    const source = `  ${speaker}${suffix} ： 「欢迎」`
+    const opts = { ...defaults, knownNames: [specialName] }
+    const { stage } = parseStageMessage(source, opts)
+    expect(stage.beats).toEqual([
+      { kind: 'line', speaker, text: '「欢迎」', ...(suffix ? { expression: 'neutral' } : {}) },
+    ])
+    expect(stage.ops).toEqual([
+      suffix ? { op: 'expr', who: speaker, expression: 'neutral' } : { op: 'show', who: speaker },
+    ])
+    for (const mode of ['plain', 'bold', 'none'] as const) {
+      expect(toDisplayText(source, { ...opts, speaker: mode })).toBe(
+        mode === 'none' ? '「欢迎」' : `${mode === 'bold' ? `**${speaker}**` : speaker}：「欢迎」`,
+      )
+    }
+    const initial = applyStageOps(emptyStage(), [{ op: 'show', who: specialName, at: 'right' }])
+    expect(applyStageOps(initial, stage.ops).cast).toEqual([
+      { key: castKey(specialName), name: speaker, at: 'right', expression: suffix ? 'neutral' : '' },
+    ])
+  })
+
+  test.each(['', '[neutral]'])('未知特殊长名字仍为旁白：%s', (suffix) => {
+    const source = `${specialName}${suffix}：「欢迎」`
+    expect(parse(source).stage.beats).toEqual([{ kind: 'narration', text: source }])
+    expect(parse(source).stage.ops).toEqual([])
+    expect(display(source)).toBe(source)
+  })
+
+  test('已知名字优先匹配最长前缀，名字后的非分隔文本不算匹配', () => {
+    const opts = { knownNames: ['Alice', 'Alice[DM]', 'Alice: DM'] }
+    for (const speaker of ['Alice[DM]', 'Alice: DM']) {
+      expect(parse(`${speaker}: hello`, opts).stage.beats).toEqual([{ kind: 'line', speaker, text: 'hello' }])
+    }
+    expect(parse('Alice explains: hello', opts).stage.beats).toEqual([
+      { kind: 'narration', text: 'Alice explains: hello' },
+    ])
+  })
+
+  test('特殊长旁白名字无需列入角色集合，也不产生舞台操作', () => {
+    const source = `${specialName}[neutral]: 风吹过。`
+    const opts = { ...defaults, narratorNames: [specialName.toUpperCase()] }
+    const { stage } = parseStageMessage(source, opts)
+    expect(stage.beats).toEqual([{ kind: 'narration', text: '风吹过。' }])
+    expect(stage.ops).toEqual([])
+    expect(toDisplayText(source, { ...opts, speaker: 'plain' })).toBe('风吹过。')
+  })
+
+  test('XML say 和显式表情操作支持特殊长名字', () => {
+    const opts = { ...defaults, knownNames: [specialName] }
+    const source = `<say who="${specialName}" expr="neutral">「欢迎」</say>`
+    const { stage } = parseStageMessage(source, opts)
+    expect(stage).toEqual(parseStageMessage(`${specialName}[neutral]：「欢迎」`, opts).stage)
+    expect(toDisplayText(source, { ...opts, speaker: 'plain' })).toBe(`${specialName}：「欢迎」`)
+    const ops = parse(`<show who="${specialName}"/><expr who="${specialName}" v="joy"/>`).stage.ops
+    expect(ops).toEqual([
+      { op: 'show', who: specialName },
+      { op: 'expr', who: specialName, expression: 'joy' },
+    ])
+    expect(applyStageOps(emptyStage(), ops).cast).toEqual([
+      { key: castKey(specialName), name: specialName, at: 'center', expression: 'joy' },
+    ])
+  })
+
   test.each([
     ['艾莉丝：你好', '艾莉丝', '你好', undefined],
     ['陌生人[joy]: 你好', '陌生人', '你好', 'joy'],

@@ -14,14 +14,14 @@ const DIRECTIVE_KIND_GUIDES: Record<'shorthand' | 'xml', Partial<Record<Directiv
   shorthand: {
     ...commonGuides,
     expression:
-      '- Put each line of dialogue on its own line: you MUST format EVERY spoken sentence as name[expression]：「dialogue」, e.g. Alice[joy]：「Welcome back!」. Always include an expression from Available expressions, even when unchanged.',
+      '- Put each line of dialogue on its own line: you MUST format EVERY spoken sentence as name[expression]：「dialogue」, e.g. Alice[joy]：「Welcome back!」. Always include an expression from Available expressions, even when unchanged. The name must identify the character actually speaking. Never attribute another character’s lines to yourself or the card; give unnamed NPCs short descriptive names (e.g. Hooded traveler).',
     state:
       '- You MUST put state changes at the end of the reply:\n<state>\npath = value\npath += number\npath -= number\n</state>',
   },
   xml: {
     ...commonGuides,
     expression:
-      '- You MUST format EVERY spoken sentence as <say who="name" expr="expression">dialogue</say>. Always include expr from Available expressions. Write narration as plain text.',
+      '- You MUST format EVERY spoken sentence as <say who="name" expr="expression">dialogue</say>. Always include expr from Available expressions. Write narration as plain text. The name must identify the character actually speaking. Never attribute another character’s lines to yourself or the card; give unnamed NPCs short descriptive names (e.g. Hooded traveler).',
     state: '- You MUST put state changes at the end of the reply:\n<state>\npath = value\npath += number\n</state>',
   },
 }
@@ -150,8 +150,8 @@ export function renderDirectiveReminder(input: InstructionsInput & { reminderTem
   const rulesByKind: Record<DirectiveKind, string> = {
     expression:
       input.style === 'xml'
-        ? '- EVERY spoken sentence MUST use <say who="name" expr="expression">dialogue</say>; select an available expression.'
-        : '- EVERY spoken sentence MUST use name[expression]：「dialogue」; select an available expression.',
+        ? '- EVERY spoken sentence MUST use <say who="name" expr="expression">dialogue</say>; select an available expression. Name the actual speaker, never yourself or the card for someone else’s lines; use short descriptive names for unnamed NPCs.'
+        : '- EVERY spoken sentence MUST use name[expression]：「dialogue」; select an available expression. Name the actual speaker, never yourself or the card for someone else’s lines; use short descriptive names for unnamed NPCs.',
     cast: '- Enter with <show who="name" outfit="listed outfit" />; exit with <hide who="name" />. Repeat show when changing clothing; omit outfit for default clothing.',
     scene:
       '- Use <scene bg="name" place="location" time="time" /> on location/time changes and if no scene exists. Copy library names exactly, or use a short new location name in the conversation language.',

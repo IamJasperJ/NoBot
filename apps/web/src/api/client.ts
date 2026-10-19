@@ -336,7 +336,7 @@ export const api = {
   },
   /** 某条消息之前的舞台和变量（VN 重演旧回复时用） */
   getStageBefore: (chatId: string, messageId: string) =>
-    request<{ stage: StageState | null; vars: Record<string, unknown> }>(
+    request<{ stage: StageState | null; vars: Record<string, unknown>; temporarySprites: Record<string, string> }>(
       'GET',
       `/chats/${chatId}/stage?before=${encodeURIComponent(messageId)}`,
     ),

@@ -13,6 +13,7 @@ import type {
   PlayPresetDTO,
   PromptPresetDTO,
   PromptPreview,
+  TemporaryActorDTO,
 } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { mockLlm } from './helpers/mockLlm'
@@ -206,8 +207,30 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     let current = await page(chat.id)
     expect(current.vars).toMatchObject({ affection: 32, day: 'Day 1' })
     // VN 视图从这条回复开头演：取它之前的舞台，不含它自己的场景和上台
-    const before = await json<{ stage: ChatPage['stage'] }>(`/chats/${chat.id}/stage?before=${first.id}`)
+    const stageBefore = () =>
+      json<{ stage: ChatPage['stage']; temporarySprites: Record<string, string> }>(
+        `/chats/${chat.id}/stage?before=${first.id}`,
+      )
+    const before = await stageBefore()
     expect(before.stage?.scene.bg).toBeUndefined()
+    expect(before.temporarySprites).toEqual({})
+    const temporaryActor: TemporaryActorDTO = {
+      key: '商队车夫',
+      name: '商队车夫',
+      image: { id: 'driver', url: '/driver.png', width: 1, height: 1 },
+      prompt: '',
+      status: 'done',
+      updatedAt: 1,
+    }
+    setSetting(`vn-actors:${chat.id}`, {
+      driver: temporaryActor,
+      removed: { ...temporaryActor, key: 'removed', status: 'removed' },
+      pending: { ...temporaryActor, key: 'pending', image: null, status: 'pending' },
+      retrying: { ...temporaryActor, key: 'retrying', status: 'error' },
+    })
+    // 不在历史舞台上的演员也要返回；重试失败但仍有旧图时遵循舞台的相同规则。
+    expect((await stageBefore()).temporarySprites).toEqual({ 商队车夫: '/driver.png', retrying: '/driver.png' })
+    setSetting(`vn-actors:${chat.id}`, {})
     expect(current.stage?.scene.backgroundId).toBe(bgId)
     expect((await request(`/chats/${chat.id}/stage?before=nope`)).status).toBe(404)
     expect(current.stage?.scene.backgroundId).toBe(bgId)

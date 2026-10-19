@@ -3,9 +3,55 @@ import { type MessageDTO, playPresetDataSchema } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { message as baseMessage, setupHooks } from '../../api/hooks.test-utils'
 import { useStreaming } from '../../stores/streaming'
 import { useVn } from '../../stores/vn'
 import { useVnPlayer } from './useVnPlayer'
+
+test('临时 NPC 重新上台使用最新立绘映射，删除清空并兼容旧响应', () => {
+  const { qc, render } = setupHooks()
+  const message: MessageDTO = {
+    ...baseMessage,
+    content: '<show who="商队车夫" at="left" />\n车队启程了。',
+    meta: {
+      stage: {
+        v: 1,
+        ops: [{ op: 'show', who: '商队车夫', at: 'left' }],
+        beats: [
+          { kind: 'stage', ops: [{ op: 'show', who: '商队车夫', at: 'left' }] },
+          { kind: 'narration', text: '车队启程了。' },
+        ],
+      },
+    },
+  }
+  const options = {
+    chatId: 'chat',
+    messages: [message],
+    play: playPresetDataSchema.parse({}),
+    knownNames: ['商队车夫'],
+    members: [],
+  }
+  const key = ['vn-stage', 'chat', message.id]
+  const actor = { key: '商队车夫', name: '商队车夫', expression: '', at: 'left', spriteUrl: '/old.png' }
+  try {
+    qc.setQueryData(key, { stage: { scene: {}, cast: [] }, vars: {}, temporarySprites: { 商队车夫: '/driver.png' } })
+    expect(render(() => useVnPlayer(options)).stage.cast).toEqual([
+      expect.objectContaining({ key: '商队车夫', at: 'left', characterId: null, spriteUrl: '/driver.png' }),
+    ])
+    qc.setQueryData(key, {
+      stage: { scene: {}, cast: [actor] },
+      vars: {},
+      temporarySprites: { 商队车夫: '/replacement.png' },
+    })
+    expect(render(() => useVnPlayer(options)).stage.cast[0]?.spriteUrl).toBe('/replacement.png')
+    qc.setQueryData(key, { stage: { scene: {}, cast: [actor] }, vars: {}, temporarySprites: {} })
+    expect(render(() => useVnPlayer(options)).stage.cast[0]?.spriteUrl).toBeUndefined()
+    qc.setQueryData(key, { stage: { scene: {}, cast: [actor] }, vars: {} })
+    expect(render(() => useVnPlayer(options)).stage.cast[0]?.spriteUrl).toBe('/old.png')
+  } finally {
+    qc.clear()
+  }
+})
 
 test('CG 拍保留前句与名牌、已读快进 60ms、pending 自动等待、流式不暂停 CG', () => {
   const originalState = React.useState

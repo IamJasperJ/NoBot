@@ -1,9 +1,10 @@
 import { expect, spyOn, test } from 'bun:test'
 import type { TemporaryActorDTO } from '@nobot/shared'
 import type { QueryObserverOptions } from '@tanstack/react-query'
+import * as React from 'react'
 import { api } from './client'
 import { setupHooks } from './hooks.test-utils'
-import { keys } from './queries'
+import { keys, useChatPages } from './queries'
 import {
   temporaryActorsKey,
   useRegenerateTemporaryActor,
@@ -20,6 +21,38 @@ const record: TemporaryActorDTO = {
   status: 'pending',
   updatedAt: 1,
 }
+
+test('消息临时立绘生成完成或失败时，刷新立绘及所有会话的舞台缓存', () => {
+  const { qc, render, page } = setupHooks()
+  const effects: React.EffectCallback[] = []
+  const effect = spyOn(React, 'useEffect').mockImplementation((callback) => {
+    effects.push(callback)
+  })
+  const stageKeys = [
+    ['vn-stage', 'chat', 'reply'],
+    ['vn-stage', 'other', 'older-reply'],
+  ]
+  try {
+    for (const status of ['pending', 'done', 'error'] as const) {
+      effects.length = 0
+      qc.setQueryData(['sprites', 'actor'], [])
+      for (const key of stageKeys) qc.setQueryData(key, {})
+      qc.setQueryData(keys.chat('chat'), {
+        pages: [
+          { ...page, messages: page.messages.map((message) => ({ ...message, meta: { spriteGeneration: status } })) },
+        ],
+        pageParams: [undefined],
+      })
+      render(() => useChatPages('chat'))
+      for (const callback of effects) callback()
+      expect(qc.getQueryState(['sprites', 'actor'])?.isInvalidated).toBe(status !== 'pending')
+      for (const key of stageKeys) expect(qc.getQueryState(key)?.isInvalidated).toBe(status !== 'pending')
+    }
+  } finally {
+    effect.mockRestore()
+    qc.clear()
+  }
+})
 
 test('临时立绘 hooks：轮询、完成刷新、mutation 失效及会话隔离', async () => {
   const { qc, render } = setupHooks()

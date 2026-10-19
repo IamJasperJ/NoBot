@@ -29,6 +29,7 @@ import { assembleWithVectors, loadGenerationContext } from '../services/context'
 import * as generation from '../services/generation'
 import { resolvedProfileDTO } from '../services/profiles'
 import { computeStage, initialVars } from '../services/stage'
+import { readTemporaryActors } from '../services/temporary-actors'
 import { performCheck } from '../services/trpg'
 
 /** 把一个生成任务的事件流推给浏览器，直到任务结束或浏览器断开 */
@@ -95,7 +96,16 @@ export const chatRoutes = new Hono()
     const message = chats.loadMessage(c.req.valid('query').before)
     if (message.chatId !== chatId) throw new HttpError(404, 'NOT_FOUND', t('消息不在这个会话里'))
     const path = chats.loadPath(message.parentId)
-    return c.json({ stage: computeStage(chatId, path), vars: chats.computeVars(path, initialVars(chatId).vars) })
+    const temporarySprites = Object.fromEntries(
+      Object.values(readTemporaryActors(chatId))
+        .filter((actor) => actor.image && actor.status !== 'removed')
+        .map((actor) => [actor.key, actor.image!.url]),
+    )
+    return c.json({
+      stage: computeStage(chatId, path),
+      vars: chats.computeVars(path, initialVars(chatId).vars),
+      temporarySprites,
+    })
   })
   .patch('/:id', validate('json', updateChatInput), (c) =>
     c.json(chats.updateChat(c.req.param('id'), c.req.valid('json'))),

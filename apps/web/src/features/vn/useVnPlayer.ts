@@ -189,7 +189,11 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
       members.find((m) => castKey(m.name.trim().split(/\s+/)[0] ?? '') === key)
     return {
       ...state,
-      cast: state.cast.map((m) => (m.characterId ? m : { ...m, characterId: match(m.key)?.id ?? null })),
+      cast: state.cast.map((m) => ({
+        ...m,
+        characterId: m.characterId ?? match(m.key)?.id ?? null,
+        spriteUrl: base.data?.temporarySprites ? base.data.temporarySprites[m.key] : m.spriteUrl,
+      })),
     }
   }, [base.data, shownBeats, beatIndex, members, speakerName])
   const speakerKey = beat?.kind === 'line' ? castKey(beat.speaker) : null

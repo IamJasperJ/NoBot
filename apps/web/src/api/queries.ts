@@ -184,7 +184,10 @@ export function useChatPages(chatId: string | null) {
     )
     .join(',')
   useEffect(() => {
-    if (completedSprites) void qc.invalidateQueries({ queryKey: ['sprites'] })
+    if (completedSprites) {
+      void qc.invalidateQueries({ queryKey: ['sprites'] })
+      void qc.invalidateQueries({ queryKey: ['vn-stage'] })
+    }
   }, [qc, completedSprites])
   useEffect(() => {
     if (completedCgs) void qc.invalidateQueries({ queryKey: ['characterCgs'] })

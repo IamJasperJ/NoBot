@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { keys, useCharacters, useChats, useGroups } from '../../api/queries'
-import { PlusIcon, TrashIcon, UploadIcon, UsersIcon } from '../../components/icons'
+import { PlusIcon, SettingsIcon, TrashIcon, UploadIcon, UsersIcon } from '../../components/icons'
 import { Avatar, Button, cx, IconButton } from '../../components/ui'
 import { Slot } from '../../extensions/Slot'
 import { t } from '../../i18n'
@@ -41,6 +41,15 @@ function ChatList({ owner }: { owner: Owner }) {
     }
   }
 
+  // 打开这个会话并展开它的会话设置
+  const openSettings = (c: ChatSummary) => {
+    openChat(owner, c.id)
+    const ui = useUi.getState()
+    ui.setPreviewOpen(false)
+    ui.setChatSettingsOpen(true)
+    ui.openView('chat')
+  }
+
   return (
     <div className="mt-1 mb-2 ml-6 space-y-0.5 border-l border-zinc-200 pl-2 dark:border-zinc-800">
       {chats.data?.map((c) => (
@@ -58,6 +67,13 @@ function ChatList({ owner }: { owner: Owner }) {
           >
             {c.title}
           </button>
+          <IconButton
+            label={t('会话设置')}
+            className="size-7 opacity-0 group-hover:opacity-100 max-md:opacity-100"
+            onClick={() => openSettings(c)}
+          >
+            <SettingsIcon width={15} height={15} />
+          </IconButton>
           <IconButton
             label={t('删除会话')}
             className="size-7 opacity-0 group-hover:opacity-100 max-md:opacity-100"

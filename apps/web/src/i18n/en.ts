@@ -2097,4 +2097,7 @@ export const en: Record<string, string> = {
   '{ability}检定': '{ability} check',
   'D&D 5e 属性卡：这个角色作为队友或 NPC 时，检定、先攻和 HP 按它计算':
     'D&D 5e sheet: used for checks, initiative and HP when this character is a companion or NPC',
+  只有一套立绘: 'Only one outfit',
+  '还没有立绘，可以在角色编辑页的「立绘」里上传或 AI 生成。':
+    'No sprites yet. Upload or generate them under "Sprites" on the character page.',
 }

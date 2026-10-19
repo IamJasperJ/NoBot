@@ -10,7 +10,8 @@ import { useSpriteLayout } from '../../stores/spriteLayout'
 import type { ChatCast } from './MessageItem'
 
 /**
- * 「切换立绘套装」：会话里每个有多套立绘的角色一行，每套服装一张小缩略图（优先用 neutral 那张），点一下就换。
+ * 「切换立绘套装」：会话里每个角色一行（群聊时所有成员都列出），每套服装一张小缩略图（优先用 neutral 那张），点一下就换。
+ * 只有一套立绘的成员也列出来，注明只有一套；还没有立绘的成员给出提示，避免群聊里看起来「只能选一个人」。
  * 「跟随剧情」= 用模型在舞台指令里写的服装。选择只保存在这台设备上（按会话记）
  */
 export function OutfitPicker({ chatId, cast, stage }: { chatId: string; cast: ChatCast; stage: StageState | null }) {
@@ -28,13 +29,14 @@ export function OutfitPicker({ chatId, cast, stage }: { chatId: string; cast: Ch
   const manual = useSpriteLayout((s) => s.outfits[chatId])
   const setOutfit = useSpriteLayout((s) => s.setOutfit)
 
-  const rows = ids.flatMap((id, i) => {
+  const rows = ids.map((id, i) => {
     const list = sprites[i]?.data ?? []
     const outfits = [...new Set(list.map((s) => s.outfit))].sort((a, b) =>
       a === '' ? -1 : b === '' ? 1 : a.localeCompare(b),
     )
-    return outfits.length > 1 ? [{ id, list, outfits }] : []
+    return { id, list, outfits, loading: !!sprites[i]?.isPending }
   })
+  const anyChoice = rows.some((r) => r.outfits.length > 1)
   const loading = sprites.some((q) => q.isPending)
 
   return (
@@ -43,21 +45,29 @@ export function OutfitPicker({ chatId, cast, stage }: { chatId: string; cast: Ch
         <p className="text-xs text-zinc-500">
           {t('选好的套装只保存在这台设备上，按会话记住。「跟随剧情」使用模型在舞台指令里写的服装。')}
         </p>
-        {rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-zinc-400">
-            {loading ? t('加载中…') : t('这个会话里的角色都只有一套立绘。可以在角色编辑页的「立绘」里新建服装。')}
+        {!loading && !anyChoice && (
+          <p className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900">
+            {t('这个会话里的角色都只有一套立绘。可以在角色编辑页的「立绘」里新建服装。')}
           </p>
-        ) : (
-          rows.map(({ id, list, outfits }) => {
-            const speaker = cast.speakers[id]
-            const fromStage = stage?.cast.find((m) => m.characterId === id)?.outfit ?? ''
-            const chosen = manual?.[id]
-            return (
-              <section key={id} className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Avatar name={speaker?.name ?? ''} url={speaker?.avatarUrl ?? null} />
-                  <span className="text-sm font-medium">{speaker?.name}</span>
-                </div>
+        )}
+        {rows.map(({ id, list, outfits, loading: rowLoading }) => {
+          const speaker = cast.speakers[id]
+          const fromStage = stage?.cast.find((m) => m.characterId === id)?.outfit ?? ''
+          const chosen = manual?.[id]
+          return (
+            <section key={id} className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Avatar name={speaker?.name ?? ''} url={speaker?.avatarUrl ?? null} />
+                <span className="text-sm font-medium">{speaker?.name}</span>
+                {!rowLoading && outfits.length === 1 && (
+                  <span className="text-xs text-zinc-400">{t('只有一套立绘')}</span>
+                )}
+              </div>
+              {rowLoading ? (
+                <p className="text-xs text-zinc-400">{t('加载中…')}</p>
+              ) : outfits.length === 0 ? (
+                <p className="text-xs text-zinc-400">{t('还没有立绘，可以在角色编辑页的「立绘」里上传或 AI 生成。')}</p>
+              ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">
                   <OutfitTile
                     label={t('跟随剧情')}
@@ -76,10 +86,10 @@ export function OutfitPicker({ chatId, cast, stage }: { chatId: string; cast: Ch
                     />
                   ))}
                 </div>
-              </section>
-            )
-          })
-        )}
+              )}
+            </section>
+          )
+        })}
       </div>
     </Dialog>
   )

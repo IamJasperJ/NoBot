@@ -77,6 +77,14 @@ export function translateMetadata(text: string): string {
       )
     case '润色模型的生图提示词':
       return t('润色模型的生图提示词')
+    case '自由描述由模型扩写':
+      return t('自由描述由模型扩写')
+    case '关闭时直接使用输入的绘图提示词，与酒馆自由模式一致':
+      return t('关闭时直接使用输入的绘图提示词，与酒馆自由模式一致')
+    case '工具绘图提示词说明':
+      return t('工具绘图提示词说明')
+    case '指导聊天模型编写工具调用中的绘图描述；留空使用内置说明':
+      return t('指导聊天模型编写工具调用中的绘图描述；留空使用内置说明')
     case '工具调用时先用提示词模型改写描述，失败时使用原文':
       return t('工具调用时先用提示词模型改写描述，失败时使用原文')
 
@@ -376,9 +384,9 @@ export function translateMetadata(text: string): string {
       return t('自由描述')
     case '行为':
       return t('行为')
-    case '支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}；内置模板按格式设置输出，自定义模板自行决定格式':
+    case '支持 {{char}} {{user}} {{input}} 和酒馆的 {0}，自由模式可写 {{charPrefix}}；未写输入占位符时仍会附上本次描述':
       return t(
-        '支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}；内置模板按格式设置输出，自定义模板自行决定格式',
+        '支持 {{char}} {{user}} {{input}} 和酒馆的 {0}，自由模式可写 {{charPrefix}}；未写输入占位符时仍会附上本次描述',
       )
     case '覆盖该类型的风格参数':
       return t('覆盖该类型的风格参数')

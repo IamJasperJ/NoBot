@@ -287,9 +287,12 @@ export default defineExtension({
                 prompt: {
                   type: 'string',
                   description:
-                    resolvePromptStyle(parseSettings(ctx.settings)) === 'tags'
+                    parseSettings(ctx.settings)
+                      .toolPrompt.replaceAll('{{char}}', 'the intended subject')
+                      .replaceAll('{{user}}', 'the user persona') ||
+                    (resolvePromptStyle(parseSettings(ctx.settings)) === 'tags'
                       ? 'Optional final description. Required in free mode. One line of English Danbooru-style short tags describing visible elements, most important first: person count, appearance, clothing, expression, pose, scene, lighting, camera.'
-                      : 'Optional final description. Required in free mode. One paragraph of natural English describing visible appearance, clothing, expression, pose, environment, lighting, mood, and camera.',
+                      : 'Optional final description. Required in free mode. One paragraph of natural English describing visible appearance, clothing, expression, pose, environment, lighting, mood, and camera.'),
                 },
                 orientation: {
                   type: 'string',

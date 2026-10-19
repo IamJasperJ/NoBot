@@ -68,6 +68,10 @@ export interface ExtensionHost {
     speakerId?: string
     role?: 'system' | 'user'
     includeHistory?: boolean
+    /** 固定任务开始时的历史，防止异步占位或新消息改变提炼对象。 */
+    leafId?: string | null
+    /** 图片提炼保留剧情文字，不模仿舞台格式，并禁止历史工具调用。 */
+    purpose?: 'image'
     maxTokens?: number
     connectionId?: string
     model?: string

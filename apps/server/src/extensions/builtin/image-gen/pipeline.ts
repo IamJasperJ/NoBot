@@ -12,15 +12,8 @@ import type { ExtensionContext } from '../../types'
 import { backendDimensions, getBackend } from './backends'
 import { characterPrompt, composePrompt, dimensions, resolvePromptStyle } from './composition'
 import { comfyHeaders, openaiHeaders, parseHeaders, resolveImageConnection } from './discovery'
-import {
-  cleanPrompt,
-  type Mode,
-  promptInstruction,
-  rawPrompt,
-  replaceTemplate,
-  templateEndings,
-  templates,
-} from './modes'
+import { cleanPrompt, type Mode, rawPrompt, templateEndings, templates } from './modes'
+import { generatedPrompt, imageInstruction, imageSourceText } from './prompting'
 import { Semaphore } from './semaphore'
 import { parseSettings, type Settings } from './settings'
 import { workflowSource } from './workflow'
@@ -57,23 +50,29 @@ async function appendImage(ctx: Context, chatId: string, message: Parameters<Con
 }
 function prepare(ctx: Context, input: GenerateInput) {
   const info = ctx.host.getChatInfo(input.chatId, 1000)
+  let source = input.mode === 'message' && input.messageId ? loadMessage(input.messageId) : undefined
+  if (input.mode === 'message') {
+    if (!input.messageId) throw new HttpError(400, 'IMAGE_MESSAGE', t('请指定消息'))
+    if (source?.chatId !== input.chatId) throw new HttpError(400, 'IMAGE_MESSAGE', t('指定消息不属于这个会话'))
+  } else if (['last', 'raw_last', 'scene'].includes(input.mode)) {
+    // 图片通知、工具结果和系统消息不是待绘制的剧情，不能让连续出图反复提炼上一张图片。
+    source = [...info.messages]
+      .reverse()
+      .find(
+        (m) => ['assistant', 'user'].includes(m.role) && !m.meta.imageGen && m.status !== 'error' && m.content.trim(),
+      )
+  }
   const lastSpeaker = [...info.messages]
     .reverse()
     .find((m) => m.speakerId && info.characters.some((c) => c.id === m.speakerId))?.speakerId
   const character =
-    info.characters.find((c) => c.id === (input.characterId ?? lastSpeaker)) ??
+    info.characters.find((c) => c.id === (input.characterId ?? source?.speakerId ?? lastSpeaker)) ??
     info.characters.find((c) => !c.muted) ??
     info.characters[0]
   if (!character || (input.characterId && !info.characters.some((c) => c.id === input.characterId)))
     throw new HttpError(400, 'IMAGE_CHARACTER', t('会话中没有这个角色'))
   let text = input.input ?? ''
-  if (input.mode === 'message') {
-    if (!input.messageId) throw new HttpError(400, 'IMAGE_MESSAGE', t('请指定消息'))
-    const message = loadMessage(input.messageId)
-    if (message.chatId !== input.chatId) throw new HttpError(400, 'IMAGE_MESSAGE', t('指定消息不属于这个会话'))
-    text = message.content
-  } else if (input.mode === 'last' || input.mode === 'raw_last')
-    text = [...info.messages].reverse().find((m) => m.content.trim())?.content ?? ''
+  if (source && (input.mode === 'message' || input.input === undefined)) text = source.content
   if (input.prompt === undefined && ['free', 'last', 'raw_last', 'message'].includes(input.mode) && !text.trim())
     throw new HttpError(400, 'IMAGE_INPUT', t('没有可用于生成图片的描述'))
   return { info, character, text }
@@ -102,7 +101,12 @@ async function freeze(ctx: Context, input: GenerateInput): Promise<Snapshot> {
       : undefined
   let size = dimensions(settings, orientation, input.mode)
   size = backendDimensions(settings, size.width, size.height)
-  const character = characterPrompt(input.mode, prepared.character.extensions, !!prepared.info.chat.groupId)
+  const character = characterPrompt(
+    input.mode,
+    prepared.character.extensions,
+    !!prepared.info.chat.groupId,
+    !!input.characterId,
+  )
   // 在任何异步工作开始前冻结角色外貌、设置与随机种子。
   settings.seed = settings.seed === -1 ? Math.floor(Math.random() * 2 ** 48) : settings.seed
   settings.comfyCustomPlaceholders = settings.comfyCustomPlaceholders.map((item) => ({
@@ -136,7 +140,8 @@ async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: AbortSigna
   const { settings, input, prepared } = snapshot
   let text: string
   if (input.mode === 'raw_last') text = settings.minimalProcessing ? prepared.text : rawPrompt(prepared.text)
-  else if (!refine && input.mode === 'free' && prepared.text.startsWith('!')) text = prepared.text.slice(1)
+  else if (!refine && input.mode === 'free' && (prepared.text.startsWith('!') || !settings.freeExtend))
+    text = prepared.text.startsWith('!') ? prepared.text.slice(1) : prepared.text
   else {
     let avatar: Uint8Array | null = null
     if (settings.multimodalCaptioning && ['character', 'face', 'user'].includes(input.mode)) {
@@ -146,25 +151,30 @@ async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: AbortSigna
     const template = settings[`tpl_${input.mode}`]
     const style = resolvePromptStyle(settings)
     const builtin = !template || template === templates[input.mode]
-    let instruction =
+    const instruction =
       avatar && builtin
         ? `Describe the visible appearance of the character in the image using ${input.mode === 'face' ? 'close-up portrait' : 'full body portrait'} framing.\n${templateEndings[style]}`
-        : replaceTemplate(promptInstruction(input.mode, template, style), {
+        : imageInstruction(input.mode, template, style, {
             char: prepared.character.name,
             user: prepared.info.persona.name,
-            input: prepared.text,
+            input: imageSourceText(
+              prepared.text,
+              prepared.info.characters.map((c) => c.name),
+            ),
           })
-    if (input.mode === 'background' && prepared.text.trim()) instruction += `\nAdditional information: ${prepared.text}`
     text = await ctx.host.quietPrompt({
       chatId: input.chatId,
       speakerId: prepared.character.id,
       includeHistory: settings.promptWithHistory,
+      leafId: prepared.info.chat.activeLeafId,
+      purpose: 'image',
       instruction,
       connectionId: settings.promptConnectionId || undefined,
       model: settings.promptModel || undefined,
       avatar: avatar ?? undefined,
       signal,
     })
+    text = generatedPrompt(text, settings.minimalProcessing)
   }
   if (!cleanPrompt(text, settings.minimalProcessing))
     throw new HttpError(502, 'IMAGE_PROMPT', t('模型没有返回可用的图片提示词'))
@@ -173,9 +183,12 @@ async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: AbortSigna
       | { positive?: unknown; negative?: unknown }
       | undefined
     const positive = typeof sd?.positive === 'string' ? sd.positive : ''
-    const requested = prepared.text.includes('{{charPrefix}}') || text.includes('{{charPrefix}}')
+    const requested = /^!?char(?:\s|,)/i.test(prepared.text) || /{{charPrefix}}/i.test(prepared.text + text)
     if (requested && typeof sd?.negative === 'string') snapshot.character.negative = sd.negative
-    text = text.replaceAll('{{charPrefix}}', positive)
+    text = text.replace(
+      /^char(\s|,)|{{charPrefix}}/gi,
+      (_, separator: string | undefined) => positive + (separator ?? ''),
+    )
     if (requested && positive && !text.includes(positive)) text = `${positive}, ${text}`
   }
   Object.assign(snapshot, composePrompt(settings, input.mode, text, snapshot.character, input.negative))
@@ -750,6 +763,7 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
       mode === 'background' ? 'background' : legacy ? 'tool' : mode,
       prepared.character.extensions,
       !!prepared.info.chat.groupId,
+      !!characterId,
     )
     Object.assign(snapshot, size)
     const run = async (messageId?: string): Promise<ToolResult> => {

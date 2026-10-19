@@ -104,8 +104,9 @@ test('固定组合顺序、{prompt} 插入、群聊与自由模式角色规则�
     negative: 'override negative, bad, once',
   })
   const extensions = { sd_character_prompt: { positive: 'blue hair', negative: 'red hair' } }
-  expect(characterPrompt('face', extensions, true)).toEqual(extensions.sd_character_prompt)
-  for (const mode of ['scene', 'tool', 'last']) expect(characterPrompt(mode, extensions, true)).toEqual({})
+  expect(characterPrompt('face', extensions, true, true)).toEqual(extensions.sd_character_prompt)
+  for (const mode of ['character', 'face', 'scene', 'tool', 'last'])
+    expect(characterPrompt(mode, extensions, true)).toEqual({})
   for (const mode of ['user', 'background', 'free']) expect(characterPrompt(mode, extensions, false)).toEqual({})
   expect(prefixPrompt('before {prompt} after', 'cat')).toBe('before cat after')
   expect(cleanPrompt(' Prompt: {"a":  "b"}\n ', true)).toBe('Prompt: {"a": "b"}')

@@ -9,6 +9,7 @@ import {
   templateEndings,
   templates,
 } from './modes'
+import { generatedPrompt, imageInstruction, imageSourceText } from './prompting'
 import { parseSettings } from './settings'
 import { buildWorkflow } from './workflow'
 
@@ -27,6 +28,40 @@ test('模板替换保留用户输入中的占位符和美元符号，不递归�
   expect(
     replaceTemplate('{{char}} {{user}} {{input}} {{char}}', { char: '莱恩', user: '旅人', input: '$& {{char}}' }),
   ).toBe('莱恩 旅人 $& {{char}} 莱恩')
+  expect(replaceTemplate('{0} {{input}}', { char: 'Kana', user: 'User', input: '$& {0} {{char}}' })).toBe(
+    '$& {0} {{char}} $& {0} {{char}}',
+  )
+})
+
+test('酒馆自定义模板没有输入宏时也固定待画消息，有宏时不重复追加', () => {
+  const values = { char: 'Kana', user: 'User', input: 'A woman beside the window.' }
+  expect(imageInstruction('last', 'Choose one still image.', 'tags', values)).toBe(
+    'Choose one still image.\n\nIllustrate this specific message, even if newer messages have arrived:\nA woman beside the window.',
+  )
+  for (const macro of ['{{input}}', '{0}']) {
+    expect(imageInstruction('free', `Describe ${macro}.`, 'tags', values)).toBe('Describe A woman beside the window..')
+  }
+  expect(imageInstruction('free', 'Describe a picture.', 'tags', values)).toContain(values.input)
+})
+
+test('图片提炼保留剧情和角色名，排除舞台、变量和选项协议', () => {
+  const text = imageSourceText(
+    '<scene place="room" /><show who="Kana" />She stands by a window.\n<say who="Kana">Hello.</say>\n<state>score = 1</state><choices>\n- Leave\n</choices>',
+    ['Kana'],
+  )
+  expect(text).toContain('She stands by a window.')
+  expect(text).toContain('Hello.')
+  expect(text).not.toMatch(/<|score|Leave/)
+})
+
+test('提炼回复不能把舞台续写混入绘图词，也不能把只有剧情的回复当成功', () => {
+  expect(generatedPrompt('1girl, blue hair\n\n<scene place="room" />新的剧情<say who="Kana">对白</say>')).toBe(
+    '1girl, blue hair',
+  )
+  expect(generatedPrompt('<show who="Kana" />中文剧情')).toBe('')
+  expect(generatedPrompt('Kana sends a picture that contains: 1girl, blue hair')).toBe('1girl, blue hair')
+  expect(generatedPrompt('1girl, <lora:style:0.8>, café')).toBe('1girl, <lora:style:0.8>, cafe')
+  expect(generatedPrompt('{"描述":"中文"}', true)).toBe('{"描述":"中文"}')
 })
 test('ComfyUI 占位符：字符串转义、数字类型、固定及随机种子', () => {
   const settings = parseSettings({

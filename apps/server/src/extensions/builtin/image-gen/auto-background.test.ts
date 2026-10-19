@@ -145,7 +145,7 @@ test('自动背景：缺失才生成、同名并发去重、按指令名字保�
     await autoBackground(ctx, chat.id)
     expect(images).toBe(1)
     await promptPreview(
-      { ...ctx, settings: { ...settings, tpl_free: 'Custom {{input}}' } },
+      { ...ctx, settings: { ...settings, freeExtend: true, tpl_free: 'Custom {{input}}' } },
       { chatId: chat.id, mode: 'free', input: 'blue trees' },
     )
     expect(quietCalls.at(-1)?.instruction).toBe('Custom blue trees')
@@ -179,7 +179,7 @@ test('自动背景：缺失才生成、同名并发去重、按指令名字保�
     expect(quietCalls).toHaveLength(before)
     await runImageTool(toolCtx, { prompt: 'A forest without people', as_background: true })
     expect(quietCalls.at(-1)?.instruction).toContain('Describe only the environment')
-    expect(quietCalls.at(-1)?.instruction).toContain('Additional information: A forest without people')
+    expect(quietCalls.at(-1)?.instruction).toContain('Additional visual direction:\nA forest without people')
     quiet.mockImplementation(async () => {
       throw new Error('Rewrite failed')
     })

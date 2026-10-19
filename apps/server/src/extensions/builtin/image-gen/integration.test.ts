@@ -56,6 +56,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     const remoteRequests: { url: string; authorization: string | null }[] = []
     let textGate: Promise<void> | undefined
     let promptFail = false
+    let promptReply = '<think>隐藏</think>Prompt: "1girl, blue hair"'
     const chatRequests: Record<string, unknown>[] = []
     const respond = async (request: Request) => {
       remoteHeaders.push(new Headers(request.headers))
@@ -85,7 +86,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
         if (textGate) await textGate
         if (promptFail) return Response.json({ error: { message: '模拟写词失败' } }, { status: 500 })
         return Response.json({
-          choices: [{ message: { content: '<think>隐藏</think>Prompt: "1girl, blue hair"' }, finish_reason: 'stop' }],
+          choices: [{ message: { content: promptReply }, finish_reason: 'stop' }],
         })
       }
       if (url.pathname === '/prompt') {
@@ -148,6 +149,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       openaiBaseUrl: `${base}/v1`,
       openaiApiKey: 'img3-secret-key',
       async: false,
+      freeExtend: true,
     }
     const configure = (patch: Record<string, unknown>) => {
       settings = { ...settings, ...patch }
@@ -457,6 +459,14 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     await json('/ext/image-gen/retry', { messageId: noPrompt.message.id })
     expect((await wait(noPrompt.message.id)).meta.imageGen?.prompt).toContain('1girl')
     const actor2 = await json<CharacterDTO>('/characters', { name: '莱恩', description: '群聊第二角色专属外貌' })
+    const { createLorebook, createEntry } = await import('../../../services/lorebooks')
+    const { updateCharacter } = await import('../../../services/characters')
+    const firstBook = createLorebook({ name: '第一位角色世界书', description: '', isGlobal: false })
+    const secondBook = createLorebook({ name: '第二位角色世界书', description: '', isGlobal: false })
+    createEntry(firstBook.id, { content: 'FIRST_SUBJECT_IDENTITY', constant: true })
+    createEntry(secondBook.id, { content: 'SECOND_SUBJECT_IDENTITY', constant: true })
+    updateCharacter(actor.id, { lorebookIds: [firstBook.id] })
+    updateCharacter(actor2.id, { lorebookIds: [secondBook.id] })
     const group = await json<{ id: string }>('/groups', {
       name: '绘画小组',
       members: [{ characterId: actor.id, muted: true }, { characterId: actor2.id }],
@@ -469,17 +479,81 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     })
     expect(groupImage.message.speakerId).toBe(actor2.id)
     expect(JSON.stringify(chatRequests.at(-1))).toContain('群聊第二角色专属外貌')
+    expect(JSON.stringify(chatRequests.at(-1))).toContain('SECOND_SUBJECT_IDENTITY')
+    expect(JSON.stringify(chatRequests.at(-1))).not.toContain('FIRST_SUBJECT_IDENTITY')
     const selected = await json<{ message: MessageDTO }>('/ext/image-gen/generate', {
       chatId: groupChat.id,
       mode: 'face',
       characterId: actor.id,
     })
     expect(selected.message.speakerId).toBe(actor.id)
+    expect(JSON.stringify(chatRequests.at(-1))).toContain('FIRST_SUBJECT_IDENTITY')
+    expect(JSON.stringify(chatRequests.at(-1))).not.toContain('SECOND_SUBJECT_IDENTITY')
     const lastSpeaker = await json<{ message: MessageDTO }>('/ext/image-gen/generate', {
       chatId: groupChat.id,
       mode: 'character',
     })
     expect(lastSpeaker.message.speakerId).toBe(actor.id)
+    // 图片提炼只看剧情，不把之前的图片通知当作最后一条消息，也不复制 VN 输出协议。
+    const story = host.appendMessage(groupChat.id, {
+      role: 'assistant',
+      speakerId: actor2.id,
+      content: '<show who="莱恩" />A woman beside a window.<say who="莱恩">Hello.</say><state>score = 1</state>',
+    })
+    host.appendMessage(groupChat.id, {
+      role: 'assistant',
+      speakerId: actor.id,
+      content: 'Previous image caption.',
+      meta: { imageGen: { mode: 'free', status: 'done', caption: 'Old drawing.' } },
+    })
+    configure({ tpl_last: 'Choose one still-image moment.' })
+    const pinned = await json<{ message: MessageDTO }>('/ext/image-gen/generate', {
+      chatId: groupChat.id,
+      mode: 'last',
+    })
+    expect(pinned.message.speakerId).toBe(actor2.id)
+    const pinnedRequest = chatRequests.at(-1)!
+    const pinnedMessages = pinnedRequest.messages as { role: string; content: string }[]
+    expect(pinnedMessages.at(-1)?.content).toContain(
+      'Illustrate this specific message, even if newer messages have arrived:',
+    )
+    expect(pinnedMessages.at(-1)?.content).toContain('A woman beside a window.')
+    expect(pinnedMessages.at(-1)?.content).not.toContain('Previous image caption.')
+    expect(JSON.stringify(pinnedMessages)).not.toMatch(/<show|<say|<state/)
+    expect(pinnedRequest.tool_choice).toBe('none')
+    const specified = await json<{ message: MessageDTO }>('/ext/image-gen/generate', {
+      chatId: groupChat.id,
+      mode: 'message',
+      messageId: story.id,
+    })
+    expect(specified.message.speakerId).toBe(actor2.id)
+    const beforeRejected = bodies.length
+    promptReply = '<show who="莱恩" />Story continuation.'
+    const rejected = await app.request('/api/ext/image-gen/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: groupChat.id, mode: 'last' }),
+    })
+    expect(rejected.status).toBe(502)
+    expect(bodies).toHaveLength(beforeRejected)
+    promptReply = '1girl, blue hair\n<scene place="room" />Story continuation.'
+    const recoveredPrompt = await json<{ prompt: string }>('/ext/image-gen/prompt', {
+      chatId: groupChat.id,
+      mode: 'last',
+    })
+    expect(recoveredPrompt.prompt).toEndWith('1girl, blue hair')
+    expect(recoveredPrompt.prompt).not.toContain('Story continuation')
+    promptReply = '<think>隐藏</think>Prompt: "1girl, blue hair"'
+    configure({ freeExtend: false })
+    const beforeFree = chatRequests.length
+    const directFree = await json<{ message: MessageDTO }>('/ext/image-gen/generate', {
+      chatId: groupChat.id,
+      mode: 'free',
+      input: 'a cat beside a window',
+    })
+    expect(directFree.message.meta.imageGen?.prompt).toContain('a cat beside a window')
+    expect(chatRequests).toHaveLength(beforeFree)
+    configure({ freeExtend: true })
     const crossChat = await app.request('/api/ext/image-gen/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

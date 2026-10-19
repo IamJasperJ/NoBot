@@ -92,6 +92,8 @@ const shape = z
     toolEnabled: z.boolean().default(false),
     promptStyle: z.enum(['auto', 'tags', 'natural']).default('tags'),
     refineModelPrompts: z.boolean().default(true),
+    freeExtend: z.boolean().default(false),
+    toolPrompt: z.string().default(''),
     promptWithHistory: z.boolean().default(true),
     editBeforeGenerate: z.boolean().default(false),
     interactiveMode: z.boolean().default(false),
@@ -366,14 +368,16 @@ export const settingsSchema: ExtensionSettingField[] = [
     hint: '短标签（Danbooru 风格）适合 SD、SDXL、Illustrious、Pony；自然语言适合 Flux、Z-Image、Qwen-Image、GPT Image 和 Gemini；自动按图片后端与工作流选择',
   },
   bool('refineModelPrompts', '润色模型的生图提示词', '工具调用时先用提示词模型改写描述，失败时使用原文'),
+  bool('freeExtend', '自由描述由模型扩写', '关闭时直接使用输入的绘图提示词，与酒馆自由模式一致'),
   heading('templates', '提示词模板', true),
+  area('toolPrompt', '工具绘图提示词说明', '指导聊天模型编写工具调用中的绘图描述；留空使用内置说明'),
   ...modes
     .filter((m) => m.key in templates)
     .map((m) =>
       area(
         `tpl_${m.key}`,
         m.name,
-        '支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}；内置模板按格式设置输出，自定义模板自行决定格式',
+        '支持 {{char}} {{user}} {{input}} 和酒馆的 {0}，自由模式可写 {{charPrefix}}；未写输入占位符时仍会附上本次描述',
       ),
     ),
 ]

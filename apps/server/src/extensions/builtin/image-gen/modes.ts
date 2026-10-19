@@ -12,7 +12,7 @@ export const modes = [
 export type Mode = (typeof modes)[number]['key']
 
 const last =
-  'Ignore previous format requirements. Turn the following content into an AI image prompt describing a single still image. Include location, number and gender of people, relative positions, main action, appearance, expression, and pose, in that order:\n{{input}}'
+  'From the specified message, choose exactly one visually clear still-image moment. Describe only the main subject, one action or pose, expression, clothing state, immediate setting, lighting, and camera framing. If multiple events occur, choose the final or most visually striking moment. Do not include dialogue, thoughts, plot history, system panels, statistics, markup, variables, UI, captions, or multiple scenes.'
 export const templates: Partial<Record<Mode, string>> = {
   character:
     'Ignore previous format requirements. Write an AI image prompt describing {{char}}, including number and gender, species, apparent age, hairstyle and hair color, eyes, build, clothing, accessories, pose, expression, and brief background. Use full body framing.',
@@ -27,7 +27,7 @@ export const templates: Partial<Record<Mode, string>> = {
   free: 'Ignore previous format requirements. Expand the following scene description into an AI image prompt:\n{{input}}',
 }
 export const templateEndings = {
-  tags: 'Output only one line of comma-separated English Danbooru-style tags, most important first: person count (1girl/1boy), character features, clothing, expression, pose and action, scene, lighting, camera. Each tag must contain 1–3 words. No sentences. Use at most about 40 tags. Describe only visible elements.',
+  tags: 'Output only concise English, comma-separated visual keywords, 25–50 words. Include the subject, appearance, expression, clothing, pose or action, setting, lighting, and camera as appropriate to the task. Preserve established character names and visual identity. No story continuation, dialogue, markup, captions, or explanations.',
   natural:
     'Output only one paragraph of 40–90 words of natural English describing visible elements: subject appearance, clothing, expression, pose and action, environment, lighting, mood, and camera. No lists, quotes, explanations, or prefixes.',
 }
@@ -40,7 +40,10 @@ export function promptInstruction(mode: Mode, configured: unknown, style: 'tags'
 }
 
 export function replaceTemplate(template: string, values: { char: string; user: string; input: string }): string {
-  return template.replace(/{{(char|user|input)}}/g, (_, key: keyof typeof values) => values[key])
+  // 酒馆自由扩写使用 {0}；一次替换避免把用户输入中的宏再次展开。
+  return template.replace(/{{(char|user|input)}}|\{0\}/g, (_, key: keyof typeof values | undefined) =>
+    key ? values[key] : values.input,
+  )
 }
 
 export function cleanPrompt(text: string, minimal = false): string {

@@ -1,5 +1,13 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  工具绘图提示词说明: 'Tool image prompt instructions',
+  '指导聊天模型编写工具调用中的绘图描述；留空使用内置说明':
+    'Instructions for the chat model when writing image prompts in tool calls; leave blank for built-in instructions.',
+  自由描述由模型扩写: 'Expand free descriptions with the model',
+  '关闭时直接使用输入的绘图提示词，与酒馆自由模式一致':
+    'When disabled, use the input prompt directly, matching SillyTavern free mode.',
+  '支持 {{char}} {{user}} {{input}} 和酒馆的 {0}，自由模式可写 {{charPrefix}}；未写输入占位符时仍会附上本次描述':
+    'Supports {{char}}, {{user}}, {{input}}, and SillyTavern {0}; free mode also supports {{charPrefix}}. The current description is appended when no input placeholder is present.',
   '参数无效：{name}': 'Invalid argument: {name}',
   图片描述: 'Image description',
   图片方向: 'Image orientation',
@@ -410,8 +418,6 @@ export const en: Record<string, string> = {
   '自定义（下面填写地址和密钥）': 'Custom (enter URL and key below)',
   自由描述: 'Free description',
   行为: 'Behavior',
-  '支持 {{char}} {{user}} {{input}}，自由模式可写 {{charPrefix}}；内置模板按格式设置输出，自定义模板自行决定格式':
-    'Supports {{char}} {{user}} {{input}} and {{charPrefix}} in free mode. Built-in templates follow the format setting; custom templates control their own format',
   覆盖该类型的风格参数: 'Override style parameters for this generation type',
   规则: 'Rules',
   角色: 'Character',

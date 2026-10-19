@@ -26,11 +26,26 @@ test('静默指令角色：无对话时 user，有历史时 system，显式指�
   }
   const { paths } = await import('../env')
   paths.db = ':memory:'
-  const { instructionRole } = await import('./quiet-prompt')
+  const { instructionRole, textOnlyHistory } = await import('./quiet-prompt')
   expect(instructionRole([])).toBe('user')
   expect(instructionRole([{ role: 'system' }])).toBe('user')
   expect(instructionRole([{ role: 'system' }, { role: 'user' }])).toBe('system')
   expect(instructionRole([{ role: 'assistant' }])).toBe('system')
   expect(instructionRole([], 'system')).toBe('system')
   expect(instructionRole([{ role: 'assistant' }], 'user')).toBe('user')
+  const messages = [
+    {
+      role: 'assistant' as const,
+      content: '',
+      tool_calls: [
+        { id: 'image', type: 'function' as const, function: { name: 'GenerateImage', arguments: '{"prompt":"cat"}' } },
+      ],
+    },
+    { role: 'tool' as const, content: 'Image generated.', tool_call_id: 'image', name: 'GenerateImage' },
+  ]
+  expect(textOnlyHistory(messages)).toEqual([
+    { role: 'assistant', content: '[Previous tool call: GenerateImage] {"prompt":"cat"}' },
+    { role: 'user', content: 'Image generated.\n[Previous tool result]' },
+  ])
+  expect(messages[0]).toHaveProperty('tool_calls')
 })

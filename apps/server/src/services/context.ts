@@ -62,7 +62,7 @@ export interface GenerationContext {
   /** 连接配置（地址、Key、模型）。预览时连接缺失不报错，所以可能为 null */
   connection: ApiPresetRow | null
   preset: PresetData
-  persona: { id: string | null; name: string; description: string }
+  persona: { id: string | null; name: string; description: string; lorebookId: string | null }
   /** 会话里可能发言的角色：单人会话只有一个，群聊是全部成员（按成员顺序） */
   members: PromptCharacter[]
   group: GroupDTO | null
@@ -219,7 +219,7 @@ export function loadGenerationContext(chatId: string, opts: { requireConnection:
 }
 
 /** 把激活路径上的消息转成组装用的历史（失败的消息不发给模型） */
-export function toHistory(ctx: GenerationContext, leafId: string | null): HistoryMessage[] {
+export function toHistory(ctx: GenerationContext, leafId: string | null, plainHistory = false): HistoryMessage[] {
   const names = new Map(ctx.members.map((m) => [m.id, m.name]))
   const preset = resolvePlayPreset(ctx.chat.id).data
   const path = loadPath(leafId)
@@ -259,7 +259,7 @@ export function toHistory(ctx: GenerationContext, leafId: string | null): Histor
           ? m.meta.imageGen.caption
           : !m.content && m.role !== 'user' && m.role !== 'tool' && (m.meta.imageGen || m.meta.images?.length)
             ? `(Sent an image${m.meta.imageGen?.prompt ? `: ${m.meta.imageGen.prompt}` : ''})`
-            : preset.directives.enabled && m.role === 'assistant' && !keep.has(m.id)
+            : (plainHistory || (preset.directives.enabled && !keep.has(m.id))) && m.role === 'assistant'
               ? toDisplayText(m.content, { knownNames, narratorNames: [preset.trpg.gmName], speaker: 'plain' })
               : m.content) + (m.role === 'user' && m.meta.check ? `\n${describeCheck(m.meta.check)}` : ''),
       name:
@@ -285,6 +285,8 @@ export interface AssembleOptions {
   /** 静默任务不遵循聊天正文的舞台输出格式。 */
   vectorMatches?: readonly string[]
   quiet?: boolean
+  /** 图片等纯文本辅助任务不需要保留历史舞台协议。 */
+  plainHistory?: boolean
   /** 兼容无工具的静默生成；实际启用名单在此按会话统一解析。 */
   toolsEnabled?: boolean
   enabledTools?: string[]
@@ -294,7 +296,7 @@ export interface AssembleOptions {
 export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptPreview & { input: BuildInput } {
   const speaker = ctx.members.find((m) => m.id === opts.speakerId) ?? ctx.members[0]
   if (!speaker) throw new HttpError(400, 'NO_SPEAKER', t('找不到发言的角色'))
-  const history = replaceImageAttachments(toHistory(ctx, opts.leafId), ctx.connection)
+  const history = replaceImageAttachments(toHistory(ctx, opts.leafId, opts.plainHistory), ctx.connection)
   if (opts.pending) {
     history.push({
       id: 'pending',
@@ -432,7 +434,7 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
 /** 网络与缓存留在服务层，向量命中后仍走同一套纯扫描和预算。 */
 export async function assembleWithVectors(ctx: GenerationContext, opts: AssembleOptions) {
   const settings = getWorldInfoSettings()
-  const history = toHistory(ctx, opts.leafId).filter(
+  const history = toHistory(ctx, opts.leafId, opts.plainHistory).filter(
     (message) => message.role === 'user' || message.role === 'assistant',
   )
   if (opts.pending)

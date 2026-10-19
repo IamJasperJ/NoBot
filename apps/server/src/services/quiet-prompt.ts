@@ -1,3 +1,4 @@
+import type { ChatMessage } from '@nobot/shared'
 import { HttpError } from '../errors'
 import type { ExtensionHost } from '../extensions/types'
 import { t } from '../i18n'
@@ -5,7 +6,7 @@ import { buildRequestBody, chatCompletion, toLlmConnection } from '../llm/openai
 import { redactImages, resolveImages } from './attachments'
 import { replaceImageAttachments } from './caption'
 import { getApiPresetRow } from './connections'
-import { assembleWithVectors, loadGenerationContext } from './context'
+import { assembleWithVectors, loadGenerationContext, loadLore } from './context'
 import { insertLog } from './logs'
 
 /** 与扩展宿主共用静默生成，保持上下文、图片处理和日志行为一致。 */
@@ -28,6 +29,10 @@ async function requestCompletion(
   let request: unknown
   try {
     const ctx = loadGenerationContext(opts.chatId, { requireConnection: !opts.connectionId })
+    if ('purpose' in opts && opts.purpose === 'image') {
+      // 酒馆按当前主体加载角色世界书；其他群成员的常驻条目不能抢占本次人物的身份资料。
+      ctx.loreEntries = loadLore(opts.chatId, [opts.speakerId ?? ctx.members[0]?.id ?? ''], ctx.persona.lorebookId)
+    }
     const connection = opts.connectionId ? getApiPresetRow(opts.connectionId) : ctx.connection
     if (!connection) throw new HttpError(400, 'NO_CONNECTION', t('没有可用的模型连接'))
     model = opts.model || connection.model
@@ -38,12 +43,21 @@ async function requestCompletion(
             await assembleWithVectors(ctx, {
               type: 'normal',
               speakerId: opts.speakerId ?? ctx.members[0]?.id ?? '',
-              leafId: opts.includeHistory === false ? null : ctx.chat.activeLeafId,
+              leafId:
+                opts.includeHistory === false ? null : opts.leafId === undefined ? ctx.chat.activeLeafId : opts.leafId,
               toolsEnabled: false,
               quiet: true,
+              plainHistory: opts.purpose === 'image',
             })
           ).messages
-    if ('instruction' in opts) prompt.push({ role: instructionRole(prompt, opts.role), content: opts.instruction })
+    if ('instruction' in opts) {
+      if (opts.purpose === 'image') prompt = textOnlyHistory(prompt)
+      const role = instructionRole(prompt, opts.role)
+      // 酒馆会把末尾静默指令与相邻的同角色消息合并，再交给模型，避免额外系统消息改变后处理语义。
+      const tail = prompt.at(-1)
+      if (opts.purpose === 'image' && !avatar && tail?.role === role) tail.content += `\n\n${opts.instruction}`
+      else prompt.push({ role, content: opts.instruction })
+    }
     prompt = replaceImageAttachments(prompt, { ...connection, model })
     const images = await resolveImages(prompt, ctx.preset.samplers.imageMaxSize)
     const body = buildRequestBody({
@@ -74,6 +88,10 @@ async function requestCompletion(
     delete body.stream_options
     delete body.tools
     delete body.tool_choice
+    delete body.functions
+    delete body.function_call
+    delete body.parallel_tool_calls
+    if ('purpose' in opts && opts.purpose === 'image') body.tool_choice = 'none'
     if (opts.maxTokens !== undefined) body.max_tokens = opts.maxTokens
     request = avatar
       ? { ...redactImages(body, images), messages: t('[头像外貌提炼，图片数据已隐藏]') }
@@ -110,6 +128,21 @@ async function requestCompletion(
     })
     throw error
   }
+}
+
+/** 静默图片提炼只能阅读工具历史；将调用与结果转成文字，不能再次执行历史工具。 */
+export function textOnlyHistory(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map(({ tool_calls, tool_call_id: _callId, ...message }) => {
+    const history = (tool_calls ?? []).map(
+      (call) => `[Previous tool call: ${call.function.name}] ${call.function.arguments}`,
+    )
+    if (message.role === 'tool') {
+      message.role = 'user'
+      delete message.name
+      history.unshift('[Previous tool result]')
+    }
+    return { ...message, content: [message.content, ...history].filter(Boolean).join('\n') }
+  })
 }
 
 /** 无对话内容时必须提供 user 消息，兼容要求 contents 的接口。 */

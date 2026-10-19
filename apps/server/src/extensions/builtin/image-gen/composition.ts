@@ -35,9 +35,10 @@ export function composePrompt(
     rawPrompt: prompt,
   }
 }
-export function characterPrompt(mode: string, extensions: Record<string, unknown>, group: boolean) {
+export function characterPrompt(mode: string, extensions: Record<string, unknown>, group: boolean, explicit = false) {
   const value = extensions.sd_character_prompt
-  if (['user', 'background', 'free'].includes(mode) || (group && !['character', 'face'].includes(mode))) return {}
+  // 酒馆群聊不自动借用某个成员的身份前缀；只有明确指定工具主体时才应用。
+  if (['user', 'background', 'free'].includes(mode) || (group && !explicit)) return {}
   if (!value || typeof value !== 'object') return {}
   const record = value as Record<string, unknown>
   return {

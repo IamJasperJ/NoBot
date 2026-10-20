@@ -46,6 +46,74 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
   }
   try {
     updateExtension('audio', { enabled: true })
+    const { fishClient, createFishClient } = await import('./fish')
+    const clearFish = spyOn(fishClient, 'clearCache')
+    updateExtension('audio', { settings: { fishApiKey: 'saved-key' } })
+    expect(clearFish).toHaveBeenCalledTimes(1)
+    expect(await json('/fish/refresh', {}, 'POST')).toEqual({ ok: true })
+    expect(clearFish).toHaveBeenCalledTimes(2)
+    clearFish.mockRestore()
+    expect(await json('/fish/models', {})).toEqual({
+      options: [
+        { value: 's2.1-pro', label: 's2.1-pro（推荐）' },
+        { value: 's2-pro', label: 's2-pro' },
+        { value: 's1', label: 's1' },
+      ],
+    })
+    const { ttsFields: fishFields } = await import('./settings')
+    expect(fishFields.find((field) => field.key === 'fishModel')).toMatchObject({
+      type: 'string',
+      optionsSource: 'tts/fish/models',
+    })
+    const missingKey = await request('/fish/search', { settings: { fishApiKey: '' } })
+    expect(missingKey.status).toBe(400)
+    expect(await missingKey.json()).toMatchObject({ error: { message: '请先填写 Fish Audio 密钥' } })
+    const fishCalls: { url: string; init?: RequestInit }[] = []
+    const injectedFish = createFishClient({
+      mock: false,
+      fetch: Object.assign(
+        async (url: string | URL | Request, init?: RequestInit) => {
+          fishCalls.push({ url: String(url), init })
+          return Response.json({ items: [{ _id: 'draft-result' }], total: 1 })
+        },
+        { preconnect: fetch.preconnect },
+      ) as typeof fetch,
+    })
+    const searchFish = spyOn(fishClient, 'search').mockImplementation(injectedFish.search)
+    try {
+      expect(
+        await json('/fish/search', {
+          query: 'test',
+          language: 'en',
+          self: true,
+          page: 2,
+          settings: { fishApiKey: 'draft-key', fishEndpoint: 'https://custom.example/v1/tts' },
+        }),
+      ).toMatchObject({ items: [{ id: 'draft-result' }], total: 1, hasMore: false })
+      expect(new Headers(fishCalls[0]?.init?.headers).get('Authorization')).toBe('Bearer draft-key')
+      expect(Object.fromEntries(new URL(fishCalls[0]!.url).searchParams)).toEqual({
+        title: 'test',
+        language: 'en',
+        self: 'true',
+        page_number: '2',
+        page_size: '20',
+      })
+      const failedFish = createFishClient({
+        mock: false,
+        fetch: Object.assign(async () => new Response('secret-upstream-body', { status: 401 }), {
+          preconnect: fetch.preconnect,
+        }) as typeof fetch,
+      })
+      searchFish.mockImplementation(failedFish.search)
+      const failed = await request('/fish/search', {})
+      expect(failed.status).toBe(502)
+      expect(await failed.text()).not.toContain('secret-upstream-body')
+      expect((await request('/fish/search', { page: 0 })).status).toBe(400)
+      expect((await request('/fish/search', { pageSize: 101 })).status).toBe(400)
+    } finally {
+      searchFish.mockRestore()
+    }
+    updateExtension('audio', { settings: {} })
     const character = createCharacter({ name: 'Alice Example', first_mes: 'She smiles. “Hello!” 「Welcome」' })
     const chat = createChat({ characterId: character.id })
     const voice: VoiceRef = { engine: 'openai', voice: 'coral', speed: 1 }
@@ -252,6 +320,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
       fetch: Object.assign(
         async (url: string | URL | Request, init?: RequestInit) => {
           calls.push({ url: String(url), init })
+          if (new URL(String(url)).pathname === '/model') return Response.json({ items: [] })
           if (String(url).endsWith('/voices')) return Response.json({ voices: [{ voice_id: 'v1', name: 'Test' }] })
           return new Response(mockAudio)
         },

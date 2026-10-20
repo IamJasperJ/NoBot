@@ -1,5 +1,13 @@
-import type { ChatVoiceConfig, ChatVoiceDTO, TtsEngineId, TtsLineResult, TtsSpeaker, VoiceRef } from '@nobot/shared'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type {
+  ChatVoiceConfig,
+  ChatVoiceDTO,
+  FishVoiceSearchResult,
+  TtsEngineId,
+  TtsLineResult,
+  TtsSpeaker,
+  VoiceRef,
+} from '@nobot/shared'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { readError } from './client'
 import { apiFetch } from './fetch'
@@ -41,6 +49,9 @@ export const ttsApi = {
   message: (messageId: string, signal?: AbortSignal) =>
     request<{ chatId: string; segments: TtsSegment[] }>('POST', '/message', { messageId }, signal),
   preview: (input: { voice: VoiceRef; text?: string }) => request<TtsLineResult>('POST', '/preview', input),
+  fishVoiceSearch: (params: FishVoiceSearchParams, settings?: Record<string, unknown>, signal?: AbortSignal) =>
+    request<FishVoiceSearchResult>('POST', '/fish/search', { ...params, settings }, signal),
+  refreshFishVoices: () => request<{ ok: true }>('POST', '/fish/refresh'),
   cache: () => request<{ bytes: number; files: number }>('GET', '/cache'),
   clearCache: () => request<{ ok: true }>('DELETE', '/cache'),
 }
@@ -115,5 +126,31 @@ export function useResetChatVoice() {
       await qc.invalidateQueries({ queryKey: ['tts', 'chat', chatId], refetchType: 'none' })
       qc.setQueryData(['tts', 'chat', chatId], dto)
     },
+  })
+}
+
+export interface FishVoiceSearchParams {
+  query: string
+  language: string
+  self: boolean
+  page: number
+}
+export function useFishVoiceSearch(
+  params: FishVoiceSearchParams,
+  settings: Record<string, unknown> | undefined,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['tts', 'fish', 'search', params, settings],
+    queryFn: ({ signal }) => ttsApi.fishVoiceSearch(params, settings, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  })
+}
+export function useRefreshFishVoices() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ttsApi.refreshFishVoices,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tts', 'voices', 'fish'] }),
   })
 }

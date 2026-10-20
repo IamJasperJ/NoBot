@@ -12,6 +12,7 @@ import type { ExtensionStorage } from '../../../types'
 import { parseSettingsDraft } from '../../../types'
 import { chatVoiceDTO, chatVoiceKey, effectiveSettings } from './chat-voice'
 import { ttsEngines } from './engines'
+import { fishClient } from './fish'
 import { cacheEntries, cleanTtsText, clearTtsCache, messageSegments, resolveVoice, synthesizeVoice } from './service'
 import { audioSettings } from './settings'
 
@@ -53,6 +54,37 @@ export function registerTtsRoutes(app: Hono, ctx: { settings: Record<string, unk
     c.json({
       options: [{ value: '', label: t('单独配置') }, ...listApiPresets().map((v) => ({ value: v.id, label: v.name }))],
     }),
+  )
+  app.post('/tts/fish/models', (c) =>
+    c.json({
+      options: [
+        { value: 's2.1-pro', label: t('s2.1-pro（推荐）') },
+        { value: 's2-pro', label: 's2-pro' },
+        { value: 's1', label: 's1' },
+      ],
+    }),
+  )
+  app.post('/tts/fish/refresh', (c) => {
+    fishClient.clearCache()
+    return c.json({ ok: true })
+  })
+  app.post(
+    '/tts/fish/search',
+    validate(
+      'json',
+      z.object({
+        query: z.string().optional(),
+        language: z.string().optional(),
+        self: z.boolean().optional(),
+        page: z.number().int().min(1).default(1),
+        pageSize: z.number().int().min(1).max(100).default(20),
+        settings: z.record(z.string(), z.unknown()).optional(),
+      }),
+    ),
+    async (c) => {
+      const settings = audioSettings.parse(await parseSettingsDraft(c, ctx.settings))
+      return c.json(await fishClient.search(settings, c.req.valid('json'), c.req.raw.signal))
+    },
   )
   app.post(
     '/tts/voices',

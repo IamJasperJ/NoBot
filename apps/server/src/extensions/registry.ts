@@ -20,6 +20,7 @@ import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
 import { currentUser } from '../user-context'
 import audio from './builtin/audio'
+import { fishClient } from './builtin/audio/tts/fish'
 import caption, { generateCaption } from './builtin/caption'
 import imageGen from './builtin/image-gen'
 import { applyProfileImage } from './builtin/image-gen/profile'
@@ -488,8 +489,10 @@ export function updateExtension(
   }
   if (patch.enabled !== undefined) setSetting(SETTING_KEYS.extensionsEnabled, { ...enabledMap(), [id]: patch.enabled })
   // 前端传回的密钥如果还是占位串，表示没改，保留原值
-  if (patch.settings)
+  if (patch.settings) {
     setSetting(SETTING_KEYS.extensionSettings(id), restoreSecrets(patch.settings, settingsOf(l.extension)))
+    if (id === 'audio') fishClient.clearCache()
+  }
   return toDTO(l)
 }
 

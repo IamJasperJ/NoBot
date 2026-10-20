@@ -5,6 +5,7 @@ import { t } from '../../../../i18n'
 import { getApiPresetRow } from '../../../../services/connections'
 import { additionalEngines, toneInstruction } from './additional'
 import { EDGE_BASE, EDGE_TOKEN, EdgeHandshakeError, edgeHeaders, edgeSynthesize, type SocketFactory } from './edge'
+import { createFishClient, fishClient } from './fish'
 import type { AudioSettings } from './settings'
 
 export interface TtsEngine {
@@ -29,6 +30,7 @@ export const mockAudio = new Uint8Array(
 export function createTtsEngines(
   network: { fetch?: typeof fetch; socket?: SocketFactory; mock?: boolean } = {},
 ): Record<TtsEngineId, TtsEngine> {
+  const fish = Object.keys(network).length ? createFishClient(network) : fishClient
   const offline = () => network.mock ?? process.env.TTS_FETCH_MOCK === '1'
   const request = async (url: string, init: RequestInit = {}) => {
     const signal = init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000)
@@ -115,8 +117,7 @@ export function createTtsEngines(
         return t('Fish Audio 语音')
       },
       configured: (s) => !!s.fishApiKey.trim() && !!s.fishEndpoint && !!s.fishModel,
-      voices: async (s) =>
-        s.fishVoices.filter((voice) => voice.id).map((voice) => ({ value: voice.id, label: voice.name || voice.id })),
+      voices: fish.voices,
       synthesize: (input, s, signal) =>
         synth(
           s.fishEndpoint,

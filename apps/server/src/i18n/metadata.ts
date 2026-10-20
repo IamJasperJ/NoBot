@@ -4,6 +4,10 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case 'Fish Audio 声音库':
+      return t('Fish Audio 声音库')
+    case 's2.1-pro（推荐）':
+      return t('s2.1-pro（推荐）')
     case 'Fish Audio 语音':
       return t('Fish Audio 语音')
     case 'Fish Audio 密钥':

@@ -5,6 +5,7 @@ import { useVn } from '../../../stores/vn'
 import type { ActivateFn, SlotProps } from '../../types'
 import { ChatBgmDialog, ChatBgmMenuEntry } from './ChatBgmUi'
 import { ChatVoiceSection } from './ChatVoiceSection'
+import { FishVoiceSearch } from './FishVoiceSearch'
 import { AudioLibraryPage } from './LibraryPage'
 import { CharacterVoiceSection, ReadAloudAction, TtsCacheFooter, VoiceField, VoiceListField } from './TtsUi'
 import { ttsPlayer } from './tts-player'
@@ -75,6 +76,10 @@ const activate: ActivateFn = (api) => {
   api.registerSlot('extensions.settings.field', { id: 'narratorVoice', render: (props) => <VoiceField {...props} /> })
   api.registerSlot('extensions.settings.field', { id: 'userVoice', render: (props) => <VoiceField {...props} /> })
   api.registerSlot('extensions.settings.field', { id: 'npcVoices', render: (props) => <VoiceListField {...props} /> })
+  api.registerSlot('extensions.settings.field', {
+    id: 'fishVoiceSearch',
+    render: (props) => <FishVoiceSearch {...props} />,
+  })
   api.registerSlot('extensions.settings.footer', { id: 'tts-cache', render: () => <TtsCacheFooter /> })
   api.registerSlot('character.editor.sections', {
     id: 'voice',

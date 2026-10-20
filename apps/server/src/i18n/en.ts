@@ -1,5 +1,8 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  'Fish Audio 声音库': 'Fish Audio voice library',
+  '请先填写 Fish Audio 密钥': 'Please enter your Fish Audio API key first',
+  's2.1-pro（推荐）': 's2.1-pro (recommended)',
   'Fish Audio 语音': 'Fish Audio speech',
   'Fish Audio 密钥': 'Fish Audio API key',
   'Fish Audio 语音地址': 'Fish Audio speech endpoint',

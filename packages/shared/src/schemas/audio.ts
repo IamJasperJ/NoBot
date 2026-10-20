@@ -88,3 +88,22 @@ export interface ChatVoiceDTO {
   }
   effective: { enabled: boolean; autoRead: boolean; vnVoice: boolean; vnWaitVoice: boolean; vnInterrupt: boolean }
 }
+
+/** Fish Audio 声音目录的归一化条目。 */
+export interface FishVoiceItem {
+  id: string
+  title: string
+  description: string
+  author: string
+  languages: string[]
+  tags: string[]
+  coverUrl: string | null
+  sampleUrl: string | null
+  liked: boolean
+  marked: boolean
+}
+export interface FishVoiceSearchResult {
+  items: FishVoiceItem[]
+  total: number
+  hasMore: boolean
+}

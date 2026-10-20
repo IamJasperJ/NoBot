@@ -1,9 +1,12 @@
 import { expect, spyOn, test } from 'bun:test'
+import type { QueryObserverOptions } from '@tanstack/react-query'
 import { setupHooks } from './hooks.test-utils'
 import {
   browserVoices,
   ttsApi,
   useChatVoice,
+  useFishVoiceSearch,
+  useRefreshFishVoices,
   useResetChatVoice,
   useSetChatVoice,
   useTtsEngines,
@@ -81,6 +84,56 @@ test('会话语音写入和重置后用返回值更新查询缓存', async () =>
     qc.setQueryData(['tts', 'chat', 'chat'], { effective: { enabled: false } })
     await render(useResetChatVoice).mutateAsync('chat')
     expect(qc.getQueryData(['tts', 'chat', 'chat'])).toEqual(dto)
+  } finally {
+    fetcher.mockRestore()
+    qc.clear()
+  }
+})
+
+test('Fish 搜索 hook 隔离参数和草稿，传递信号，保留上一页数据，刷新仅使 Fish 声音查询失效', async () => {
+  const { qc, render } = setupHooks()
+  const params = { query: 'test', language: 'zh', self: false, page: 2 }
+  const settings = { fishApiKey: 'draft' }
+  const result = { items: [], total: 0, hasMore: false }
+  const calls: { url: string; init?: RequestInit }[] = []
+  const fetcher = spyOn(globalThis, 'fetch').mockImplementation(
+    Object.assign(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(url), init })
+        return Response.json(String(url).endsWith('/refresh') ? { ok: true } : result)
+      },
+      { preconnect: fetch.preconnect },
+    ) as typeof fetch,
+  )
+  try {
+    const key = ['tts', 'fish', 'search', params, settings]
+    const disabled = render(() => useFishVoiceSearch(params, settings, false))
+    expect(disabled.fetchStatus).toBe('idle')
+    expect(calls).toHaveLength(0)
+    const query = qc.getQueryCache().find({ queryKey: key })!
+    expect((query.options as QueryObserverOptions).enabled).toBe(false)
+    const placeholder = (query.options as QueryObserverOptions).placeholderData
+    expect(typeof placeholder).toBe('function')
+    if (typeof placeholder === 'function') expect(placeholder(result, undefined)).toBe(result)
+    await query.fetch()
+    expect(calls[0]?.url).toBe('/api/ext/audio/tts/fish/search')
+    expect(calls[0]?.init?.method).toBe('POST')
+    expect(calls[0]?.init?.signal).toBeInstanceOf(AbortSignal)
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ ...params, settings })
+    expect(render(() => useFishVoiceSearch(params, settings, true)).data).toEqual(result)
+    expect((query.options as QueryObserverOptions).enabled).toBe(true)
+    render(() => useFishVoiceSearch({ ...params, page: 3 }, settings, false))
+    render(() => useFishVoiceSearch(params, { fishApiKey: 'other' }, false))
+    expect(qc.getQueryCache().findAll({ queryKey: ['tts', 'fish', 'search'] })).toHaveLength(3)
+    const fishKey = ['tts', 'voices', 'fish', settings]
+    const otherKey = ['tts', 'voices', 'openai']
+    qc.setQueryData(fishKey, [])
+    qc.setQueryData(otherKey, [])
+    await render(useRefreshFishVoices).mutateAsync()
+    expect(calls.at(-1)?.url).toBe('/api/ext/audio/tts/fish/refresh')
+    expect(calls.at(-1)?.init?.method).toBe('POST')
+    expect(qc.getQueryState(fishKey)?.isInvalidated).toBe(true)
+    expect(qc.getQueryState(otherKey)?.isInvalidated).toBe(false)
   } finally {
     fetcher.mockRestore()
     qc.clear()

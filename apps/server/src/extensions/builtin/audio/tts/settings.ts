@@ -155,6 +155,7 @@ export const ttsFields: ExtensionSettingField[] = [
     key: 'fishModel',
     type: 'string',
     label: 'Fish Audio 合成模型',
+    optionsSource: 'tts/fish/models',
     hint: '例如 s2.1-pro；模型名称与声音 ID 不同',
   },
   {
@@ -168,6 +169,8 @@ export const ttsFields: ExtensionSettingField[] = [
       { key: 'name', type: 'string', label: '声音名称' },
     ],
   },
+  // 搜索 Fish Audio 声音库的控件由前端渲染（值不用），搜到的声音加进上面的 fishVoices
+  { key: 'fishVoiceSearch', type: 'custom', label: 'Fish Audio 声音库' },
   { key: 'gptsovits', type: 'heading', label: 'GPT-SoVITS 语音', defaultCollapsed: true },
   { key: 'gptsovitsEndpoint', type: 'string', label: 'GPT-SoVITS 地址' },
   {

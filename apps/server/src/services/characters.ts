@@ -32,6 +32,7 @@ import { t } from '../i18n'
 import { readCharx } from '../lib/charx'
 import { avatarUrl, deleteAvatar, readAvatar, saveAvatar } from '../lib/files'
 import { requireBackground } from './backgrounds'
+import { importCharacterAudio } from './character-audio'
 import { createEntry, createLorebook, getLorebookWithEntries } from './lorebooks'
 import { getProfile } from './profiles'
 import { quickReplyScope, setQuickReplyScope } from './quick-replies'
@@ -318,6 +319,7 @@ export async function importCharacter(
       return getCharacter(id)
     })
     for (const emotion of charx?.emotions ?? []) await saveSprite(id, emotion.data, '', emotion.name.toLowerCase())
+    await importCharacterAudio(bytes, card.raw)
     return imported
   } catch (error) {
     db.delete(characters).where(eq(characters.id, id)).run()

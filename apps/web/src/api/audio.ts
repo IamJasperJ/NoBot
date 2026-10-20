@@ -71,3 +71,36 @@ export const useUploadAudioTrack = () => useAudioMutation(audioApi.upload)
 export const useImportAudioUrl = () => useAudioMutation(audioApi.importUrl)
 export const useUpdateAudioTrack = () => useAudioMutation(audioApi.update)
 export const useDeleteAudioTracks = () => useAudioMutation(audioApi.batchRemove)
+
+export interface ChatBgm {
+  trackId: string | null
+  source: 'manual' | 'auto'
+  locked: boolean
+  updatedAt: number
+  track: AudioTrackDTO | null
+}
+export const chatBgmKey = (chatId: string) => ['chatBgm', chatId] as const
+export function useChatBgm(chatId: string) {
+  // 自动选择在生成结束后异步完成，短轮询让播放层收到落库结果。
+  return useQuery({
+    queryKey: chatBgmKey(chatId),
+    queryFn: () => request<ChatBgm | null>('GET', `/chat-bgm?chatId=${encodeURIComponent(chatId)}`),
+    refetchInterval: 2000,
+  })
+}
+function useBgmMutation<T extends { chatId: string } | string, R>(mutationFn: (input: T) => Promise<R>) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn,
+    onSuccess: (_data, input) =>
+      qc.invalidateQueries({ queryKey: chatBgmKey(typeof input === 'string' ? input : input.chatId) }),
+  })
+}
+export const useSetChatBgm = () =>
+  useBgmMutation((input: { chatId: string; trackId: string | null; locked?: boolean }) =>
+    request<ChatBgm>('PUT', '/chat-bgm', input),
+  )
+export const useClearChatBgm = () =>
+  useBgmMutation((chatId: string) => request<{ ok: true }>('DELETE', `/chat-bgm?chatId=${encodeURIComponent(chatId)}`))
+export const useAutoChatBgm = () =>
+  useBgmMutation((input: { chatId: string }) => request<ChatBgm | null>('POST', '/chat-bgm/auto', input))

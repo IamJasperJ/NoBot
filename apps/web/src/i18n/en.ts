@@ -1,5 +1,17 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  参考音频: 'Reference audio',
+  '背景音乐…': 'Background music\u2026',
+  '「自动」时跟随舞台指令里的 <bgm>，没有时按「音频」扩展的设置让模型挑选；指定一首后会一直播放它，直到切回自动。':
+    'Automatic follows <bgm> stage directions, or lets the model select music according to the Audio extension settings. A manually selected track plays until you switch back to Automatic.',
+  '正在播放：{name}': 'Playing: {name}',
+  不播放: 'No music',
+  '音频库里还没有背景音乐，可以在扩展页「音频」的「音频库」里上传。':
+    'There is no background music yet. Upload tracks in Extensions \u2192 Audio \u2192 Audio library.',
+  已让模型重新挑选: 'Music selection updated',
+  '正在挑选…': 'Selecting\u2026',
+  让模型现在挑一首: 'Let the model select a track now',
+
   '朗读这个角色的台词时用的声音。不设置时从「音频」扩展设置里的 NPC 声音池按名字分配。':
     'The voice used for this character. When unset, a voice is assigned by name from the audio extension NPC voice pool.',
   停止朗读: 'Stop reading',
@@ -29,8 +41,8 @@ export const en: Record<string, string> = {
   音效: 'Sound effects',
   '{name}：{error}': '{name}: {error}',
   '已添加 {count} 个音频': 'Added {count} audio tracks',
-  'VN 里模型用 <bgm name="名字"> 切换背景音乐、用 <sfx name="名字"> 播放音效，按名字匹配。名字写清楚场景或情绪最好用，比如「酒馆夜晚」「紧张战斗」「开门」。':
-    'In VN, the model uses <bgm name="name"> to change background music and <sfx name="name"> to play sound effects, matching tracks by name. Use names that describe the scene or mood, such as "Tavern at night", "Tense battle", or "Door opening".',
+  'VN 里模型用 <bgm name="名字"> 切换背景音乐、用 <sfx name="名字"> 播放音效，按名字匹配。名字写清楚场景或情绪最好用，比如「酒馆夜晚」「紧张战斗」「开门」。「参考音频」是给 CosyVoice 克隆音色用的人声片段，不会出现在给模型的清单里。':
+    'In VN, the model uses <bgm name="name"> to change background music and <sfx name="name"> to play sound effects, matching tracks by name. Use names that describe the scene or mood, such as "Tavern at night", "Tense battle", or "Door opening". Reference audio contains voice samples for CosyVoice voice cloning and is excluded from the model track list.',
   没有符合条件的音频: 'No matching audio tracks',
   '音频库还是空的，上传一些背景音乐和音效吧':
     'The audio library is empty. Upload some background music and sound effects.',

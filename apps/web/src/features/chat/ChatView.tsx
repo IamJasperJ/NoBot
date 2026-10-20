@@ -5,6 +5,7 @@ import { flattenPages, keys, useCharacter, useChatPages, usePersonas, usePlayPre
 import { MenuIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
+import { Slot } from '../../extensions/Slot'
 import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
 import { useStreaming } from '../../stores/streaming'
@@ -112,6 +113,7 @@ export function ChatView({ chatId }: { chatId: string }) {
 
   return (
     <div ref={root} className="relative isolate flex h-full min-w-0 flex-1 flex-col">
+      {!vn && <Slot name="chat.layer" props={{ chatId }} />}
       {!vn && firstPage?.stage && play && (
         <SideSprite
           chatId={chatId}

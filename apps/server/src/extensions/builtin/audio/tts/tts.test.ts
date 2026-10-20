@@ -115,7 +115,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
       kind: 'browser',
       text: '你好，这是声音试听。',
     })
-    expect(await json('/engines')).toHaveLength(5)
+    expect(await json('/engines')).toHaveLength(8)
     expect(await json('/voices', { engine: 'openai' })).toMatchObject({
       options: expect.arrayContaining([{ value: 'verse', label: 'verse' }]),
     })

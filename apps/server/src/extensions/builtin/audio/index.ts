@@ -14,8 +14,9 @@ import {
   updateAudioTrack,
 } from '../../../services/audio-library'
 import { defineExtension } from '../../types'
+import { onBgmEvent, registerChatBgmRoutes } from './chat-bgm'
 import { registerTtsRoutes } from './tts/routes'
-import { audioSettings, ttsFields } from './tts/settings'
+import { audioSettings, chatBgmFields, ttsFields } from './tts/settings'
 
 const uploadInput = updateAudioTrackInput.required({ name: true }).extend({
   kind: z.enum(AUDIO_KINDS).default('bgm'),
@@ -30,9 +31,12 @@ export default defineExtension({
   defaultSettings: audioSettings.parse({}),
   settingsSchema: [
     { key: 'listInPrompt', type: 'boolean', label: '在指令说明里列出曲目', hint: '让模型知道有哪些 BGM 和音效可用' },
+    ...chatBgmFields,
     ...ttsFields,
   ],
+  hooks: { onEvent: onBgmEvent },
   routes(app, ctx) {
+    registerChatBgmRoutes(app, ctx)
     registerTtsRoutes(app, ctx)
     app.get('/tracks', validate('query', z.object({ kind: z.enum(AUDIO_KINDS).optional() })), (c) =>
       c.json(listAudioTracks(c.req.valid('query').kind)),

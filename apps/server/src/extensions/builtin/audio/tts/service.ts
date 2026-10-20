@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readdir, stat, unlink, utimes } from 'node:fs/promises'
 import { join } from 'node:path'
+import { expressionTone } from '@nobot/core'
 import { castKey, parseStageMessage, toDisplayText } from '@nobot/core/stage'
 import { type TtsLineResult, type TtsSpeaker, type VoiceRef, voiceRefSchema } from '@nobot/shared'
 import { paths } from '../../../../env'
@@ -8,6 +9,7 @@ import { getCharacterRow } from '../../../../services/characters'
 import { getChatRow, loadMessage } from '../../../../services/chats'
 import { resolvePersona } from '../../../../services/context'
 import { matchStageMember, stageMembers } from '../../../../services/stage'
+import { toneInstruction } from './additional'
 import { openaiConnection, ttsEngines } from './engines'
 import type { AudioSettings } from './settings'
 
@@ -50,22 +52,7 @@ export function resolveVoice(
   }
 }
 export function expressionInstructions(expression?: string) {
-  // 只允许固定英文语气，避免把任意角色文本当成服务指令发送。
-  const tones: Record<string, string> = {
-    happy: 'happy',
-    joy: 'happy',
-    sad: 'sad',
-    sadness: 'sad',
-    angry: 'angry',
-    anger: 'angry',
-    fear: 'fearful',
-    surprise: 'surprised',
-    neutral: 'neutral',
-    love: 'warm',
-    shy: 'shy',
-  }
-  const tone = tones[expression?.trim().toLowerCase() ?? '']
-  return tone ? `Speak with a ${tone} tone.` : ''
+  return toneInstruction(expressionTone(expression))
 }
 export interface TtsSegment {
   speaker: TtsSpeaker
@@ -166,6 +153,17 @@ export function cacheSettings(voice: VoiceRef, s: AudioSettings) {
       return { endpoint: s.gptsovitsEndpoint, preset: s.gptsovitsVoices.find((v) => v.id === voice.voice) }
     case 'elevenlabs':
       return { model: s.elevenlabsModel }
+    case 'minimax':
+      return { host: s.minimaxApiHost, model: s.minimaxModel }
+    case 'volcengine':
+      return { endpoint: s.volcengineEndpoint, resourceId: s.volcengineResourceId }
+    case 'cosyvoice':
+      return {
+        endpoint: s.cosyvoiceEndpoint,
+        sampleRate: s.cosyvoiceSampleRate,
+        preset: s.cosyvoiceVoices.find((v) => v.id === voice.voice),
+        ref: s.cosyvoiceVoices.find((v) => v.id === voice.voice)?.refTrackId,
+      }
     case 'edge':
       return { volume: s.edgeVolume }
     default:
@@ -182,7 +180,8 @@ export async function synthesizeVoice(
   text = cleanTtsText(text)
   if (!text) return { kind: 'skip', reason: 'empty' }
   if (voice.engine === 'browser') return { kind: 'browser', voice: voice.voice, speed: voice.speed, text }
-  const style = voice.engine === 'openai' && s.expressionStyle ? expressionInstructions(expression) : ''
+  const tone = s.expressionStyle ? expressionTone(expression) : undefined
+  const style = tone ?? ''
   const key = createHash('sha256')
     .update(JSON.stringify([voice, style, text, cacheSettings(voice, s)]))
     .digest('hex')
@@ -196,7 +195,10 @@ export async function synthesizeVoice(
         return { kind: 'audio', url: `/api/assets/tts-cache/${name}` }
       }
     }
-    const result = await ttsEngines[voice.engine].synthesize({ ...voice, text, style }, s)
+    const result = await ttsEngines[voice.engine].synthesize(
+      { ...voice, text, style: tone ? toneInstruction(tone) : undefined, tone },
+      s,
+    )
     const name = `${key}.${result.mime === 'audio/wav' ? 'wav' : 'mp3'}`
     await Bun.write(join(paths.ttsCache, name), result.bytes)
     // 写入完成后异步清理，不让目录扫描拖慢合成响应。

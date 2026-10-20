@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { HttpError } from '../../../../errors'
 import { t } from '../../../../i18n'
 import { validate } from '../../../../lib/validate'
+import { listAudioTracks } from '../../../../services/audio-library'
 import { getCharacterRow, updateCharacter } from '../../../../services/characters'
 import { listApiPresets } from '../../../../services/connections'
 import { getLanguage } from '../../../../services/settings'
@@ -19,6 +20,9 @@ export const speakerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('npc'), name: z.string().min(1) }),
 ])
 export function registerTtsRoutes(app: Hono, ctx: { settings: Record<string, unknown> }) {
+  app.post('/tts/ref-tracks', (c) =>
+    c.json({ options: listAudioTracks('ref').map((v) => ({ value: v.id, label: v.name })) }),
+  )
   app.get('/tts/engines', (c) => {
     const settings = audioSettings.parse(ctx.settings)
     return c.json(

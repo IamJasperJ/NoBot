@@ -1,7 +1,9 @@
+import type { Tone } from '@nobot/core'
 import type { TtsEngineId } from '@nobot/shared'
 import { HttpError } from '../../../../errors'
 import { t } from '../../../../i18n'
 import { getApiPresetRow } from '../../../../services/connections'
+import { additionalEngines, toneInstruction } from './additional'
 import { EDGE_BASE, EDGE_TOKEN, EdgeHandshakeError, edgeHeaders, edgeSynthesize, type SocketFactory } from './edge'
 import type { AudioSettings } from './settings'
 
@@ -10,7 +12,7 @@ export interface TtsEngine {
   label: string
   voices(settings: AudioSettings, signal?: AbortSignal): Promise<{ value: string; label: string; lang?: string }[]>
   synthesize(
-    input: { text: string; voice: string; speed: number; style?: string },
+    input: { text: string; voice: string; speed: number; style?: string; tone?: Tone },
     settings: AudioSettings,
     signal?: AbortSignal,
   ): Promise<{ bytes: Uint8Array; mime: string }>
@@ -59,6 +61,7 @@ export function createTtsEngines(
     return { bytes, mime }
   }
   return {
+    ...additionalEngines(request, offline, mockAudio),
     browser: {
       id: 'browser',
       get label() {
@@ -97,7 +100,9 @@ export function createTtsEngines(
             voice: input.voice,
             speed: input.speed,
             response_format: 'mp3',
-            ...(/gpt-4o-mini-tts/.test(s.openaiModel) && input.style ? { instructions: input.style } : {}),
+            ...(/gpt-4o-mini-tts/.test(s.openaiModel) && input.style
+              ? { instructions: input.tone ? toneInstruction(input.tone) : input.style }
+              : {}),
           },
           { ...(c.apiKey ? { Authorization: `Bearer ${c.apiKey}` } : {}), ...c.headers },
           signal,
@@ -112,13 +117,14 @@ export function createTtsEngines(
       synthesize: (input, s, signal) => {
         const preset = s.gptsovitsVoices.find((v) => v.id === input.voice)
         if (!preset?.refAudioPath) throw new HttpError(502, 'TTS_FAILED', t('参考声音预设不存在或不完整'))
+        const ref = input.tone ? preset.emotionRefs.find((v) => v.tone === input.tone) : undefined
         return synth(
           `${s.gptsovitsEndpoint.replace(/\/+$/, '')}/tts`,
           {
             text: input.text,
             text_lang: preset.textLang,
-            ref_audio_path: preset.refAudioPath,
-            prompt_text: preset.promptText,
+            ref_audio_path: ref?.refAudioPath || preset.refAudioPath,
+            prompt_text: ref?.promptText ?? preset.promptText,
             prompt_lang: preset.promptLang,
             text_split_method: 'cut5',
             batch_size: 1,
@@ -181,7 +187,14 @@ export function createTtsEngines(
       synthesize: (input, s, signal) =>
         synth(
           `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(input.voice)}?output_format=mp3_44100_128`,
-          { text: input.text, model_id: s.elevenlabsModel, voice_settings: { speed: input.speed } },
+          {
+            text:
+              s.elevenlabsModel === 'eleven_v3' && input.tone
+                ? `[${({ fearful: 'scared', disgusted: 'disgusted' } as Partial<Record<Tone, string>>)[input.tone] ?? input.tone}] ${input.text}`
+                : input.text,
+            model_id: s.elevenlabsModel,
+            voice_settings: { speed: input.speed },
+          },
           { 'xi-api-key': s.elevenlabsApiKey },
           signal,
         ),

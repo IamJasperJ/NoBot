@@ -1,14 +1,14 @@
 import { z } from 'zod'
 
 /** 音频库条目的种类，环境音以后再加。 */
-export const AUDIO_KINDS = ['bgm', 'sfx'] as const
+export const AUDIO_KINDS = ['bgm', 'sfx', 'ref'] as const
 export type AudioKind = (typeof AUDIO_KINDS)[number]
 
 export interface AudioTrackDTO {
   id: string
   /** 模型按名字匹配，规则和背景相同。 */
   name: string
-  /** 只给用户看，不进入提示词。 */
+  /** 自动选择 BGM 时也作为候选说明提供给模型。 */
   description: string
   kind: AudioKind
   mime: string
@@ -30,7 +30,16 @@ export const importAudioUrlInput = z.object({
 })
 export const batchDeleteAudioInput = z.object({ ids: z.array(z.string()).min(1).max(2000) })
 
-export const TTS_ENGINES = ['browser', 'openai', 'gptsovits', 'edge', 'elevenlabs'] as const
+export const TTS_ENGINES = [
+  'browser',
+  'openai',
+  'gptsovits',
+  'edge',
+  'elevenlabs',
+  'minimax',
+  'volcengine',
+  'cosyvoice',
+] as const
 export type TtsEngineId = (typeof TTS_ENGINES)[number]
 export const voiceRefSchema = z.object({
   engine: z.enum(TTS_ENGINES),

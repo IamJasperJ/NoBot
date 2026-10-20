@@ -2,12 +2,20 @@ import { api as client } from '../../../api/client'
 import { t } from '../../../i18n'
 import { useVn } from '../../../stores/vn'
 import type { ActivateFn, SlotProps } from '../../types'
+import { ChatBgmDialog, ChatBgmMenuEntry } from './ChatBgmUi'
 import { AudioLibraryPage } from './LibraryPage'
 import { CharacterVoiceSection, ReadAloudAction, TtsCacheFooter, VoiceField, VoiceListField } from './TtsUi'
 import { ttsPlayer } from './tts-player'
+import { useChatAudio } from './useChatAudio'
 import { useVnAudio } from './useVnAudio'
 import { useVnVoice } from './useVnVoice'
 import { VolumeControl } from './VolumeControl'
+
+function ChatAudioLayer({ chatId }: SlotProps['chat.layer']) {
+  useChatAudio(chatId)
+  // BGM 选择框放在这一层：「+」菜单收起时会卸载里面的内容
+  return <ChatBgmDialog chatId={chatId} />
+}
 
 export function VnAudioLayer(props: SlotProps['vn.layer']) {
   useVnAudio(props)
@@ -46,6 +54,11 @@ const activate: ActivateFn = (api) => {
     },
     icon: '🎵',
     render: () => <AudioLibraryPage />,
+  })
+  api.registerSlot('chat.layer', { id: 'audio', render: (props) => <ChatAudioLayer {...props} /> })
+  api.registerSlot('chat.composer.menu', {
+    id: 'bgm',
+    render: ({ chatId, close }) => <ChatBgmMenuEntry chatId={chatId} close={close} />,
   })
   api.registerSlot('vn.layer', { id: 'audio', render: (props) => <VnAudioLayer {...props} /> })
   api.registerSlot('vn.toolbar', { id: 'volume', render: () => <VolumeControl /> })

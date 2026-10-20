@@ -4,6 +4,76 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case 'MiniMax 自定义声音':
+      return t('MiniMax 自定义声音')
+    case '火山自定义声音':
+      return t('火山自定义声音')
+    case '普通聊天播放背景音乐':
+      return t('普通聊天播放背景音乐')
+    case '自动选择背景音乐':
+      return t('自动选择背景音乐')
+    case '每几条回复选择音乐':
+      return t('每几条回复选择音乐')
+    case '音乐选择连接':
+      return t('音乐选择连接')
+    case '音乐选择模型':
+      return t('音乐选择模型')
+    case '留空跟随会话':
+      return t('留空跟随会话')
+    case '语气参考音频':
+      return t('语气参考音频')
+    case '语气':
+      return t('语气')
+    case 'MiniMax 语音':
+      return t('MiniMax 语音')
+    case 'MiniMax 密钥':
+      return t('MiniMax 密钥')
+    case 'MiniMax 接口':
+      return t('MiniMax 接口')
+    case '国内':
+      return t('国内')
+    case '国际':
+      return t('国际')
+    case 'MiniMax 模型':
+      return t('MiniMax 模型')
+    case '火山引擎语音':
+      return t('火山引擎语音')
+    case '火山 App ID':
+      return t('火山 App ID')
+    case '火山 Access Key':
+      return t('火山 Access Key')
+    case '火山资源 ID':
+      return t('火山资源 ID')
+    case '在火山控制台开通的资源 ID，如 seed-tts-1.0 / seed-tts-2.0':
+      return t('在火山控制台开通的资源 ID，如 seed-tts-1.0 / seed-tts-2.0')
+    case '火山语音地址':
+      return t('火山语音地址')
+    case 'CosyVoice 语音':
+      return t('CosyVoice 语音')
+    case 'CosyVoice 地址':
+      return t('CosyVoice 地址')
+    case 'CosyVoice 采样率':
+      return t('CosyVoice 采样率')
+    case 'CosyVoice 默认 22050，CosyVoice2 使用 24000':
+      return t('CosyVoice 默认 22050，CosyVoice2 使用 24000')
+    case 'CosyVoice 声音预设':
+      return t('CosyVoice 声音预设')
+    case '合成模式':
+      return t('合成模式')
+    case '说话人标识':
+      return t('说话人标识')
+    case '参考音频':
+      return t('参考音频')
+    case '语音服务鉴权失败，请检查密钥':
+      return t('语音服务鉴权失败，请检查密钥')
+    case '背景音乐库是空的':
+      return t('背景音乐库是空的')
+    case '模型没有选择背景音乐':
+      return t('模型没有选择背景音乐')
+    case '自动选择背景音乐失败':
+      return t('自动选择背景音乐失败')
+    case '请选择背景音乐':
+      return t('请选择背景音乐')
     case '朗读设置':
       return t('朗读设置')
     case '旁白声音':

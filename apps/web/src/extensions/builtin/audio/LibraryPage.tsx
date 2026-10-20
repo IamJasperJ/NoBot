@@ -23,10 +23,11 @@ import { Button, controlClass, cx, Dialog, IconButton } from '../../../component
 import { t } from '../../../i18n'
 import { errorMessage, toast } from '../../../stores/toast'
 
-const kindLabel = (kind: AudioKind) => (kind === 'bgm' ? t('背景音乐') : t('音效'))
+const kindLabel = (kind: AudioKind) => (kind === 'bgm' ? t('背景音乐') : kind === 'sfx' ? t('音效') : t('参考音频'))
 const kindOptions = () => [
   { value: 'bgm' as const, label: t('背景音乐') },
   { value: 'sfx' as const, label: t('音效') },
+  { value: 'ref' as const, label: t('参考音频') },
 ]
 
 /** 1:05 这样的时长；读不到时长时显示「—」 */
@@ -70,6 +71,7 @@ export function AudioLibraryPage() {
     all: tracks.data?.length ?? 0,
     bgm: tracks.data?.filter((track) => track.kind === 'bgm').length ?? 0,
     sfx: tracks.data?.filter((track) => track.kind === 'sfx').length ?? 0,
+    ref: tracks.data?.filter((track) => track.kind === 'ref').length ?? 0,
   }
   const onError = (e: unknown) => toast.error(errorMessage(e))
   // 上传按当前筛选的种类归类；「全部」时当作背景音乐
@@ -94,7 +96,7 @@ export function AudioLibraryPage() {
     <div className="mx-auto flex max-w-4xl min-w-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg bg-zinc-100 p-0.5 text-[13px] dark:bg-zinc-800">
-          {(['all', 'bgm', 'sfx'] as const).map((value) => (
+          {(['all', 'bgm', 'sfx', 'ref'] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -148,7 +150,7 @@ export function AudioLibraryPage() {
 
       <p className="text-xs text-zinc-500">
         {t(
-          'VN 里模型用 <bgm name="名字"> 切换背景音乐、用 <sfx name="名字"> 播放音效，按名字匹配。名字写清楚场景或情绪最好用，比如「酒馆夜晚」「紧张战斗」「开门」。',
+          'VN 里模型用 <bgm name="名字"> 切换背景音乐、用 <sfx name="名字"> 播放音效，按名字匹配。名字写清楚场景或情绪最好用，比如「酒馆夜晚」「紧张战斗」「开门」。「参考音频」是给 CosyVoice 克隆音色用的人声片段，不会出现在给模型的清单里。',
         )}
       </p>
 
@@ -308,7 +310,9 @@ function TrackRow({
               'shrink-0 rounded px-1.5 py-px text-[10px] font-medium',
               track.kind === 'bgm'
                 ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
-                : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+                : track.kind === 'sfx'
+                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                  : 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
             )}
           >
             {kindLabel(track.kind)}

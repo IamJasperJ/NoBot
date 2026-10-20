@@ -21,6 +21,8 @@ import type { View } from '../stores/ui'
 
 /** 界面上的扩展插槽，以及每个插槽渲染时收到的参数 */
 export interface SlotProps {
+  /** 普通聊天视图里的不可见层（扩展可以在这里放背景音乐等） */
+  'chat.layer': { chatId: string }
   /** VN 不可见层，用于驱动音频等效果。 */
   'vn.layer': {
     chatId: string

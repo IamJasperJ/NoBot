@@ -1,0 +1,25 @@
+services:
+  nobot:
+    image: nobot:local
+    build:
+      context: .
+      args:
+        BUN_IMAGE: ${BUN_IMAGE:-oven/bun:1.4.3-slim}
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '3000'
+      DATA_DIR: /app/data
+    ports:
+      # 默认只允许本机访问；
+      - '${NOBOT_BIND_IP:-127.0.0.1}:${NOBOT_PORT:-3000}:3000'
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'

@@ -9,3 +9,6 @@ data-old-*/
 AGENTS.md
 docs/
 .claude/
+
+# 个人服务器的部署配置（域名、内网地址），不进公开仓库
+deploy/

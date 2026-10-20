@@ -1,5 +1,6 @@
 import type { Language } from '@nobot/shared'
 import { create } from 'zustand'
+import { apiFetch } from '../api/fetch'
 import { queryClient } from '../api/queryClient'
 import { en } from './en'
 
@@ -56,7 +57,7 @@ export function applyLanguage(language: Language) {
 export async function initLanguage() {
   applyLanguage(current)
   try {
-    const res = await fetch('/api/app-settings')
+    const res = await apiFetch('/api/app-settings')
     if (!res.ok) return
     const data = (await res.json()) as { language?: Language }
     if (data.language && data.language !== current) applyLanguage(data.language)

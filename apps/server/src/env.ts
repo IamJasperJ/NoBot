@@ -1,10 +1,9 @@
-import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { currentPaths, type UserPaths } from './user-context'
 
 /**
  * 运行时配置，都可以用环境变量覆盖。
  * HOST 默认只监听本机；想让局域网里的手机访问，设 HOST=0.0.0.0。
- * 注意：开放到局域网后，同一网络里的任何人都能用你的 API Key 调模型。
  */
 const root = resolve(import.meta.dir, '../../..')
 
@@ -17,23 +16,18 @@ export const env = {
   migrationsDir: join(import.meta.dir, '../drizzle'),
 }
 
-export const paths = {
-  db: join(env.dataDir, 'app.db'),
-  ttsCache: join(env.dataDir, 'tts-cache'),
-  sprites: join(env.dataDir, 'assets/sprites'),
-  avatars: join(env.dataDir, 'assets/avatars'),
-  audio: join(env.dataDir, 'assets/audio'),
-  backgrounds: join(env.dataDir, 'assets/backgrounds'),
-  attachments: join(env.dataDir, 'assets/attachments'),
-}
-
-mkdirSync(paths.avatars, { recursive: true })
-mkdirSync(paths.attachments, { recursive: true })
-
-mkdirSync(paths.backgrounds, { recursive: true })
-
-mkdirSync(paths.sprites, { recursive: true })
-
-mkdirSync(paths.audio, { recursive: true })
-
-mkdirSync(paths.ttsCache, { recursive: true })
+export const sharedPaths = { models: join(env.dataDir, 'models') }
+export const paths = new Proxy({} as UserPaths, {
+  get(_target, property) {
+    return Reflect.get(currentPaths(), property)
+  },
+  set(_target, property, value) {
+    return Reflect.set(currentPaths(), property, value)
+  },
+  ownKeys() {
+    return Reflect.ownKeys(currentPaths())
+  },
+  getOwnPropertyDescriptor(_target, property) {
+    return Object.getOwnPropertyDescriptor(currentPaths(), property)
+  },
+})

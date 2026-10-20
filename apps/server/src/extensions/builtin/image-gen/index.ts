@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
+import { requireAdmin } from '../../../services/auth'
 import { listApiPresets } from '../../../services/connections'
 import { mattingOptions, mattingService } from '../../../services/matting'
+import { currentUser } from '../../../user-context'
 import { defineExtension, draftBody, draftChatId, parseSettingsDraft } from '../../types'
 import { getBackend } from './backends'
 import { matchInteractive, resolvePromptStyle } from './composition'
@@ -111,10 +113,12 @@ export default defineExtension({
     temporaryActorRoutes(app, ctx)
     app.get('/matting/status', async (c) => c.json(await mattingService.status()))
     app.post('/matting/install', async (c) => {
+      requireAdmin(currentUser())
       const settings = parseSettings(await parseSettingsDraft(c, ctx.settings))
       return c.json(await mattingService.install(mattingOptions(settings)))
     })
     app.delete('/matting', async (c) => {
+      requireAdmin(currentUser())
       try {
         return c.json(await mattingService.remove())
       } catch {

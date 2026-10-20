@@ -9,6 +9,7 @@ import { deleteMessage, editMessage, getChatRow, loadMessage, loadPath } from '.
 import { getLanguage } from '../../../services/settings'
 import { computeStage, resolvePlayPreset } from '../../../services/stage'
 import type { ToolResult } from '../../../tools'
+import { currentUser } from '../../../user-context'
 import type { ExtensionContext } from '../../types'
 import { backendDimensions, getBackend } from './backends'
 import { characterPrompt, composePrompt, dimensions, resolvePromptStyle } from './composition'
@@ -33,7 +34,7 @@ export interface GenerateInput {
   origin?: 'button' | 'interactive'
   backgroundName?: string
 }
-const imageQueue = new Semaphore(3)
+const imageQueues = new Map<string, Semaphore>()
 const tasks = new Map<string, AbortController>()
 const retryLocks = new Set<string>()
 const previews = new Map<string, { expires: number; snapshot: Snapshot }>()
@@ -199,7 +200,7 @@ export async function promptPreview(ctx: Context, input: GenerateInput) {
   const snapshot = await writePrompt(ctx, await freeze(ctx, input))
   for (const [id, item] of previews) if (item.expires < Date.now()) previews.delete(id)
   const snapshotId = crypto.randomUUID()
-  previews.set(snapshotId, { expires: Date.now() + 3600000, snapshot })
+  previews.set(`${currentUser().handle}:${snapshotId}`, { expires: Date.now() + 3600000, snapshot })
   return {
     snapshotId,
     prompt: snapshot.prompt,
@@ -270,6 +271,12 @@ export async function renderImage(
   }
   try {
     validate(settings)
+    const handle = currentUser().handle
+    let imageQueue = imageQueues.get(handle)
+    if (!imageQueue) {
+      imageQueue = new Semaphore(settings.maxConcurrent)
+      imageQueues.set(handle, imageQueue)
+    }
     imageQueue.setLimit(settings.maxConcurrent)
     const bytes = await imageQueue.run(
       async () => {
@@ -412,10 +419,11 @@ function caption(snapshot: Snapshot) {
   )
 }
 export function cancel(ctx: Context, messageId: string) {
+  // 必须先查当前用户的消息，再操作共享任务表，避免猜到 id 就能取消别人的任务。
+  const message = loadMessage(messageId)
   const controller = tasks.get(messageId)
   if (!controller) throw new HttpError(400, 'IMAGE_TASK', t('没有可取消的图片任务'))
-  controller.abort(new Error(t(t('已取消'))))
-  const message = loadMessage(messageId)
+  controller.abort(new Error(t('已取消')))
   return {
     message: ctx.host.updateMessageMeta(messageId, {
       imageGen: { ...message.meta.imageGen!, status: 'error', error: t('已取消') },
@@ -426,7 +434,7 @@ export function cancel(ctx: Context, messageId: string) {
 export async function generate(ctx: Context, input: GenerateInput) {
   let snapshot: Snapshot
   if (input.snapshotId) {
-    const preview = previews.get(input.snapshotId)
+    const preview = previews.get(`${currentUser().handle}:${input.snapshotId}`)
     if (
       !preview ||
       preview.expires < Date.now() ||
@@ -435,7 +443,7 @@ export async function generate(ctx: Context, input: GenerateInput) {
     )
       throw new HttpError(400, 'IMAGE_PREVIEW', t('提示词预览已过期，请重新生成预览'))
     snapshot = structuredClone(preview.snapshot)
-    previews.delete(input.snapshotId)
+    previews.delete(`${currentUser().handle}:${input.snapshotId}`)
   } else snapshot = await freeze(ctx, input)
   const { settings, prepared } = snapshot
   if (input.prompt !== undefined) {
@@ -892,6 +900,8 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
 const backgroundTasks = new Map<string, string>()
 
 export function isBackgroundRunning(chatId: string): boolean {
+  if (!chatId) return false
+  getChatRow(chatId)
   return [...backgroundTasks.values()].includes(chatId)
 }
 

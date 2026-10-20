@@ -56,8 +56,8 @@ describe.skipIf(!process.env.TRASH_TEST_CHILD)('角色与群组回收站', () =>
     const avatarResponse = await app.request(`/api/characters/${actor.id}/avatar`, { method: 'POST', body: form })
     expect(avatarResponse.status).toBe(200)
     const withAvatar = (await avatarResponse.json()) as CharacterDTO
-    const avatarPath = join(directory, 'assets/avatars', `${actor.id}.webp`)
-    const originalPath = join(directory, 'assets/avatars', `${actor.id}.png`)
+    const avatarPath = join(directory, 'users/test/assets/avatars', `${actor.id}.webp`)
+    const originalPath = join(directory, 'users/test/assets/avatars', `${actor.id}.png`)
     const chat = await json<ChatDTO>('/chats', 'POST', { characterId: actor.id })
     const before = await json<ChatPage>(`/chats/${chat.id}`)
     await json('/chats', 'POST', { characterId: actor.id })

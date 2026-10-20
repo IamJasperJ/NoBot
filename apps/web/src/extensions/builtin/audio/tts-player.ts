@@ -1,6 +1,7 @@
 import type { TtsLineResult, TtsSpeaker } from '@nobot/shared'
 import { create } from 'zustand'
 import { api as client } from '../../../api/client'
+import { apiFetch } from '../../../api/fetch'
 import { ttsApi } from '../../../api/tts'
 import { t } from '../../../i18n'
 import { useAudioPrefs } from '../../../stores/audioPrefs'
@@ -39,7 +40,7 @@ export class TtsPlayer {
       try {
         const result = await this.api.line({ chatId, speaker, text, expression })
         if (result.kind === 'audio') {
-          const response = await fetch(result.url)
+          const response = await apiFetch(result.url)
           if (!response.ok) throw new Error('TTS prefetch failed')
           // 消费完整响应后浏览器才能缓存音频，避免播放时再等下载。
           await response.arrayBuffer()

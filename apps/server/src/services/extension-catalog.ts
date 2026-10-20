@@ -4,6 +4,7 @@ import { getSetting, setSetting } from '../db/client'
 import { HttpError } from '../errors'
 import { listExtensions } from '../extensions/registry'
 import { t } from '../i18n'
+import { currentUser } from '../user-context'
 import { validateGitUrl } from './extension-git'
 
 const itemSchema = z.object({
@@ -18,7 +19,7 @@ const itemSchema = z.object({
   permissions: extensionPermissionsSchema.optional(),
 })
 
-let cache: { key: string; expires: number; value: ExtensionCatalogDTO } | undefined
+const caches = new Map<string, { key: string; expires: number; value: ExtensionCatalogDTO }>()
 
 export function catalogSources() {
   return { urls: getSetting<string[]>('extensionCatalogs') ?? [] }
@@ -28,7 +29,7 @@ export function setCatalogSources(urls: string[]) {
   if (urls.some((url) => !['https:', 'http:'].includes(new URL(url).protocol)))
     throw new HttpError(400, 'INVALID_CATALOG_URL', t('目录索引地址只允许 HTTP 或 HTTPS'))
   setSetting('extensionCatalogs', [...new Set(urls)])
-  cache = undefined
+  caches.delete(currentUser().handle)
   return catalogSources()
 }
 
@@ -99,11 +100,14 @@ async function readSource(url: string): Promise<ExtensionCatalogDTO['sources'][n
 
 export async function extensionCatalog(refresh = false): Promise<ExtensionCatalogDTO> {
   const { urls } = catalogSources()
+  const handle = currentUser().handle
+  let cache = caches.get(handle)
   const key = JSON.stringify(urls)
   if (refresh || !cache || cache.key !== key || cache.expires <= Date.now()) {
     const sources = []
     for (const url of urls) sources.push(await readSource(url))
     cache = { key, expires: Date.now() + 5 * 60 * 1000, value: { sources } }
+    caches.set(handle, cache)
   }
   // 安装状态不放进缓存，安装、更新与卸载后无需再次下载目录索引。
   const installed = new Map(

@@ -1,4 +1,5 @@
 export * from './schemas/apiPreset'
+export * from './schemas/auth'
 export * from './schemas/background'
 export * from './schemas/bookmark'
 export * from './schemas/character'

@@ -47,7 +47,7 @@ test('内置变量双语标签和旧默认值精确迁移（独立数据库）',
     const { SETTING_KEYS, setAppSettings } = await import('./settings')
     const { BUILTIN_PLAY_PRESETS } = await import('./playPresets.builtin')
     const { migrateLegacyPrompts } = await import('./migrate-legacy-prompts')
-    const { bootstrap } = await import('../bootstrap')
+    const { seedUserDatabase } = await import('../db/seed')
     for (const language of ['zh', 'en'] as const) {
       setAppSettings({ language })
       for (const def of BUILTIN_PLAY_PRESETS.filter((def) => ['galgame', 'rpg', 'dnd5e'].includes(def.key))) {
@@ -102,8 +102,10 @@ test('内置变量双语标签和旧默认值精确迁移（独立数据库）',
     setSetting('ext:image-gen', { ...LEGACY_EXTENSION_PROMPTS['image-gen'], tpl_face: '用户改过的描述', width: 512 })
     setSetting('extdata:summary', { prompt: LEGACY_EXTENSION_PROMPTS.summary.prompt })
     setSetting('ext:other', { prompt: LEGACY_EXTENSION_PROMPTS.summary.prompt })
-    // 通过实际启动入口验证迁移在播种后执行。
-    await bootstrap()
+    // 模拟旧用户第一次打开连接，验证迁移在播种后执行。
+    setSetting(SETTING_KEYS.legacyPromptsMigrated, 0)
+    db.delete(generationLogs).run()
+    seedUserDatabase()
     const prompts = db.select().from(promptPresets).all()
     const migrated = prompts.find((item) => item.id === 'old')!.data
     expect(migrated.utility).toEqual(utilityPromptsSchema.parse({}))
@@ -132,7 +134,7 @@ test('内置变量双语标签和旧默认值精确迁移（独立数据库）',
     expect(logs[0]!.summary).toBe('Replaced 46 legacy Chinese default prompts with English')
     setSetting('ext:summary', LEGACY_EXTENSION_PROMPTS.summary)
     expect(migrateLegacyPrompts()).toBe(0)
-    await bootstrap()
+    seedUserDatabase()
     expect(getSetting('ext:summary')).toEqual(LEGACY_EXTENSION_PROMPTS.summary)
     expect(db.select().from(generationLogs).all()).toEqual(logs)
   } finally {

@@ -32,6 +32,7 @@ import { useMobile } from './hooks/useMobile'
 import { useQuickReplyAutomation } from './hooks/useQuickReplyAutomation'
 import { t } from './i18n'
 import { useAppearance } from './stores/appearance'
+import { useSessionStore } from './stores/session'
 import { useToasts } from './stores/toast'
 import { useUi, type View } from './stores/ui'
 
@@ -210,9 +211,10 @@ function PanelContent({ view }: { view: View }) {
 export function App() {
   useQuickReplyAutomation()
   const qc = useQueryClient()
+  const sessionStatus = useSessionStore((s) => s.status)
   useEffect(() => {
-    void loadExtensions(qc)
-  }, [qc])
+    if (sessionStatus === 'authenticated') void loadExtensions(qc)
+  }, [qc, sessionStatus])
   const { view, chatId, panelOpen, sidebarOpen, setSidebarOpen } = useUi()
   const mobile = useMobile()
   // 导航栏自动隐藏：打开侧边面板时固定显示（面板贴着它），否则鼠标移到左边缘才滑出

@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from 'bun:test'
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import type { ExtensionDTO, MessageDTO } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ComponentProps } from 'react'
@@ -8,9 +8,18 @@ import { keys } from '../api/queries'
 import * as ui from '../components/ui'
 import { MessageItem } from '../features/chat/MessageItem'
 import { SettingsEditor } from '../features/extensions/SettingsEditor'
+import { setSessionAnonymous, useSessionStore } from '../stores/session'
 import { BUILTIN_CLIENTS } from './builtin'
 import { emitClientEvent, hasListener, loadExtensions, useExtensionsRuntime } from './runtime'
 import { Slot } from './Slot'
+
+beforeEach(() => {
+  useSessionStore.setState({
+    status: 'authenticated',
+    user: { id: 'fixture-user', handle: 'fixture', name: 'Fixture', isAdmin: true },
+  })
+})
+afterEach(() => setSessionAnonymous())
 
 test('设置表单支持条件、密码、占位符、步长和分组', () => {
   const html = renderToStaticMarkup(
@@ -303,4 +312,39 @@ test('候选设置保持手动输入和自定义选择值', () => {
   expect(html).toContain('内置风格')
   expect(html).toContain('拉取模型')
   expect(html).toContain('拉取风格')
+})
+
+test('扩展启动等待会话；列表请求期间会话失效时不激活扩展', async () => {
+  const qc = new QueryClient()
+  const list = spyOn(api, 'listExtensions').mockResolvedValue([])
+  try {
+    for (const status of ['loading', 'anonymous'] as const) {
+      useSessionStore.setState({ status, user: null })
+      await loadExtensions(qc)
+    }
+    expect(list).not.toHaveBeenCalled()
+    useSessionStore.setState({ status: 'authenticated' })
+    let received!: () => void
+    let resolve!: (extensions: ExtensionDTO[]) => void
+    const requested = new Promise<void>((done) => {
+      received = done
+    })
+    list.mockImplementation(
+      () =>
+        new Promise<ExtensionDTO[]>((done) => {
+          resolve = done
+          received()
+        }),
+    )
+    const loading = loadExtensions(qc)
+    await requested
+    setSessionAnonymous()
+    resolve([])
+    await loading
+    expect(list).toHaveBeenCalledTimes(1)
+    expect(useExtensionsRuntime.getState()).toMatchObject({ slots: [], pages: [], listeners: [], transforms: [] })
+  } finally {
+    list.mockRestore()
+    qc.clear()
+  }
 })

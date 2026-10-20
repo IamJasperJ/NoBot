@@ -89,7 +89,7 @@ test('扩展管理：权限、Git 安装更新切换、热重载及目录缓存'
     expect(git.validateGitUrl('https://example.com/repo.git')).toBe('https://example.com/repo.git')
     expect(git.validateGitUrl('git@example.com:repo.git')).toBe('git@example.com:repo.git')
     for (const ref of ['--upload-pack=evil', 'a..b', 'a b', 'HEAD~1']) expect(() => git.validateGitRef(ref)).toThrow()
-    const folder = join(process.env.DATA_DIR!, 'extensions', 'manual')
+    const folder = join(process.env.DATA_DIR!, 'users/test/extensions', 'manual')
     await mkdir(folder, { recursive: true })
     const manifest = {
       id: 'manual',
@@ -107,7 +107,7 @@ test('扩展管理：权限、Git 安装更新切换、热重载及目录缓存'
       join(folder, 'server.ts'),
       `import value from './value.ts'; import host from '../host-relative.ts'; if (!host) throw new Error('relative import failed'); export default { macros: { sample: () => value }, tools: [], hooks: { transformInput: (text) => text + '!' }, routes(app) { app.get('/old', c => c.text('one')) }, dispose() { globalThis.__extensionDisposed = true } }`,
     )
-    const hidden = join(process.env.DATA_DIR!, 'extensions', '.hidden')
+    const hidden = join(process.env.DATA_DIR!, 'users/test/extensions', '.hidden')
     await mkdir(hidden)
     await Bun.write(join(hidden, 'index.ts'), "throw new Error('hidden must not run')")
     await registry.loadLocalExtensions()
@@ -303,10 +303,10 @@ test('扩展管理：权限、Git 安装更新切换、热重载及目录缓存'
     await git.runGit(['commit', '-m', 'broken'], work)
     await git.runGit(['push'], work)
     await expect(git.previewRepository(remote)).rejects.toMatchObject({ code: 'INVALID_EXTENSION' })
-    expect(await readdir(join(process.env.DATA_DIR!, 'extensions', '.staging'))).toEqual([])
-    await mkdir(join(process.env.DATA_DIR!, 'extensions', '.staging', 'orphan'))
+    expect(await readdir(join(process.env.DATA_DIR!, 'users/test/extensions', '.staging'))).toEqual([])
+    await mkdir(join(process.env.DATA_DIR!, 'users/test/extensions', '.staging', 'orphan'))
     await git.cleanupExtensionStaging()
-    expect(await readdir(join(process.env.DATA_DIR!, 'extensions', '.staging'))).toEqual([])
+    expect(await readdir(join(process.env.DATA_DIR!, 'users/test/extensions', '.staging'))).toEqual([])
   } finally {
     sqlite?.close()
     await rm(directory, { recursive: true, force: true })

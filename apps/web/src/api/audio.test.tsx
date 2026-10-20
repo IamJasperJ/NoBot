@@ -64,7 +64,8 @@ test('音频客户端与 hooks：元数据、表单、路由、错误和清单�
     expect(form.get('durationMs')).toBe('1250')
     expect(form.get('description')).toBe('calm')
     expect(form.get('file')).toBeInstanceOf(File)
-    expect(requests.at(-1)?.init?.headers).toBeUndefined()
+    // 上传表单不能手动设 Content-Type（要由浏览器带上 boundary）
+    expect(new Headers(requests.at(-1)?.init?.headers).has('Content-Type')).toBe(false)
     mode = 'error'
     await audioApi.upload({ file })
     const withoutDuration = requests.at(-1)!.init!.body as FormData

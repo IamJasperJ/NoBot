@@ -2,6 +2,7 @@ import type { ChatVoiceConfig, ChatVoiceDTO, TtsEngineId, TtsLineResult, TtsSpea
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { readError } from './client'
+import { apiFetch } from './fetch'
 
 export interface TtsOption {
   value: string
@@ -14,7 +15,7 @@ export interface TtsSegment {
   expression?: string
 }
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`/api/ext/audio/tts${path}`, {
+  const response = await apiFetch(`/api/ext/audio/tts${path}`, {
     method,
     signal,
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },

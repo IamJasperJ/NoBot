@@ -34,7 +34,8 @@ test('旧数据库扩展键迁移后，API 与角色卡导出保留属性卡和 
   for (const entry of journal.entries) {
     await cp(join(env.migrationsDir, `${entry.tag}.sql`), join(oldMigrations, `${entry.tag}.sql`))
   }
-  const old = new Database(join(directory, 'app.db'))
+  await mkdir(join(directory, 'users/test'), { recursive: true })
+  const old = new Database(join(directory, 'users/test/app.db'))
   let close = () => old.close()
   try {
     migrate(drizzle(old), { migrationsFolder: oldMigrations })

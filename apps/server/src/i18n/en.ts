@@ -1,5 +1,20 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  当前用户数据库已关闭: 'The current user database is closed',
+  没有当前用户上下文: 'No current user context',
+  请先登录: 'Please log in first',
+  只有管理员可以执行此操作: 'Only administrators can perform this action',
+  '登录失败次数过多，请稍后重试': 'Too many failed login attempts. Please try again later.',
+  '请设置 NOBOT_ADMIN_PASSWORD 并重启服务以创建管理员':
+    'Set NOBOT_ADMIN_PASSWORD and restart the server to create an administrator.',
+  用户名或密码错误: 'Invalid username or password',
+  旧密码错误: 'Incorrect old password',
+  用户名已存在: 'Username already exists',
+  '不能删除或禁用自己，也不能取消自己的管理员权限':
+    'You cannot delete or disable yourself or revoke your own administrator privileges.',
+  至少保留一个启用的管理员: 'At least one enabled administrator must remain.',
+  不允许跨站请求: 'Cross-site requests are not allowed',
+
   '本地抠图模型还没下载，请先在图片生成设置里下载':
     'The local matting model is not downloaded. Download it in image generation settings first.',
   该角色正在重新抠图: 'Sprites for this character are being cut out.',

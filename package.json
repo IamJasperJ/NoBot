@@ -15,7 +15,8 @@
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "db:generate": "bun run --filter '@nobot/server' db:generate"
+    "db:generate": "bun run --filter '@nobot/server' db:generate",
+    "db:generate:system": "bun run --filter '@nobot/server' db:generate:system"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

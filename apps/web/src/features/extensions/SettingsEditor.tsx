@@ -1,6 +1,7 @@
 import type { ExtensionSettingField } from '@nobot/shared'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { apiFetch } from '../../api/fetch'
 import { Combobox, type Option } from '../../components/combobox'
 import {
   DenseGrid,
@@ -753,7 +754,7 @@ function RemoteOptionsField({
         throw new Error(t('候选接口路径不合法'))
       // 草稿放在请求体里（可能含整份工作流 JSON，放进网址会超长）；候选列表跟随当前会话的连接
       const chatId = useUi.getState().chatId
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ settings: current.current, ...(chatId ? { chatId } : {}) }),

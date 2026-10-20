@@ -2,6 +2,7 @@ import { t } from '../../../i18n'
 import { getChatRow } from '../../../services/chats'
 import { getApiPresetRow } from '../../../services/connections'
 import { profileChatScope, resolveProfile, selectProfile } from '../../../services/profiles'
+import { currentUser } from '../../../user-context'
 import { getBackend } from './backends'
 import { imageFetch, jsonResponse, object } from './backends/http'
 import { imageModelOptions, type Option } from './options'
@@ -89,7 +90,8 @@ const cache = new Map<string, { expires: number; headers: string; promise: Promi
 export function comfyCapabilities(settings: Settings): Promise<Capabilities> {
   const url = settings.comfyUrl.replace(/\/+$/, '')
   const headers = comfyHeaders(settings)
-  const previous = cache.get(url)
+  const cacheKey = `${currentUser().handle}:${url}`
+  const previous = cache.get(cacheKey)
   const headerKey = JSON.stringify(headers)
   if (previous && previous.expires > Date.now() && previous.headers === headerKey) return previous.promise
   const promise = (async () => {
@@ -117,12 +119,12 @@ export function comfyCapabilities(settings: Settings): Promise<Capabilities> {
       vaes: options(values('VAELoader', 'vae_name')),
     }
   })().catch((error) => {
-    if (cache.get(url)?.promise === promise) cache.delete(url)
+    if (cache.get(cacheKey)?.promise === promise) cache.delete(cacheKey)
     throw new Error(
       t('ComfyUI 能力发现失败：{error}', { error: error instanceof Error ? error.message : String(error) }),
     )
   })
-  cache.set(url, { expires: Date.now() + 60000, headers: headerKey, promise })
+  cache.set(cacheKey, { expires: Date.now() + 60000, headers: headerKey, promise })
   return promise
 }
 export async function testConnection(settings: Settings) {

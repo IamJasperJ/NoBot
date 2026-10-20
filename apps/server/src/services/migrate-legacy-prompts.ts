@@ -22,7 +22,7 @@ export function migrateLegacyPrompts(): number {
     const utility = utilityPromptsSchema.parse({})
     for (const row of db.select().from(promptPresets).all()) {
       const before = count
-      for (const prompt of row.data.prompts) {
+      for (const prompt of row.data.prompts ?? []) {
         if (prompt.id === 'main' && prompt.content === LEGACY_MAIN_PROMPT) {
           prompt.content = DEFAULT_MAIN_PROMPT
           count++

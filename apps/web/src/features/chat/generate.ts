@@ -1,6 +1,7 @@
 import { type GenerateEvent, type GenerateInput, type ImpersonateEvent, type MessageDTO, parseSSE } from '@nobot/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import { readError } from '../../api/client'
+import { apiFetch } from '../../api/fetch'
 import { applyNewMessage, markIdle, refreshChatState, replaceMessage, resetChat } from '../../api/queries'
 import { emitCommandEvent } from '../../commands/events'
 import { emitClientEvent } from '../../extensions/runtime'
@@ -80,8 +81,8 @@ async function readStream(
 ) {
   const res =
     input === 'reconnect'
-      ? await fetch(`/api/chats/${chatId}/stream`)
-      : await fetch(`/api/chats/${chatId}/generate`, {
+      ? await apiFetch(`/api/chats/${chatId}/stream`)
+      : await apiFetch(`/api/chats/${chatId}/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(input),
@@ -173,7 +174,7 @@ export function runImpersonate(
   const controller = new AbortController()
   void (async () => {
     try {
-      const res = await fetch(`/api/chats/${chatId}/impersonate`, { method: 'POST', signal: controller.signal })
+      const res = await apiFetch(`/api/chats/${chatId}/impersonate`, { method: 'POST', signal: controller.signal })
       if (!res.ok || !res.body) throw await readError(res)
       for await (const msg of parseSSE(res.body)) {
         const e = JSON.parse(msg.data) as ImpersonateEvent

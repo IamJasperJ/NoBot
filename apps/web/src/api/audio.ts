@@ -1,10 +1,11 @@
 import type { AudioKind, AudioTrackDTO, importAudioUrlInput, updateAudioTrackInput } from '@nobot/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { readError } from './client'
+import { apiFetch } from './fetch'
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const form = body instanceof FormData
-  const response = await fetch(`/api/ext/audio${path}`, {
+  const response = await apiFetch(`/api/ext/audio${path}`, {
     method,
     headers: body !== undefined && !form ? { 'Content-Type': 'application/json' } : undefined,
     body: form ? body : body === undefined ? undefined : JSON.stringify(body),

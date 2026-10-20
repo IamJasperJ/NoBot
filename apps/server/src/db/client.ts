@@ -1,29 +1,24 @@
-import { Database } from 'bun:sqlite'
 import { eq } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/bun-sqlite'
-import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { monotonicFactory } from 'ulid'
-import { env, paths } from '../env'
+import { currentContext, type UserContext } from '../user-context'
 import * as schema from './schema'
 
-/** 原始的 SQLite 连接。递归查询这类 Drizzle 不好表达的 SQL 直接用它写 */
-export const sqlite = new Database(paths.db, { create: true, strict: true })
-
-// WAL 模式：读写互不阻塞；外键默认是关的，要手动打开才会级联删除
-sqlite.exec('PRAGMA journal_mode = WAL')
-sqlite.exec('PRAGMA synchronous = NORMAL')
-sqlite.exec('PRAGMA foreign_keys = ON')
-
-export const db = drizzle(sqlite, { schema })
-
-/** 单调递增的 ULID：同一毫秒内生成的 id 也保证有序，兄弟节点排序靠它 */
+function forward<K extends 'db' | 'sqlite'>(key: K): UserContext[K] {
+  return new Proxy({} as UserContext[K], {
+    get(_target, property) {
+      const target = currentContext()[key]
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+export const db = forward('db')
+export const sqlite = forward('sqlite')
 export const newId = monotonicFactory()
 
-/** 启动时执行：跑迁移、清理上次崩溃留下的状态。默认数据的写入在 bootstrap.ts */
+/** 兼容直接初始化数据库的测试；首次访问连接时已完成迁移与种子数据。 */
 export function initDatabase() {
-  migrate(db, { migrationsFolder: env.migrationsDir })
-  // 上次进程退出时还在生成的消息，标记为中止，避免界面上一直转圈
-  sqlite.exec(`UPDATE messages SET status = 'aborted' WHERE status = 'streaming'`)
+  currentContext()
 }
 
 export function getSetting<T>(key: string): T | undefined {

@@ -1,8 +1,9 @@
-import { expect, spyOn, test } from 'bun:test'
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import type { ExtensionDTO, ExtensionInstallPreview } from '@nobot/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { setSessionAnonymous, useSessionStore } from '../stores/session'
 import { ApiRequestError } from './client'
 import {
   useApproveExtension,
@@ -16,6 +17,14 @@ import {
 import { keys } from './queries'
 
 // fetch、effect 观察与 runtime 的全局状态隔离，避免影响其他前端测试。
+beforeEach(() => {
+  useSessionStore.setState({
+    status: 'authenticated',
+    user: { id: 'fixture-user', handle: 'fixture', name: 'Fixture', isAdmin: true },
+  })
+})
+afterEach(() => setSessionAnonymous())
+
 test('扩展管理 hooks：请求、刷新、安装生命周期与错误传递', async () => {
   if (!process.env.EXTENSION_MANAGER_TEST_CHILD) {
     const child = Bun.spawn([process.execPath, 'test', 'apps/web/src/api/extensionManager.test.tsx'], {

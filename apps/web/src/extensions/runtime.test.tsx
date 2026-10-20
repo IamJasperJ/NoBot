@@ -1,10 +1,19 @@
-import { expect, mock, spyOn, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import type { ExtensionDTO, MessageDTO } from '@nobot/shared'
 import { QueryClient } from '@tanstack/react-query'
 import { getCommand } from '../commands/registry'
+import { setSessionAnonymous, useSessionStore } from '../stores/session'
 import type { ClientExtensionAPI } from './types'
 
 // 模块 mock 和极小 DOM 仅存在于子进程，避免污染其他前端测试。
+beforeEach(() => {
+  useSessionStore.setState({
+    status: 'authenticated',
+    user: { id: 'fixture-user', handle: 'fixture', name: 'Fixture', isAdmin: true },
+  })
+})
+afterEach(() => setSessionAnonymous())
+
 test('前端扩展：注册排序、页面、事件、变换、失败隔离与热启停清理', async () => {
   if (!process.env.CLIENT_EXTENSION_TEST_CHILD) {
     const child = Bun.spawn([process.execPath, 'test', 'apps/web/src/extensions/runtime.test.tsx'], {

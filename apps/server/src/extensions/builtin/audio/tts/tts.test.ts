@@ -342,7 +342,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     // atime 作为访问顺序，刻意设成过去，避免文件系统时间精度影响淘汰断言。
     const old = (await cacheEntries())[0]!
     const { utimes } = await import('node:fs/promises')
-    await utimes(join(directory, 'tts-cache', old.name), new Date(0), new Date(0))
+    await utimes(join(directory, 'users/test/tts-cache', old.name), new Date(0), new Date(0))
     await synthesizeVoice(voice, 'new', smallCache)
     for (let attempt = 0; attempt < 100 && (await cacheEntries()).length > 1; attempt++) await Bun.sleep(1)
     const remaining = await cacheEntries()

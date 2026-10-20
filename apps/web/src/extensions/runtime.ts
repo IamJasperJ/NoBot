@@ -3,8 +3,10 @@ import type { QueryClient } from '@tanstack/react-query'
 import * as React from 'react'
 import { create } from 'zustand'
 import { api } from '../api/client'
+import { apiFetch } from '../api/fetch'
 import { registerCommand } from '../commands/registry'
 import { getLanguage, t } from '../i18n'
+import { useSessionStore } from '../stores/session'
 import { errorMessage, toast } from '../stores/toast'
 import { useUi, type View } from '../stores/ui'
 import { BUILTIN_CLIENTS } from './builtin'
@@ -94,7 +96,7 @@ function makeAPI(id: string, entry: Running, queryClient: QueryClient): ClientEx
       if (url.origin !== location.origin || !url.pathname.startsWith(`/api/ext/${id}/`)) {
         return Promise.reject(new Error(t('扩展接口路径不合法')))
       }
-      return fetch(url, init)
+      return apiFetch(url, init)
     },
     registerCommand: (command) => {
       if (entry.active) {
@@ -156,13 +158,20 @@ async function activate(extension: ExtensionDTO, queryClient: QueryClient, exist
     const builtin = extension.source === 'builtin' ? BUILTIN_CLIENTS[id] : undefined
     if (builtin) {
       const cleanup = await builtin(makeAPI(id, entry, queryClient))
-      if (typeof cleanup === 'function') entry.cleanup = cleanup
+      if (typeof cleanup === 'function') {
+        if (entry.active) entry.cleanup = cleanup
+        else cleanup()
+      }
     } else if (extension.client.script) {
       const path = `/api/extensions/${encodeURIComponent(id)}/client.js?v=${encodeURIComponent(extension.revision)}`
       const module = await import(/* @vite-ignore */ path)
+      if (!entry.active) return
       if (typeof module.default !== 'function') throw new Error(t('前端入口必须默认导出 activate 函数'))
       const cleanup = await (module.default as ActivateFn)(makeAPI(id, entry, queryClient))
-      if (typeof cleanup === 'function') entry.cleanup = cleanup
+      if (typeof cleanup === 'function') {
+        if (entry.active) entry.cleanup = cleanup
+        else cleanup()
+      }
     }
   } catch (e) {
     remove(id)
@@ -173,9 +182,13 @@ async function activate(extension: ExtensionDTO, queryClient: QueryClient, exist
 // 串行处理加载请求，避免 StrictMode 和连续切换重复注册贡献。
 let queue: Promise<void> = Promise.resolve()
 export function loadExtensions(queryClient: QueryClient, reloadId?: string) {
+  if (useSessionStore.getState().status !== 'authenticated') return Promise.resolve()
   queue = queue.then(async () => {
+    if (useSessionStore.getState().status !== 'authenticated') return
     try {
       const extensions = await api.listExtensions()
+      // 列表在途时会话可能已失效，不能继续请求 client.js。
+      if (useSessionStore.getState().status !== 'authenticated') return
       for (const id of running.keys()) {
         if (
           id === reloadId ||
@@ -188,6 +201,7 @@ export function loadExtensions(queryClient: QueryClient, reloadId?: string) {
           remove(id)
       }
       for (const extension of extensions) {
+        if (useSessionStore.getState().status !== 'authenticated') return
         if (
           !extension.enabled ||
           extension.needsApproval ||
@@ -219,6 +233,7 @@ export function loadExtensions(queryClient: QueryClient, reloadId?: string) {
         }
       }
       for (const extension of extensions) {
+        if (useSessionStore.getState().status !== 'authenticated') return
         if (
           extension.enabled &&
           !extension.needsApproval &&
@@ -236,6 +251,13 @@ export function loadExtensions(queryClient: QueryClient, reloadId?: string) {
   })
   return queue
 }
+
+// 会话失效后停止扩展的事件、定时任务与贡献，避免后台继续使用过期会话。
+useSessionStore.subscribe((state) => {
+  if (state.status !== 'authenticated') {
+    for (const id of running.keys()) remove(id)
+  }
+})
 
 export function emitClientEvent(event: ClientEvent) {
   for (const listener of useExtensionsRuntime.getState().listeners) {

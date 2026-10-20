@@ -6,6 +6,7 @@ import { applyLanguage, t, useLanguage } from '../../i18n'
 import { SIDEBAR_MAX, SIDEBAR_MIN, useAppearance } from '../../stores/appearance'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { AccountSection } from './AccountSection'
 import { usePlayPresetPanel } from './PlayPresets'
 import { useQuickReplyPanel } from './QuickReplies'
 
@@ -37,6 +38,7 @@ export function SettingsPage() {
       }
       list={
         <div className="space-y-2 px-1">
+          <AccountSection />
           {play.list}
           {quick.list}
           <p className="px-1 pt-1 text-xs text-zinc-500">

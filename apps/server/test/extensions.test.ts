@@ -58,7 +58,7 @@ test('扩展 v2：manifest、旧入口、接口、资源、存储、钩子与生
     ),
   )
   try {
-    const root = join(directory, 'extensions')
+    const root = join(directory, 'users/test/extensions')
     const fixture = join(root, 'b-fixture')
     await mkdir(fixture, { recursive: true })
     const manifest = {
@@ -139,6 +139,7 @@ test('扩展 v2：manifest、旧入口、接口、资源、存储、钩子与生
     sqlite = (await import('../src/db/client')).sqlite
     const { app } = await import('../src/app')
     const registry = await import('../src/extensions/registry')
+    await registry.ensureUserExtensions()
     const request = (path: string, method = 'GET', data?: unknown) =>
       app.request(`/api${path}`, {
         method,

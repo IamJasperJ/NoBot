@@ -3,6 +3,7 @@ import type { AttachmentDTO, ChoiceOption, MessageDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
 import { memo, useState } from 'react'
 import { api } from '../../api/client'
+import { apiFetch } from '../../api/fetch'
 import { keys, refreshChatState, replaceMessage, resetChat, useBookmarks, useSetAttachmentCg } from '../../api/queries'
 import {
   useMessageTranslation,
@@ -102,7 +103,7 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
       return
     setSaving(true)
     try {
-      const response = await fetch(`/api/ext/image-gen/${action}`, {
+      const response = await apiFetch(`/api/ext/image-gen/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageId: msg.id, ...edited }),

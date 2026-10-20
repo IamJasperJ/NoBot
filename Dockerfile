@@ -51,6 +51,7 @@ COPY packages/shared/src packages/shared/src
 COPY packages/shared/tsconfig.json packages/shared/tsconfig.json
 COPY apps/server/src apps/server/src
 COPY apps/server/drizzle apps/server/drizzle
+COPY apps/server/drizzle-system apps/server/drizzle-system
 COPY apps/server/tsconfig.json apps/server/tsconfig.json
 COPY --from=build /app/apps/web/dist apps/web/dist
 

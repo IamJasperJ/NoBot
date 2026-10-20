@@ -6,6 +6,8 @@ import {
   worldInfoSettingsSchema,
 } from '@nobot/shared'
 import { getSetting, setSetting } from '../db/client'
+import { requestLanguage } from '../i18n/request-language'
+import { hasUserContext } from '../user-context'
 
 /**
  * settings 表里的键集中在这里，避免到处写字符串。
@@ -33,6 +35,7 @@ export const SETTING_KEYS = {
 const DEFAULT_APP_SETTINGS: AppSettings = { language: 'zh' }
 
 export function getAppSettings(): AppSettings {
+  if (!hasUserContext()) return { language: requestLanguage.getStore() ?? 'zh' }
   let stored: object | undefined
   try {
     stored = getSetting<object>(SETTING_KEYS.app)

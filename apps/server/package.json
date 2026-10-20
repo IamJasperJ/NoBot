@@ -7,7 +7,8 @@
     "dev": "bun --watch src/index.ts",
     "start": "NODE_ENV=production bun src/index.ts",
     "typecheck": "tsc --noEmit -p .",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:generate:system": "drizzle-kit generate --config drizzle.system.config.ts"
   },
   "dependencies": {
     "@nobot/core": "workspace:*",

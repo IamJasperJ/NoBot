@@ -1,4 +1,5 @@
 import { t } from '../../i18n'
+import { currentUser } from '../../user-context'
 import { type Json, request } from '../common'
 import { type LlmConnection, LlmError } from '../types'
 
@@ -8,7 +9,8 @@ const encode = (value: string | Uint8Array) => Buffer.from(value).toString('base
 
 /** 缓存按账号隔离，并检查私钥，避免轮换凭证后继续使用旧 token。 */
 async function accessToken(account: Json, signal: AbortSignal, extra: Record<string, string>): Promise<string> {
-  const cached = tokens.get(account.client_email)
+  const cacheKey = `${currentUser().handle}:${account.client_email}`
+  const cached = tokens.get(cacheKey)
   if (cached && cached.key === account.private_key && cached.expires > Date.now() + 60_000) return cached.token
   const now = Math.floor(Date.now() / 1000)
   const unsigned = `${encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${encode(
@@ -39,7 +41,7 @@ async function accessToken(account: Json, signal: AbortSignal, extra: Record<str
   })
   const json = (await res.json()) as Json
   if (typeof json.access_token !== 'string') throw new LlmError('AUTH', t('Vertex 服务账号鉴权失败'))
-  tokens.set(account.client_email, {
+  tokens.set(cacheKey, {
     token: json.access_token,
     key: account.private_key,
     expires: Date.now() + Number(json.expires_in ?? 3600) * 1000,

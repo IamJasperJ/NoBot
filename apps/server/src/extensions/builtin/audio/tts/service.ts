@@ -9,6 +9,7 @@ import { getCharacterRow } from '../../../../services/characters'
 import { getChatRow, loadMessage } from '../../../../services/chats'
 import { resolvePersona } from '../../../../services/context'
 import { matchStageMember, stageMembers } from '../../../../services/stage'
+import { currentUser } from '../../../../user-context'
 import { toneInstruction } from './additional'
 import type { EffectiveAudioSettings } from './chat-voice'
 import { openaiConnection, ttsEngines } from './engines'
@@ -127,17 +128,26 @@ export async function cacheEntries() {
     )
   ).filter((entry) => entry !== null)
 }
-let maintenance = Promise.resolve()
+const maintenanceQueues = new Map<string, Promise<void>>()
+function maintenanceQueue() {
+  return maintenanceQueues.get(currentUser().handle) ?? Promise.resolve()
+}
+function setMaintenance(task: Promise<void>) {
+  maintenanceQueues.set(currentUser().handle, task)
+  return task
+}
 export async function clearTtsCache() {
   // 先等在途写入结束，清空之后不能被旧请求悄悄补回缓存。
-  await Promise.allSettled([...pending.values()])
-  maintenance = maintenance.then(async () => {
+  await Promise.allSettled(
+    [...pending].filter(([key]) => key.startsWith(`${currentUser().handle}:`)).map(([, task]) => task),
+  )
+  const task = maintenanceQueue().then(async () => {
     for (const entry of await cacheEntries()) await unlink(join(paths.ttsCache, entry.name)).catch(() => {})
   })
-  return maintenance
+  return setMaintenance(task)
 }
 function trimCache(maxMb: number) {
-  maintenance = maintenance
+  const task = maintenanceQueue()
     .then(async () => {
       const entries = (await cacheEntries()).sort((a, b) => a.atime - b.atime)
       let bytes = entries.reduce((sum, entry) => sum + entry.bytes, 0)
@@ -148,6 +158,7 @@ function trimCache(maxMb: number) {
       }
     })
     .catch(() => {})
+  setMaintenance(task)
 }
 export function cacheSettings(voice: VoiceRef, s: AudioSettings) {
   switch (voice.engine) {
@@ -191,7 +202,8 @@ export async function synthesizeVoice(
   const key = createHash('sha256')
     .update(JSON.stringify([voice, style, text, cacheSettings(voice, s)]))
     .digest('hex')
-  const existing = pending.get(key)
+  const pendingKey = `${currentUser().handle}:${key}`
+  const existing = pending.get(pendingKey)
   if (existing) return existing
   const task = (async (): Promise<TtsLineResult> => {
     for (const ext of ['mp3', 'wav']) {
@@ -211,10 +223,10 @@ export async function synthesizeVoice(
     trimCache(s.cacheMaxMb)
     return { kind: 'audio', url: `/api/assets/tts-cache/${name}` }
   })()
-  pending.set(key, task)
+  pending.set(pendingKey, task)
   try {
     return await task
   } finally {
-    pending.delete(key)
+    pending.delete(pendingKey)
   }
 }

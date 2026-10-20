@@ -8,7 +8,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db, getSetting, setSetting } from '../db/client'
 import { chats, messages, settings } from '../db/schema'
-import { env } from '../env'
+import { paths } from '../env'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { translateMetadata, translateSettingsSchema } from '../i18n/metadata'
@@ -17,6 +17,7 @@ import { cleanupExtensionStaging, readGitInfo } from '../services/extension-git'
 import { profileChatScope, selectProfile } from '../services/profiles'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
+import { currentUser } from '../user-context'
 import audio from './builtin/audio'
 import caption, { generateCaption } from './builtin/caption'
 import imageGen from './builtin/image-gen'
@@ -30,7 +31,7 @@ import type { Extension, ExtensionContext, ExtensionManifest, ServerEvent } from
 import { restoreSecrets, SECRET_MASK } from './types'
 
 /**
- * 扩展注册表：启动时加载内置扩展和 data/extensions/ 下的第三方扩展，
+ * 扩展注册表：启动时注册内置扩展，首次请求时加载当前用户目录下的第三方扩展，
  * 生成流程通过这里的 run* 函数调用已启用扩展的钩子。
  * 任何一个扩展的钩子出错都只记日志、跳过它，不影响聊天本身。
  */
@@ -50,14 +51,47 @@ interface Loaded {
 }
 
 const host = createExtensionHost(emitServerEvent)
-const loaded: Loaded[] = []
+const builtins: Loaded[] = []
+const userExtensions = new Map<string, Loaded[]>()
+const loading = new Map<string, Promise<unknown>>()
+function localExtensions() {
+  const handle = currentUser().handle
+  let entries = userExtensions.get(handle)
+  if (!entries) {
+    entries = []
+    userExtensions.set(handle, entries)
+  }
+  return entries
+}
+const visibleExtensions = () => [...builtins, ...localExtensions()]
+
+/** 每用户只懒加载一次；保留 promise 合并并发的首次请求。 */
+export async function ensureUserExtensions() {
+  const handle = currentUser().handle
+  let pending = loading.get(handle)
+  if (!pending) {
+    pending = loadLocalExtensions().catch((error) => {
+      loading.delete(handle)
+      throw error
+    })
+    loading.set(handle, pending)
+  }
+  await pending
+}
+export async function unloadUserExtensions() {
+  const handle = currentUser().handle
+  await loading.get(handle)
+  for (const entry of [...localExtensions()]) await unloadExtension(entry.extension.id)
+  userExtensions.delete(handle)
+  loading.delete(handle)
+}
 const requestChat = profileChatScope
 
 function createApp(extension: Extension): Hono | undefined {
   if (!extension.routes && !extension.commands?.length) return undefined
   const app = new Hono()
   app.use('*', async (c, next) => {
-    const current = loaded.find((entry) => entry.extension === extension)
+    const current = visibleExtensions().find((entry) => entry.extension === extension)
     if (!current || needsApproval(current)) throw notFound(t('扩展接口'))
     let chatId = c.req.query('chatId') ?? ''
     if (c.req.method === 'POST') {
@@ -131,9 +165,9 @@ function createApp(extension: Extension): Hono | undefined {
 
 /** 内置扩展与本地扩展共用路由和上下文，重复标识在注册时立即报错。 */
 export function registerBuiltinExtension(extension: Extension) {
-  if (loaded.some((entry) => entry.extension.id === extension.id))
+  if (builtins.some((entry) => entry.extension.id === extension.id))
     throw new Error(t('扩展 id「{id}」重复', { id: extension.id }))
-  loaded.push({ extension, source: 'builtin', app: createApp(extension) })
+  builtins.push({ extension, source: 'builtin', app: createApp(extension) })
 }
 
 registerBuiltinExtension(regex)
@@ -145,9 +179,9 @@ registerBuiltinExtension(translate)
 
 /** 注销在注册表中的旧对象，之后的请求不能再找到旧路由、命令和钩子。 */
 export async function unloadExtension(id: string) {
-  const index = loaded.findIndex((entry) => entry.extension.id === id && entry.source === 'local')
+  const index = localExtensions().findIndex((entry) => entry.extension.id === id)
   if (index < 0) return
-  const [entry] = loaded.splice(index, 1)
+  const [entry] = localExtensions().splice(index, 1)
   try {
     await entry?.extension.dispose?.()
   } catch (error) {
@@ -158,15 +192,15 @@ export async function unloadExtension(id: string) {
 }
 
 export function extensionLocation(id: string) {
-  const entry = loaded.find((entry) => entry.extension.id === id)
+  const entry = visibleExtensions().find((entry) => entry.extension.id === id)
   if (!entry) throw notFound(t('扩展'))
   return entry
 }
 
 /** 单扩展替换不触碰其他扩展；唯一运行目录同时刷新入口及其相对依赖。 */
 export async function reloadExtension(id: string, directory: string) {
-  const old = loaded.findIndex((entry) => entry.extension.id === id)
-  if (old >= 0 && loaded[old]?.source === 'builtin')
+  const old = localExtensions().findIndex((entry) => entry.extension.id === id)
+  if (builtins.some((entry) => entry.extension.id === id))
     throw new HttpError(400, 'BUILTIN_EXTENSION', t('不能替换或卸载内置扩展'))
   await unloadExtension(id)
   const entry = await loadDirectory(directory)
@@ -179,8 +213,8 @@ export async function reloadExtension(id: string, directory: string) {
     entry.extension = { id, name: id, description: '', version: '' }
     entry.app = undefined
   }
-  if (old >= 0) loaded.splice(Math.min(old, loaded.length), 0, entry)
-  else loaded.push(entry)
+  if (old >= 0) localExtensions().splice(Math.min(old, localExtensions().length), 0, entry)
+  else localExtensions().push(entry)
   return toDTO(entry)
 }
 
@@ -205,7 +239,7 @@ async function loadDirectory(directory: string): Promise<Loaded> {
     }
     if (server) {
       await localFile(directory, server)
-      runtime = join(env.dataDir, 'extensions', `.runtime-${crypto.randomUUID()}`)
+      runtime = join(paths.extensions, `.runtime-${crypto.randomUUID()}`)
       await mkdir(runtime, { recursive: true })
       await cp(directory, runtime, { recursive: true, filter: (path) => path.split('/').at(-1) !== '.git' })
       const url = pathToFileURL(await localFile(runtime, server))
@@ -217,7 +251,7 @@ async function loadDirectory(directory: string): Promise<Loaded> {
     }
     if (!extension.id || !extension.name) throw new Error(t('默认导出必须是 defineExtension({ id, name, ... })'))
     if (!/^[a-z0-9-]+$/.test(extension.id)) throw new Error(t('扩展 id 只能包含小写字母、数字和连字符'))
-    if (loaded.some((entry) => entry.extension.id === extension.id))
+    if (visibleExtensions().some((entry) => entry.extension.id === extension.id))
       throw new Error(t('扩展 id「{id}」重复', { id: extension.id }))
     const entry: Loaded = {
       extension,
@@ -248,23 +282,23 @@ async function loadDirectory(directory: string): Promise<Loaded> {
 /** 扫描时跳过管理目录；未变化的扩展保留原对象及路由。 */
 export async function loadLocalExtensions() {
   await cleanupExtensionStaging()
-  const dir = join(env.dataDir, 'extensions')
-  // 保持和原目录相同的深度，兼容扩展对宿主的既有相对导入。
+  const dir = paths.extensions
+  // 运行副本和安装目录同级，扩展自身的相对依赖无需改写。
   for (const name of await readdir(dir)) {
     if (!/^\.runtime-[0-9a-f-]{36}$/.test(name)) continue
     const path = join(dir, name)
-    if (!loaded.some((entry) => entry.runtime === path)) await rm(path, { recursive: true, force: true })
+    if (!visibleExtensions().some((entry) => entry.runtime === path)) await rm(path, { recursive: true, force: true })
   }
   const names = (await readdir(dir, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
     .map((entry) => entry.name)
     .sort()
   const directories = new Set(names.map((name) => join(dir, name)))
-  for (const entry of [...loaded])
+  for (const entry of visibleExtensions())
     if (entry.source === 'local' && entry.directory && !directories.has(entry.directory))
       await unloadExtension(entry.extension.id)
   for (const directory of directories) {
-    const existing = loaded.find((entry) => entry.directory === directory)
+    const existing = visibleExtensions().find((entry) => entry.directory === directory)
     const git = await readGitInfo(directory).catch(() => null)
     const fileRevision = await directoryRevision(directory).catch(() => '')
     const revision = git?.commit ?? fileRevision
@@ -291,7 +325,7 @@ function storageOf(id: string): ExtensionContext['storage'] {
 }
 
 export async function extensionAsset(id: string, kind: 'client' | 'style') {
-  const entry = loaded.find((l) => l.extension.id === id && isEnabled(l))
+  const entry = visibleExtensions().find((l) => l.extension.id === id && isEnabled(l))
   const file = entry?.manifest?.[kind]
   if (!entry?.directory || !file) throw notFound(t('扩展资源'))
   try {
@@ -309,7 +343,7 @@ function optionsSources(fields: ExtensionSettingField[]): string[] {
 }
 
 export function forwardExtension(id: string, request: Request) {
-  const entry = loaded.find((l) => l.extension.id === id && !l.loadError)
+  const entry = visibleExtensions().find((l) => l.extension.id === id && !l.loadError)
   if (!entry || needsApproval(entry)) throw notFound(t('扩展接口'))
   entry.app ??= createApp(entry.extension)
   if (!entry.app) throw notFound(t('扩展接口'))
@@ -319,7 +353,13 @@ export function forwardExtension(id: string, request: Request) {
   const isOptionsRequest =
     request.method === 'POST' &&
     optionsSources(entry.extension.settingsSchema ?? []).includes(url.pathname.replace(/^\/+/, ''))
-  if (!isEnabled(entry) && !isOptionsRequest) throw notFound(t('扩展接口'))
+  // 抠图组件全员共享，管理权限由具体路由校验，不依赖个人是否启用生图扩展。
+  const isMattingRequest =
+    entry.extension.id === 'image-gen' &&
+    ((request.method === 'GET' && url.pathname === '/matting/status') ||
+      (request.method === 'POST' && url.pathname === '/matting/install') ||
+      (request.method === 'DELETE' && url.pathname === '/matting'))
+  if (!isEnabled(entry) && !isOptionsRequest && !isMattingRequest) throw notFound(t('扩展接口'))
   return entry.app.fetch(new Request(url.toString(), request))
 }
 
@@ -412,18 +452,18 @@ function toDTO(l: Loaded): ExtensionDTO {
 
 /** 上传完成后按需说明；扩展关闭时不触发模型请求。 */
 export async function captionUpload(id: string, chatId?: string) {
-  const entry = loaded.find((entry) => entry.extension.id === 'caption')
+  const entry = visibleExtensions().find((entry) => entry.extension.id === 'caption')
   if (!entry || !isEnabled(entry)) return undefined
   return generateCaption(id, settingsOf(entry.extension), chatId)
 }
 
-export const listExtensions = () => loaded.map(toDTO)
+export const listExtensions = () => visibleExtensions().map(toDTO)
 
 export function updateExtension(
   id: string,
   patch: { enabled?: boolean; settings?: Record<string, unknown>; approvePermissions?: boolean },
 ) {
-  const l = loaded.find((x) => x.extension.id === id)
+  const l = visibleExtensions().find((x) => x.extension.id === id)
   if (!l) throw notFound(t('扩展'))
   if (patch.enabled && needsApproval(l) && !patch.approvePermissions)
     throw new HttpError(409, 'NEEDS_APPROVAL', t('启用扩展前需要确认权限'))
@@ -445,15 +485,17 @@ export function updateExtension(
 }
 
 function isCurrentActive(extension: Extension) {
-  return loaded.some((entry) => entry.extension === extension && isEnabled(entry))
+  return visibleExtensions().some((entry) => entry.extension === extension && isEnabled(entry))
 }
 
 /** 已启用的扩展及其设置 */
 function active(chatId: string): { ext: Extension; ctx: ExtensionContext }[] {
-  return loaded.filter(isEnabled).map((l) => ({
-    ext: l.extension,
-    ctx: contextOf(l.extension, chatId),
-  }))
+  return visibleExtensions()
+    .filter(isEnabled)
+    .map((l) => ({
+      ext: l.extension,
+      ctx: contextOf(l.extension, chatId),
+    }))
 }
 
 function safely<T>(ext: Extension, hook: string, fn: () => T, fallback: T): T {
@@ -534,25 +576,27 @@ function toolsOf(ext: Extension, chatId: string) {
 
 // 执行时重新读取设置，并使用工具调用所属的会话上下文。
 setExtensionToolsProvider((chatId = '') =>
-  loaded.filter(isEnabled).flatMap(({ extension: ext }) =>
-    toolsOf(ext, chatId).map((tool) => ({
-      source: ext.name,
-      tool: {
-        ...tool,
-        run: (args, ctx) => {
-          if (!isCurrentActive(ext)) throw new HttpError(400, 'EXTENSION_INACTIVE', t('扩展未启用或已重载'))
-          return profileChatScope.run(ctx.chatId, () =>
-            tool.run(args, { ...ctx, extension: contextOf(ext, ctx.chatId) }),
-          )
+  visibleExtensions()
+    .filter(isEnabled)
+    .flatMap(({ extension: ext }) =>
+      toolsOf(ext, chatId).map((tool) => ({
+        source: ext.name,
+        tool: {
+          ...tool,
+          run: (args, ctx) => {
+            if (!isCurrentActive(ext)) throw new HttpError(400, 'EXTENSION_INACTIVE', t('扩展未启用或已重载'))
+            return profileChatScope.run(ctx.chatId, () =>
+              tool.run(args, { ...ctx, extension: contextOf(ext, ctx.chatId) }),
+            )
+          },
         },
-      },
-    })),
-  ),
+      })),
+    ),
 )
 
 /** 角色立绘生成与扩展共用真实设置和配置组连接，禁用扩展时拒绝启动。 */
 export function imageGenerationContext(chatId = '', characterId?: string): ExtensionContext {
-  const entry = loaded.find((entry) => entry.extension.id === 'image-gen' && isEnabled(entry))
+  const entry = visibleExtensions().find((entry) => entry.extension.id === 'image-gen' && isEnabled(entry))
   if (!entry) throw new HttpError(400, 'IMAGE_DISABLED', t('图片生成扩展未启用'))
   const context = contextOf(entry.extension, chatId)
   if (!chatId && characterId) {

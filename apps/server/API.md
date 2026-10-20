@@ -11,6 +11,71 @@
 - 找不到资源通常返回 404，`code` 为 `NOT_FOUND`；无生成任务时为 `NO_JOB`
 - 「默认」的概念统一存在 settings 表（键见 `services/settings.ts` 的 `SETTING_KEYS`）
 
+## 登录与鉴权 `/auth`
+
+除 `GET /health`、`POST /auth/login`、`POST /auth/logout` 外，所有 `/api/*` 均要求有效会话，包括头像、立绘、附件、音频、TTS 缓存、扩展接口与扩展前端文件。未登录统一返回 401 `{ error: { code: 'UNAUTHORIZED', message } }`。前端页面本身无需登录。
+
+| 方法 | 路径 | 请求 | 返回 |
+| --- | --- | --- | --- |
+| POST | `/auth/login` | `{ handle, password }`（`loginInput`） | `CurrentUserDTO`，设置会话 cookie |
+| POST | `/auth/logout` | — | ok，删除当前会话并清 cookie；未登录也可调用 |
+| GET | `/auth/me` | — | `CurrentUserDTO` |
+| PUT | `/auth/password` | `{ oldPassword, newPassword }`（`changePasswordInput`） | ok，保留当前会话，撤销自己的其他会话 |
+
+密码使用 Argon2id；用户名遵循 `userHandleSchema`，只允许 2–32 位小写字母、数字、`-` 和 `_`，首位必须是字母或数字，创建后不能修改。新密码要求 8–256 位。
+
+会话 cookie 为 `nobot_session`，HttpOnly、SameSite=Lax、Path=/、Max-Age=30 天；HTTPS URL 或 `X-Forwarded-Proto: https` 时加 Secure。token 为 32 字节随机数的十六进制编码，system.db 只保存 SHA-256 哈希。有效会话距上次续期超过一天时同时续期数据库和 cookie，过期会话惰性清理。API 响应使用 `Cache-Control: private, no-store`，防止切换账号后复用旧资源。
+
+用户名不存在、密码错误、账号禁用均返回 401 `INVALID_CREDENTIALS`。连续登录失败按用户名和 IP 独立累计，5 次后锁定 1 分钟，再次失败指数增加，最多 15 分钟；锁定期间返回 429 `RATE_LIMITED`。默认 IP 来自 Bun 连接信息，仅 `TRUST_PROXY=1` 时读取 `X-Forwarded-For` 第一项。
+
+POST/PUT/PATCH/DELETE 如果携带 Origin，其 Host 必须与请求 Host 相同，否则返回 403 `FORBIDDEN`。未登录的提示按 `Accept-Language`（en 开头为英文，否则中文）；登录后按该用户自己的界面语言。
+
+## 用户管理 `/admin/users`
+
+下列接口仅管理员可用，普通用户返回 403 `FORBIDDEN`。DTO 不返回密码哈希。
+
+| 方法 | 路径 | 请求 | 返回 |
+| --- | --- | --- | --- |
+| GET | `/admin/users` | — | `UserDTO[]` |
+| POST | `/admin/users` | `{ handle, name, password, isAdmin? }`（`createUserInput`） | `UserDTO`；用户名已存在返回 409 `HANDLE_EXISTS` |
+| PATCH | `/admin/users/:id` | `{ name?, disabled?, isAdmin?, password? }`（`updateUserInput`） | `UserDTO` |
+| DELETE | `/admin/users/:id` | — | ok，撤销会话、dispose 第三方扩展、关闭用户库，将目录移入 deleted-users |
+
+禁用或管理员重置密码会撤销目标用户全部会话。不能禁用、删除自己或取消自己的管理员权限（400 `SELF_PROTECTED`）；至少保留一个启用的管理员（400 `LAST_ADMIN`）。删除用户保留数据目录，不做物理删除。
+
+抠图模型状态接口 `/ext/image-gen/matting/status` 对已登录用户开放；安装 `/ext/image-gen/matting/install` 和删除 `/ext/image-gen/matting` 仅管理员可操作，其他用户返回 403。
+
+## 数据目录与首次启动
+
+```text
+DATA_DIR/
+  system.db                      # 账号 users、会话 sessions，独立 drizzle-system 迁移
+  models/matting/                 # 所有用户共享的抠图组件与模型
+  users/<handle>/
+    app.db                       # 用户业务库，首次打开时执行 drizzle 迁移和播种
+    assets/
+      avatars/
+      sprites/
+      backgrounds/
+      attachments/
+      audio/
+    tts-cache/
+    extensions/                  # 用户自己安装的第三方扩展
+      .staging/
+      .runtime-<uuid>/
+  deleted-users/<handle>-<时间戳>/ # 删除账号后的归档
+```
+
+连接/API Key、人设、角色、世界书、预设、界面语言、日志、扩展启用/设置/storage 等均在各用户业务库中。内置扩展代码全员共享，第三方扩展仅在该用户第一次认证请求时懒加载，其 id 在“内置 + 该用户第三方”范围唯一。
+
+首次启动 users 为空时，`NOBOT_ADMIN_USERNAME` 默认为 `admin`，必须设置至少 8 位的 `NOBOT_ADMIN_PASSWORD` 才创建首位管理员。未设密码时服务仍启动，登录返回 503 `SETUP_REQUIRED`，旧数据不动。在 compose 中从 `.env` 注入这些环境变量。
+
+创建首位管理员时如存在旧 `DATA_DIR/app.db`，先将 app.db、WAL/SHM、assets、tts-cache、extensions 用 rename 移到管理员目录；任何移动失败都回滚已移动项，移动前不打开旧库。models 留在共享目录。
+
+已有账号后默认忽略 `NOBOT_ADMIN_PASSWORD` 并提示移除。忘记密码时同时设置 `NOBOT_ADMIN_RESET=1` 和管理员用户名/新密码后重启，可恢复该账号的密码、启用状态和管理员权限并撤销全部会话；恢复后立即移除这两个临时变量。
+
+生成系统迁移使用根目录 `bun run db:generate:system`；业务库仍使用 `bun run db:generate`。
+
 ## 连接 `/connections`
 
 | 方法 | 路径 | 说明 | 请求 | 返回 |

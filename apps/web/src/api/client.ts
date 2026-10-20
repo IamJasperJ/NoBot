@@ -8,6 +8,7 @@ import type {
   BackgroundFolderInput,
   BackgroundSettings,
   BookmarkDTO,
+  ChangePasswordInput,
   CharacterCgDTO,
   CharacterDTO,
   CharacterImportLorebook,
@@ -21,6 +22,8 @@ import type {
   CheckResult,
   ChoiceCheckInput,
   CreateChatInput,
+  CreateUserInput,
+  CurrentUserDTO,
   CutoutMode,
   ExtensionCatalogDTO,
   ExtensionDTO,
@@ -34,6 +37,7 @@ import type {
   GitStatusDTO,
   GroupDTO,
   GroupInput,
+  LoginInput,
   LorebookDTO,
   LorebookEntryData,
   LorebookEntryDTO,
@@ -70,11 +74,14 @@ import type {
   UpdateBackgroundInput,
   UpdateChatInput,
   UpdateSpriteInput,
+  UpdateUserInput,
   UsageDTO,
+  UserDTO,
   WorldInfoSettings,
 } from '@nobot/shared'
 import { emitCommandEvent } from '../commands/events'
 import { t } from '../i18n'
+import { apiFetch } from './fetch'
 
 /** 后端返回的错误。message 是可以直接展示给用户的中文提示 */
 export class ApiRequestError extends Error {
@@ -99,7 +106,7 @@ export async function readError(res: Response): Promise<ApiRequestError> {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const isForm = body instanceof FormData
-  const res = await fetch(`/api${path}`, {
+  const res = await apiFetch(`/api${path}`, {
     method,
     headers: body !== undefined && !isForm ? { 'Content-Type': 'application/json' } : undefined,
     body: isForm ? body : body !== undefined ? JSON.stringify(body) : undefined,
@@ -110,7 +117,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 /** 预览返回图片字节，错误与 JSON 接口保持一致。 */
 async function requestBlob(path: string, body: unknown): Promise<Blob> {
-  const res = await fetch(`/api${path}`, {
+  const res = await apiFetch(`/api${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -140,6 +147,14 @@ type Ok = { ok: true }
 
 /** 所有后端接口。路径和 apps/server/API.md 一一对应 */
 export const api = {
+  authMe: () => request<CurrentUserDTO>('GET', '/auth/me'),
+  login: (input: LoginInput) => request<CurrentUserDTO>('POST', '/auth/login', input),
+  logout: () => request<Ok>('POST', '/auth/logout'),
+  changePassword: (input: ChangePasswordInput) => request<Ok>('PUT', '/auth/password', input),
+  listUsers: () => request<UserDTO[]>('GET', '/admin/users'),
+  createUser: (input: CreateUserInput) => request<UserDTO>('POST', '/admin/users', input),
+  updateUser: (id: string, input: UpdateUserInput) => request<UserDTO>('PATCH', `/admin/users/${enc(id)}`, input),
+  deleteUser: (id: string) => request<Ok>('DELETE', `/admin/users/${enc(id)}`),
   spriteCutoutPreview: (characterId: string, spriteId: string, mode: CutoutMode) =>
     requestBlob(`/characters/${enc(characterId)}/sprites/${enc(spriteId)}/cutout/preview`, { mode }),
   startSpriteCutout: (characterId: string, ids: string[], mode: CutoutMode) =>

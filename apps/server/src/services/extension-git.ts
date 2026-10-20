@@ -10,7 +10,7 @@ import type {
 import { eq } from 'drizzle-orm'
 import { db, getSetting, setSetting } from '../db/client'
 import { settings } from '../db/schema'
-import { env } from '../env'
+import { paths } from '../env'
 import { HttpError, notFound } from '../errors'
 import { readManifest } from '../extensions/files'
 import { isApproved, permissionFingerprint, permissionWarnings } from '../extensions/permissions'
@@ -22,17 +22,24 @@ import {
   updateExtension,
 } from '../extensions/registry'
 import { t } from '../i18n'
+import { currentUser } from '../user-context'
 
-const root = () => join(env.dataDir, 'extensions')
+const root = () => paths.extensions
 const staging = () => join(root(), '.staging')
 const lifetime = 30 * 60 * 1000
 const pending = new Map<string, { directory: string; expires: number; timer: ReturnType<typeof setTimeout> }>()
 
 /** 所有管理写入串行执行，避免确认、切换与删除互相覆盖。 */
-let queue = Promise.resolve<unknown>(undefined)
+const queues = new Map<string, Promise<unknown>>()
 export function extensionOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const handle = currentUser().handle
+  const queue = queues.get(handle) ?? Promise.resolve()
   const next = queue.then(operation)
-  queue = next.catch(() => undefined)
+  const settled = next.catch(() => undefined)
+  queues.set(handle, settled)
+  void settled.finally(() => {
+    if (queues.get(handle) === settled) queues.delete(handle)
+  })
   return next
 }
 
@@ -129,7 +136,8 @@ export async function readGitInfo(directory: string): Promise<ExtensionGitInfo |
 export async function cleanupExtensionStaging() {
   await mkdir(staging(), { recursive: true })
   for (const entry of await readdir(staging())) {
-    if (!pending.has(entry)) await rm(join(staging(), entry), { recursive: true, force: true })
+    if (!pending.has(`${currentUser().handle}:${entry}`))
+      await rm(join(staging(), entry), { recursive: true, force: true })
   }
 }
 
@@ -151,7 +159,7 @@ export async function previewRepository(url: string, ref = ''): Promise<Extensio
     const detected = { server: !!manifest.server, client: !!(manifest.client || manifest.style) }
     const timer = setTimeout(() => void cancelInstall(token).catch(console.error), lifetime)
     timer.unref()
-    pending.set(token, { directory, expires: Date.now() + lifetime, timer })
+    pending.set(`${currentUser().handle}:${token}`, { directory, expires: Date.now() + lifetime, timer })
     return {
       token,
       manifest: { ...manifest, author: manifest.author ?? '' },
@@ -176,15 +184,23 @@ export async function previewRepository(url: string, ref = ''): Promise<Extensio
 }
 
 export async function cancelInstall(token: string) {
-  const item = pending.get(token)
+  const item = pending.get(`${currentUser().handle}:${token}`)
   if (!item) return
-  pending.delete(token)
+  pending.delete(`${currentUser().handle}:${token}`)
   clearTimeout(item.timer)
   await rm(item.directory, { recursive: true, force: true })
 }
 
+/** 删除账号前清理预览定时器，避免归档后旧定时器再次访问用户目录。 */
+export async function cancelUserInstallPreviews() {
+  const prefix = `${currentUser().handle}:`
+  for (const key of [...pending.keys()]) {
+    if (key.startsWith(prefix)) await cancelInstall(key.slice(prefix.length))
+  }
+}
+
 export async function confirmInstall(token: string, enable: boolean): Promise<ExtensionDTO> {
-  const item = pending.get(token)
+  const item = pending.get(`${currentUser().handle}:${token}`)
   if (!item || item.expires <= Date.now()) {
     await cancelInstall(token)
     throw new HttpError(400, 'INSTALL_EXPIRED', t('安装预览已过期，请重新预览'))
@@ -199,7 +215,7 @@ export async function confirmInstall(token: string, enable: boolean): Promise<Ex
   await rm(destination, { recursive: true, force: true })
   await rename(item.directory, destination)
   clearTimeout(item.timer)
-  pending.delete(token)
+  pending.delete(`${currentUser().handle}:${token}`)
   const extension = await reloadExtension(manifest.id, destination)
   if (extension.loadError) return extension
   return updateExtension(manifest.id, { enabled: enable, approvePermissions: enable })

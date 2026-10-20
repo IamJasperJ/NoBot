@@ -13,6 +13,13 @@ services:
       HOST: 0.0.0.0
       PORT: '3000'
       DATA_DIR: /app/data
+      # 首次启动从 .env 读取管理员密码，至少 8 位；创建成功后可移除密码变量。
+      NOBOT_ADMIN_USERNAME: ${NOBOT_ADMIN_USERNAME:-admin}
+      NOBOT_ADMIN_PASSWORD: ${NOBOT_ADMIN_PASSWORD:-}
+      # 忘记密码时临时设为 1，重启恢复管理员后立即改回 0。
+      NOBOT_ADMIN_RESET: ${NOBOT_ADMIN_RESET:-0}
+      # 只有受信任的反向代理能覆盖客户端 IP 时才设为 1。
+      TRUST_PROXY: ${TRUST_PROXY:-0}
     ports:
       # 默认只允许本机访问；
       - '${NOBOT_BIND_IP:-127.0.0.1}:${NOBOT_PORT:-3000}:3000'

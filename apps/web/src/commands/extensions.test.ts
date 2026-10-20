@@ -1,10 +1,19 @@
-import { expect, spyOn, test } from 'bun:test'
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test'
 import type { ExtensionDTO } from '@nobot/shared'
 import { QueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { loadExtensions } from '../extensions/runtime'
+import { setSessionAnonymous, useSessionStore } from '../stores/session'
 import { getCommand } from './registry'
 import { type CommandContext, runCommandLine } from './run'
+
+beforeEach(() => {
+  useSessionStore.setState({
+    status: 'authenticated',
+    user: { id: 'fixture-user', handle: 'fixture', name: 'Fixture', isAdmin: true },
+  })
+})
+afterEach(() => setSessionAnonymous())
 
 test('后端扩展命令自动注册、别名调用、重载和停用清理', async () => {
   let enabled = true

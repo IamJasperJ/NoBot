@@ -67,7 +67,9 @@ test('扩展宿主：消息、静默请求、内置路由、动态工具及保�
       .toBuffer()
     const attachment = await host.saveImage(bytes)
     expect(attachment).toMatchObject({ width: 4, height: 3 })
-    expect(await Bun.file(join(directory, 'assets', 'attachments', `${attachment.id}.webp`)).exists()).toBe(true)
+    expect(await Bun.file(join(directory, 'users/test/assets', 'attachments', `${attachment.id}.webp`)).exists()).toBe(
+      true,
+    )
     const actor = await json<CharacterDTO>('/characters', {
       name: '画师',
       description: '角色设定',

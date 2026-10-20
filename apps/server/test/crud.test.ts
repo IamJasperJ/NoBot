@@ -76,6 +76,11 @@ describe.skipIf(!process.env.CRUD_TEST_CHILD)('后端 CRUD 接口', () => {
 
   test('预设创建、读取、局部更新、复制、导入导出和默认项删除规则', async () => {
     const first = await json<PromptPresetDTO>('/presets', 'POST', { name: '中文预设', data: {} })
+    // 每用户首次打开时已有默认预设，先移除它再验证最后一个保护。
+    for (const preset of await json<PromptPresetDTO[]>('/presets'))
+      if (preset.id !== first.id) await json(`/presets/${preset.id}`, 'DELETE')
+    await json(`/presets/${first.id}/default`, 'POST')
+    first.isDefault = (await json<PromptPresetDTO>(`/presets/${first.id}`)).isDefault
     expect(first.isDefault).toBe(true)
     expect(first.data.samplers.temperature).toBeNumber()
     expect(first.data.prompts.find((prompt) => prompt.id === 'main')?.content).toContain(
@@ -121,21 +126,24 @@ describe.skipIf(!process.env.CRUD_TEST_CHILD)('后端 CRUD 接口', () => {
   test('人设创建、更新、默认切换、头像上传删除和最后一个保护', async () => {
     const first = await json<PersonaDTO>('/personas', 'POST', { name: '旅人', description: '原始描述' })
     const second = await json<PersonaDTO>('/personas', 'POST', { name: '骑士' })
+    // 播种人设也算在最后一个保护里，此场景只保留本次创建的两个人设。
+    for (const persona of await json<PersonaDTO[]>('/personas'))
+      if (persona.id !== first.id && persona.id !== second.id) await json(`/personas/${persona.id}`, 'DELETE')
     const changed = await json<PersonaDTO>(`/personas/${first.id}`, 'PATCH', { name: '旅行者' })
     expect(changed.description).toBe('原始描述')
     const avatar = await uploadJson<PersonaDTO>(`/personas/${first.id}/avatar`, png, '头像.png')
     expect(avatar.avatarUrl).toContain('.webp?v=')
     const image = await request(avatar.avatarUrl!.replace('/api', ''))
     expect(image.status).toBe(200)
-    expect(await Bun.file(join(directory, 'assets/avatars', `${first.id}.png`)).exists()).toBe(true)
+    expect(await Bun.file(join(directory, 'users/test/assets/avatars', `${first.id}.png`)).exists()).toBe(true)
     expect((await json<PersonaDTO>(`/personas/${first.id}/avatar`, 'DELETE')).avatarUrl).toBeNull()
-    expect(await Bun.file(join(directory, 'assets/avatars', `${first.id}.webp`)).exists()).toBe(false)
+    expect(await Bun.file(join(directory, 'users/test/assets/avatars', `${first.id}.webp`)).exists()).toBe(false)
     await json(`/personas/${second.id}/default`, 'POST')
     expect((await json<PersonaDTO[]>('/personas')).find((row) => row.id === second.id)?.isDefault).toBe(true)
     await uploadJson<PersonaDTO>(`/personas/${second.id}/avatar`, png, '头像.png')
     await json(`/personas/${second.id}`, 'DELETE')
-    expect(await Bun.file(join(directory, 'assets/avatars', `${second.id}.png`)).exists()).toBe(false)
-    expect(await Bun.file(join(directory, 'assets/avatars', `${second.id}.webp`)).exists()).toBe(false)
+    expect(await Bun.file(join(directory, 'users/test/assets/avatars', `${second.id}.png`)).exists()).toBe(false)
+    expect(await Bun.file(join(directory, 'users/test/assets/avatars', `${second.id}.webp`)).exists()).toBe(false)
     expect((await json<PersonaDTO[]>('/personas'))[0]?.isDefault).toBe(true)
     await error(`/personas/${first.id}`, 'DELETE', 400, 'LAST_PERSONA')
   })
@@ -220,7 +228,7 @@ describe.skipIf(!process.env.CRUD_TEST_CHILD)('后端 CRUD 接口', () => {
     expect(book.lorebook.name).toBe('龙的世界')
     expect(book.entries[0]?.content).toBe('龙居住的地方')
     expect(
-      new Uint8Array(await Bun.file(join(directory, 'assets/avatars', `${imported.id}.png`)).arrayBuffer()),
+      new Uint8Array(await Bun.file(join(directory, 'users/test/assets/avatars', `${imported.id}.png`)).arrayBuffer()),
     ).toEqual(new Uint8Array(cardPng))
     const copy = await json<CharacterDTO>(`/characters/${imported.id}/duplicate`, 'POST')
     expect(copy.name).toBe('白龙 副本')
@@ -298,8 +306,8 @@ describe.skipIf(!process.env.CRUD_TEST_CHILD)('后端 CRUD 接口', () => {
       await json(`/characters/${id}`, 'DELETE')
       await json(`/trash/characters/${id}`, 'DELETE')
     }
-    expect(await Bun.file(join(directory, 'assets/avatars', `${imported.id}.png`)).exists()).toBe(false)
-    expect(await Bun.file(join(directory, 'assets/avatars', `${copy.id}.webp`)).exists()).toBe(false)
+    expect(await Bun.file(join(directory, 'users/test/assets/avatars', `${imported.id}.png`)).exists()).toBe(false)
+    expect(await Bun.file(join(directory, 'users/test/assets/avatars', `${copy.id}.webp`)).exists()).toBe(false)
     await json(`/lorebooks/${book.lorebook.id}`, 'DELETE')
     await json(`/lorebooks/${jsonCard.lorebookIds[0]}`, 'DELETE')
   })

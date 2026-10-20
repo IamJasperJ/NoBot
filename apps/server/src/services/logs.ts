@@ -4,6 +4,7 @@ import { db, newId } from '../db/client'
 import { generationLogs } from '../db/schema'
 import { notFound } from '../errors'
 import { t } from '../i18n'
+import { hasUserContext } from '../user-context'
 
 /**
  * 请求日志：每次调用模型都记一条（请求体、结果、错误、耗时），用来排查问题，
@@ -50,6 +51,10 @@ export function insertLog(log: NewLog): string {
 
 /** 记录服务器内部错误（没有被业务代码处理的异常） */
 export function logError(where: string, err: unknown) {
+  if (!hasUserContext()) {
+    console.error(where, err)
+    return
+  }
   try {
     insertLog({
       kind: 'error',

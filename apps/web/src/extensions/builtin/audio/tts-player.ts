@@ -13,6 +13,52 @@ export const useTtsPlayer = create<{ messageId: string | null; playing: boolean 
 export const useTtsPlayback = useTtsPlayer
 export class TtsPlayer {
   private controller?: AbortController
+  private cache = new Map<string, TtsLineResult>()
+  private pending = new Map<string, Promise<TtsLineResult | undefined>>()
+  private lineKey(chatId: string, speaker: TtsSpeaker, text: string, expression?: string) {
+    const identity = speaker.kind === 'character' ? speaker.characterId : speaker.kind === 'npc' ? speaker.name : ''
+    return JSON.stringify([chatId, speaker.kind, identity, text, expression ?? null])
+  }
+  private cached(key: string) {
+    const result = this.cache.get(key)
+    if (result) {
+      this.cache.delete(key)
+      this.cache.set(key, result)
+    }
+    return result
+  }
+  async prefetchLine(chatId: string, speaker: TtsSpeaker, text: string, expression?: string) {
+    const key = this.lineKey(chatId, speaker, text, expression)
+    if (this.cached(key)) return
+    const existing = this.pending.get(key)
+    if (existing) {
+      await existing
+      return
+    }
+    const task = (async () => {
+      try {
+        const result = await this.api.line({ chatId, speaker, text, expression })
+        if (result.kind === 'audio') {
+          const response = await fetch(result.url)
+          if (!response.ok) throw new Error('TTS prefetch failed')
+          // 消费完整响应后浏览器才能缓存音频，避免播放时再等下载。
+          await response.arrayBuffer()
+        }
+        this.cache.set(key, result)
+        if (this.cache.size > 200) this.cache.delete(this.cache.keys().next().value!)
+        return result
+      } catch (error) {
+        console.warn('TTS prefetch failed', error)
+        return undefined
+      }
+    })()
+    this.pending.set(key, task)
+    try {
+      await task
+    } finally {
+      this.pending.delete(key)
+    }
+  }
   constructor(
     private api = ttsApi,
     private engine = audioEngine,
@@ -45,7 +91,11 @@ export class TtsPlayer {
   async speakLine(chatId: string, speaker: TtsSpeaker, text: string, expression?: string) {
     const controller = this.start(null)
     try {
-      await this.play(await this.api.line({ chatId, speaker, text, expression }, controller.signal), controller.signal)
+      const key = this.lineKey(chatId, speaker, text, expression)
+      const prepared = this.cached(key) ?? (await this.pending.get(key))
+      if (controller.signal.aborted) return
+      const result = prepared ?? (await this.api.line({ chatId, speaker, text, expression }, controller.signal))
+      await this.play(result, controller.signal)
     } catch (error) {
       if (!controller.signal.aborted) throw error
     } finally {

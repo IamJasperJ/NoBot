@@ -2213,7 +2213,6 @@ export const en: Record<string, string> = {
   旁白声音: 'Narrator voice',
   你的声音: 'Your voice',
   '角色卡（{value}）': 'Character card ({value})',
-  声音池自动分配: 'Assigned from the voice pool',
   NPC: 'NPCs',
   '这个会话里还没有出现过 NPC，可以手动添加名字。':
     'No NPCs have appeared in this chat yet. You can add a name manually.',
@@ -2222,4 +2221,6 @@ export const en: Record<string, string> = {
   '清除这个会话的所有声音设置，全部恢复跟随全局？':
     'Clear all voice settings for this chat and follow the global settings again?',
   全部恢复跟随全局: 'Reset to global',
+  '旁白声音（{value}）': 'Narrator voice ({value})',
+  '不读（没有可用声音）': 'Silent (no voice available)',
 }

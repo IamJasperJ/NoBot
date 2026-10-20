@@ -74,8 +74,8 @@ export const chatVoiceConfigSchema = z.object({
 export type ChatVoiceConfig = z.infer<typeof chatVoiceConfigSchema>
 export interface ChatVoiceDTO {
   config: ChatVoiceConfig
-  members: { id: string; name: string; cardVoice: VoiceRef | null }[]
-  npcs: { key: string; name: string; poolVoice: VoiceRef | null }[]
+  members: { id: string; name: string; cardVoice: VoiceRef | null; fallbackVoice: VoiceRef | null }[]
+  npcs: { key: string; name: string; poolVoice: VoiceRef | null; fallbackVoice: VoiceRef | null }[]
   global: {
     enabled: boolean
     autoRead: boolean

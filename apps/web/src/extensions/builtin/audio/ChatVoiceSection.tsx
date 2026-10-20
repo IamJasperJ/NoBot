@@ -60,6 +60,9 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
   const engineLabel = (id: string) => engines.data?.find((e) => e.id === id)?.label ?? id
   const describe = (v: VoiceRef | null) => (v ? `${engineLabel(v.engine)} · ${v.voice}` : t('无'))
   const onOff = (v: boolean) => (v ? t('开') : t('关'))
+  // 声音池为空时借用旁白声音；旁白也没有时不读
+  const fallback = (v: VoiceRef | null) =>
+    v ? t('旁白声音（{value}）', { value: describe(v) }) : t('不读（没有可用声音）')
 
   const update = (next: ChatVoiceConfig) => {
     setDraft(next)
@@ -160,7 +163,7 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
     ...npcs,
     ...Object.keys(draft.npcs)
       .filter((key) => !npcs.some((n) => n.key === key))
-      .map((key) => ({ key, name: key, poolVoice: null })),
+      .map((key) => ({ key, name: key, poolVoice: null, fallbackVoice: null })),
   ]
   const overridden = Object.keys(sanitize(draft)).some((k) => {
     const v = draft[k as keyof ChatVoiceConfig]
@@ -192,7 +195,7 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
           {members.map((m) =>
             overrideRow(
               m.name,
-              m.cardVoice ? t('角色卡（{value}）', { value: describe(m.cardVoice) }) : t('声音池自动分配'),
+              m.cardVoice ? t('角色卡（{value}）', { value: describe(m.cardVoice) }) : fallback(m.fallbackVoice),
               draft.characters[m.id],
               (v) => setCharacter(m.id, v),
             ),
@@ -208,7 +211,7 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
         {npcRows.map((n) =>
           overrideRow(
             n.name,
-            n.poolVoice ? t('声音池（{value}）', { value: describe(n.poolVoice) }) : t('声音池自动分配'),
+            n.poolVoice ? t('声音池（{value}）', { value: describe(n.poolVoice) }) : fallback(n.fallbackVoice),
             draft.npcs[n.key],
             (v) => setNpc(n.key, v),
             npcs.some((c) => c.key === n.key) ? undefined : () => setNpc(n.key, undefined),

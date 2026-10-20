@@ -114,7 +114,7 @@ export const ttsFields: ExtensionSettingField[] = [
   ).map(([key, label]) => ({ key, label, type: 'boolean' as const })),
   { key: 'narratorVoice', type: 'custom', label: '旁白声音' },
   { key: 'userVoice', type: 'custom', label: '用户声音' },
-  { key: 'npcVoices', type: 'custom', label: 'NPC 声音池' },
+  { key: 'npcVoices', type: 'custom', label: 'NPC 声音池', hint: '为空时，没设声音的角色和 NPC 用旁白声音' },
   { key: 'cacheMaxMb', type: 'number', label: '语音缓存上限（MB）', min: 0 },
   { key: 'openai', type: 'heading', label: 'OpenAI 兼容语音', defaultCollapsed: true },
   {

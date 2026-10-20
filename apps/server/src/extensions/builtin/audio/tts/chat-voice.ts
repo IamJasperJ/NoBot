@@ -64,9 +64,15 @@ export function chatVoiceDTO(storage: ExtensionStorage, chatId: string, global: 
     members: stageMembers(chatId).map(({ id, name }) => ({
       id,
       name,
+      fallbackVoice: poolVoice(name, settings.npcVoices) ?? settings.narratorVoice,
       cardVoice: voiceRefSchema.safeParse(getCharacterRow(id).extensions.nobot_tts).data ?? null,
     })),
-    npcs: [...candidates].map(([key, name]) => ({ key, name, poolVoice: poolVoice(key, global.npcVoices) })),
+    npcs: [...candidates].map(([key, name]) => ({
+      key,
+      name,
+      poolVoice: poolVoice(key, global.npcVoices),
+      fallbackVoice: poolVoice(key, settings.npcVoices) ?? settings.narratorVoice,
+    })),
     global: {
       enabled: global.ttsEnabled,
       autoRead: global.autoRead,

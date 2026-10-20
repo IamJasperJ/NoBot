@@ -60,6 +60,51 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     expect(resolveVoice(chat.id, { kind: 'narrator' }, settings)).toEqual({ kind: 'skip', reason: 'narration-off' })
     expect(poolVoice(' A B ', [voice])).toEqual(poolVoice('ab', [voice]))
     expect(poolVoice('npc', [])).toBeNull()
+    const unvoiced = createCharacter({ name: 'No Voice' })
+    const narrator: VoiceRef = { engine: 'browser', voice: 'narrator', speed: 1 }
+    for (const speaker of [
+      { kind: 'npc' as const, name: 'Stranger' },
+      { kind: 'character' as const, characterId: unvoiced.id },
+      { kind: 'npc' as const, name: character.name },
+    ]) {
+      // 已设卡片声音的成员仍然优先使用卡片，其余才借用旁白。
+      const expected = speaker.kind === 'npc' && speaker.name === character.name ? voice : narrator
+      const fallback = { ...audioSettings.parse({ narratorVoice: narrator }), readNarration: false }
+      expect(resolveVoice(chat.id, speaker, fallback)).toEqual(expected)
+      if (expected === narrator) {
+        expect(
+          resolveVoice(chat.id, speaker, {
+            ...fallback,
+            chatVoice: { characters: {}, npcs: {}, narratorVoice: null },
+          }),
+        ).toEqual({ kind: 'skip', reason: 'no-voice' })
+        expect(resolveVoice(chat.id, speaker, { ...fallback, npcVoices: [voice] })).toEqual(voice)
+        expect(
+          resolveVoice(chat.id, speaker, {
+            ...fallback,
+            chatVoice: { characters: {}, npcs: {}, narratorVoice: voice },
+          }),
+        ).toEqual(voice)
+      }
+    }
+
+    const fallbackChat = createChat({ characterId: unvoiced.id })
+    const { writeTemporaryActor: addFallbackNpc } = await import('../../../../services/temporary-actors')
+    addFallbackNpc(fallbackChat.id, 'Stranger', {
+      key: 'stranger',
+      name: 'Stranger',
+      image: null,
+      prompt: '',
+      status: 'done',
+      updatedAt: 0,
+    })
+    updateExtension('audio', { settings: { narratorVoice: narrator, npcVoices: [] } })
+    const fallbackDTO = await json<ChatVoiceDTO>(`/chat/${fallbackChat.id}`)
+    expect(fallbackDTO.members[0]).toMatchObject({ cardVoice: null, fallbackVoice: narrator })
+    expect(fallbackDTO.npcs[0]).toMatchObject({ poolVoice: null, fallbackVoice: narrator })
+    const mutedDTO = await json<ChatVoiceDTO>(`/chat/${fallbackChat.id}`, { narratorVoice: null }, 'PUT')
+    expect(mutedDTO.members[0]?.fallbackVoice).toBeNull()
+    expect(mutedDTO.npcs[0]?.fallbackVoice).toBeNull()
     expect(cleanTtsText('<scene bg="night" />\n<b>*Hi_*</b>')).toBe('Hi')
     const page = (await import('../../../../services/chats')).getChatPage(chat.id, {}, false)
     const opening = page.messages[0]!
@@ -103,7 +148,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     const before = await json<ChatVoiceDTO>(`/chat/${chat.id}`)
     expect(before.config).toEqual({ characters: {}, npcs: {} })
     expect(before.effective.enabled).toBe(true)
-    expect(before.members).toEqual([{ id: character.id, name: character.name, cardVoice: voice }])
+    expect(before.members).toEqual([{ id: character.id, name: character.name, cardVoice: voice, fallbackVoice: voice }])
     const { writeTemporaryActor } = await import('../../../../services/temporary-actors')
     for (const name of ['Bob', ' B ob ', 'Alice', 'Saved']) {
       writeTemporaryActor(chat.id, name, { key: name, name, image: null, prompt: '', status: 'done', updatedAt: 0 })
@@ -137,6 +182,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     })
     expect(saved.npcs.map((npc) => npc.key).sort()).toEqual(['bob', 'saved', 'stageonly'])
     expect(saved.npcs.every((npc) => JSON.stringify(npc.poolVoice) === JSON.stringify(voice))).toBe(true)
+    expect(saved.npcs.every((npc) => JSON.stringify(npc.fallbackVoice) === JSON.stringify(voice))).toBe(true)
     expect(saved.global.narratorVoice).toEqual(voice)
     expect(
       await json('/line', { chatId: chat.id, speaker: { kind: 'character', characterId: character.id }, text: 'Hi' }),

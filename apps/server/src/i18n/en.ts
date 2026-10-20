@@ -45,6 +45,7 @@ export const en: Record<string, string> = {
   'VN 自动播放等待语音': 'Wait for speech during VN autoplay',
   切句时打断语音: 'Interrupt speech when advancing',
   用表情控制语气: 'Use expressions for speech tone',
+  '为空时，没设声音的角色和 NPC 用旁白声音': 'When empty, characters without a voice and NPCs use the narrator voice',
   旁白声音: 'Narrator voice',
   用户声音: 'User voice',
   'NPC 声音池': 'NPC voice pool',

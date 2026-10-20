@@ -6,6 +6,17 @@ import { useVnVoiceStore } from '../../../stores/vnVoice'
 import type { SlotProps } from '../../types'
 import { ttsPlayer } from './tts-player'
 
+type VnProps = SlotProps['vn.layer']
+type SpokenBeat = Extract<VnProps['beats'][number], { kind: 'line' | 'narration' }>
+
+function speakerOf(beat: SpokenBeat, stage: VnProps['stage']): TtsSpeaker {
+  if (beat.kind === 'narration') return { kind: 'narrator' }
+  const actor = stage.cast.find((a) => a.key === castKey(beat.speaker))
+  return actor?.characterId
+    ? { kind: 'character', characterId: actor.characterId }
+    : { kind: 'npc', name: actor?.name ?? beat.speaker }
+}
+
 export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping }: SlotProps['vn.layer']) {
   const settings = useChatVoice(chatId).data?.effective
   const enabled = settings?.enabled === true && settings?.vnVoice !== false
@@ -13,6 +24,49 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
   const wait = settings?.vnWaitVoice !== false
   const ongoing = useRef<Promise<void>>(Promise.resolve())
   const seen = useRef(new Map<string, number>())
+  const prefetchSeen = useRef(new Map<string, { index: number; count: number }>())
+  const prefetchQueue = useRef<{ running: number; jobs: (() => Promise<void>)[] }>({ running: 0, jobs: [] })
+  useEffect(
+    () => () => {
+      // 同拍的流式刷新保留队列；离开当前拍、关闭或卸载时丢弃尚未开始的预取。
+      prefetchQueue.current.jobs = []
+    },
+    [chatId, playKey, beatIndex, enabled, skipping],
+  )
+  useEffect(() => {
+    if (!settings || !playKey || beatIndex === undefined) return
+    const previous = prefetchSeen.current.get(playKey)
+    prefetchSeen.current.set(playKey, { index: Math.max(previous?.index ?? -1, beatIndex), count: beats.length })
+    const forward =
+      previous === undefined
+        ? beats.slice(0, beatIndex).every((b) => b.kind === 'stage' || b.kind === 'sfx')
+        : beatIndex > previous.index || (beatIndex === previous.index && beats.length > previous.count)
+    if (!enabled || skipping || !forward) return
+    const queue = prefetchQueue.current
+    // 首次进入时包含当前拍；流式追加完整拍时也补齐预取窗口。
+    const upcoming = beats
+      .slice(previous === undefined ? beatIndex : beatIndex + 1)
+      .filter((beat): beat is SpokenBeat => beat.kind === 'line' || beat.kind === 'narration')
+      .slice(0, 3)
+    queue.jobs = upcoming.map((beat) => async () => {
+      await ttsPlayer.prefetchLine(
+        chatId,
+        speakerOf(beat, stage),
+        beat.text,
+        beat.kind === 'line' ? beat.expression : undefined,
+      )
+    })
+    const work = async () => {
+      queue.running++
+      try {
+        while (queue.jobs.length) await queue.jobs.shift()!()
+      } finally {
+        queue.running--
+      }
+    }
+    const available = Math.min(2 - queue.running, queue.jobs.length)
+    for (let i = 0; i < available; i++) void work()
+  }, [chatId, playKey, beatIndex, enabled, skipping, beats])
   useEffect(() => {
     if (!settings || !playKey || beatIndex === undefined) return
     const key = `${playKey}:${beatIndex}`
@@ -25,13 +79,7 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
         ? beats.slice(0, beatIndex).every((b) => b.kind === 'stage' || b.kind === 'sfx')
         : beatIndex > previous
     if (!enabled || skipping || !forward || (beat?.kind !== 'line' && beat?.kind !== 'narration')) return
-    let speaker: TtsSpeaker = { kind: 'narrator' }
-    if (beat.kind === 'line') {
-      const actor = stage.cast.find((a) => a.key === castKey(beat.speaker))
-      speaker = actor?.characterId
-        ? { kind: 'character', characterId: actor.characterId }
-        : { kind: 'npc', name: actor?.name ?? beat.speaker }
-    }
+    const speaker = speakerOf(beat, stage)
     if (wait) useVnVoiceStore.setState({ busyKey: key })
     let active = true
     const clear = () => {

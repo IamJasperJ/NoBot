@@ -4,6 +4,8 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '为空时，没设声音的角色和 NPC 用旁白声音':
+      return t('为空时，没设声音的角色和 NPC 用旁白声音')
     case 'MiniMax 自定义声音':
       return t('MiniMax 自定义声音')
     case '火山自定义声音':

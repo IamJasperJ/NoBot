@@ -109,6 +109,27 @@ export function createTtsEngines(
         )
       },
     },
+    fish: {
+      id: 'fish',
+      get label() {
+        return t('Fish Audio 语音')
+      },
+      configured: (s) => !!s.fishApiKey.trim() && !!s.fishEndpoint && !!s.fishModel,
+      voices: async (s) =>
+        s.fishVoices.filter((voice) => voice.id).map((voice) => ({ value: voice.id, label: voice.name || voice.id })),
+      synthesize: (input, s, signal) =>
+        synth(
+          s.fishEndpoint,
+          {
+            text: input.text,
+            reference_id: input.voice,
+            prosody: { speed: input.speed },
+            format: 'mp3',
+          },
+          { Authorization: `Bearer ${s.fishApiKey.trim()}`, model: s.fishModel },
+          signal,
+        ),
+    },
     gptsovits: {
       id: 'gptsovits',
       label: 'GPT-SoVITS',

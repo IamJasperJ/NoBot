@@ -166,6 +166,8 @@ export function cacheSettings(voice: VoiceRef, s: AudioSettings) {
       const connection = openaiConnection(s)
       return { model: s.openaiModel, baseUrl: connection.baseUrl, headers: connection.headers }
     }
+    case 'fish':
+      return { endpoint: s.fishEndpoint, model: s.fishModel }
     case 'gptsovits':
       return { endpoint: s.gptsovitsEndpoint, preset: s.gptsovitsVoices.find((v) => v.id === voice.voice) }
     case 'elevenlabs':

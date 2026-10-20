@@ -81,7 +81,7 @@ test('配置组优先级、删除、正则、生图连接与图片说明完整�
       apiPresetId: vision.id,
       model: 'gpt-5',
       regexScripts: [script],
-      imageConnectionId: vision.id,
+      image: { source: 'openai', connectionId: vision.id },
       promptConnectionId: vision.id,
     })
     await json('/profiles/default', 'PUT', { id: global.id })
@@ -101,7 +101,7 @@ test('配置组优先级、删除、正则、生图连接与图片说明完整�
     })
     await json(`/profiles/${bound.id}`, 'PUT', {
       ...bound,
-      imageConnectionId: legacy.id,
+      image: { source: 'openai', connectionId: legacy.id },
       promptConnectionId: vision.id,
     })
     updateCharacter(character.id, { profileId: bound.id })
@@ -109,7 +109,7 @@ test('配置组优先级、删除、正则、生图连接与图片说明完整�
       expect(resolveImageConnection(parseSettings({ source: 'openai' })).openaiBaseUrl).toBe('http://mock/v1')
       expect(
         resolveImageConnection(parseSettings({ source: 'openai', openaiConnectionId: vision.id })).openaiBaseUrl,
-      ).toBe('http://vision/v1')
+      ).toBe('http://mock/v1')
       await promptModels(parseSettings({}), chat.id)
       expect(urls.at(-1)).toBe('http://vision/v1/models')
     })

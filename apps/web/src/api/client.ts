@@ -53,6 +53,7 @@ import type {
   PlayPresetDTO,
   PresetData,
   ProfileDTO,
+  ProfileImage,
   ProfileInput,
   PromptPresetDTO,
   PromptPreview,
@@ -249,6 +250,24 @@ export const api = {
     return request<AttachmentDTO>('POST', '/attachments', form)
   },
   // ---- 连接 ----
+  connectionModels: async (id: string) =>
+    (await request<{ models: string[] }>('GET', `/connections/${enc(id)}/models`)).models,
+  imageModels: async (
+    image: ProfileImage | null,
+    settings?: Record<string, unknown>,
+    source = image?.source ?? 'openai',
+  ) =>
+    (
+      await request<{ options: { value: string; label: string }[] }>('POST', `/ext/image-gen/${source}/models`, {
+        profileImage: image,
+        settings,
+      })
+    ).options,
+  comfyWorkflowOptions: async () =>
+    (await request<{ options: { value: string; label: string }[] }>('POST', '/ext/image-gen/comfy/workflows', {}))
+      .options,
+  imageStyleOptions: async () =>
+    (await request<{ options: { value: string; label: string }[] }>('POST', '/ext/image-gen/styles', {})).options,
   listConnections: () => request<ApiPresetDTO[]>('GET', '/connections'),
   createConnection: (input: ApiPresetInput) => request<ApiPresetDTO>('POST', '/connections', input),
   updateConnection: (id: string, input: ApiPresetInput) => request<ApiPresetDTO>('PATCH', `/connections/${id}`, input),

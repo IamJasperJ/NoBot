@@ -39,6 +39,10 @@ export const audioSettings = z.object({
   openaiBaseUrl: z.string().default('https://api.openai.com/v1'),
   openaiApiKey: z.string().default(''),
   openaiModel: z.string().default('gpt-4o-mini-tts'),
+  fishApiKey: z.string().default(''),
+  fishEndpoint: z.url().default('https://api.fish.audio/v1/tts'),
+  fishModel: z.string().trim().min(1).default('s2.1-pro'),
+  fishVoices: z.array(z.object({ id: z.string().trim(), name: z.string().default('') })).default([]),
   gptsovitsEndpoint: z.string().default('http://127.0.0.1:9880'),
   gptsovitsVoices: z
     .array(
@@ -138,6 +142,31 @@ export const ttsFields: ExtensionSettingField[] = [
     visibleWhen: { key: 'openaiConnectionId', equals: '' },
   },
   { key: 'openaiModel', type: 'string', label: '语音模型' },
+  { key: 'fish', type: 'heading', label: 'Fish Audio 语音', defaultCollapsed: true },
+  { key: 'fishApiKey', type: 'string', label: 'Fish Audio 密钥', secret: true },
+  {
+    key: 'fishEndpoint',
+    type: 'string',
+    label: 'Fish Audio 语音地址',
+    hint: '填写完整 TTS 接口地址，默认 https://api.fish.audio/v1/tts',
+  },
+  {
+    key: 'fishModel',
+    type: 'string',
+    label: 'Fish Audio 合成模型',
+    hint: '例如 s2.1-pro；模型名称与声音 ID 不同',
+  },
+  {
+    key: 'fishVoices',
+    type: 'list',
+    label: 'Fish Audio 自定义声音',
+    hint: '声音标识填写 Fish Audio 的声音模型 ID（reference_id）',
+    titleKey: 'name',
+    itemFields: [
+      { key: 'id', type: 'string', label: '声音标识' },
+      { key: 'name', type: 'string', label: '声音名称' },
+    ],
+  },
   { key: 'gptsovits', type: 'heading', label: 'GPT-SoVITS 语音', defaultCollapsed: true },
   { key: 'gptsovitsEndpoint', type: 'string', label: 'GPT-SoVITS 地址' },
   {

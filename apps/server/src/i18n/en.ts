@@ -1,5 +1,7 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  '配置组指定的图片风格不存在：{style}': 'The image style specified by the profile does not exist: {style}',
+  '拉取模型列表失败：{error}': 'Failed to fetch models: {error}',
   当前用户数据库已关闭: 'The current user database is closed',
   没有当前用户上下文: 'No current user context',
   请先登录: 'Please log in first',

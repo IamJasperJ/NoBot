@@ -6,24 +6,20 @@ import { currentUser } from '../../../user-context'
 import { getBackend } from './backends'
 import { imageFetch, jsonResponse, object } from './backends/http'
 import { imageModelOptions, type Option } from './options'
+import { applyProfileImage } from './profile'
 import type { Settings } from './settings'
 
-export function resolveImageConnection(settings: Settings): Settings {
-  // 设置里没选连接时，用会话生效的连接配置组里指定的图片连接 / 提示词连接
-  const chatId = profileChatScope.getStore()
-  const profile = selectProfile(chatId ? getChatRow(chatId) : undefined).profile
-  const image = profile?.imageConnectionId || ''
-  settings = {
-    ...settings,
-    openaiConnectionId: settings.openaiConnectionId || (settings.source === 'openai' ? image : ''),
-    openrouterConnectionId: settings.openrouterConnectionId || (settings.source === 'openrouter' ? image : ''),
-    promptConnectionId: settings.promptConnectionId || profile?.promptConnectionId || '',
+/** 已经由注册表合并过配置组的设置可跳过再次合并，避免角色组被全局组覆盖。 */
+export function resolveImageConnection(settings: Settings, applyProfile = true): Settings {
+  if (applyProfile) {
+    const chatId = profileChatScope.getStore()
+    settings = applyProfileImage(settings, selectProfile(chatId ? getChatRow(chatId) : undefined).profile)
   }
   return getBackend(settings).resolveConnection?.(settings) ?? settings
 }
 /** 端点的全部模型都返回（不按名字筛选），看起来是图片模型的排在前面并标注 */
 export async function openaiModels(settings: Settings) {
-  const resolved = resolveImageConnection({ ...settings, source: 'openai' })
+  const resolved = resolveImageConnection({ ...settings, source: 'openai' }, false)
   const body = await jsonResponse(
     await imageFetch(`${resolved.openaiBaseUrl.replace(/\/+$/, '')}/models`, {
       headers: openaiRequestHeaders(resolved),
@@ -128,6 +124,6 @@ export function comfyCapabilities(settings: Settings): Promise<Capabilities> {
   return promise
 }
 export async function testConnection(settings: Settings) {
-  await getBackend(settings).test(resolveImageConnection(settings))
+  await getBackend(settings).test(resolveImageConnection(settings, false))
   return { ok: true, message: t('连接成功') }
 }

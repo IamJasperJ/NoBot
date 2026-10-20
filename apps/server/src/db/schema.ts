@@ -10,6 +10,7 @@ import type {
   MessageStatus,
   PlayPresetData,
   PresetData,
+  ProfileImage,
   PromptRole,
   RegexScript,
   SaveSnapshot,
@@ -144,7 +145,7 @@ export const profiles = sqliteTable('profiles', {
   promptPresetId: text('prompt_preset_id').references(() => promptPresets.id, { onDelete: 'set null' }),
   model: text('model').notNull().default(''),
   regexScripts: text('regex_scripts', { mode: 'json' }).$type<RegexScript[]>(),
-  imageConnectionId: text('image_connection_id').references(() => apiPresets.id, { onDelete: 'set null' }),
+  image: text('image', { mode: 'json' }).$type<ProfileImage>(),
   promptConnectionId: text('prompt_connection_id').references(() => apiPresets.id, { onDelete: 'set null' }),
   ...timestamps,
 })

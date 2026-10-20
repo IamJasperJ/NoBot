@@ -91,7 +91,7 @@ interface Snapshot {
   rawPrompt?: string
 }
 async function freeze(ctx: Context, input: GenerateInput): Promise<Snapshot> {
-  const settings = structuredClone(resolveImageConnection(parseSettings(ctx.settings)))
+  const settings = structuredClone(resolveImageConnection(parseSettings(ctx.settings), false))
   validate(settings)
   const prepared = structuredClone(prepare(ctx, input))
   // 原始描述已提取，不为每张图重复持久化整段聊天历史。
@@ -597,7 +597,7 @@ export async function retry(
   // 和这张图本身相关的内容沿用原任务：提示词、负面提示词、画幅比例、冻结的头像数据
   let settings: Settings
   try {
-    settings = structuredClone(resolveImageConnection(parseSettings(ctx.settings)))
+    settings = structuredClone(resolveImageConnection(parseSettings(ctx.settings), false))
     validate(settings)
   } catch (error) {
     retryLocks.delete(messageId)
@@ -707,12 +707,12 @@ export async function toBackground(ctx: Context, messageId: string, index: numbe
     chatId ?? message.chatId,
     new Uint8Array(await Bun.file(join(paths.attachments, `${image.id}.webp`)).arrayBuffer()),
     message.meta.name ?? t('图片'),
-    resolveImageConnection(parseSettings(ctx.settings)),
+    resolveImageConnection(parseSettings(ctx.settings), false),
     message.meta.imageGen?.prompt ?? '',
   )
 }
 export async function testImage(ctx: Context) {
-  const settings = resolveImageConnection(parseSettings(ctx.settings))
+  const settings = resolveImageConnection(parseSettings(ctx.settings), false)
   const started = Date.now()
   const size = dimensions(settings)
   const bytes = await renderImage(
@@ -928,7 +928,7 @@ export async function autoBackground(ctx: Context, chatId: string): Promise<void
       stage,
     )
     if (!bg) return
-    validate(resolveImageConnection(parseSettings(ctx.settings)))
+    validate(resolveImageConnection(parseSettings(ctx.settings), false))
     const key = JSON.stringify([chatId, bg])
     if (backgroundTasks.has(key)) return
     backgroundTasks.set(key, chatId)

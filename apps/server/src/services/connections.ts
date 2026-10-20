@@ -136,3 +136,11 @@ export async function testConnection(input: TestConnectionInput): Promise<TestCo
     return { ok: false, models: [], error: e instanceof Error ? e.message : String(e) }
   }
 }
+
+/** 复用连接测试中的模型发现，密钥和请求头仅在服务端读取。 */
+export async function connectionModels(id: string): Promise<{ models: string[] }> {
+  const result = await testConnection({ presetId: id })
+  if (!result.ok)
+    throw new HttpError(400, 'MODELS_FAILED', t('拉取模型列表失败：{error}', { error: result.error ?? '' }))
+  return { models: result.models }
+}

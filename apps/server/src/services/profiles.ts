@@ -28,8 +28,8 @@ export function listProfiles(): ProfileDTO[] {
 export function saveProfile(input: ProfileInput, id?: string): ProfileDTO {
   const data = profileInput.parse(input)
   if (id) getProfile(id)
-  for (const key of ['apiPresetId', 'imageConnectionId', 'promptConnectionId'] as const)
-    if (data[key]) getApiPresetRow(data[key])
+  for (const key of ['apiPresetId', 'promptConnectionId'] as const) if (data[key]) getApiPresetRow(data[key])
+  if (data.image?.connectionId) getApiPresetRow(data.image.connectionId)
   if (data.promptPresetId && !db.select().from(promptPresets).where(eq(promptPresets.id, data.promptPresetId)).get())
     throw notFound(t('生成预设'))
   const now = Date.now()
@@ -99,7 +99,7 @@ export function resolveProfile(chat?: ChatRow, requireConnection = true) {
     model,
     preset: parsePresetWithEnglishDefaults(presetRow?.data ?? {}),
     regex: profile?.regexScripts ?? null,
-    imageConnectionId: profile?.imageConnectionId ?? null,
+    image: profile?.image ?? null,
     promptConnectionId: profile?.promptConnectionId ?? null,
     source,
     summary: { baseUrl: connection?.baseUrl ?? '', model, presetName: presetRow?.name ?? '', source },

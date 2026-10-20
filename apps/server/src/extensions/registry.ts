@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { cp, mkdir, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -21,6 +22,8 @@ import { currentUser } from '../user-context'
 import audio from './builtin/audio'
 import caption, { generateCaption } from './builtin/caption'
 import imageGen from './builtin/image-gen'
+import { applyProfileImage } from './builtin/image-gen/profile'
+import { parseSettings as parseImageSettings } from './builtin/image-gen/settings'
 import regex from './builtin/regex'
 import summary from './builtin/summary'
 import translate from './builtin/translate'
@@ -86,6 +89,8 @@ export async function unloadUserExtensions() {
   loading.delete(handle)
 }
 const requestChat = profileChatScope
+// 配置组编辑草稿必须从扩展原始设置起步，不能继承当前会话已经合并的配置组。
+const imageProfileDraft = new AsyncLocalStorage<boolean>()
 
 function createApp(extension: Extension): Hono | undefined {
   if (!extension.routes && !extension.commands?.length) return undefined
@@ -94,12 +99,14 @@ function createApp(extension: Extension): Hono | undefined {
     const current = visibleExtensions().find((entry) => entry.extension === extension)
     if (!current || needsApproval(current)) throw notFound(t('扩展接口'))
     let chatId = c.req.query('chatId') ?? ''
+    let hasImageDraft = false
     if (c.req.method === 'POST') {
       const body: unknown = await c.req.raw
         .clone()
         .json()
         .catch(() => null)
       if (body && typeof body === 'object') {
+        hasImageDraft = Object.hasOwn(body, 'profileImage')
         if ('chatId' in body && typeof body.chatId === 'string') chatId = body.chatId
         else if ('messageId' in body && typeof body.messageId === 'string') {
           const row = db.select().from(messages).where(eq(messages.id, body.messageId)).get()
@@ -107,7 +114,7 @@ function createApp(extension: Extension): Hono | undefined {
         }
       }
     }
-    await requestChat.run(chatId, next)
+    await imageProfileDraft.run(hasImageDraft, () => requestChat.run(chatId, next))
   })
   app.onError((error, c) =>
     c.json(
@@ -155,6 +162,7 @@ function createApp(extension: Extension): Hono | undefined {
   }
   extension.routes?.(app, {
     get settings() {
+      if (extension.id === 'image-gen' && imageProfileDraft.getStore()) return settingsOf(extension)
       return contextOf(extension, requestChat.getStore() ?? '').settings
     },
     storage: storageOf(extension.id),
@@ -352,7 +360,8 @@ export function forwardExtension(id: string, request: Request) {
   // 设置页允许在启用前编辑草稿，因此只放行声明过的候选 POST 接口，其他操作仍需启用扩展。
   const isOptionsRequest =
     request.method === 'POST' &&
-    optionsSources(entry.extension.settingsSchema ?? []).includes(url.pathname.replace(/^\/+/, ''))
+    (optionsSources(entry.extension.settingsSchema ?? []).includes(url.pathname.replace(/^\/+/, '')) ||
+      (entry.extension.id === 'image-gen' && ['/styles', '/comfy/workflows'].includes(url.pathname)))
   // 抠图组件全员共享，管理权限由具体路由校验，不依赖个人是否启用生图扩展。
   const isMattingRequest =
     entry.extension.id === 'image-gen' &&
@@ -545,16 +554,12 @@ export function runTransform(kind: 'transformInput' | 'transformOutput', text: s
 }
 
 function contextOf(ext: Extension, chatId: string): ExtensionContext {
-  const settings = settingsOf(ext)
+  let settings = settingsOf(ext)
   if (ext.id === 'image-gen') {
     const profile = selectProfile(
       chatId ? db.select().from(chats).where(eq(chats.id, chatId)).get() : undefined,
     ).profile
-    // 配置组的图片连接只填给当前选中的后端（和 discovery.resolveImageConnection 一致）
-    const source = settings.source ?? 'openai'
-    if (source === 'openai') settings.openaiConnectionId ||= profile?.imageConnectionId ?? ''
-    if (source === 'openrouter') settings.openrouterConnectionId ||= profile?.imageConnectionId ?? ''
-    settings.promptConnectionId ||= profile?.promptConnectionId ?? ''
+    settings = applyProfileImage(parseImageSettings(settings), profile)
   }
   if (ext.id === 'regex' && chatId) {
     const scripts = selectProfile(db.select().from(chats).where(eq(chats.id, chatId)).get()).profile?.regexScripts
@@ -601,12 +606,7 @@ export function imageGenerationContext(chatId = '', characterId?: string): Exten
   const context = contextOf(entry.extension, chatId)
   if (!chatId && characterId) {
     const profile = selectProfile({ characterId, groupId: null, profileId: null }).profile
-    const settings = settingsOf(entry.extension)
-    const source = settings.source ?? 'openai'
-    if (source === 'openai') settings.openaiConnectionId ||= profile?.imageConnectionId ?? ''
-    if (source === 'openrouter') settings.openrouterConnectionId ||= profile?.imageConnectionId ?? ''
-    settings.promptConnectionId ||= profile?.promptConnectionId ?? ''
-    context.settings = settings
+    context.settings = applyProfileImage(parseImageSettings(settingsOf(entry.extension)), profile)
   }
   return context
 }

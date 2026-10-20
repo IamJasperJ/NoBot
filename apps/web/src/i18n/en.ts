@@ -1762,11 +1762,8 @@ export const en: Record<string, string> = {
   取消全局默认: 'Unset global default',
   '和这个角色聊天时用哪组连接、模型和预设（会话里还可以临时换）。群聊不使用角色绑定':
     'Which connection, model and preset to use when chatting with this character (chats can still switch). Group chats ignore character bindings',
-  '图片生成扩展里没选「复用连接」时，用这里的连接出图（OpenAI 兼容 / OpenRouter）':
-    'Used for images when the image generation extension has no reused connection selected (OpenAI-compatible / OpenRouter)',
   '图片生成扩展里没选写提示词的连接时，用这里的连接写生图提示词':
     'Used to write image prompts when the image generation extension has no prompt connection selected',
-  图片生成连接: 'Image generation connection',
   已保存配置组: 'Profile saved',
   '已删除 {count} 张背景': 'Deleted {count} backgrounds',
   已加入文件夹: 'Added to folder',
@@ -1796,7 +1793,6 @@ export const en: Record<string, string> = {
   '没有规则：这个配置组生效时不运行任何正则替换': 'No rules: no regex replacements run while this profile is in effect',
   沿用全局规则: 'Use global rules',
   '生效中：{name}（{source}）': 'In effect: {name} ({source})',
-  留空使用连接里设置的模型: "Leave empty to use the connection's model",
   移出文件夹: 'Remove from folder',
   聊天连接: 'Chat connection',
   自动判断: 'Auto',
@@ -2302,4 +2298,23 @@ export const en: Record<string, string> = {
   '重置「{name}」的密码': 'Reset password for "{name}"',
   '至少 8 位；重置后该用户所有设备都要重新登录': 'At least 8 characters. The user is signed out on all devices.',
   重置: 'Reset',
+  '拉取中…': 'Fetching…',
+  拉取模型列表: 'Fetch model list',
+  '留空使用连接里设置的模型；可以直接输入，也可以点右边按钮从连接拉取列表':
+    "Leave empty to use the connection's model. Type a model ID, or fetch the list from the connection with the button on the right.",
+  '「跟随扩展」时完全使用图片生成扩展里的设置；选了后端后，下面各项留空的仍跟随扩展':
+    '"Follow extension" uses the image generation extension settings as-is. After picking a backend, any field left empty below still follows the extension.',
+  跟随图片生成扩展: 'Follow image generation extension',
+  图片连接: 'Image connection',
+  用哪个连接的地址和密钥出图: 'Which connection URL and key to generate images with',
+  跟随扩展: 'Follow extension',
+  服务地址: 'Server URL',
+  留空跟随扩展: 'Leave empty to follow the extension',
+  '模型（Checkpoint）': 'Model (checkpoint)',
+  图片模型: 'Image model',
+  '留空跟随扩展；可以直接输入，也可以点右边按钮拉取':
+    'Leave empty to follow the extension. Type a model, or fetch the list with the button on the right.',
+  工作流在图片生成扩展里管理: 'Workflows are managed in the image generation extension',
+  '风格（正负向提示词）在图片生成扩展里管理':
+    'Styles (positive and negative prompts) are managed in the image generation extension',
 }

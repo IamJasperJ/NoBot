@@ -1,20 +1,30 @@
-import type { ProfileDTO, ProfileInput, RegexScript } from '@nobot/shared'
-import { type ReactNode, useState } from 'react'
+import type { ApiPresetDTO, ProfileDTO, ProfileImage, ProfileInput, RegexScript } from '@nobot/shared'
+import { type ReactNode, useId, useState } from 'react'
+import {
+  useComfyWorkflowOptions,
+  useConnectionModels,
+  useImageModels,
+  useImageStyleOptions,
+} from '../../api/profileModels'
 import { useConnections, useExtensions, usePresets, useProfileMutations, useProfiles } from '../../api/queries'
-import { Section, SelectField, TextField } from '../../components/form'
-import { CheckIcon, TrashIcon } from '../../components/icons'
+import { Combobox } from '../../components/combobox'
+import { DenseRow, Section, SelectField, TextField } from '../../components/form'
+import { CheckIcon, RefreshIcon, TrashIcon } from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Menu, MenuEntry } from '../../components/menu'
-import { Button } from '../../components/ui'
+import { Button, IconButton } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 
 /**
- * 连接配置组（对应酒馆的 Connection Profiles）：把聊天连接、模型、生成预设、正则规则、图片连接打包成一组，
+ * 连接配置组（对应酒馆的 Connection Profiles）：把聊天连接、模型、生成预设、正则规则、图片生成设置打包成一组，
  * 可以设为全局默认、绑定到角色，或在会话里临时切换。生效顺序：会话 > 角色 > 全局默认 > 旧的单独设置。
  */
 
-type Draft = Required<Omit<ProfileInput, 'regexScripts'>> & { regexScripts: RegexScript[] | null }
+type Draft = Required<Omit<ProfileInput, 'regexScripts' | 'image'>> & {
+  regexScripts: RegexScript[] | null
+  image: ProfileImage | null
+}
 
 const emptyDraft = (): Draft => ({
   name: '',
@@ -22,7 +32,7 @@ const emptyDraft = (): Draft => ({
   promptPresetId: null,
   model: '',
   regexScripts: null,
-  imageConnectionId: null,
+  image: null,
   promptConnectionId: null,
 })
 const toDraft = (p: ProfileDTO): Draft => ({
@@ -31,12 +41,86 @@ const toDraft = (p: ProfileDTO): Draft => ({
   promptPresetId: p.promptPresetId,
   model: p.model,
   regexScripts: p.regexScripts,
-  imageConnectionId: p.imageConnectionId,
+  image: p.image,
   promptConnectionId: p.promptConnectionId,
 })
 
 /** 下拉框里「不指定」用空串表示，存的时候换成 null */
 const orNull = (v: string) => v || null
+
+/** 连接在下拉框里的名字：「名字 · 域名」，比「名字（聊天模型）」更好分辨 */
+function connectionLabel(c: ApiPresetDTO) {
+  let host = c.baseUrl
+  try {
+    host = new URL(c.baseUrl).host
+  } catch {}
+  return host ? `${c.name} · ${host}` : c.name
+}
+
+const IMAGE_SOURCES: { value: ProfileImage['source']; label: string }[] = [
+  { value: 'openai', label: 'OpenAI 兼容接口' },
+  { value: 'openrouter', label: 'OpenRouter' },
+  { value: 'comfy', label: 'ComfyUI' },
+  { value: 'a1111', label: 'A1111 / Forge' },
+]
+const emptyImage = (source: ProfileImage['source']): ProfileImage => ({
+  source,
+  connectionId: null,
+  url: '',
+  model: '',
+  comfyWorkflow: null,
+  style: '',
+})
+
+/** 可以手填、也可以从接口拉取后选的模型输入框；拉取结果缓存，右边按钮强制刷新 */
+function ModelField({
+  label,
+  hint,
+  value,
+  placeholder,
+  options,
+  loading,
+  error,
+  onRefresh,
+  onChange,
+}: {
+  label: string
+  hint: string
+  value: string
+  placeholder: string
+  options: string[]
+  loading: boolean
+  error: unknown
+  onRefresh: () => void
+  onChange: (v: string) => void
+}) {
+  const id = useId()
+  return (
+    <DenseRow id={id} label={label} hint={error ? `${hint}\n${errorMessage(error)}` : hint}>
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <Combobox
+          id={id}
+          label={label}
+          className="min-w-0 flex-1"
+          value={value}
+          options={options.map((m) => ({ value: m, label: m }))}
+          disabled={false}
+          placeholder={placeholder}
+          onChange={onChange}
+        />
+        <IconButton
+          label={loading ? t('拉取中…') : t('拉取模型列表')}
+          className="size-8 shrink-0"
+          disabled={loading}
+          onClick={onRefresh}
+        >
+          <RefreshIcon className={loading ? 'animate-spin' : undefined} />
+        </IconButton>
+      </div>
+      {!!error && <span className="sr-only">{errorMessage(error)}</span>}
+    </DenseRow>
+  )
+}
 
 export function ProfilesManager({ tabs }: { tabs: ReactNode }) {
   const query = useProfiles()
@@ -60,9 +144,18 @@ export function ProfilesManager({ tabs }: { tabs: ReactNode }) {
 
   const connectionOptions = (empty: string) => [
     { value: '', label: empty },
-    ...(connections.data ?? []).map((c) => ({ value: c.id, label: `${c.name}（${c.model}）` })),
+    ...(connections.data ?? []).map((c) => ({ value: c.id, label: connectionLabel(c) })),
   ]
-  const chosen = connections.data?.find((c) => c.id === draft?.apiPresetId)
+  // 不指定连接时用全局默认连接，模型列表也从它拉
+  const chosen =
+    connections.data?.find((c) => c.id === draft?.apiPresetId) ?? connections.data?.find((c) => c.isDefault)
+  const chatModels = useConnectionModels(chosen?.id ?? null, !!draft)
+  const image = draft?.image ?? null
+  const imageModels = useImageModels(image, !!image)
+  const workflows = useComfyWorkflowOptions()
+  const styles = useImageStyleOptions()
+  const setImage = (patch: Partial<ProfileImage>) =>
+    draft?.image && setDraft({ ...draft, image: { ...draft.image, ...patch } })
 
   const save = async () => {
     if (!draft || !dirty || busy) return
@@ -188,11 +281,15 @@ export function ProfilesManager({ tabs }: { tabs: ReactNode }) {
                   onChange={(v) => setDraft({ ...draft, apiPresetId: orNull(v) })}
                   options={connectionOptions(t('不指定'))}
                 />
-                <TextField
+                <ModelField
                   label={t('模型')}
-                  hint={t('留空使用连接里设置的模型')}
-                  placeholder={chosen?.model ?? ''}
+                  hint={t('留空使用连接里设置的模型；可以直接输入，也可以点右边按钮从连接拉取列表')}
                   value={draft.model}
+                  placeholder={chosen?.model ?? ''}
+                  options={chatModels.data ?? []}
+                  loading={chatModels.isFetching}
+                  error={chatModels.error}
+                  onRefresh={() => void chatModels.refetch()}
                   onChange={(model) => setDraft({ ...draft, model })}
                 />
                 <SelectField
@@ -208,12 +305,72 @@ export function ProfilesManager({ tabs }: { tabs: ReactNode }) {
               </Section>
               <Section dense title={t('图片')}>
                 <SelectField
-                  label={t('图片生成连接')}
-                  hint={t('图片生成扩展里没选「复用连接」时，用这里的连接出图（OpenAI 兼容 / OpenRouter）')}
-                  value={draft.imageConnectionId ?? ''}
-                  onChange={(v) => setDraft({ ...draft, imageConnectionId: orNull(v) })}
-                  options={connectionOptions(t('不指定'))}
+                  label={t('图片生成')}
+                  hint={t('「跟随扩展」时完全使用图片生成扩展里的设置；选了后端后，下面各项留空的仍跟随扩展')}
+                  value={image?.source ?? ''}
+                  onChange={(v) => setDraft({ ...draft, image: v ? { ...(image ?? emptyImage(v)), source: v } : null })}
+                  options={[
+                    { value: '' as const, label: t('跟随图片生成扩展') },
+                    ...IMAGE_SOURCES.map((o) => ({ ...o, label: t(o.label) })),
+                  ]}
                 />
+                {image && (image.source === 'openai' || image.source === 'openrouter') && (
+                  <SelectField
+                    label={t('图片连接')}
+                    hint={t('用哪个连接的地址和密钥出图')}
+                    value={image.connectionId ?? ''}
+                    onChange={(v) => setImage({ connectionId: orNull(v) })}
+                    options={connectionOptions(t('跟随扩展'))}
+                  />
+                )}
+                {image && (image.source === 'comfy' || image.source === 'a1111') && (
+                  <TextField
+                    label={t('服务地址')}
+                    hint={t('留空跟随扩展')}
+                    placeholder={image.source === 'comfy' ? 'http://127.0.0.1:8188' : 'http://127.0.0.1:7860'}
+                    value={image.url}
+                    onChange={(url) => setImage({ url })}
+                  />
+                )}
+                {image && (
+                  <ModelField
+                    label={
+                      image.source === 'comfy' || image.source === 'a1111' ? t('模型（Checkpoint）') : t('图片模型')
+                    }
+                    hint={t('留空跟随扩展；可以直接输入，也可以点右边按钮拉取')}
+                    value={image.model}
+                    placeholder={t('跟随扩展')}
+                    options={(imageModels.data ?? []).map((o) => o.value)}
+                    loading={imageModels.isFetching}
+                    error={imageModels.error}
+                    onRefresh={() => void imageModels.refetch()}
+                    onChange={(model) => setImage({ model })}
+                  />
+                )}
+                {image?.source === 'comfy' && (
+                  <SelectField
+                    label={t('工作流')}
+                    hint={t('工作流在图片生成扩展里管理')}
+                    value={image.comfyWorkflow === null ? '\u0000follow' : image.comfyWorkflow}
+                    onChange={(v) => setImage({ comfyWorkflow: v === '\u0000follow' ? null : v })}
+                    options={[
+                      { value: '\u0000follow', label: t('跟随扩展') },
+                      ...(workflows.data ?? []).map((o) => ({ value: o.value, label: o.label })),
+                    ]}
+                  />
+                )}
+                {image && (
+                  <SelectField
+                    label={t('风格')}
+                    hint={t('风格（正负向提示词）在图片生成扩展里管理')}
+                    value={image.style}
+                    onChange={(style) => setImage({ style })}
+                    options={[
+                      { value: '', label: t('跟随扩展') },
+                      ...(styles.data ?? []).map((o) => ({ value: o.value, label: o.label })),
+                    ]}
+                  />
+                )}
                 <SelectField
                   label={t('写提示词的连接')}
                   hint={t('图片生成扩展里没选写提示词的连接时，用这里的连接写生图提示词')}

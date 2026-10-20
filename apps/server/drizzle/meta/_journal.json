@@ -141,6 +141,20 @@
       "when": 1792492308173,
       "tag": "0019_slimy_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792511661812,
+      "tag": "0020_brave_shiva",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1792511666985,
+      "tag": "0021_real_the_phantom",
+      "breakpoints": true
     }
   ]
 }

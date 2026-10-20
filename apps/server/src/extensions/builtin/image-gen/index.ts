@@ -1,3 +1,4 @@
+import { profileImageSchema } from '@nobot/shared'
 import { z } from 'zod'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
@@ -22,6 +23,7 @@ import {
   testImage,
   toBackground,
 } from './pipeline'
+import { applyProfileImage } from './profile'
 import { defaultSettings, parseSettings, settingsSchema } from './settings'
 import { temporaryActorRoutes } from './temporary-actors'
 import { autoActors, autoCgs } from './vn6'
@@ -169,10 +171,18 @@ export default defineExtension({
     )
     for (const id of ['openai', 'comfy', 'a1111', 'openrouter'] as const) {
       const discover = async (c: import('hono').Context) => {
-        const settings = resolveImageConnection({
-          ...parseSettings(await parseSettingsDraft(c, ctx.settings)),
-          source: id,
-        })
+        const body = await draftBody(c)
+        const base = { ...parseSettings(await parseSettingsDraft(c, ctx.settings)), source: id }
+        // 显式草稿独立于当前配置组，null 表示完全使用扩展设置。
+        const settings = Object.hasOwn(body, 'profileImage')
+          ? resolveImageConnection(
+              applyProfileImage(base, {
+                image: profileImageSchema.nullable().parse(body.profileImage),
+                promptConnectionId: null,
+              }),
+              false,
+            )
+          : resolveImageConnection(base)
         const backend = getBackend(settings)
         return {
           ...(await backend.discover(settings)),

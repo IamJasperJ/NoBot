@@ -32,8 +32,8 @@ export async function startSpriteJob(characterId: string, input: unknown): Promi
   const data = generateSpritesInput.parse(input)
   const { imageGenerationContext } = await import('../extensions/registry')
   const ctx = imageGenerationContext('', characterId)
-  getBackend(resolveImageConnection(parseSettings(ctx.settings))).validate(
-    resolveImageConnection(parseSettings(ctx.settings)),
+  getBackend(resolveImageConnection(parseSettings(ctx.settings), false)).validate(
+    resolveImageConnection(parseSettings(ctx.settings), false),
   )
   if (running.has(characterId)) throw new HttpError(409, 'SPRITE_BUSY', t('该角色正在生成立绘'))
   const jobId = newId()
@@ -76,7 +76,7 @@ export async function generateSpriteSet(
   const state = progress ?? { total: expressions.length, done: 0, failed: 0, status: 'pending' }
   state.status = 'running'
   try {
-    const settings = structuredClone(resolveImageConnection(parseSettings(ctx.settings)))
+    const settings = structuredClone(resolveImageConnection(parseSettings(ctx.settings), false))
     const backdrop = settings.spriteMatting === 'algorithm' ? settings.spriteBackdrop : 'white'
     const background = backdrop === 'green' ? 'solid chroma-key green (#00FF00) background' : 'white background'
     const style = resolvePromptStyle(settings)

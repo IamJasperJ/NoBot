@@ -10,6 +10,7 @@ export const connectionRoutes = new Hono()
   .post('/test', validate('json', testConnectionInput), async (c) =>
     c.json(await connections.testConnection(c.req.valid('json'))),
   )
+  .get('/:id/models', async (c) => c.json(await connections.connectionModels(c.req.param('id'))))
   .patch('/:id', validate('json', connections.apiPresetPatchInput), (c) =>
     c.json(connections.updateApiPreset(c.req.param('id'), c.req.valid('json'))),
   )

@@ -4,6 +4,22 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case 'Fish Audio 语音':
+      return t('Fish Audio 语音')
+    case 'Fish Audio 密钥':
+      return t('Fish Audio 密钥')
+    case 'Fish Audio 语音地址':
+      return t('Fish Audio 语音地址')
+    case '填写完整 TTS 接口地址，默认 https://api.fish.audio/v1/tts':
+      return t('填写完整 TTS 接口地址，默认 https://api.fish.audio/v1/tts')
+    case 'Fish Audio 合成模型':
+      return t('Fish Audio 合成模型')
+    case '例如 s2.1-pro；模型名称与声音 ID 不同':
+      return t('例如 s2.1-pro；模型名称与声音 ID 不同')
+    case 'Fish Audio 自定义声音':
+      return t('Fish Audio 自定义声音')
+    case '声音标识填写 Fish Audio 的声音模型 ID（reference_id）':
+      return t('声音标识填写 Fish Audio 的声音模型 ID（reference_id）')
     case '立绘抠图':
       return t('立绘抠图')
     case '抠图模式':

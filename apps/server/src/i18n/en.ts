@@ -1,5 +1,16 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  'Fish Audio 语音': 'Fish Audio speech',
+  'Fish Audio 密钥': 'Fish Audio API key',
+  'Fish Audio 语音地址': 'Fish Audio speech endpoint',
+  '填写完整 TTS 接口地址，默认 https://api.fish.audio/v1/tts':
+    'Enter the full TTS endpoint URL. Default: https://api.fish.audio/v1/tts',
+  'Fish Audio 合成模型': 'Fish Audio speech model',
+  '例如 s2.1-pro；模型名称与声音 ID 不同': 'For example, s2.1-pro. The speech model and voice ID are different.',
+  'Fish Audio 自定义声音': 'Fish Audio custom voices',
+  '声音标识填写 Fish Audio 的声音模型 ID（reference_id）':
+    'Use the Fish Audio voice model ID (reference_id) as the voice identifier.',
+
   '配置组指定的图片风格不存在：{style}': 'The image style specified by the profile does not exist: {style}',
   '拉取模型列表失败：{error}': 'Failed to fetch models: {error}',
   当前用户数据库已关闭: 'The current user database is closed',

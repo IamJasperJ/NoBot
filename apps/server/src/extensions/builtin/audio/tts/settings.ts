@@ -40,8 +40,9 @@ export const audioSettings = z.object({
   openaiApiKey: z.string().default(''),
   openaiModel: z.string().default('gpt-4o-mini-tts'),
   fishApiKey: z.string().default(''),
-  fishEndpoint: z.url().default('https://api.fish.audio/v1/tts'),
-  fishModel: z.string().trim().min(1).default('s2.1-pro'),
+  // 填错或清空时退回默认值：设置整份解析失败会让整个音频扩展不可用
+  fishEndpoint: z.url().catch('https://api.fish.audio/v1/tts'),
+  fishModel: z.string().trim().min(1).catch('s2.1-pro'),
   fishVoices: z.array(z.object({ id: z.string().trim(), name: z.string().default('') })).default([]),
   gptsovitsEndpoint: z.string().default('http://127.0.0.1:9880'),
   gptsovitsVoices: z

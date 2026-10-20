@@ -239,7 +239,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
       kind: 'browser',
       text: '你好，这是声音试听。',
     })
-    expect(await json('/engines')).toHaveLength(8)
+    expect(await json('/engines')).toHaveLength(9)
     expect(await json('/voices', { engine: 'openai' })).toMatchObject({
       options: expect.arrayContaining([{ value: 'verse', label: 'verse' }]),
     })
@@ -288,6 +288,25 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     ])
     await engines.elevenlabs.synthesize({ text: 'Hi', voice: 'a/b', speed: 1.2 }, settings)
     expect(calls.at(-1)?.url).toContain('a%2Fb?output_format=mp3_44100_128')
+    // Fish Audio：模型放在请求头，声音 ID 走 reference_id，语速放进 prosody
+    const fish = audioSettings.parse({ fishApiKey: 'fish-secret', fishVoices: [{ id: 'ref-1', name: 'Test' }] })
+    expect(engines.fish.configured(fish)).toBe(true)
+    expect(await engines.fish.voices(fish)).toEqual([{ value: 'ref-1', label: 'Test' }])
+    await engines.fish.synthesize({ text: 'Hi', voice: 'ref-1', speed: 1.2 }, fish)
+    expect(calls.at(-1)?.url).toBe('https://api.fish.audio/v1/tts')
+    expect(new Headers(calls.at(-1)?.init?.headers).get('model')).toBe('s2.1-pro')
+    expect(new Headers(calls.at(-1)?.init?.headers).get('authorization')).toBe('Bearer fish-secret')
+    expect(JSON.parse(String(calls.at(-1)?.init?.body))).toEqual({
+      text: 'Hi',
+      reference_id: 'ref-1',
+      prosody: { speed: 1.2 },
+      format: 'mp3',
+    })
+    // 地址填错、模型清空时退回默认值，不让整份音频设置解析失败
+    expect(audioSettings.parse({ fishEndpoint: 'not a url', fishModel: '' })).toMatchObject({
+      fishEndpoint: 'https://api.fish.audio/v1/tts',
+      fishModel: 's2.1-pro',
+    })
     expect(engines.openai.configured(audioSettings.parse({}))).toBe(false)
     expect(edgeGec(0)).toBe('52BC7A17B50DFEC9-28C4394775C8751CD2F6859C030C06DB1489ACAB3B3A7651831FC26895177ED6')
     expect(xmlEscape('<&>"\'')).toBe('&lt;&amp;&gt;&quot;&apos;')

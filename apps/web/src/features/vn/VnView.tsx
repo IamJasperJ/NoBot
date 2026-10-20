@@ -121,6 +121,8 @@ export function VnView({
   }, [player.pinned, ended, liveVars, player.varsBefore, current])
   const showHud = play.interaction.hud && Object.keys(stateSchema).length > 0
   const hudBar = mobile || play.interaction.hudPosition === 'top-bar'
+  // 宽屏的状态面板收成操作栏里的一枚胶囊；存档、回想、电影模式时不显示
+  const inlineHud = showHud && !hudBar && !cinema && !saves && !backlog
   const editVar = async (key: string, value: unknown) => {
     try {
       await api.setVars(chatId, { [key]: value })
@@ -274,6 +276,16 @@ export function VnView({
               {[scene.place, scene.time].filter(Boolean).join(' · ')}
             </div>
           )}
+          {inlineHud && play.interaction.hudPosition === 'top-left' && (
+            <VnHud
+              schema={stateSchema}
+              vars={hudVars}
+              position={play.interaction.hudPosition}
+              floatDelta={play.interaction.floatDelta}
+              mobile={mobile}
+              onEdit={player.pinned || !play.interaction.varEdit ? undefined : editVar}
+            />
+          )}
           {/* 手机上展开后按钮可能一行放不下：工具组自动换行、靠右对齐，展开 / 关闭按钮留在第一行两端 */}
           <div
             className="ml-auto flex min-w-0 flex-1 items-start justify-end gap-1"
@@ -286,6 +298,16 @@ export function VnView({
               if (showTools) armCollapse()
             }}
           >
+            {inlineHud && play.interaction.hudPosition !== 'top-left' && (
+              <VnHud
+                schema={stateSchema}
+                vars={hudVars}
+                position={play.interaction.hudPosition}
+                floatDelta={play.interaction.floatDelta}
+                mobile={mobile}
+                onEdit={player.pinned || !play.interaction.varEdit ? undefined : editVar}
+              />
+            )}
             <VnButton
               label={showTools ? t('收起操作栏') : t('展开操作栏')}
               active={showTools}
@@ -372,8 +394,8 @@ export function VnView({
         </div>
       )}
 
-      {/* 状态面板：宽屏是角上的面板；手机 / 「顶部一行」是一行摘要 */}
-      {!hidden && !cinema && showHud && !saves && !backlog && (
+      {/* 状态面板：手机 / 「顶部一行」是画面上方的一行摘要；宽屏的在顶部操作栏里 */}
+      {!hidden && !cinema && showHud && hudBar && !saves && !backlog && (
         <VnHud
           schema={stateSchema}
           vars={hudVars}

@@ -10,7 +10,8 @@ import { t } from '../../i18n'
  * - number / text / badge：一行「名字 值」；list：一排小标签
  * - 数值变化时在值旁边飘出 +3 / −5（玩法预设「数值变化飘字」）
  * - 点值可以手动修改（写成手动补丁，跟着分支走）
- * - 收起时只显示常驻（pin）的变量；手机上和「顶部一行」位置时是一行摘要，点开看全部
+ * - 收起时是一行摘要（常驻 pin 的变量，没有就取前 3 个），点开看全部：
+ *   宽屏放在顶部操作栏里（右上角时在展开按钮左边），面板向下展开；手机和「顶部一行」位置时占满一行
  */
 
 type Vars = Record<string, unknown>
@@ -99,7 +100,6 @@ export function VnHud({
 
   if (!keys.length) return null
   const bar = mobile || position === 'top-bar'
-  const shown = open ? keys : pinned.length ? pinned : keys.slice(0, 3)
 
   const save = async () => {
     if (!editing || !onEdit) return
@@ -167,7 +167,7 @@ export function VnHud({
                   text: Array.isArray(value) ? value.map(String).join(t('、')) : value == null ? '' : String(value),
                 })
               }
-              className="max-w-[60%] truncate text-right font-medium tabular-nums enabled:hover:text-violet-200 disabled:cursor-default"
+              className="line-clamp-3 max-w-[65%] text-right font-medium break-words tabular-nums enabled:hover:text-violet-200 disabled:cursor-default"
             >
               {stage ? `${stage} · ${valueText}` : field.type === 'list' ? '' : valueText}
             </button>
@@ -209,6 +209,27 @@ export function VnHud({
     )
   }
 
+  // 一行摘要：常驻变量的「名字 值」，变化时带飘字
+  const summary = (
+    <span className="flex min-w-0 flex-1 gap-3 overflow-hidden whitespace-nowrap">
+      {(pinned.length ? pinned : keys.slice(0, 3)).map((key) => {
+        const field = schema[key] as StateField
+        const delta = deltas?.values[key]
+        return (
+          <span key={key} className="shrink-0">
+            <span className="opacity-70">{field.label || key}</span>{' '}
+            <b className="tabular-nums">{display(field, vars[key], vars)}</b>
+            {delta !== undefined && (
+              <span className={cx('vn-delta ml-1 font-bold', delta > 0 ? 'text-emerald-300' : 'text-rose-300')}>
+                {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
+              </span>
+            )}
+          </span>
+        )
+      })}
+    </span>
+  )
+
   // 手机 / 顶部一行：一行摘要，点开在下面展开全部
   if (bar) {
     return (
@@ -219,23 +240,7 @@ export function VnHud({
           aria-expanded={open}
           className="vn-chip flex w-full items-center gap-3 overflow-hidden rounded-full px-3 py-1 text-left text-[12px]"
         >
-          <span className="flex min-w-0 flex-1 gap-3 overflow-hidden whitespace-nowrap">
-            {(pinned.length ? pinned : keys.slice(0, 3)).map((key) => {
-              const field = schema[key] as StateField
-              const delta = deltas?.values[key]
-              return (
-                <span key={key} className="shrink-0">
-                  <span className="opacity-70">{field.label || key}</span>{' '}
-                  <b className="tabular-nums">{display(field, vars[key], vars)}</b>
-                  {delta !== undefined && (
-                    <span className={cx('vn-delta ml-1 font-bold', delta > 0 ? 'text-emerald-300' : 'text-rose-300')}>
-                      {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
-                    </span>
-                  )}
-                </span>
-              )
-            })}
-          </span>
+          {summary}
           <ChevronDownIcon className={cx('size-3.5 shrink-0 transition-transform', open && 'rotate-180')} />
         </button>
         {open && <div className="vn-hud mt-1.5 space-y-2 rounded-2xl p-3">{keys.map(row)}</div>}
@@ -243,25 +248,32 @@ export function VnHud({
     )
   }
 
+  // 宽屏：操作栏里的一枚摘要胶囊（和按钮同高），点开在下方弹出完整面板，不再常驻挡住立绘
   return (
-    <div
-      className={cx(
-        'vn-hud pointer-events-auto absolute top-14 z-20 w-56 space-y-2 rounded-2xl p-3',
-        position === 'top-left' ? 'left-3' : 'right-3',
-      )}
-    >
-      {shown.map(row)}
-      {keys.length > shown.length || open ? (
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          aria-expanded={open}
-          className="flex w-full items-center justify-center gap-1 pt-0.5 text-[11px] opacity-60 hover:opacity-100"
+    <div className="pointer-events-auto relative min-w-0 max-w-[22rem]">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        title={open ? t('收起') : t('全部状态（{count}）', { count: keys.length })}
+        className={cx(
+          'vn-chip flex h-9 w-full items-center gap-2 overflow-hidden rounded-full pr-2.5 pl-3.5 text-left text-[12px]',
+          open && 'vn-chip-active',
+        )}
+      >
+        {summary}
+        <ChevronDownIcon className={cx('size-3.5 shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div
+          className={cx(
+            'vn-hud vn-tools-in absolute top-full z-20 mt-2 w-56 space-y-2 rounded-2xl p-3',
+            position === 'top-left' ? 'left-0' : 'right-0',
+          )}
         >
-          {open ? t('收起') : t('全部状态（{count}）', { count: keys.length })}
-          <ChevronDownIcon className={cx('size-3 transition-transform', open && 'rotate-180')} />
-        </button>
-      ) : null}
+          {keys.map(row)}
+        </div>
+      )}
     </div>
   )
 }

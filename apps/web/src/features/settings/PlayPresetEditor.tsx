@@ -723,7 +723,7 @@ export function PlayPresetEditor({
         />
         <NumberField
           label={t('语音音量')}
-          notImplemented
+          hint={t('朗读台词和旁白的音量，需要在「音频」扩展里开启朗读')}
           min={0}
           max={100}
           value={audio.voiceVolume}

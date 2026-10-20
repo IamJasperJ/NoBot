@@ -9,7 +9,7 @@ export function useVnAudio({ stage, beats, beatIndex, playKey, play, skipping }:
   const { data: tracks } = useAudioTracks()
   const master = useAudioPrefs((state) => state.master)
   const muted = useAudioPrefs((state) => state.muted)
-  const { bgmVolume, sfxVolume, fadeMs } = play.audio
+  const { bgmVolume, sfxVolume, voiceVolume, fadeMs } = play.audio
   const name = stage.scene.bgm
   useEffect(() => {
     if (name === '' || name === undefined) audioEngine.playBgm(null, fadeMs)
@@ -22,8 +22,8 @@ export function useVnAudio({ stage, beats, beatIndex, playKey, play, skipping }:
     }
   }, [name, tracks, fadeMs])
   useEffect(() => {
-    audioEngine.setVolumes({ master, muted, bgm: bgmVolume, sfx: sfxVolume })
-  }, [master, muted, bgmVolume, sfxVolume])
+    audioEngine.setVolumes({ master, muted, bgm: bgmVolume, sfx: sfxVolume, voice: voiceVolume })
+  }, [master, muted, bgmVolume, sfxVolume, voiceVolume])
   const position = useRef<{ key: string | null; index: number | undefined; played: Set<number> }>({
     key: null,
     index: undefined,

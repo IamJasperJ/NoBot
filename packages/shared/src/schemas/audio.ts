@@ -29,3 +29,22 @@ export const importAudioUrlInput = z.object({
   kind: z.enum(AUDIO_KINDS).default('bgm'),
 })
 export const batchDeleteAudioInput = z.object({ ids: z.array(z.string()).min(1).max(2000) })
+
+export const TTS_ENGINES = ['browser', 'openai', 'gptsovits', 'edge', 'elevenlabs'] as const
+export type TtsEngineId = (typeof TTS_ENGINES)[number]
+export const voiceRefSchema = z.object({
+  engine: z.enum(TTS_ENGINES),
+  voice: z.string().min(1),
+  /** 语速倍率。 */
+  speed: z.number().min(0.5).max(2).default(1),
+})
+export type VoiceRef = z.infer<typeof voiceRefSchema>
+export type TtsSpeaker =
+  | { kind: 'character'; characterId: string }
+  | { kind: 'user' }
+  | { kind: 'narrator' }
+  | { kind: 'npc'; name: string }
+export type TtsLineResult =
+  | { kind: 'browser'; voice: string; speed: number; text: string }
+  | { kind: 'audio'; url: string }
+  | { kind: 'skip'; reason: 'no-voice' | 'narration-off' | 'user-off' | 'empty' }

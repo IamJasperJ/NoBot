@@ -127,3 +127,55 @@ test('自动播放拒绝后只在下一次手势重试一次；停止后的异�
   gestures.dispatchEvent(new Event('pointerdown'))
   expect(audios[0]?.plays).toBe(count)
 })
+
+test('语音通道独立音量、结束、替换、停止及播放错误都结算 Promise', async () => {
+  const { engine, audios } = setup()
+  engine.setVolumes({ master: 50, bgm: 60, sfx: 80, voice: 40, muted: false })
+  const first = engine.playVoice({ url: '/first' })
+  expect(engine.isVoicePlaying()).toBe(true)
+  expect(audios[0]!.volume).toBeCloseTo(0.2)
+  const oldEnd = audios[0]!.onended
+  const second = engine.playVoice({ url: '/second' })
+  expect(await first).toBe('stopped')
+  oldEnd?.()
+  expect(engine.isVoicePlaying()).toBe(true)
+  audios[1]!.onended?.()
+  expect(await second).toBe('ended')
+  expect(engine.isVoicePlaying()).toBe(false)
+  const third = engine.playVoice({ url: '/third' })
+  engine.stopAll()
+  expect(await third).toBe('stopped')
+  const broken = new AudioEngine({
+    createAudio: () =>
+      ({
+        ...new FakeAudio(),
+        play: () => Promise.reject(new Error('blocked')),
+        pause() {},
+        removeAttribute() {},
+        load() {},
+      }) as unknown as HTMLAudioElement,
+  })
+  expect(await broken.playVoice({ url: '/blocked' })).toBe('error')
+})
+
+test('浏览器语音按名字选声音、语速与音量，取消不依赖浏览器发事件', async () => {
+  const utterances: SpeechSynthesisUtterance[] = []
+  let cancelled = 0
+  const voice = { name: 'Alice' } as SpeechSynthesisVoice
+  const engine = new AudioEngine({
+    speech: {
+      getVoices: () => [voice],
+      speak: (u: SpeechSynthesisUtterance) => utterances.push(u),
+      cancel: () => {
+        cancelled++
+      },
+    } as unknown as SpeechSynthesis,
+    createUtterance: (text) => ({ text }) as SpeechSynthesisUtterance,
+  })
+  engine.setVolumes({ master: 50, bgm: 60, sfx: 80, voice: 60, muted: false })
+  const result = engine.playVoice({ browser: { voice: 'Alice', speed: 1.2, text: 'hello' } })
+  expect(utterances[0]).toMatchObject({ voice, rate: 1.2, volume: 0.3, text: 'hello' })
+  engine.stopVoice()
+  expect(await result).toBe('stopped')
+  expect(cancelled).toBe(1)
+})

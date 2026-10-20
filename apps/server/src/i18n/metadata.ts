@@ -4,6 +4,75 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '朗读设置':
+      return t('朗读设置')
+    case '旁白声音':
+      return t('旁白声音')
+    case '用户声音':
+      return t('用户声音')
+    case 'NPC 声音池':
+      return t('NPC 声音池')
+    case '语音缓存上限（MB）':
+      return t('语音缓存上限（MB）')
+    case 'OpenAI 兼容语音':
+      return t('OpenAI 兼容语音')
+    case '语音连接':
+      return t('语音连接')
+    case '单独配置':
+      return t('单独配置')
+    case '语音接口地址':
+      return t('语音接口地址')
+    case '语音接口密钥':
+      return t('语音接口密钥')
+    case '语音模型':
+      return t('语音模型')
+    case 'GPT-SoVITS 语音':
+      return t('GPT-SoVITS 语音')
+    case 'GPT-SoVITS 地址':
+      return t('GPT-SoVITS 地址')
+    case '参考声音预设':
+      return t('参考声音预设')
+    case '声音标识':
+      return t('声音标识')
+    case '声音名称':
+      return t('声音名称')
+    case '参考音频路径':
+      return t('参考音频路径')
+    case '参考音频文字':
+      return t('参考音频文字')
+    case '参考音频语言':
+      return t('参考音频语言')
+    case '合成文本语言':
+      return t('合成文本语言')
+    case 'Edge 默认音量（%）':
+      return t('Edge 默认音量（%）')
+    case 'Edge 语音':
+      return t('Edge 语音')
+    case 'Edge 使用非官方接口，可能随时失效':
+      return t('Edge 使用非官方接口，可能随时失效')
+    case 'ElevenLabs 语音':
+      return t('ElevenLabs 语音')
+    case 'ElevenLabs 密钥':
+      return t('ElevenLabs 密钥')
+    case 'ElevenLabs 模型':
+      return t('ElevenLabs 模型')
+    case '开启朗读':
+      return t('开启朗读')
+    case '朗读旁白':
+      return t('朗读旁白')
+    case '朗读用户台词':
+      return t('朗读用户台词')
+    case '自动朗读新回复':
+      return t('自动朗读新回复')
+    case 'VN 逐句朗读':
+      return t('VN 逐句朗读')
+    case 'VN 自动播放等待语音':
+      return t('VN 自动播放等待语音')
+    case '切句时打断语音':
+      return t('切句时打断语音')
+    case '用表情控制语气':
+      return t('用表情控制语气')
+
     case '音频':
       return t('音频')
     case 'BGM、音效和语音。VN 里按舞台指令播放背景音乐和音效。':

@@ -1,3 +1,4 @@
+import { utimes } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { paths } from '../env'
@@ -28,19 +29,23 @@ assetRoutes.get('/attachments/:file', async (c) => {
   })
 })
 
-assetRoutes.get('/:directory{backgrounds|audio}/:file', async (c) => {
-  const audio = c.req.param('directory') === 'audio'
+assetRoutes.get('/:directory{backgrounds|audio|tts-cache}/:file', async (c) => {
+  const ttsCache = c.req.param('directory') === 'tts-cache'
+  const audio = ttsCache || c.req.param('directory') === 'audio'
   const name = c.req.param('file')
   if (
     !(
-      audio
-        ? /^[0-7][0-9A-HJKMNP-TV-Z]{25}\.(mp3|ogg|wav|m4a|webm|flac)$/
-        : /^[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\.thumb\.webp|\.(?:webp|gif|mp4|webm))$/
+      ttsCache
+        ? /^[a-f0-9]{64}\.(mp3|wav)$/
+        : audio
+          ? /^[0-7][0-9A-HJKMNP-TV-Z]{25}\.(mp3|ogg|wav|m4a|webm|flac)$/
+          : /^[0-7][0-9A-HJKMNP-TV-Z]{25}(?:\.thumb\.webp|\.(?:webp|gif|mp4|webm))$/
     ).test(name)
   )
     throw new HttpError(400, 'BAD_REQUEST', t('文件名不合法'))
-  const file = Bun.file(join(audio ? paths.audio : paths.backgrounds, name))
+  const file = Bun.file(join(ttsCache ? paths.ttsCache : audio ? paths.audio : paths.backgrounds, name))
   if (!(await file.exists())) throw new HttpError(404, 'NOT_FOUND', audio ? t('音频不存在') : t('背景不存在'))
+  if (ttsCache) await utimes(join(paths.ttsCache, name), new Date(), new Date()).catch(() => {})
   const ext = name.split('.').pop()!
   const mime = audio
     ? (

@@ -1,5 +1,25 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  '朗读这个角色的台词时用的声音。不设置时从「音频」扩展设置里的 NPC 声音池按名字分配。':
+    'The voice used for this character. When unset, a voice is assigned by name from the audio extension NPC voice pool.',
+  停止朗读: 'Stop reading',
+  朗读: 'Read aloud',
+  '朗读缓存：{count} 个文件，{size} MB': 'Speech cache: {count} files, {size} MB',
+  '朗读缓存：读取中…': 'Speech cache: loading…',
+  '清空朗读缓存？之后重听会重新合成。': 'Clear the speech cache? Playing again will synthesize new audio.',
+  已清空朗读缓存: 'Speech cache cleared',
+  清空缓存: 'Clear cache',
+  朗读引擎: 'Speech engine',
+  不设置: 'Unset',
+  '{name}（未配置）': '{name} (not configured)',
+  声音: 'Voice',
+  '选择声音…': 'Select a voice…',
+  '声音名称或 ID': 'Voice name or ID',
+  语速倍率: 'Speech speed multiplier',
+  语速: 'Speed',
+  移除这个声音: 'Remove this voice',
+  添加声音: 'Add voice',
+  语音播放失败: 'Speech playback failed',
   已静音: 'Muted',
   '音量 {value}%': 'Volume {value}%',
   取消静音: 'Unmute',
@@ -2164,4 +2184,6 @@ export const en: Record<string, string> = {
   收起操作栏: 'Collapse toolbar',
   展开操作栏: 'Expand toolbar',
   音频库: 'Audio library',
+  '朗读台词和旁白的音量，需要在「音频」扩展里开启朗读':
+    'Volume for spoken lines and narration. Turn on reading aloud in the Audio extension first',
 }

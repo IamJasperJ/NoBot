@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useStreaming } from '../../stores/streaming'
 import { useVn } from '../../stores/vn'
+import { useVnVoiceStore } from '../../stores/vnVoice'
 import { autoAdvanceDelay, beatText, currentCg, type ShownBeat, shownBeatIndexes } from './player-logic'
 
 /**
@@ -286,14 +287,15 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   }, [complete, beat, cps, textLength])
 
   // ---- 自动播放：显示完后停一会儿再推进（字越多停得越久一点） ----
+  const voiceBusy = useVnVoiceStore((state) => state.busyKey === `${playKey}:${beatIndex}`)
   const [auto, setAuto] = useState(play.dialog.autoDefault)
   useEffect(() => {
-    if (!auto || !complete || atLast || beat?.kind === 'choices') return
+    if (!auto || voiceBusy || !complete || atLast || beat?.kind === 'choices') return
     const delay = autoAdvanceDelay(play.dialog.autoDelay, textLength, cg)
     if (delay === null) return
     const timer = setTimeout(advance, delay)
     return () => clearTimeout(timer)
-  }, [auto, complete, atLast, beat?.kind, textLength, advance, play.dialog.autoDelay, cg?.status])
+  }, [auto, voiceBusy, complete, atLast, beat?.kind, textLength, advance, play.dialog.autoDelay, cg?.status])
 
   // ---- 快进：读过的拍飞快地过；遇到没读过的（设置了「只跳读过的」时）或到头就停 ----
   const [skip, setSkip] = useState(false)

@@ -68,7 +68,7 @@ test('VN 音频：匹配、保持、停止、跨拍音效去重、跳读、换�
   try {
     render()
     expect(bgm).toHaveBeenLastCalledWith('/night', 1000)
-    expect(volumes).toHaveBeenLastCalledWith({ master: 50, muted: false, bgm: 60, sfx: 80 })
+    expect(volumes).toHaveBeenLastCalledWith({ master: 50, muted: false, bgm: 60, sfx: 80, voice: 100 })
     props.stage.scene.bgm = 'wrong'
     render()
     expect(bgm).toHaveBeenCalledTimes(1)
@@ -129,7 +129,7 @@ test('VN 音频：匹配、保持、停止、跨拍音效去重、跳读、换�
     state.muted = true
     props.play.audio.bgmVolume = 20
     render()
-    expect(volumes).toHaveBeenLastCalledWith({ master: 50, muted: true, bgm: 20, sfx: 80 })
+    expect(volumes).toHaveBeenLastCalledWith({ master: 50, muted: true, bgm: 20, sfx: 80, voice: 100 })
     for (const item of effects) item.cleanup?.()
     expect(stop).toHaveBeenCalledTimes(1)
   } finally {

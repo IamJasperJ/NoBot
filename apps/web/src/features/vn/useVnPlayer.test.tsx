@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { message as baseMessage, setupHooks } from '../../api/hooks.test-utils'
 import { useStreaming } from '../../stores/streaming'
 import { useVn } from '../../stores/vn'
+import { useVnVoiceStore } from '../../stores/vnVoice'
 import { useVnPlayer } from './useVnPlayer'
 
 test('临时 NPC 重新上台使用最新立绘映射，删除清空并兼容旧响应', () => {
@@ -132,6 +133,20 @@ test('CG 拍保留前句与名牌、已读快进 60ms、pending 自动等待、�
     cleanup = effects.at(-2)!()
     expect(timeout.mock.calls.at(-1)?.[1]).toBe(play.dialog.autoDelay * 2000)
     if (cleanup) cleanup()
+    // 当前拍语音未结束时不建自动推进定时器；快进仍保留原来的 60ms。
+    useVnVoiceStore.getInitialState().busyKey = 'message#1:1'
+    render()
+    const waitingCount = timeout.mock.calls.length
+    effects.at(-2)!()
+    expect(timeout.mock.calls.length).toBe(waitingCount)
+    cleanup = effects.at(-1)!()
+    expect(timeout.mock.calls.at(-1)?.[1]).toBe(60)
+    if (cleanup) cleanup()
+    useVnVoiceStore.getInitialState().busyKey = null
+    render()
+    cleanup = effects.at(-2)!()
+    expect(timeout.mock.calls.at(-1)?.[1]).toBe(play.dialog.autoDelay * 2000)
+    if (cleanup) cleanup()
     message.meta.cg![0]!.status = 'pending'
     render()
     const count = timeout.mock.calls.length
@@ -146,6 +161,7 @@ test('CG 拍保留前句与名牌、已读快进 60ms、pending 自动等待、�
     expect(player.cg).toBeUndefined()
     expect(player.beat?.kind).not.toBe('cg')
   } finally {
+    useVnVoiceStore.getInitialState().busyKey = null
     state.mockRestore()
     effect.mockRestore()
     timeout.mockRestore()

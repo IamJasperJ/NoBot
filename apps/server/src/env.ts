@@ -19,6 +19,7 @@ export const env = {
 
 export const paths = {
   db: join(env.dataDir, 'app.db'),
+  ttsCache: join(env.dataDir, 'tts-cache'),
   sprites: join(env.dataDir, 'assets/sprites'),
   avatars: join(env.dataDir, 'assets/avatars'),
   audio: join(env.dataDir, 'assets/audio'),
@@ -34,3 +35,5 @@ mkdirSync(paths.backgrounds, { recursive: true })
 mkdirSync(paths.sprites, { recursive: true })
 
 mkdirSync(paths.audio, { recursive: true })
+
+mkdirSync(paths.ttsCache, { recursive: true })

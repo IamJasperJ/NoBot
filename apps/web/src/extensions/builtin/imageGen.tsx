@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { ImagePromptDialog } from '../../features/chat/ImagePromptDialog'
 import { t } from '../../i18n'
 import type { ClientExtensionAPI } from '../types'
+import { MattingModelField } from './imageGenMatting'
 import { SettingsFooter, StyleField, WorkflowField } from './imageGenSettings'
 
 export const imageModes = () =>
@@ -697,6 +698,10 @@ export default function activate(api: ClientExtensionAPI) {
   api.registerSlot('extensions.settings.field', {
     id: 'activeStyle',
     render: (props) => h(StyleField, props),
+  })
+  api.registerSlot('extensions.settings.field', {
+    id: 'mattingModel',
+    render: (props) => h(MattingModelField, props),
   })
   return () => {
     disposed = true

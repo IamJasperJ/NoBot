@@ -2223,4 +2223,13 @@ export const en: Record<string, string> = {
   全部恢复跟随全局: 'Reset to global',
   '旁白声音（{value}）': 'Narrator voice ({value})',
   '不读（没有可用声音）': 'Silent (no voice available)',
+  已就绪: 'Ready',
+  未下载: 'Not downloaded',
+  抠图模型: 'Matting model',
+  运行时: 'Runtime',
+  '下载完成前，生成立绘会先用算法抠图。': 'Until the download finishes, sprites are cut out with the algorithm.',
+  '删除已下载的抠图模型和运行时？': 'Delete the downloaded matting model and runtime?',
+  删除模型: 'Delete model',
+  重试: 'Retry',
+  '下载（约 170 MB）': 'Download (~170 MB)',
 }

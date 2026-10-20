@@ -1,6 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { removeSpriteBackground, spriteNameFromPath } from '@nobot/core/stage'
+import { spriteNameFromPath } from '@nobot/core/stage'
 import { type SpriteDTO, type SpriteImportResult, updateSpriteInput } from '@nobot/shared'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import sharp, { type Metadata } from 'sharp'
@@ -165,14 +165,4 @@ export async function deleteOutfit(characterId: string, outfit: string) {
     .all()
   for (const row of rows) await deleteSprite(characterId, row.id)
   return { deleted: rows.length }
-}
-
-/** 解码和编码留在服务层，背景判定和羽化由 core 的纯函数负责。 */
-export async function transparentSprite(bytes: Uint8Array): Promise<Uint8Array> {
-  const { data, info } = await sharp(bytes).rotate().ensureAlpha().raw().toBuffer({ resolveWithObject: true })
-  return sharp(removeSpriteBackground(data, info.width, info.height), {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  })
-    .png()
-    .toBuffer()
 }

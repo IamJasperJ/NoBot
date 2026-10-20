@@ -37,6 +37,7 @@ import type {
   LorebookEntryData,
   LorebookEntryDTO,
   LorebookInput,
+  MattingStatus,
   MessageDTO,
   NameBackgroundsInput,
   NameBackgroundsResult,
@@ -127,6 +128,10 @@ type Ok = { ok: true }
 
 /** 所有后端接口。路径和 apps/server/API.md 一一对应 */
 export const api = {
+  mattingStatus: () => request<MattingStatus>('GET', '/ext/image-gen/matting/status'),
+  installMatting: (settings?: Record<string, unknown>) =>
+    request<MattingStatus>('POST', '/ext/image-gen/matting/install', settings ? { settings } : {}),
+  removeMatting: () => request<MattingStatus>('DELETE', '/ext/image-gen/matting'),
   listTemporaryActors: (chatId: string) =>
     request<TemporaryActorDTO[]>('GET', `/ext/image-gen/temporary-actors?chatId=${enc(chatId)}`),
   regenerateTemporaryActor: (input: { chatId: string; key: string; prompt?: string }) =>

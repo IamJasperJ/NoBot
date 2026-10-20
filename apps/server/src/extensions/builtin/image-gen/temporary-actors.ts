@@ -7,9 +7,10 @@ import { t } from '../../../i18n'
 import { readUpload } from '../../../lib/files'
 import { saveAttachment } from '../../../services/attachments'
 import { getChatRow } from '../../../services/chats'
-import { transparentSprite } from '../../../services/sprites'
+import { cutoutSprite, mattingOptions } from '../../../services/matting'
 import { readTemporaryActors, writeTemporaryActor } from '../../../services/temporary-actors'
 import { type Context, stageImage } from './pipeline'
+import { parseSettings } from './settings'
 
 export const actorTasks = new Set<string>()
 export const actorTaskKey = (chatId: string, key: string) => JSON.stringify([chatId, key])
@@ -43,15 +44,22 @@ export function startTemporaryActor(ctx: Context, chatId: string, key: string, n
           instruction: `Describe the visible appearance of ${name} for a character sprite. Use the conversation to infer appearance. Output only an English image description, without framing or background instructions.`,
           includeHistory: true,
         }))
+      const settings = parseSettings(ctx.settings)
+      const backdrop = settings.spriteMatting === 'algorithm' ? settings.spriteBackdrop : 'white'
+      const background =
+        backdrop === 'green'
+          ? "plain solid chroma-key green (#00FF00) background, no green in the character's clothing or lighting"
+          : 'simple white background'
       const bytes = await stageImage(
         ctx,
         chatId,
-        `${appearance}. Full body, standing, neutral expression, simple white background, no other characters.`,
+        `${appearance}. Full body, standing, neutral expression, ${background}, no other characters.`,
         'free',
         undefined,
         false,
+        settings.spriteMatting === 'native',
       )
-      const image = await ctx.host.saveImage(await transparentSprite(bytes))
+      const image = await ctx.host.saveImage(await cutoutSprite(bytes, mattingOptions(parseSettings(ctx.settings))))
       writeTemporaryActor(chatId, key, { ...record, image, prompt: appearance, status: 'done', updatedAt: Date.now() })
       return true
     } catch (error) {
@@ -108,7 +116,7 @@ export function temporaryActorRoutes(app: Hono, ctx: Context) {
         let processed = bytes
         if (body.removeBackground === 'true') {
           try {
-            processed = await transparentSprite(bytes)
+            processed = await cutoutSprite(bytes, mattingOptions(parseSettings(ctx.settings)))
           } catch {
             throw new HttpError(400, 'BAD_IMAGE', t('无法识别的图片文件'))
           }

@@ -11,6 +11,11 @@ const style = z.object({
 })
 const shape = z
   .object({
+    spriteMatting: z.enum(['algorithm', 'native', 'model']).default('algorithm'),
+    spriteBackdrop: z.enum(['green', 'white']).default('green'),
+    mattingModel: z.string().default(''),
+    mattingModelUrl: z.string().default('https://huggingface.co/skytnt/anime-seg/resolve/main/isnetis.onnx'),
+    mattingRegistry: z.string().default(''),
     source: z.enum(['openai', 'comfy', 'a1111', 'openrouter']).default('openai'),
     openaiConnectionId: z.string().default(''),
     openaiBaseUrl: z.string().default('https://api.openai.com/v1'),
@@ -301,6 +306,28 @@ export const settingsSchema: ExtensionSettingField[] = [
       ...(field.key === 'a1111ADetailer' ? [{ key: 'a1111HasADetailer', equals: true }] : []),
     ],
   })),
+  heading('spriteMattingSection', '立绘抠图'),
+  {
+    ...select('spriteMatting', '抠图模式', [
+      { value: 'algorithm', label: '算法抠图' },
+      { value: 'native', label: '出图服务出透明图' },
+      { value: 'model', label: '本地模型抠图' },
+    ]),
+    hint: '算法抠图：不需要下载，配合绿幕背景最干净。出图服务出透明图：OpenAI 的 gpt-image 模型原生支持；ComfyUI 需要在工作流里安装抠图节点（如 ComfyUI-RMBG 或 BiRefNet），并用 Join Image with Alpha 输出带透明通道的 PNG；A1111、OpenRouter 等不支持的后端会自动退回算法抠图。本地模型抠图：效果最好，选择后需下载约 170 MB 的模型和约 90 MB 的运行时。',
+  },
+  {
+    ...select('spriteBackdrop', '生成时的背景色', [
+      { value: 'green', label: '绿幕（推荐）' },
+      { value: 'white', label: '白底' },
+    ]),
+    hint: '绿幕和白衣服、白头发不会混淆；少数模型会把绿色带进画面，遇到时换回白底',
+    visibleWhen: { key: 'spriteMatting', equals: 'algorithm' },
+  },
+  { key: 'mattingModel', label: '抠图模型', type: 'custom', visibleWhen: { key: 'spriteMatting', equals: 'model' } },
+  text('mattingModelUrl', '抠图模型下载地址', '国内可以换成 hf-mirror.com 的同名地址', {
+    visibleWhen: { key: 'spriteMatting', equals: 'model' },
+  }),
+  text('mattingRegistry', 'npm 镜像地址', '留空使用默认源', { visibleWhen: { key: 'spriteMatting', equals: 'model' } }),
   heading('picture', '画面与分辨率'),
   select('resolution', '基准分辨率', [...resolutionOptions, { value: 'custom', label: '自定义' }]),
   ...[number('width', '宽度', '', 64, 64), number('height', '高度', '', 64, 64)].map((field) => ({

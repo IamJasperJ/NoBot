@@ -8,7 +8,7 @@ import { settingsSchema } from '../settings'
 import { imageFetch, jsonResponse, object } from './http'
 import { chatCapabilities, type ImageBackend, imageMime } from './types'
 
-export function openaiBody(settings: Settings, prompt: string, width: number, height: number) {
+export function openaiBody(settings: Settings, prompt: string, width: number, height: number, transparent = false) {
   return {
     model: settings.openaiModel,
     prompt,
@@ -17,6 +17,9 @@ export function openaiBody(settings: Settings, prompt: string, width: number, he
     // 质量选了就发（不再只对 gpt-image 发送），「自动」时不发，由接口自己决定
     ...(settings.openaiQuality !== 'auto' ? { quality: settings.openaiQuality } : {}),
     ...extraBody(settings),
+    ...(transparent && settings.openaiModel.startsWith('gpt-image') && openaiApiKind(settings) === 'images'
+      ? { background: 'transparent', output_format: 'png' }
+      : {}),
   }
 }
 
@@ -143,12 +146,19 @@ async function imageBytes(source: string, signal: AbortSignal): Promise<Uint8Arr
   return new Uint8Array(await (await imageFetch(source, { signal })).arrayBuffer())
 }
 
-async function viaImages(settings: Settings, prompt: string, width: number, height: number, signal: AbortSignal) {
+async function viaImages(
+  settings: Settings,
+  prompt: string,
+  width: number,
+  height: number,
+  signal: AbortSignal,
+  transparent = false,
+) {
   const response = await imageFetch(`${settings.openaiBaseUrl.replace(/\/+$/, '')}/images/generations`, {
     method: 'POST',
     signal,
     headers: openaiRequestHeaders(settings),
-    body: JSON.stringify(openaiBody(settings, prompt, width, height)),
+    body: JSON.stringify(openaiBody(settings, prompt, width, height, transparent)),
   })
   const body = await jsonResponse(response)
   const first = object(Array.isArray(body.data) ? body.data[0] : undefined)
@@ -199,17 +209,20 @@ export async function generateOpenAI(
   height: number,
   abort?: AbortSignal,
   referenceImage?: string,
+  transparent = false,
 ): Promise<Uint8Array> {
   const signal = AbortSignal.any([AbortSignal.timeout(300000), ...(abort ? [abort] : [])])
   // 参考图不能降级到纯文生图，否则整套立绘会悄悄失去人物一致性约束。
   if (referenceImage) return viaChat(settings, prompt, width, height, signal, referenceImage)
   const kind = openaiApiKind(settings)
-  const first = kind === 'chat' ? viaChat : viaImages
+  const images = (s: Settings, p: string, w: number, h: number, signal: AbortSignal) =>
+    viaImages(s, p, w, h, signal, transparent)
+  const first = kind === 'chat' ? viaChat : images
   try {
     return await first(settings, prompt, width, height, signal)
   } catch (error) {
     if (settings.openaiApiType !== 'auto' || !wrongEndpoint(error) || signal.aborted) throw error
-    const second = kind === 'chat' ? viaImages : viaChat
+    const second = kind === 'chat' ? images : viaChat
     return second(settings, prompt, width, height, signal)
   }
 }
@@ -265,9 +278,11 @@ export const openaiBackend: ImageBackend = {
   test: async (settings) => {
     await openaiModels(settings)
   },
+  supportsTransparency: (settings) =>
+    openaiApiKind(settings) === 'images' && settings.openaiModel.startsWith('gpt-image'),
   supportsReference: (settings) => openaiApiKind(settings) === 'chat',
-  async generate({ settings, prompt, width, height, referenceImage }, signal) {
-    const bytes = await generateOpenAI(settings, prompt, width, height, signal, referenceImage)
+  async generate({ settings, prompt, width, height, referenceImage, transparent }, signal) {
+    const bytes = await generateOpenAI(settings, prompt, width, height, signal, referenceImage, transparent)
     return { bytes, mime: imageMime(bytes) }
   },
 }

@@ -150,8 +150,22 @@ test('临时立绘：存储兼容、舞台状态、自动重试和管理接口',
     gate = undefined
     expect(await wait()).toMatchObject({ status: 'done', prompt: 'blue eyes' })
     expect(calls.at(-1)?.prompt).toContain('blue eyes. Full body, standing')
+    ctx.settings.spriteMatting = 'native'
+    ctx.settings.openaiModel = 'gpt-image-1'
     expect((await request('POST', '/regenerate', input)).status).toBe(200)
     expect(await wait()).toMatchObject({ status: 'done', prompt: 'green hair, red coat' })
+    expect(calls.at(-1)).toMatchObject({ background: 'transparent', output_format: 'png' })
+    expect(calls.at(-1)?.prompt).toContain('white background')
+    const { generateSpriteSet } = await import('../../../services/sprite-generation')
+    const nativeSet = await generateSpriteSet(ctx, character.id, {
+      basePrompt: 'blue hair, red coat',
+      outfit: '',
+      expressions: ['neutral'],
+    })
+    expect(nativeSet).toMatchObject({ done: 1, failed: 0 })
+    expect(calls.at(-1)).toMatchObject({ background: 'transparent', output_format: 'png' })
+    expect(calls.at(-1)?.prompt).toContain('white background')
+    ctx.settings.spriteMatting = 'algorithm'
     expect(quiet).toHaveBeenCalledWith(expect.objectContaining({ chatId: chat.id, includeHistory: true }))
     expect((await request('DELETE', '', input)).status).toBe(200)
     expect(readTemporaryActors(chat.id).merchant).toMatchObject({ image: null, status: 'removed' })

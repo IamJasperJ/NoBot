@@ -4,6 +4,51 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '立绘抠图':
+      return t('立绘抠图')
+    case '抠图模式':
+      return t('抠图模式')
+    case '算法抠图':
+      return t('算法抠图')
+    case '出图服务出透明图':
+      return t('出图服务出透明图')
+    case '本地模型抠图':
+      return t('本地模型抠图')
+    case '生成时的背景色':
+      return t('生成时的背景色')
+    case '绿幕（推荐）':
+      return t('绿幕（推荐）')
+    case '白底':
+      return t('白底')
+    case '绿幕和白衣服、白头发不会混淆；少数模型会把绿色带进画面，遇到时换回白底':
+      return t('绿幕和白衣服、白头发不会混淆；少数模型会把绿色带进画面，遇到时换回白底')
+    case '算法抠图：不需要下载，配合绿幕背景最干净。出图服务出透明图：OpenAI 的 gpt-image 模型原生支持；ComfyUI 需要在工作流里安装抠图节点（如 ComfyUI-RMBG 或 BiRefNet），并用 Join Image with Alpha 输出带透明通道的 PNG；A1111、OpenRouter 等不支持的后端会自动退回算法抠图。本地模型抠图：效果最好，选择后需下载约 170 MB 的模型和约 90 MB 的运行时。':
+      return t(
+        '算法抠图：不需要下载，配合绿幕背景最干净。出图服务出透明图：OpenAI 的 gpt-image 模型原生支持；ComfyUI 需要在工作流里安装抠图节点（如 ComfyUI-RMBG 或 BiRefNet），并用 Join Image with Alpha 输出带透明通道的 PNG；A1111、OpenRouter 等不支持的后端会自动退回算法抠图。本地模型抠图：效果最好，选择后需下载约 170 MB 的模型和约 90 MB 的运行时。',
+      )
+    case '抠图模型':
+      return t('抠图模型')
+    case '抠图模型下载地址':
+      return t('抠图模型下载地址')
+    case '国内可以换成 hf-mirror.com 的同名地址':
+      return t('国内可以换成 hf-mirror.com 的同名地址')
+    case 'npm 镜像地址':
+      return t('npm 镜像地址')
+    case '留空使用默认源':
+      return t('留空使用默认源')
+    case '抠图运行时安装失败：{error}':
+      return t('抠图运行时安装失败：{error}')
+    case '抠图模型下载失败：{error}':
+      return t('抠图模型下载失败：{error}')
+    case '抠图组件正在安装，无法删除':
+      return t('抠图组件正在安装，无法删除')
+    case '抠图模型未安装':
+      return t('抠图模型未安装')
+    case '抠图运行时安装不完整':
+      return t('抠图运行时安装不完整')
+    case '抠图模型下载不完整':
+      return t('抠图模型下载不完整')
+
     case '为空时，没设声音的角色和 NPC 用旁白声音':
       return t('为空时，没设声音的角色和 NPC 用旁白声音')
     case 'MiniMax 自定义声音':

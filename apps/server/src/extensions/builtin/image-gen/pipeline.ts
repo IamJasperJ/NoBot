@@ -258,6 +258,7 @@ export async function renderImage(
   signal?: AbortSignal,
   stage?: (stage: ImageGenMeta['stage'], position?: number) => void,
   referenceImage?: string,
+  transparent?: boolean,
 ) {
   const started = Date.now()
   const request = {
@@ -273,7 +274,10 @@ export async function renderImage(
     const bytes = await imageQueue.run(
       async () => {
         stage?.('generating')
-        const result = await getBackend(settings).generate({ settings, prompt, width, height, referenceImage }, signal)
+        const result = await getBackend(settings).generate(
+          { settings, prompt, width, height, referenceImage, transparent },
+          signal,
+        )
         if (result.seed !== undefined) settings.seed = result.seed
         return result.bytes
       },
@@ -946,6 +950,7 @@ export async function stageImage(
   mode: 'free' | 'character',
   characterId?: string,
   landscape = mode === 'free',
+  transparent?: boolean,
 ) {
   const snapshot = await freeze(ctx, { chatId, mode, characterId, input: prompt, prompt })
   const settings = snapshot.settings
@@ -966,5 +971,16 @@ export async function stageImage(
     landscape ? Math.max(requested.width, requested.height) : Math.min(requested.width, requested.height),
     landscape ? Math.min(requested.width, requested.height) : Math.max(requested.width, requested.height),
   )
-  return renderImage(ctx, settings, composed.prompt, size.width, size.height, chatId)
+  return renderImage(
+    ctx,
+    settings,
+    composed.prompt,
+    size.width,
+    size.height,
+    chatId,
+    undefined,
+    undefined,
+    undefined,
+    transparent,
+  )
 }

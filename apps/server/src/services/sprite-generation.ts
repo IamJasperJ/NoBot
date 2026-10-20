@@ -19,8 +19,9 @@ import { chatCompletion, toLlmConnection } from '../llm/openai'
 import { getCharacter } from './characters'
 import { getApiPresetRow, resolveApiPreset } from './connections'
 import { insertLog } from './logs'
+import { cutoutSprite, mattingOptions } from './matting'
 import { selectProfile } from './profiles'
-import { requireCharacter, saveSprite, transparentSprite } from './sprites'
+import { requireCharacter, saveSprite } from './sprites'
 
 const jobs = new Map<string, { characterId: string; progress: SpriteJobDTO }>()
 const running = new Set<string>()
@@ -76,6 +77,8 @@ export async function generateSpriteSet(
   state.status = 'running'
   try {
     const settings = structuredClone(resolveImageConnection(parseSettings(ctx.settings)))
+    const backdrop = settings.spriteMatting === 'algorithm' ? settings.spriteBackdrop : 'white'
+    const background = backdrop === 'green' ? 'solid chroma-key green (#00FF00) background' : 'white background'
     const style = resolvePromptStyle(settings)
     const character = getCharacter(characterId)
     let appearance = input.basePrompt
@@ -135,13 +138,13 @@ export async function generateSpriteSet(
         const composed = composePrompt(
           settings,
           'character',
-          spritePrompt(appearance, expression, input.outfit, style),
+          spritePrompt(appearance, expression, input.outfit, style, backdrop),
           characterPrompt('character', character.extensions, false),
         )
         settings.negativePrompt = composed.negative
         settings.seed = seed
         const prompt = referenceImage
-          ? `${composed.prompt}. Edit the supplied reference sprite: change only the facial expression. Preserve the exact identity, face shape, hairstyle, outfit, body proportions, standing pose, camera, framing, lighting, rendering style and white background. Do not redesign the character.`
+          ? `${composed.prompt}. Edit the supplied reference sprite: change only the facial expression. Preserve the exact identity, face shape, hairstyle, outfit, body proportions, standing pose, camera, framing, lighting, rendering style and ${background}. Do not redesign the character.`
           : composed.prompt
         const bytes = await renderImage(
           ctx,
@@ -153,10 +156,11 @@ export async function generateSpriteSet(
           undefined,
           undefined,
           referenceImage,
+          settings.spriteMatting === 'native',
         )
         if (expression === expressions[0]) seed = settings.seed
-        await saveSprite(characterId, await transparentSprite(bytes), input.outfit, expression)
-        // 以第一张成功保存的原始白底图固定整套外观，不把去底边缘传回模型。
+        await saveSprite(characterId, await cutoutSprite(bytes, mattingOptions(settings)), input.outfit, expression)
+        // 以第一张成功保存的原始背景图固定整套外观，不把去底边缘传回模型。
         if (useReference && !referenceImage)
           referenceImage = `data:${getImageMime(bytes)};base64,${Buffer.from(bytes).toString('base64')}`
         state.done++

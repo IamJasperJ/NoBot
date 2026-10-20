@@ -22,6 +22,7 @@ export interface Discovery {
   adetailer?: boolean
 }
 export interface ImageJob {
+  transparent?: boolean
   referenceImage?: string
   settings: Settings
   prompt: string
@@ -39,6 +40,7 @@ export interface ImageBackend {
   resolveConnection?(settings: Settings): Settings
   validate(settings: Settings): void
   dimensions?(settings: Settings, width: number, height: number): { width: number; height: number }
+  supportsTransparency?(settings: Settings): boolean
   supportsReference?(settings: Settings): boolean
   prepareAvatars?: boolean
   discover(settings: Settings): Promise<Discovery>

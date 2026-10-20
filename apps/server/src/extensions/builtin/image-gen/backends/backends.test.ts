@@ -110,6 +110,18 @@ test('IMG6–8：适配器注册、请求响应、能力发现与错误', async 
       expect(result.mime).toBe('image/png')
       if (source === 'a1111') expect(result.seed).toBe(42)
     }
+    for (const [model, apiType, expected] of [
+      ['gpt-image-1', 'images', true],
+      ['dall-e-3', 'images', false],
+      ['gpt-image-1', 'chat', false],
+    ] as const) {
+      const settings = parseSettings({ openaiModel: model, openaiApiType: apiType })
+      expect(getBackend(settings).supportsTransparency?.(settings)).toBe(expected)
+      await getBackend(settings).generate({ settings, prompt: 'sprite', width: 512, height: 768, transparent: true })
+      const body = object(await calls.at(-1)!.json())
+      expect(body.background).toBe(expected ? 'transparent' : undefined)
+      expect(body.output_format).toBe(expected ? 'png' : undefined)
+    }
     const openai = parseSettings({ openaiSnapSize: true })
     expect(backendDimensions(openai, 640, 960)).toEqual({ width: 1024, height: 1536 })
     expect(getBackend(openai).capabilitiesFor?.(openai).sizes).toEqual(

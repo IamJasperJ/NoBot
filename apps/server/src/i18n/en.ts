@@ -1,5 +1,28 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  立绘抠图: 'Sprite background removal',
+  抠图模式: 'Matting mode',
+  算法抠图: 'Algorithm',
+  出图服务出透明图: 'Native transparency',
+  本地模型抠图: 'Local model',
+  生成时的背景色: 'Background color for generation',
+  '绿幕（推荐）': 'Green screen (recommended)',
+  白底: 'White background',
+  '绿幕和白衣服、白头发不会混淆；少数模型会把绿色带进画面，遇到时换回白底':
+    'Green screens avoid confusion with white clothes and hair. Some models introduce green into the scene; switch to white if this happens.',
+  '算法抠图：不需要下载，配合绿幕背景最干净。出图服务出透明图：OpenAI 的 gpt-image 模型原生支持；ComfyUI 需要在工作流里安装抠图节点（如 ComfyUI-RMBG 或 BiRefNet），并用 Join Image with Alpha 输出带透明通道的 PNG；A1111、OpenRouter 等不支持的后端会自动退回算法抠图。本地模型抠图：效果最好，选择后需下载约 170 MB 的模型和约 90 MB 的运行时。':
+    'Algorithm: no download, cleanest with a green screen. Native transparency: supported by OpenAI gpt-image models; ComfyUI needs a matting node in the workflow (e.g. ComfyUI-RMBG or BiRefNet) plus Join Image with Alpha to output a transparent PNG; unsupported backends such as A1111 and OpenRouter fall back to the algorithm. Local model: best quality, requires downloading a ~170 MB model and a ~90 MB runtime.',
+  抠图模型: 'Matting model',
+  抠图模型下载地址: 'Matting model download URL',
+  '国内可以换成 hf-mirror.com 的同名地址': 'In China, you can use the equivalent hf-mirror.com URL.',
+  'npm 镜像地址': 'npm registry mirror',
+  留空使用默认源: 'Leave blank to use the default registry',
+  '抠图运行时安装失败：{error}': 'Matting runtime installation failed: {error}',
+  '抠图模型下载失败：{error}': 'Matting model download failed: {error}',
+  '抠图组件正在安装，无法删除': 'Cannot remove matting components during installation',
+  抠图模型未安装: 'Matting model is not installed',
+  抠图运行时安装不完整: 'Matting runtime installation is incomplete',
+  抠图模型下载不完整: 'Matting model download is incomplete',
   'MiniMax 自定义声音': 'MiniMax custom voices',
   火山自定义声音: 'Volcengine custom voices',
   普通聊天播放背景音乐: 'Play background music in chat',

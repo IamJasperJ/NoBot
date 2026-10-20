@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { listApiPresets } from '../../../services/connections'
+import { mattingOptions, mattingService } from '../../../services/matting'
 import { defineExtension, draftBody, draftChatId, parseSettingsDraft } from '../../types'
 import { getBackend } from './backends'
 import { matchInteractive, resolvePromptStyle } from './composition'
@@ -108,6 +109,18 @@ export default defineExtension({
       )
     })
     temporaryActorRoutes(app, ctx)
+    app.get('/matting/status', async (c) => c.json(await mattingService.status()))
+    app.post('/matting/install', async (c) => {
+      const settings = parseSettings(await parseSettingsDraft(c, ctx.settings))
+      return c.json(await mattingService.install(mattingOptions(settings)))
+    })
+    app.delete('/matting', async (c) => {
+      try {
+        return c.json(await mattingService.remove())
+      } catch {
+        throw new HttpError(409, 'MATTING_BUSY', t('抠图组件正在安装，无法删除'))
+      }
+    })
     app.get('/background-status', (c) => c.json({ running: isBackgroundRunning(c.req.query('chatId') ?? '') }))
     app.post('/generate', async (c) => c.json(await generate(ctx, generateInput.parse(await c.req.json()))))
     app.post('/prompt', async (c) => c.json(await promptPreview(ctx, generateInput.parse(await c.req.json()))))

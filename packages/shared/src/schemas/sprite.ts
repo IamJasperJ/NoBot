@@ -69,3 +69,15 @@ export interface SpriteJobDTO {
   failed: number
   status: 'pending' | 'running' | 'done' | 'error'
 }
+
+/** 下载进度只在安装中提供，失败后保留错误供设置页展示。 */
+export interface MattingPart {
+  state: 'missing' | 'installing' | 'ready' | 'error'
+  received?: number
+  total?: number
+  error?: string
+}
+export interface MattingStatus {
+  runtime: MattingPart
+  model: MattingPart
+}

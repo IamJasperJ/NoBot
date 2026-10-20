@@ -57,3 +57,33 @@ export type TtsLineResult =
   | { kind: 'browser'; voice: string; speed: number; text: string }
   | { kind: 'audio'; url: string }
   | { kind: 'skip'; reason: 'no-voice' | 'narration-off' | 'user-off' | 'empty' }
+
+/** 会话级语音覆盖：字段缺省表示跟随全局设置。 */
+export const chatVoiceConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  autoRead: z.boolean().optional(),
+  vnVoice: z.boolean().optional(),
+  readNarration: z.boolean().optional(),
+  readUser: z.boolean().optional(),
+  /** null 表示明确不朗读，缺省跟随全局。 */
+  narratorVoice: voiceRefSchema.nullable().optional(),
+  userVoice: voiceRefSchema.nullable().optional(),
+  characters: z.record(z.string(), voiceRefSchema).default({}),
+  npcs: z.record(z.string(), voiceRefSchema).default({}),
+})
+export type ChatVoiceConfig = z.infer<typeof chatVoiceConfigSchema>
+export interface ChatVoiceDTO {
+  config: ChatVoiceConfig
+  members: { id: string; name: string; cardVoice: VoiceRef | null }[]
+  npcs: { key: string; name: string; poolVoice: VoiceRef | null }[]
+  global: {
+    enabled: boolean
+    autoRead: boolean
+    vnVoice: boolean
+    readNarration: boolean
+    readUser: boolean
+    narratorVoice: VoiceRef | null
+    userVoice: VoiceRef | null
+  }
+  effective: { enabled: boolean; autoRead: boolean; vnVoice: boolean; vnWaitVoice: boolean; vnInterrupt: boolean }
+}

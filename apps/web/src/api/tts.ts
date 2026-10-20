@@ -1,4 +1,4 @@
-import type { TtsEngineId, TtsLineResult, TtsSpeaker, VoiceRef } from '@nobot/shared'
+import type { ChatVoiceConfig, ChatVoiceDTO, TtsEngineId, TtsLineResult, TtsSpeaker, VoiceRef } from '@nobot/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { readError } from './client'
@@ -24,6 +24,11 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   return response.json() as Promise<T>
 }
 export const ttsApi = {
+  chatVoice: (chatId: string, signal?: AbortSignal) =>
+    request<ChatVoiceDTO>('GET', `/chat/${encodeURIComponent(chatId)}`, undefined, signal),
+  setChatVoice: ({ chatId, config }: { chatId: string; config: ChatVoiceConfig }) =>
+    request<ChatVoiceDTO>('PUT', `/chat/${encodeURIComponent(chatId)}`, config),
+  resetChatVoice: (chatId: string) => request<ChatVoiceDTO>('DELETE', `/chat/${encodeURIComponent(chatId)}`),
   engines: () => request<{ id: TtsEngineId; label: string; configured: boolean }[]>('GET', '/engines'),
   voices: (engine: TtsEngineId, settings?: Record<string, unknown>, signal?: AbortSignal) =>
     request<{ options: TtsOption[] }>('POST', '/voices', { engine, settings }, signal),
@@ -80,5 +85,34 @@ export function useClearTtsCache() {
   return useMutation({
     mutationFn: ttsApi.clearCache,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tts', 'cache'] }),
+  })
+}
+
+export const useChatVoice = (chatId: string) =>
+  useQuery({
+    queryKey: ['tts', 'chat', chatId],
+    queryFn: ({ signal }) => ttsApi.chatVoice(chatId, signal),
+    enabled: !!chatId,
+  })
+export function useSetChatVoice() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ttsApi.setChatVoice,
+    onSuccess: async (dto, { chatId }) => {
+      await qc.cancelQueries({ queryKey: ['tts', 'chat', chatId] })
+      await qc.invalidateQueries({ queryKey: ['tts', 'chat', chatId], refetchType: 'none' })
+      qc.setQueryData(['tts', 'chat', chatId], dto)
+    },
+  })
+}
+export function useResetChatVoice() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ttsApi.resetChatVoice,
+    onSuccess: async (dto, chatId) => {
+      await qc.cancelQueries({ queryKey: ['tts', 'chat', chatId] })
+      await qc.invalidateQueries({ queryKey: ['tts', 'chat', chatId], refetchType: 'none' })
+      qc.setQueryData(['tts', 'chat', chatId], dto)
+    },
   })
 }

@@ -1,4 +1,4 @@
-import { TTS_ENGINES, voiceRefSchema } from '@nobot/shared'
+import { chatVoiceConfigSchema, TTS_ENGINES, voiceRefSchema } from '@nobot/shared'
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { HttpError } from '../../../../errors'
@@ -8,7 +8,9 @@ import { listAudioTracks } from '../../../../services/audio-library'
 import { getCharacterRow, updateCharacter } from '../../../../services/characters'
 import { listApiPresets } from '../../../../services/connections'
 import { getLanguage } from '../../../../services/settings'
+import type { ExtensionStorage } from '../../../types'
 import { parseSettingsDraft } from '../../../types'
+import { chatVoiceDTO, chatVoiceKey, effectiveSettings } from './chat-voice'
 import { ttsEngines } from './engines'
 import { cacheEntries, cleanTtsText, clearTtsCache, messageSegments, resolveVoice, synthesizeVoice } from './service'
 import { audioSettings } from './settings'
@@ -19,7 +21,21 @@ export const speakerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('narrator') }),
   z.object({ kind: z.literal('npc'), name: z.string().min(1) }),
 ])
-export function registerTtsRoutes(app: Hono, ctx: { settings: Record<string, unknown> }) {
+export function registerTtsRoutes(app: Hono, ctx: { settings: Record<string, unknown>; storage: ExtensionStorage }) {
+  const dto = (chatId: string) => chatVoiceDTO(ctx.storage, chatId, audioSettings.parse(ctx.settings))
+  app.get('/tts/chat/:chatId', (c) => c.json(dto(c.req.param('chatId'))))
+  app.put('/tts/chat/:chatId', validate('json', chatVoiceConfigSchema), (c) => {
+    const chatId = c.req.param('chatId')
+    dto(chatId)
+    ctx.storage.set(chatVoiceKey(chatId), c.req.valid('json'))
+    return c.json(dto(chatId))
+  })
+  app.delete('/tts/chat/:chatId', (c) => {
+    const chatId = c.req.param('chatId')
+    dto(chatId)
+    ctx.storage.delete(chatVoiceKey(chatId))
+    return c.json(dto(chatId))
+  })
   app.post('/tts/ref-tracks', (c) =>
     c.json({ options: listAudioTracks('ref').map((v) => ({ value: v.id, label: v.name })) }),
   )
@@ -70,18 +86,21 @@ export function registerTtsRoutes(app: Hono, ctx: { settings: Record<string, unk
       }),
     ),
     async (c) => {
-      const settings = audioSettings.parse(ctx.settings)
-      if (!settings.ttsEnabled) throw new HttpError(400, 'TTS_DISABLED', t('还没有开启朗读'))
       const input = c.req.valid('json')
+      const settings = effectiveSettings(input.chatId, audioSettings.parse(ctx.settings), ctx.storage)
+      if (!settings.ttsEnabled) throw new HttpError(400, 'TTS_DISABLED', t('还没有开启朗读'))
       const text = cleanTtsText(input.text)
       if (!text) return c.json({ kind: 'skip', reason: 'empty' } as const)
       const voice = resolveVoice(input.chatId, input.speaker, settings)
       return c.json('kind' in voice ? voice : await synthesizeVoice(voice, text, settings, input.expression))
     },
   )
-  app.post('/tts/message', validate('json', z.object({ messageId: z.string().min(1) })), (c) =>
-    c.json(messageSegments(c.req.valid('json').messageId)),
-  )
+  app.post('/tts/message', validate('json', z.object({ messageId: z.string().min(1) })), (c) => {
+    const result = messageSegments(c.req.valid('json').messageId)
+    const settings = effectiveSettings(result.chatId, audioSettings.parse(ctx.settings), ctx.storage)
+    if (!settings.ttsEnabled) throw new HttpError(400, 'TTS_DISABLED', t('还没有开启朗读'))
+    return c.json(result)
+  })
   app.post(
     '/tts/preview',
     validate('json', z.object({ voice: voiceRefSchema, text: z.string().max(10000).optional() })),

@@ -1,16 +1,16 @@
 import { expect, spyOn, test } from 'bun:test'
 import { playPresetDataSchema } from '@nobot/shared'
 import * as React from 'react'
-import * as queries from '../../../api/queries'
+import * as queries from '../../../api/tts'
 import { useVnVoiceStore } from '../../../stores/vnVoice'
 import type { SlotProps } from '../../types'
 import { ttsPlayer } from './tts-player'
 import { useVnVoice } from './useVnVoice'
 
 test('VN 语音：说话人、等待、切句中断、回退去重、跳读与换备选', async () => {
-  const query = spyOn(queries, 'useExtensions').mockReturnValue({
-    data: [{ id: 'audio', settings: { ttsEnabled: true } }],
-  } as unknown as ReturnType<typeof queries.useExtensions>)
+  const query = spyOn(queries, 'useChatVoice').mockReturnValue({
+    data: { effective: { enabled: true, vnVoice: true, vnWaitVoice: true, vnInterrupt: true } },
+  } as unknown as ReturnType<typeof queries.useChatVoice>)
   const effects: { deps?: React.DependencyList; cleanup?: () => void }[] = []
   const refs: { current: unknown }[] = []
   let ei = 0
@@ -85,6 +85,17 @@ test('VN 语音：说话人、等待、切句中断、回退去重、跳读与�
     props.beatIndex = 2
     render()
     expect(speak).toHaveBeenLastCalledWith('chat', { kind: 'npc', name: 'Bob' }, 'Hello', undefined)
+    const count = speak.mock.calls.length
+    for (const effective of [
+      { enabled: false, vnVoice: true },
+      { enabled: true, vnVoice: false },
+    ]) {
+      query.mockReturnValue({ data: { effective } } as ReturnType<typeof queries.useChatVoice>)
+      props.playKey += '-disabled'
+      props.beatIndex = 0
+      render()
+      expect(speak).toHaveBeenCalledTimes(count)
+    }
   } finally {
     for (const entry of effects) entry.cleanup?.()
     for (const complete of completions) complete()

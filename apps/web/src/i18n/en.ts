@@ -2198,4 +2198,28 @@ export const en: Record<string, string> = {
   音频库: 'Audio library',
   '朗读台词和旁白的音量，需要在「音频」扩展里开启朗读':
     'Volume for spoken lines and narration. Turn on reading aloud in the Audio extension first',
+  开: 'On',
+  关: 'Off',
+  '跟随全局（{value}）': 'Follow global ({value})',
+  这个会话不读: 'Off in this chat',
+  '指定声音…': 'Choose a voice…',
+  '这个会话指定…': 'Set for this chat…',
+  '只对这个会话生效；每一项默认跟随「音频」扩展的全局设置和角色卡上的声音。':
+    'Applies to this chat only. Each item follows the Audio extension settings and the voices on character cards by default.',
+  新回复自动朗读: 'Read new replies automatically',
+  'VN 里逐句朗读': 'Read lines aloud in VN',
+  朗读旁白: 'Read narration',
+  朗读你的台词: 'Read your lines',
+  旁白声音: 'Narrator voice',
+  你的声音: 'Your voice',
+  '角色卡（{value}）': 'Character card ({value})',
+  声音池自动分配: 'Assigned from the voice pool',
+  NPC: 'NPCs',
+  '这个会话里还没有出现过 NPC，可以手动添加名字。':
+    'No NPCs have appeared in this chat yet. You can add a name manually.',
+  '声音池（{value}）': 'Voice pool ({value})',
+  'NPC 名字': 'NPC name',
+  '清除这个会话的所有声音设置，全部恢复跟随全局？':
+    'Clear all voice settings for this chat and follow the global settings again?',
+  全部恢复跟随全局: 'Reset to global',
 }

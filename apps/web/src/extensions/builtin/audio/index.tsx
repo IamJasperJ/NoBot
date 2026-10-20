@@ -1,8 +1,10 @@
 import { api as client } from '../../../api/client'
+import { ttsApi } from '../../../api/tts'
 import { t } from '../../../i18n'
 import { useVn } from '../../../stores/vn'
 import type { ActivateFn, SlotProps } from '../../types'
 import { ChatBgmDialog, ChatBgmMenuEntry } from './ChatBgmUi'
+import { ChatVoiceSection } from './ChatVoiceSection'
 import { AudioLibraryPage } from './LibraryPage'
 import { CharacterVoiceSection, ReadAloudAction, TtsCacheFooter, VoiceField, VoiceListField } from './TtsUi'
 import { ttsPlayer } from './tts-player'
@@ -36,8 +38,8 @@ const activate: ActivateFn = (api) => {
   const off = api.on('generation:complete', ({ chatId }) => {
     const current = ++requestId
     void (async () => {
-      const extension = (await client.listExtensions()).find((e) => e.id === 'audio')
-      if (!extension?.enabled || !extension.settings.ttsEnabled || !extension.settings.autoRead) return
+      const { effective } = await ttsApi.chatVoice(chatId)
+      if (!effective.enabled || !effective.autoRead) return
       const page = await client.getChatPage(chatId)
       const presets = await client.listPlayPresets()
       const preset = presets.find((p) => p.id === page.playPresetId)
@@ -56,6 +58,14 @@ const activate: ActivateFn = (api) => {
     render: () => <AudioLibraryPage />,
   })
   api.registerSlot('chat.layer', { id: 'audio', render: (props) => <ChatAudioLayer {...props} /> })
+  api.registerSlot('chat.settings.sections', {
+    id: 'voice',
+    get title() {
+      return t('声音')
+    },
+    order: 60,
+    render: ({ chatId }) => <ChatVoiceSection key={chatId} chatId={chatId} />,
+  })
   api.registerSlot('chat.composer.menu', {
     id: 'bgm',
     render: ({ chatId, close }) => <ChatBgmMenuEntry chatId={chatId} close={close} />,

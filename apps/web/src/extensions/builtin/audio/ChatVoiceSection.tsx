@@ -1,0 +1,258 @@
+import { castKey } from '@nobot/core/stage'
+import type { ChatVoiceConfig, VoiceRef } from '@nobot/shared'
+import { useEffect, useState } from 'react'
+import { useChatVoice, useResetChatVoice, useSetChatVoice, useTtsEngines } from '../../../api/tts'
+import { PlusIcon, XIcon } from '../../../components/icons'
+import { Button, controlClass, cx, IconButton, selectClass } from '../../../components/ui'
+import { t } from '../../../i18n'
+import { errorMessage, toast } from '../../../stores/toast'
+import { VoicePicker } from './VoicePicker'
+
+type Flag = 'enabled' | 'autoRead' | 'vnVoice' | 'readNarration' | 'readUser'
+
+/** 去掉还没填完的声音（选了引擎、没选声音），服务端只收完整的 */
+function sanitize(config: ChatVoiceConfig): ChatVoiceConfig {
+  const done = (v: VoiceRef | null | undefined) => !v || !!v.voice
+  const record = (r: Record<string, VoiceRef>) => Object.fromEntries(Object.entries(r).filter(([, v]) => v.voice))
+  return {
+    ...config,
+    narratorVoice: done(config.narratorVoice) ? config.narratorVoice : undefined,
+    userVoice: done(config.userVoice) ? config.userVoice : undefined,
+    characters: record(config.characters),
+    npcs: record(config.npcs),
+  }
+}
+
+/**
+ * 会话设置里的「声音」：按会话覆盖音频扩展的朗读设置。每一项默认「跟随全局」，
+ * 改了就只对这个会话生效：朗读开关、旁白和你的声音、每个角色和 NPC 的声音。
+ */
+export function ChatVoiceSection({ chatId }: { chatId: string }) {
+  const query = useChatVoice(chatId)
+  const save = useSetChatVoice()
+  const reset = useResetChatVoice()
+  const engines = useTtsEngines()
+  const [draft, setDraft] = useState<ChatVoiceConfig | null>(null)
+  const [npcName, setNpcName] = useState('')
+  useEffect(() => {
+    if (!query.data) return
+    const saved = query.data.config
+    // 服务端只存完整的声音；刷新时把本地还没选完声音的条目留下，免得改别的开关时把它们冲掉
+    setDraft((prev) => {
+      if (!prev) return saved
+      const pending = (r: Record<string, VoiceRef>) => Object.fromEntries(Object.entries(r).filter(([, v]) => !v.voice))
+      const keep = (v: VoiceRef | null | undefined, next: VoiceRef | null | undefined) =>
+        v && !v.voice && next === undefined ? v : next
+      return {
+        ...saved,
+        narratorVoice: keep(prev.narratorVoice, saved.narratorVoice),
+        userVoice: keep(prev.userVoice, saved.userVoice),
+        characters: { ...pending(prev.characters), ...saved.characters },
+        npcs: { ...pending(prev.npcs), ...saved.npcs },
+      }
+    })
+  }, [query.data])
+
+  if (query.isLoading || !draft || !query.data) return <p className="text-sm text-zinc-500">{t('加载中…')}</p>
+  if (query.error) return <p className="text-sm text-red-600">{errorMessage(query.error)}</p>
+  const { members, npcs, global } = query.data
+
+  const engineLabel = (id: string) => engines.data?.find((e) => e.id === id)?.label ?? id
+  const describe = (v: VoiceRef | null) => (v ? `${engineLabel(v.engine)} · ${v.voice}` : t('无'))
+  const onOff = (v: boolean) => (v ? t('开') : t('关'))
+
+  const update = (next: ChatVoiceConfig) => {
+    setDraft(next)
+    const clean = sanitize(next)
+    save.mutate({ chatId, config: clean }, { onError: (e) => toast.error(errorMessage(e)) })
+  }
+  const flag = (key: Flag, label: string) => {
+    const value = draft[key]
+    return (
+      <label className="flex items-center justify-between gap-3 py-1">
+        <span className="min-w-0 text-[13px]">{label}</span>
+        <select
+          className={cx(selectClass, 'h-8 w-44 shrink-0 pl-2.5 text-[13px]')}
+          value={value === undefined ? '' : value ? 'on' : 'off'}
+          onChange={(e) => {
+            const v = e.target.value
+            const { [key]: _, ...rest } = draft
+            update(v === '' ? (rest as ChatVoiceConfig) : { ...draft, [key]: v === 'on' })
+          }}
+        >
+          <option value="">{t('跟随全局（{value}）', { value: onOff(global[key]) })}</option>
+          <option value="on">{t('开')}</option>
+          <option value="off">{t('关')}</option>
+        </select>
+      </label>
+    )
+  }
+  /** 旁白、用户声音：跟随全局 / 不读 / 指定 */
+  const voiceField = (key: 'narratorVoice' | 'userVoice', label: string) => {
+    const value = draft[key]
+    const mode = value === undefined ? 'inherit' : value === null ? 'none' : 'custom'
+    return (
+      <div className="space-y-1.5 py-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[13px]">{label}</span>
+          <select
+            className={cx(selectClass, 'h-8 w-44 shrink-0 pl-2.5 text-[13px]')}
+            value={mode}
+            onChange={(e) => {
+              const m = e.target.value
+              const { [key]: _, ...rest } = draft
+              if (m === 'inherit') update(rest as ChatVoiceConfig)
+              else if (m === 'none') update({ ...draft, [key]: null })
+              else setDraft({ ...draft, [key]: global[key] ?? { engine: 'edge', voice: '', speed: 1 } })
+            }}
+          >
+            <option value="inherit">{t('跟随全局（{value}）', { value: describe(global[key]) })}</option>
+            <option value="none">{t('这个会话不读')}</option>
+            <option value="custom">{t('指定声音…')}</option>
+          </select>
+        </div>
+        {value && <VoicePicker value={value} allowNone={false} onChange={(v) => v && update({ ...draft, [key]: v })} />}
+      </div>
+    )
+  }
+  /** 角色、NPC：跟随（角色卡 / 声音池）或指定 */
+  const overrideRow = (
+    name: string,
+    fallback: string,
+    value: VoiceRef | undefined,
+    set: (v: VoiceRef | undefined) => void,
+    onRemove?: () => void,
+  ) => (
+    <div key={name} className="space-y-1.5 rounded-lg border border-zinc-100 px-2.5 py-2 dark:border-zinc-800">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{name}</span>
+        <select
+          className={cx(selectClass, 'h-8 w-44 shrink-0 pl-2.5 text-[13px]')}
+          value={value ? 'custom' : 'inherit'}
+          onChange={(e) => set(e.target.value === 'inherit' ? undefined : { engine: 'edge', voice: '', speed: 1 })}
+        >
+          <option value="inherit">{fallback}</option>
+          <option value="custom">{t('这个会话指定…')}</option>
+        </select>
+        {onRemove && (
+          <IconButton label={t('移除')} className="size-8" onClick={onRemove}>
+            <XIcon />
+          </IconButton>
+        )}
+      </div>
+      {value && <VoicePicker value={value} allowNone={false} onChange={(v) => v && set(v)} />}
+    </div>
+  )
+  const setCharacter = (id: string, v: VoiceRef | undefined) => {
+    const { [id]: _, ...rest } = draft.characters
+    const next = { ...draft, characters: v ? { ...rest, [id]: v } : rest }
+    if (v && !v.voice) setDraft(next)
+    else update(next)
+  }
+  const setNpc = (key: string, v: VoiceRef | undefined) => {
+    const { [key]: _, ...rest } = draft.npcs
+    const next = { ...draft, npcs: v ? { ...rest, [key]: v } : rest }
+    if (v && !v.voice) setDraft(next)
+    else update(next)
+  }
+  // 手动加的 NPC 也要能显示：候选名单之外、但 draft 里已有覆盖的
+  const npcRows = [
+    ...npcs,
+    ...Object.keys(draft.npcs)
+      .filter((key) => !npcs.some((n) => n.key === key))
+      .map((key) => ({ key, name: key, poolVoice: null })),
+  ]
+  const overridden = Object.keys(sanitize(draft)).some((k) => {
+    const v = draft[k as keyof ChatVoiceConfig]
+    return k === 'characters' || k === 'npcs' ? Object.keys(v as object).length > 0 : v !== undefined
+  })
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-zinc-500">
+        {t('只对这个会话生效；每一项默认跟随「音频」扩展的全局设置和角色卡上的声音。')}
+      </p>
+
+      <div>
+        {flag('enabled', t('朗读'))}
+        {flag('autoRead', t('新回复自动朗读'))}
+        {flag('vnVoice', t('VN 里逐句朗读'))}
+        {flag('readNarration', t('朗读旁白'))}
+        {flag('readUser', t('朗读你的台词'))}
+      </div>
+
+      <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800">
+        {voiceField('narratorVoice', t('旁白声音'))}
+        {voiceField('userVoice', t('你的声音'))}
+      </div>
+
+      {members.length > 0 && (
+        <div className="space-y-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+          <div className="text-xs font-medium text-zinc-500">{t('角色')}</div>
+          {members.map((m) =>
+            overrideRow(
+              m.name,
+              m.cardVoice ? t('角色卡（{value}）', { value: describe(m.cardVoice) }) : t('声音池自动分配'),
+              draft.characters[m.id],
+              (v) => setCharacter(m.id, v),
+            ),
+          )}
+        </div>
+      )}
+
+      <div className="space-y-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+        <div className="text-xs font-medium text-zinc-500">{t('NPC')}</div>
+        {npcRows.length === 0 && (
+          <p className="text-xs text-zinc-400">{t('这个会话里还没有出现过 NPC，可以手动添加名字。')}</p>
+        )}
+        {npcRows.map((n) =>
+          overrideRow(
+            n.name,
+            n.poolVoice ? t('声音池（{value}）', { value: describe(n.poolVoice) }) : t('声音池自动分配'),
+            draft.npcs[n.key],
+            (v) => setNpc(n.key, v),
+            npcs.some((c) => c.key === n.key) ? undefined : () => setNpc(n.key, undefined),
+          ),
+        )}
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const name = npcName.trim()
+            if (!name) return
+            const key = castKey(name)
+            if (!npcRows.some((n) => n.key === key)) setNpc(key, { engine: 'edge', voice: '', speed: 1 })
+            setNpcName('')
+          }}
+        >
+          <input
+            className={cx(controlClass, 'h-8 min-w-0 flex-1 px-2.5 text-[13px]')}
+            placeholder={t('NPC 名字')}
+            value={npcName}
+            onChange={(e) => setNpcName(e.target.value)}
+          />
+          <Button type="submit" size="sm" disabled={!npcName.trim()}>
+            <PlusIcon />
+            {t('添加')}
+          </Button>
+        </form>
+      </div>
+
+      {overridden && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={reset.isPending}
+            onClick={() => {
+              if (confirm(t('清除这个会话的所有声音设置，全部恢复跟随全局？')))
+                reset.mutate(chatId, { onError: (e) => toast.error(errorMessage(e)) })
+            }}
+          >
+            {t('全部恢复跟随全局')}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}

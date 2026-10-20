@@ -1,14 +1,14 @@
 import { castKey } from '@nobot/core/stage'
 import type { TtsSpeaker } from '@nobot/shared'
 import { useEffect, useRef } from 'react'
-import { useExtensions } from '../../../api/queries'
+import { useChatVoice } from '../../../api/tts'
 import { useVnVoiceStore } from '../../../stores/vnVoice'
 import type { SlotProps } from '../../types'
 import { ttsPlayer } from './tts-player'
 
 export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping }: SlotProps['vn.layer']) {
-  const settings = useExtensions().data?.find((e) => e.id === 'audio')?.settings
-  const enabled = settings?.ttsEnabled === true && settings?.vnVoice !== false
+  const settings = useChatVoice(chatId).data?.effective
+  const enabled = settings?.enabled === true && settings?.vnVoice !== false
   const interrupt = settings?.vnInterrupt !== false
   const wait = settings?.vnWaitVoice !== false
   const ongoing = useRef<Promise<void>>(Promise.resolve())

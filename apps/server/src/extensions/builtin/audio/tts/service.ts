@@ -10,6 +10,7 @@ import { getChatRow, loadMessage } from '../../../../services/chats'
 import { resolvePersona } from '../../../../services/context'
 import { matchStageMember, stageMembers } from '../../../../services/stage'
 import { toneInstruction } from './additional'
+import type { EffectiveAudioSettings } from './chat-voice'
 import { openaiConnection, ttsEngines } from './engines'
 import type { AudioSettings } from './settings'
 
@@ -26,13 +27,14 @@ export function poolVoice(name: string, pool: VoiceRef[]): VoiceRef | null {
 export function resolveVoice(
   chatId: string,
   speaker: TtsSpeaker,
-  s: AudioSettings,
+  s: EffectiveAudioSettings,
 ): VoiceRef | Extract<TtsLineResult, { kind: 'skip' }> {
   const skip = (reason: 'no-voice' | 'narration-off' | 'user-off') => ({ kind: 'skip' as const, reason })
   switch (speaker.kind) {
     case 'character': {
       const card = getCharacterRow(speaker.characterId)
       return (
+        s.chatVoice?.characters[speaker.characterId] ??
         voiceRefSchema.safeParse(card.extensions.nobot_tts).data ??
         poolVoice(card.name, s.npcVoices) ??
         skip('no-voice')
@@ -47,7 +49,7 @@ export function resolveVoice(
       if (member) return resolveVoice(chatId, { kind: 'character', characterId: member.id }, s)
       const persona = resolvePersona(getChatRow(chatId))
       if (castKey(persona.name) === castKey(speaker.name)) return resolveVoice(chatId, { kind: 'user' }, s)
-      return poolVoice(speaker.name, s.npcVoices) ?? skip('no-voice')
+      return s.chatVoice?.npcs[castKey(speaker.name)] ?? poolVoice(speaker.name, s.npcVoices) ?? skip('no-voice')
     }
   }
 }

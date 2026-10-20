@@ -2,7 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { TtsLineResult, VoiceRef } from '@nobot/shared'
+import type { ChatVoiceDTO, TtsLineResult, VoiceRef } from '@nobot/shared'
 
 test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥与 Range', async () => {
   // 配置和数据库都是单例，用子进程避免影响其他扩展测试。
@@ -77,6 +77,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
       { speaker: { kind: 'character', characterId: character.id }, text: '你好呀。' },
       { speaker: { kind: 'narrator' }, text: '然后转身离开。' },
     ]
+    updateExtension('audio', { settings: { ...settings, ttsEnabled: true } })
     editMessage(opening.id, narration)
     expect(await json('/message', { messageId: opening.id })).toEqual({ chatId: chat.id, segments: expectedSegments })
     // 显式保存舞台拍，覆盖 /tts/message 读取 meta.stage 而非重新解析的路径。
@@ -95,6 +96,83 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     expect(
       await json('/line', { chatId: chat.id, speaker: { kind: 'narrator' }, text: '<scene bg="night" />' }),
     ).toEqual({ kind: 'skip', reason: 'empty' })
+    // 会话覆盖只影响本会话，候选名单保留声音池原本的分配结果。
+    const otherChat = createChat({ characterId: character.id })
+    const override: VoiceRef = { engine: 'browser', voice: 'session', speed: 1.2 }
+    updateExtension('audio', { settings: { ...settings, ttsEnabled: true, readNarration: true, narratorVoice: voice } })
+    const before = await json<ChatVoiceDTO>(`/chat/${chat.id}`)
+    expect(before.config).toEqual({ characters: {}, npcs: {} })
+    expect(before.effective.enabled).toBe(true)
+    expect(before.members).toEqual([{ id: character.id, name: character.name, cardVoice: voice }])
+    const { writeTemporaryActor } = await import('../../../../services/temporary-actors')
+    for (const name of ['Bob', ' B ob ', 'Alice', 'Saved']) {
+      writeTemporaryActor(chat.id, name, { key: name, name, image: null, prompt: '', status: 'done', updatedAt: 0 })
+    }
+    const { getChatRow, loadPath } = await import('../../../../services/chats')
+    const { computeStage } = await import('../../../../services/stage')
+    const currentStage = computeStage(chat.id, loadPath(getChatRow(chat.id).activeLeafId))
+    const stageSpy = spyOn(await import('../../../../services/stage'), 'computeStage').mockReturnValue({
+      scene: currentStage?.scene ?? {},
+      cast: [
+        { key: 'bob', name: 'Bob', at: 'center', expression: '' },
+        { key: 'stageonly', name: 'Stage Only', at: 'center', expression: '' },
+      ],
+    })
+    const config = {
+      enabled: true,
+      autoRead: true,
+      vnVoice: false,
+      narratorVoice: null,
+      characters: { [character.id]: override },
+      npcs: { bob: override, saved: override },
+    }
+    const saved = await json<ChatVoiceDTO>(`/chat/${chat.id}`, config, 'PUT')
+    stageSpy.mockRestore()
+    expect(saved.effective).toEqual({
+      enabled: true,
+      autoRead: true,
+      vnVoice: false,
+      vnWaitVoice: true,
+      vnInterrupt: true,
+    })
+    expect(saved.npcs.map((npc) => npc.key).sort()).toEqual(['bob', 'saved', 'stageonly'])
+    expect(saved.npcs.every((npc) => JSON.stringify(npc.poolVoice) === JSON.stringify(voice))).toBe(true)
+    expect(saved.global.narratorVoice).toEqual(voice)
+    expect(
+      await json('/line', { chatId: chat.id, speaker: { kind: 'character', characterId: character.id }, text: 'Hi' }),
+    ).toMatchObject({ kind: 'browser', voice: 'session' })
+    expect(await json('/line', { chatId: chat.id, speaker: { kind: 'npc', name: 'Alice' }, text: 'Hi' })).toMatchObject(
+      { kind: 'browser', voice: 'session' },
+    )
+    expect(await json('/line', { chatId: chat.id, speaker: { kind: 'npc', name: 'B ob' }, text: 'Hi' })).toMatchObject({
+      kind: 'browser',
+      voice: 'session',
+    })
+    expect(await json('/line', { chatId: chat.id, speaker: { kind: 'narrator' }, text: 'Hi' })).toEqual({
+      kind: 'skip',
+      reason: 'no-voice',
+    })
+    await json(`/chat/${chat.id}`, { enabled: false }, 'PUT')
+    const disabled = await request('/line', { chatId: chat.id, speaker: { kind: 'narrator' }, text: 'Hi' })
+    expect(disabled.status).toBe(400)
+    expect(await disabled.json()).toMatchObject({ error: { code: 'TTS_DISABLED', message: '还没有开启朗读' } })
+    expect((await request('/message', { messageId: opening.id })).status).toBe(400)
+    expect((await json<ChatVoiceDTO>(`/chat/${otherChat.id}`)).effective.enabled).toBe(true)
+    expect((await json<ChatVoiceDTO>(`/chat/${chat.id}`, undefined, 'DELETE')).config).toEqual({
+      characters: {},
+      npcs: {},
+    })
+    expect((await json<ChatVoiceDTO>(`/chat/${chat.id}`)).effective.enabled).toBe(true)
+    const { setSetting } = await import('../../../../db/client')
+    setSetting(`extdata:audio:tts-chat:${chat.id}`, {
+      autoRead: true,
+      narratorVoice: { engine: 'browser', voice: '' },
+      characters: { draft: { engine: 'browser', voice: '' } },
+    })
+    expect((await json<ChatVoiceDTO>(`/chat/${chat.id}`)).config).toEqual({ autoRead: true, characters: {}, npcs: {} })
+    setSetting(`extdata:audio:tts-chat:${chat.id}`, { enabled: 'bad' })
+    expect((await json<ChatVoiceDTO>(`/chat/${chat.id}`)).config).toEqual({ characters: {}, npcs: {} })
+    await json(`/chat/${chat.id}`, undefined, 'DELETE')
     const synthesis = spyOn(ttsEngines.openai, 'synthesize')
     const results = await Promise.all(
       Array.from({ length: 4 }, () => synthesizeVoice(voice, 'Hello cache', settings, 'joy')),

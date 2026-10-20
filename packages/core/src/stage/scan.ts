@@ -122,6 +122,11 @@ export function shorthand(line: string, known: Set<string>, narrators: Set<strin
   const expression = match[2]?.trim()
   const text = match[3]!
   const narrator = narrators.has(key)
-  if (!narrator && !known.has(key) && expression === undefined && !/^[「『“"]/.test(text)) return
+  if (!narrator && !known.has(key) && expression === undefined) {
+    // 未知名字只能省略表情写完整引号台词，避免把叙述句的冒号误当成说话人分隔符。
+    const closing = ({ '「': '」', '『': '』', '“': '”', '"': '"' } as Record<string, string>)[text[0] ?? '']
+    const end = closing ? text.indexOf(closing, 1) : -1
+    if (end < 0 || !/^[\s\p{P}]*$/u.test(text.slice(end + 1))) return
+  }
   return { speaker, ...(expression !== undefined ? { expression } : {}), text, narrator }
 }

@@ -121,6 +121,35 @@ describe('台词与拍', () => {
     },
   )
 
+  test.each([
+    ['「', '」'],
+    ['『', '』'],
+    ['“', '”'],
+    ['"', '"'],
+  ])('未知名字的 %s%s 引号后有文字时保留叙述，否则识别台词', (open, close) => {
+    const source = `她笑着说：${open}你好呀。${close}然后转身离开。`
+    expect(parse(source).stage.beats).toEqual([{ kind: 'narration', text: source }])
+    expect(parse(source).stage.ops).toEqual([])
+    expect(applyStageOps(emptyStage(), parse(source).stage.ops).cast).toEqual([])
+    for (const mode of ['plain', 'bold', 'none'] as const) expect(display(source, mode)).toBe(source)
+    const text = `${open}你是谁？${close} …！ `
+    const dialogue = `陌生人：${text}`
+    expect(parse(dialogue).stage.beats).toEqual([{ kind: 'line', speaker: '陌生人', text }])
+    expect(parse(dialogue).stage.ops).toEqual([{ op: 'show', who: '陌生人' }])
+    expect(display(dialogue, 'none')).toBe(text.trimEnd())
+    expect(applyStageOps(emptyStage(), parse(dialogue).stage.ops).cast[0]?.name).toBe('陌生人')
+    expect(parse(`陌生人：${open}未闭合`).stage.beats).toEqual([{ kind: 'narration', text: `陌生人：${open}未闭合` }])
+  })
+
+  test('已知名字、旁白名和显式表情仍允许引号后的叙述文字', () => {
+    const text = '「你好呀。」然后转身离开。'
+    expect(parse(`艾莉丝：${text}`).stage.beats).toEqual([{ kind: 'line', speaker: '艾莉丝', text }])
+    expect(parse(`陌生人[joy]：${text}`).stage.beats).toEqual([
+      { kind: 'line', speaker: '陌生人', expression: 'joy', text },
+    ])
+    expect(parse(`旁白：${text}`).stage.beats).toEqual([{ kind: 'narration', text }])
+  })
+
   test('旁白名字不需要其他认定条件，也不产生上台操作', () => {
     const result = parse('旁白：风吹过。\nGM[joy]：天黑了。')
     expect(result.stage.beats).toEqual([

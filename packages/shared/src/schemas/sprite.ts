@@ -21,6 +21,8 @@ export interface SpriteDTO {
   thumbUrl: string
   width: number
   height: number
+  hasOriginal: boolean
+  updatedAt: number
   createdAt: number
 }
 
@@ -81,3 +83,14 @@ export interface MattingStatus {
   runtime: MattingPart
   model: MattingPart
 }
+
+export const cutoutModeSchema = z.enum(['algorithm', 'model'])
+export type CutoutMode = z.infer<typeof cutoutModeSchema>
+export const spriteCutoutPreviewInput = z.object({ mode: cutoutModeSchema })
+export const spriteCutoutInput = z.object({ ids: z.array(z.string().min(1)).min(1).max(500), mode: cutoutModeSchema })
+export const temporaryActorCutoutInput = z.object({
+  chatId: z.string().min(1),
+  key: z.string().min(1),
+  mode: cutoutModeSchema,
+  preview: z.boolean().optional(),
+})

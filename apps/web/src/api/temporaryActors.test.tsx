@@ -14,6 +14,7 @@ import {
 } from './temporaryActors'
 
 const record: TemporaryActorDTO = {
+  hasOriginal: false,
   key: 'merchant',
   name: 'Merchant',
   image: null,

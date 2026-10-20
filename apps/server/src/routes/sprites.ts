@@ -1,14 +1,24 @@
-import { updateSpriteInput } from '@nobot/shared'
+import { spriteCutoutInput, spriteCutoutPreviewInput, updateSpriteInput } from '@nobot/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'
+import { previewSpriteCutout, spriteCutoutJob, startSpriteCutout } from '../services/sprite-cutout'
 import { spriteJob, startSpriteJob } from '../services/sprite-generation'
 import * as service from '../services/sprites'
 
 export const spriteRoutes = new Hono()
+  .post('/:spriteId/cutout/preview', validate('json', spriteCutoutPreviewInput), async (c) => {
+    const { mode } = c.req.valid('json')
+    const bytes = await previewSpriteCutout(c.req.param('id')!, c.req.param('spriteId'), mode)
+    return new Response(bytes, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' } })
+  })
+  .post('/cutout', validate('json', spriteCutoutInput), async (c) =>
+    c.json(await startSpriteCutout(c.req.param('id')!, c.req.valid('json'))),
+  )
+  .get('/cutout/:jobId', (c) => c.json(spriteCutoutJob(c.req.param('id')!, c.req.param('jobId'))))
   .post('/generate', async (c) => c.json(await startSpriteJob(c.req.param('id')!, await c.req.json())))
   .get('/generate/:jobId', (c) => c.json(spriteJob(c.req.param('id')!, c.req.param('jobId'))))
   .get('/', (c) => c.json(service.listSprites(c.req.param('id')!)))

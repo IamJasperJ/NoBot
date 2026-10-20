@@ -1,16 +1,54 @@
-import { regenerateTemporaryActorInput, removeTemporaryActorInput, type TemporaryActorDTO } from '@nobot/shared'
+import { rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import {
+  type AttachmentDTO,
+  regenerateTemporaryActorInput,
+  removeTemporaryActorInput,
+  type TemporaryActorDTO,
+  temporaryActorCutoutInput,
+} from '@nobot/shared'
 import type { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
-import { HttpError } from '../../../errors'
+import { paths } from '../../../env'
+import { HttpError, notFound } from '../../../errors'
 import { t } from '../../../i18n'
 import { readUpload } from '../../../lib/files'
+import { validate } from '../../../lib/validate'
 import { saveAttachment } from '../../../services/attachments'
 import { getChatRow } from '../../../services/chats'
 import { cutoutSprite, mattingOptions } from '../../../services/matting'
-import { readTemporaryActors, writeTemporaryActor } from '../../../services/temporary-actors'
+import { assertCutoutMode, recutImage } from '../../../services/sprite-cutout'
+import {
+  readTemporaryActors as readActors,
+  writeTemporaryActor as writeActor,
+} from '../../../services/temporary-actors'
 import { type Context, stageImage } from './pipeline'
 import { parseSettings } from './settings'
+
+type ActorRecord = Omit<TemporaryActorDTO, 'hasOriginal'> & { hasOriginal?: boolean; original?: AttachmentDTO }
+const readTemporaryActors = (chatId: string) => readActors(chatId) as Record<string, ActorRecord>
+function actorDTO(record: ActorRecord): TemporaryActorDTO {
+  const { original, ...dto } = record
+  return { ...dto, hasOriginal: !!original }
+}
+async function cleanAttachments(...images: (AttachmentDTO | null | undefined)[]) {
+  for (const image of images) {
+    if (!image) continue
+    // 附件标识经过保存入口生成，只删除本地附件及其尺寸元数据。
+    if (!/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(image.id)) continue
+    await Promise.all(['webp', 'json'].map((ext) => rm(join(paths.attachments, `${image.id}.${ext}`), { force: true })))
+  }
+}
+function writeTemporaryActor(chatId: string, key: string, record: ActorRecord | null) {
+  writeActor(chatId, key, record ? { ...record, hasOriginal: !!record.original } : null)
+}
+async function replaceActor(chatId: string, key: string, record: ActorRecord | null) {
+  const old = readTemporaryActors(chatId)[key]
+  writeTemporaryActor(chatId, key, record)
+  const retained = new Set([record?.image?.id, record?.original?.id])
+  await cleanAttachments(...[old?.image, old?.original].filter((image) => image && !retained.has(image.id)))
+}
 
 export const actorTasks = new Set<string>()
 export const actorTaskKey = (chatId: string, key: string) => JSON.stringify([chatId, key])
@@ -28,7 +66,15 @@ export function startTemporaryActor(ctx: Context, chatId: string, key: string, n
   // 重新生成期间和失败后保留旧图，舞台不会突然变成剪影；用户删掉的图不再恢复
   const previous = readTemporaryActors(chatId)[key]
   const image = previous?.status === 'removed' ? null : (previous?.image ?? null)
-  const record: TemporaryActorDTO = { key, name, image, prompt, status: 'pending', updatedAt: Date.now() }
+  const record: ActorRecord = {
+    key,
+    name,
+    image,
+    original: previous?.original,
+    prompt,
+    status: 'pending',
+    updatedAt: Date.now(),
+  }
   try {
     writeTemporaryActor(chatId, key, record)
   } catch (error) {
@@ -60,7 +106,15 @@ export function startTemporaryActor(ctx: Context, chatId: string, key: string, n
         settings.spriteMatting === 'native',
       )
       const image = await ctx.host.saveImage(await cutoutSprite(bytes, mattingOptions(parseSettings(ctx.settings))))
-      writeTemporaryActor(chatId, key, { ...record, image, prompt: appearance, status: 'done', updatedAt: Date.now() })
+      const original = await ctx.host.saveImage(bytes)
+      await replaceActor(chatId, key, {
+        ...record,
+        image,
+        original,
+        prompt: appearance,
+        status: 'done',
+        updatedAt: Date.now(),
+      })
       return true
     } catch (error) {
       writeTemporaryActor(chatId, key, {
@@ -75,14 +129,47 @@ export function startTemporaryActor(ctx: Context, chatId: string, key: string, n
       actorTasks.delete(lock)
     }
   })()
-  return { record, task }
+  return { record: actorDTO(record), task }
 }
 
 export function temporaryActorRoutes(app: Hono, ctx: Context) {
   app.get('/temporary-actors', (c) => {
     const chatId = z.string().min(1).parse(c.req.query('chatId'))
     getChatRow(chatId)
-    return c.json(Object.values(readTemporaryActors(chatId)).sort((a, b) => b.updatedAt - a.updatedAt))
+    return c.json(
+      Object.values(readTemporaryActors(chatId))
+        .map(actorDTO)
+        .sort((a, b) => b.updatedAt - a.updatedAt),
+    )
+  })
+  app.post('/temporary-actors/cutout', validate('json', temporaryActorCutoutInput), async (c) => {
+    const { chatId, key, mode, preview } = c.req.valid('json')
+    getChatRow(chatId)
+    assertIdle(chatId, key)
+    const record = readTemporaryActors(chatId)[key]
+    if (!record?.image) throw notFound(t('立绘'))
+    const lock = actorTaskKey(chatId, key)
+    // 预览只检查生成任务，不占锁，允许开发模式重复 effect 并发读取同一原图。
+    if (!preview) actorTasks.add(lock)
+    try {
+      await assertCutoutMode(mode)
+      const source = record.original ?? record.image
+      const bytes = new Uint8Array(await Bun.file(join(paths.attachments, `${source.id}.webp`)).arrayBuffer())
+      const result = await recutImage(bytes, mode, !record.original)
+      if (preview)
+        return new Response(result, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' } })
+      // 无原图的旧记录保留当前附件，后续重抠始终使用同一份来源。
+      const updated: ActorRecord = {
+        ...record,
+        original: record.original ?? record.image,
+        image: await saveAttachment(result),
+        updatedAt: Math.max(Date.now(), record.updatedAt + 1),
+      }
+      await replaceActor(chatId, key, updated)
+      return c.json(actorDTO(updated))
+    } finally {
+      if (!preview) actorTasks.delete(lock)
+    }
   })
   app.post('/temporary-actors/regenerate', async (c) => {
     const { chatId, key, prompt } = regenerateTemporaryActorInput.parse(await c.req.json())
@@ -122,16 +209,17 @@ export function temporaryActorRoutes(app: Hono, ctx: Context) {
           }
         }
         const image = await saveAttachment(processed)
-        const record: TemporaryActorDTO = {
+        const record: ActorRecord = {
           key,
           name: readTemporaryActors(chatId)[key]?.name ?? key,
           image,
+          original: body.removeBackground === 'true' ? await saveAttachment(bytes) : undefined,
           prompt: '',
           status: 'done',
           updatedAt: Date.now(),
         }
-        writeTemporaryActor(chatId, key, record)
-        return c.json(record)
+        await replaceActor(chatId, key, record)
+        return c.json(actorDTO(record))
       } finally {
         actorTasks.delete(lock)
       }
@@ -142,7 +230,7 @@ export function temporaryActorRoutes(app: Hono, ctx: Context) {
     getChatRow(chatId)
     assertIdle(chatId, key)
     const old = readTemporaryActors(chatId)[key]
-    writeTemporaryActor(
+    await replaceActor(
       chatId,
       key,
       purge

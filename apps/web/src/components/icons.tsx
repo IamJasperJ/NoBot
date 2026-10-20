@@ -315,3 +315,10 @@ export const MusicIcon = (p: P) => (
     <circle cx="17.5" cy="16" r="2.5" />
   </Icon>
 )
+export const ScissorsIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="6" cy="6" r="3" />
+    <circle cx="6" cy="18" r="3" />
+    <path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12" />
+  </Icon>
+)

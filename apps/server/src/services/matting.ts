@@ -258,15 +258,24 @@ export function createMattingService(overrides: Partial<MattingDependencies> = {
       }
     }
   }
-  async function cutout(bytes: Uint8Array, options: MattingOptions): Promise<Uint8Array> {
+  async function cutout(
+    bytes: Uint8Array,
+    options: MattingOptions,
+    control: { force?: boolean; strict?: boolean } = {},
+  ): Promise<Uint8Array> {
     try {
-      const { data, info } = await sharp(bytes).rotate().ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+      const { data, info } = await (control.force ? sharp(bytes).flatten({ background: '#ffffff' }) : sharp(bytes))
+        .rotate()
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
       let rgba: Uint8Array = data
       if (!hasTransparentBackground(data, info.width, info.height)) {
         if (options.mode === 'model') {
           try {
             rgba = await infer(data, info.width, info.height)
           } catch (error) {
+            if (control.strict) throw error
             console.warn('[matting] Model fallback', error)
             rgba = removeSpriteBackground(data, info.width, info.height)
           }
@@ -279,6 +288,7 @@ export function createMattingService(overrides: Partial<MattingDependencies> = {
         .png()
         .toBuffer()
     } catch (error) {
+      if (control.strict) throw error
       // 无法解码时也不能让立绘生成任务丢图；原始字节交给现有保存流程校验。
       console.warn('[matting] Image processing failed', error)
       return bytes
@@ -287,5 +297,5 @@ export function createMattingService(overrides: Partial<MattingDependencies> = {
   return { status, install, remove, infer, cutout, waitForInstall: () => pending }
 }
 export const mattingService = createMattingService()
-/** 把立绘转成透明 PNG；模型不可用时仅回退算法，不触发下载。 */
-export const cutoutSprite = mattingService.cutout
+/** 把立绘转成透明 PNG；生成时允许回退，显式重抠使用 strict 暴露失败，不触发下载。 */
+export const cutoutSprite: typeof mattingService.cutout = (...args) => mattingService.cutout(...args)

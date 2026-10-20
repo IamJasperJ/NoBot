@@ -21,6 +21,7 @@ import type {
   CheckResult,
   ChoiceCheckInput,
   CreateChatInput,
+  CutoutMode,
   ExtensionCatalogDTO,
   ExtensionDTO,
   ExtensionInstallInput,
@@ -107,6 +108,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await res.json()) as T
 }
 
+/** 预览返回图片字节，错误与 JSON 接口保持一致。 */
+async function requestBlob(path: string, body: unknown): Promise<Blob> {
+  const res = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await readError(res)
+  return res.blob()
+}
+
 const enc = encodeURIComponent
 
 /** 上传单个文件（字段名 file） */
@@ -128,6 +140,16 @@ type Ok = { ok: true }
 
 /** 所有后端接口。路径和 apps/server/API.md 一一对应 */
 export const api = {
+  spriteCutoutPreview: (characterId: string, spriteId: string, mode: CutoutMode) =>
+    requestBlob(`/characters/${enc(characterId)}/sprites/${enc(spriteId)}/cutout/preview`, { mode }),
+  startSpriteCutout: (characterId: string, ids: string[], mode: CutoutMode) =>
+    request<SpriteJobDTO & { jobId: string }>('POST', `/characters/${enc(characterId)}/sprites/cutout`, { ids, mode }),
+  spriteCutoutJob: (characterId: string, jobId: string) =>
+    request<SpriteJobDTO>('GET', `/characters/${enc(characterId)}/sprites/cutout/${enc(jobId)}`),
+  temporaryActorCutoutPreview: (input: { chatId: string; key: string; mode: CutoutMode }) =>
+    requestBlob('/ext/image-gen/temporary-actors/cutout', { ...input, preview: true }),
+  cutoutTemporaryActor: (input: { chatId: string; key: string; mode: CutoutMode }) =>
+    request<TemporaryActorDTO>('POST', '/ext/image-gen/temporary-actors/cutout', input),
   mattingStatus: () => request<MattingStatus>('GET', '/ext/image-gen/matting/status'),
   installMatting: (settings?: Record<string, unknown>) =>
     request<MattingStatus>('POST', '/ext/image-gen/matting/install', settings ? { settings } : {}),

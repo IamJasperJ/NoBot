@@ -175,3 +175,34 @@ test('未安装模型回退算法且不下载，透明图在三种模式下保�
   const bad = new Uint8Array([1, 2, 3])
   expect(await service.cutout(bad, options)).toEqual(bad)
 })
+
+test('force 将透明区域铺白后重新处理，严格模式不吞掉模型和解码失败', async () => {
+  const service = createMattingService({ directory: await directory() })
+  const transparent = await sharp({
+    create: { width: 20, height: 20, channels: 4, background: { r: 12, g: 34, b: 56, alpha: 0 } },
+  })
+    .png()
+    .toBuffer()
+  const forced = await service.cutout(transparent, { ...options, mode: 'algorithm' }, { force: true, strict: true })
+  const raw = await sharp(forced).ensureAlpha().raw().toBuffer()
+  expect(raw[3]).toBe(0)
+  expect(raw.subarray(0, 3)).not.toEqual(new Uint8Array([12, 34, 56]))
+  await expect(service.cutout(transparent, options, { force: true, strict: true })).rejects.toThrow()
+  await expect(service.cutout(new Uint8Array([1]), options, { strict: true })).rejects.toThrow()
+})
+
+test('严格重抠遇到已安装模型的推理失败时抛错，不回退算法', async () => {
+  const dir = await directory()
+  await fakeRuntime(dir)
+  await writeFile(join(dir, 'isnetis.onnx'), 'model')
+  const service = createMattingService({
+    directory: dir,
+    load: async () => {
+      throw new Error('inference unavailable')
+    },
+  })
+  const opaque = await sharp({ create: { width: 20, height: 20, channels: 4, background: '#ffffff' } })
+    .png()
+    .toBuffer()
+  await expect(service.cutout(opaque, options, { strict: true })).rejects.toThrow('inference unavailable')
+})

@@ -218,7 +218,7 @@ test('VN4：手动变量、阶段世界书与固定存档快照', async () => {
         {
           name: 'Alice',
           characterId: actor.id,
-          spriteUrl: `/api/assets/sprites/${actor.id}/${spriteId}.png`,
+          spriteUrl: `/api/assets/sprites/${actor.id}/${spriteId}.png?v=1`,
           avatarUrl: expect.stringContaining('alice.webp?v='),
         },
         { name: 'Bob', characterId: null, spriteUrl: null, avatarUrl: null },

@@ -1,13 +1,14 @@
-import { EXPRESSIONS, type SpriteDTO, type SpriteImportResult } from '@nobot/shared'
+import { type CutoutMode, EXPRESSIONS, type SpriteDTO, type SpriteImportResult } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { type DragEvent, useRef, useState } from 'react'
+import { type DragEvent, useCallback, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import { keys, useSprites } from '../../api/queries'
+import { keys, useSpriteCutoutJob, useSprites, useStartSpriteCutout } from '../../api/queries'
 import { Section } from '../../components/form'
-import { CheckIcon, PlusIcon, TrashIcon, UploadIcon, WandIcon } from '../../components/icons'
+import { CheckIcon, PlusIcon, ScissorsIcon, TrashIcon, UploadIcon, WandIcon } from '../../components/icons'
 import { Button, badgeClass, cx, Dialog, IconButton } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
+import { CutoutDialog, CutoutModePicker } from './CutoutDialog'
 import { SpriteGenerateDialog, SpriteJobBar } from './SpriteGenerateDialog'
 
 /**
@@ -24,6 +25,8 @@ export function SpriteManager({ characterId }: { characterId: string }) {
   const [opened, setOpened] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
+  const [cutoutJob, setCutoutJob] = useState<string | null>(null)
+  const [batchCutout, setBatchCutout] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
   // 多选删除：选中的是立绘 id；格子按表情整组选，弹窗里可以一张张选
   const [selecting, setSelecting] = useState(false)
@@ -206,6 +209,16 @@ export function SpriteManager({ characterId }: { characterId: string }) {
           onStarted={setJobId}
         />
         {jobId && <SpriteJobBar characterId={characterId} jobId={jobId} onDismiss={() => setJobId(null)} />}
+        {cutoutJob && <CutoutJobBar characterId={characterId} jobId={cutoutJob} onDismiss={() => setCutoutJob(null)} />}
+        <BatchCutoutDialog
+          characterId={characterId}
+          ids={batchCutout}
+          onClose={() => setBatchCutout(null)}
+          onStarted={(id) => {
+            setCutoutJob(id)
+            setBatchCutout(null)
+          }}
+        />
 
         {selecting ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg bg-violet-50 px-3 py-1.5 text-[13px] text-violet-800 dark:bg-violet-950/50 dark:text-violet-200">
@@ -214,6 +227,14 @@ export function SpriteManager({ characterId }: { characterId: string }) {
             </span>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => toggle(mine.map((s) => s.id))}>
               {mine.length && mine.every((s) => selected.has(s.id)) ? t('取消全选') : t('全选本服装')}
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy || !selected.size || !!cutoutJob}
+              onClick={() => setBatchCutout([...selected])}
+            >
+              <ScissorsIcon />
+              {t('重新抠图')}
             </Button>
             <Button
               size="sm"
@@ -275,6 +296,7 @@ export function SpriteManager({ characterId }: { characterId: string }) {
       </div>
 
       <ExpressionDialog
+        characterId={characterId}
         expression={opened}
         sprites={opened ? (byExpression.get(opened) ?? []) : []}
         busy={busy}
@@ -408,6 +430,7 @@ function SelectMark({ checked, partial, inline }: { checked: boolean; partial?: 
 
 /** 一个表情的全部立绘：多张时 VN 里随机挑一张显示；可以继续添加或删除单张 */
 function ExpressionDialog({
+  characterId,
   expression,
   sprites,
   busy,
@@ -416,6 +439,7 @@ function ExpressionDialog({
   onDelete,
   onDeleteMany,
 }: {
+  characterId: string
   expression: string | null
   sprites: SpriteDTO[]
   busy: boolean
@@ -427,6 +451,14 @@ function ExpressionDialog({
   const input = useRef<HTMLInputElement>(null)
   // 弹窗里一张张选；换表情或关掉时清空
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const qc = useQueryClient()
+  // 正在重新抠图的那张；按 id 找，列表刷新后拿到带新版本号的 url
+  const [cutting, setCutting] = useState<string | null>(null)
+  const cut = sprites.find((s) => s.id === cutting)
+  const loadPreview = useCallback(
+    (mode: CutoutMode) => api.spriteCutoutPreview(characterId, cutting ?? '', mode),
+    [characterId, cutting],
+  )
   const [lastExpression, setLastExpression] = useState(expression)
   if (lastExpression !== expression) {
     setLastExpression(expression)
@@ -497,6 +529,14 @@ function ExpressionDialog({
                 {s.width}×{s.height}
               </p>
               <IconButton
+                label={t('重新抠图')}
+                disabled={busy}
+                className="absolute top-1 right-10 bg-white/90 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus:opacity-100 dark:bg-zinc-900/90"
+                onClick={() => setCutting(s.id)}
+              >
+                <ScissorsIcon />
+              </IconButton>
+              <IconButton
                 variant="danger"
                 label={t('删除这张')}
                 disabled={busy}
@@ -533,6 +573,120 @@ function ExpressionDialog({
           }}
         />
       </div>
+      {cut && (
+        <CutoutDialog
+          open
+          title={t('重新抠图：{expression}', { expression: expression ?? '' })}
+          current={cut.url}
+          hasOriginal={cut.hasOriginal}
+          loadPreview={loadPreview}
+          onApply={async (mode) => {
+            const job = await api.startSpriteCutout(characterId, [cut.id], mode)
+            // 单张很快：等任务结束再关弹窗，失败时把错误抛给弹窗
+            for (;;) {
+              await new Promise((r) => setTimeout(r, 500))
+              const state = await api.spriteCutoutJob(characterId, job.jobId)
+              if (state.status === 'done' || state.status === 'error') {
+                await qc.invalidateQueries({ queryKey: keys.sprites(characterId) })
+                if (state.failed) throw new Error(t('重新抠图失败（详情见日志）'))
+                return
+              }
+            }
+          }}
+          onClose={() => setCutting(null)}
+        />
+      )}
     </Dialog>
+  )
+}
+
+/** 多选后的批量重新抠图：选方式、确认，然后在后台逐张处理 */
+function BatchCutoutDialog({
+  characterId,
+  ids,
+  onClose,
+  onStarted,
+}: {
+  characterId: string
+  ids: string[] | null
+  onClose: () => void
+  onStarted: (jobId: string) => void
+}) {
+  const [mode, setMode] = useState<CutoutMode>('algorithm')
+  const start = useStartSpriteCutout(characterId)
+  return (
+    <Dialog open={!!ids} onClose={onClose} title={t('重新抠图 {count} 张立绘', { count: ids?.length ?? 0 })}>
+      <div className="space-y-4">
+        <CutoutModePicker value={mode} onChange={setMode} disabled={start.isPending} />
+        <p className="text-xs text-zinc-500">
+          {t(
+            '有原图的从原图重新抠；早先生成、没保存原图的，会在现在的结果上再抠一次。单张想先看效果，可以点开表情格子，用图片上的剪刀按钮预览。',
+          )}
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose} disabled={start.isPending}>
+            {t('取消')}
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={start.isPending || !ids?.length}
+            onClick={() =>
+              ids &&
+              start.mutate(
+                { ids, mode },
+                { onSuccess: (job) => onStarted(job.jobId), onError: (e) => toast.error(errorMessage(e)) },
+              )
+            }
+          >
+            <ScissorsIcon />
+            {t('开始')}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+/** 批量重新抠图的进度条，样式和生成任务一致 */
+function CutoutJobBar({
+  characterId,
+  jobId,
+  onDismiss,
+}: {
+  characterId: string
+  jobId: string
+  onDismiss: () => void
+}) {
+  const job = useSpriteCutoutJob(characterId, jobId)
+  const data = job.data
+  if (!data) return null
+  const finished = data.status === 'done' || data.status === 'error'
+  const percent = data.total ? Math.round(((data.done + data.failed) / data.total) * 100) : 0
+  return (
+    <div className="space-y-1.5 rounded-lg bg-violet-50 px-3 py-2 text-[13px] text-violet-800 dark:bg-violet-950/50 dark:text-violet-200">
+      <div className="flex items-center gap-2">
+        <span className="flex-1">
+          {finished
+            ? data.failed
+              ? t('重新抠图完成：{done} 张成功，{failed} 张失败（详情见日志）', {
+                  done: data.done,
+                  failed: data.failed,
+                })
+              : t('重新抠图完成：{done} 张', { done: data.done })
+            : t('正在重新抠图… {done} / {total}', { done: data.done + data.failed, total: data.total })}
+        </span>
+        {finished && (
+          <Button size="sm" variant="ghost" onClick={onDismiss}>
+            {t('知道了')}
+          </Button>
+        )}
+      </div>
+      {!finished && (
+        <div className="h-1 overflow-hidden rounded-full bg-violet-200 dark:bg-violet-900">
+          <div className="h-full rounded-full bg-violet-500 transition-[width]" style={{ width: `${percent}%` }} />
+        </div>
+      )}
+    </div>
   )
 }

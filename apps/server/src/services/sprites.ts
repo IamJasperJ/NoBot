@@ -1,3 +1,4 @@
+import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { spriteNameFromPath } from '@nobot/core/stage'
@@ -21,6 +22,13 @@ export function requireCharacter(id: string) {
     .get()
   if (!row) throw notFound(t('角色'))
 }
+export function spriteOriginalPath(row: SpriteRow): string | undefined {
+  const directory = join(paths.sprites, row.characterId)
+  if (!existsSync(directory)) return undefined
+  const name = readdirSync(directory).find((name) => name.startsWith(`${row.id}.orig.`))
+  return name ? join(directory, name) : undefined
+}
+
 function dto(row: SpriteRow): SpriteDTO {
   const base = `/api/assets/sprites/${row.characterId}/${row.id}`
   return {
@@ -31,8 +39,10 @@ function dto(row: SpriteRow): SpriteDTO {
     width: row.width,
     height: row.height,
     createdAt: row.createdAt,
-    url: `${base}.${row.ext}`,
-    thumbUrl: `${base}.thumb.webp`,
+    updatedAt: row.updatedAt || row.createdAt,
+    hasOriginal: !!spriteOriginalPath(row),
+    url: `${base}.${row.ext}?v=${row.updatedAt || row.createdAt}`,
+    thumbUrl: `${base}.thumb.webp?v=${row.updatedAt || row.createdAt}`,
   }
 }
 export function listSprites(characterId: string): SpriteDTO[] {
@@ -45,7 +55,13 @@ export function listSprites(characterId: string): SpriteDTO[] {
     .all()
     .map(dto)
 }
-export async function saveSprite(characterId: string, bytes: Uint8Array, outfit: string, expression: string) {
+export async function saveSprite(
+  characterId: string,
+  bytes: Uint8Array,
+  outfit: string,
+  expression: string,
+  original?: Uint8Array,
+) {
   requireCharacter(characterId)
   const names = updateSpriteInput.parse({ outfit, expression })
   if (bytes.length > 20 * 1024 * 1024) throw new HttpError(400, 'TOO_LARGE', t('单张立绘不能超过 20 MB'))
@@ -68,20 +84,30 @@ export async function saveSprite(characterId: string, bytes: Uint8Array, outfit:
     width: metadata.width!,
     height: metadata.height!,
     createdAt: Date.now(),
+    updatedAt: Date.now(),
   }
   const directory = join(paths.sprites, characterId)
-  const original = join(directory, `${row.id}.${row.ext}`)
+  const image = join(directory, `${row.id}.${row.ext}`)
+  const originalFormat = original ? (await sharp(original).metadata()).format : undefined
+  const source = originalFormat
+    ? join(directory, `${row.id}.orig.${originalFormat === 'jpeg' ? 'jpg' : originalFormat}`)
+    : undefined
   const thumb = join(directory, `${row.id}.thumb.webp`)
   await mkdir(directory, { recursive: true })
   try {
-    await Bun.write(original, bytes)
+    await Bun.write(image, bytes)
+    if (source && original) await Bun.write(source, original)
     await Bun.write(thumb, thumbnail)
     // 写文件期间角色可能被删除，插入前重新检查并让外键兜底。
     requireCharacter(characterId)
     db.insert(sprites).values(row).run()
     return dto(row)
   } catch (error) {
-    await Promise.all([rm(original, { force: true }), rm(thumb, { force: true })])
+    await Promise.all([
+      rm(image, { force: true }),
+      rm(thumb, { force: true }),
+      ...(source ? [rm(source, { force: true })] : []),
+    ])
     throw error
   }
 }
@@ -122,7 +148,7 @@ export async function importSprites(
 }
 export const importSpriteZip = (id: string, bytes: Uint8Array, rootOutfit = '') =>
   importSprites(id, readZip(bytes), undefined, rootOutfit)
-function findSprite(characterId: string, id: string) {
+export function findSprite(characterId: string, id: string) {
   requireCharacter(characterId)
   const row = db
     .select()
@@ -140,7 +166,9 @@ export function updateSprite(characterId: string, id: string, input: unknown) {
 }
 export async function deleteSprite(characterId: string, id: string) {
   const row = findSprite(characterId, id)
+  const original = spriteOriginalPath(row)
   db.delete(sprites).where(eq(sprites.id, id)).run()
+  if (original) await rm(original, { force: true })
   await Promise.all(
     [`${id}.${row.ext}`, `${id}.thumb.webp`].map((file) => rm(join(paths.sprites, characterId, file), { force: true })),
   )

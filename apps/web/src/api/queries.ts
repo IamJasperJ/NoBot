@@ -362,6 +362,33 @@ export function useSpriteJob(characterId: string | null | undefined, jobId: stri
   return query
 }
 
+export function useStartSpriteCutout(characterId: string) {
+  return useMutation({
+    mutationFn: (input: { ids: string[]; mode: Parameters<typeof api.startSpriteCutout>[2] }) =>
+      api.startSpriteCutout(characterId, input.ids, input.mode),
+  })
+}
+
+/** 终态停止轮询，部分失败也要刷新，因为已成功的立绘已经入库。 */
+export function useSpriteCutoutJob(characterId: string | null | undefined, jobId: string | null | undefined) {
+  const qc = useQueryClient()
+  const query = useQuery({
+    queryKey: ['spriteCutoutJob', characterId ?? '', jobId ?? ''],
+    queryFn: () => api.spriteCutoutJob(characterId!, jobId!),
+    enabled: !!characterId && !!jobId,
+    refetchInterval: (query) =>
+      query.state.data && ['done', 'error'].includes(query.state.data.status) ? false : 1000,
+  })
+  const status = query.data?.status
+  useEffect(() => {
+    if (characterId && (status === 'done' || status === 'error')) {
+      void qc.invalidateQueries({ queryKey: keys.sprites(characterId) })
+      void qc.invalidateQueries({ queryKey: ['chat'] })
+    }
+  }, [qc, characterId, jobId, status])
+  return query
+}
+
 export function useAiNameBackgrounds() {
   const qc = useQueryClient()
   return useMutation({

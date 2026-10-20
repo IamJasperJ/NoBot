@@ -1,16 +1,19 @@
-import type { TemporaryActorDTO } from '@nobot/shared'
-import { useRef, useState } from 'react'
+import type { CutoutMode, TemporaryActorDTO } from '@nobot/shared'
+import { useCallback, useRef, useState } from 'react'
+import { api } from '../../api/client'
 import {
+  useCutoutTemporaryActor,
   useRegenerateTemporaryActor,
   useRemoveTemporaryActor,
   useTemporaryActors,
   useUploadTemporaryActor,
 } from '../../api/temporaryActors'
 import { Section, SwitchField, TextAreaField } from '../../components/form'
-import { RefreshIcon, TrashIcon, UploadIcon, UserIcon, WandIcon } from '../../components/icons'
+import { RefreshIcon, ScissorsIcon, TrashIcon, UploadIcon, UserIcon, WandIcon } from '../../components/icons'
 import { Button, cx, Dialog } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
+import { CutoutDialog } from '../characters/CutoutDialog'
 
 /** 透明立绘下面垫一层浅色棋盘格，方便看清去背景的效果 */
 const checker =
@@ -92,6 +95,12 @@ function ActorDialog({ chatId, actor, onClose }: { chatId: string; actor: Tempor
   const regenerate = useRegenerateTemporaryActor()
   const upload = useUploadTemporaryActor()
   const remove = useRemoveTemporaryActor()
+  const cutout = useCutoutTemporaryActor(chatId)
+  const [cutting, setCutting] = useState(false)
+  const loadPreview = useCallback(
+    (mode: CutoutMode) => api.temporaryActorCutoutPreview({ chatId, key: actor.key, mode }),
+    [chatId, actor.key],
+  )
   const pending = actor.status === 'pending'
   const busy = pending || regenerate.isPending || upload.isPending || remove.isPending
   const onError = (e: unknown) => toast.error(errorMessage(e))
@@ -176,6 +185,12 @@ function ActorDialog({ chatId, actor, onClose }: { chatId: string; actor: Tempor
                 <UploadIcon />
                 {upload.isPending ? t('上传中…') : t('上传替换')}
               </Button>
+              {actor.image && actor.status !== 'removed' && (
+                <Button size="sm" disabled={busy} onClick={() => setCutting(true)}>
+                  <ScissorsIcon />
+                  {t('重新抠图')}
+                </Button>
+              )}
               {actor.status !== 'removed' && (
                 <Button
                   size="sm"
@@ -206,6 +221,17 @@ function ActorDialog({ chatId, actor, onClose }: { chatId: string; actor: Tempor
           </div>
         </div>
       </div>
+      {cutting && actor.image && (
+        <CutoutDialog
+          open
+          title={t('重新抠图：{name}', { name: actor.name })}
+          current={actor.image.url}
+          hasOriginal={actor.hasOriginal ?? false}
+          loadPreview={loadPreview}
+          onApply={(mode) => cutout.mutateAsync({ key: actor.key, mode })}
+          onClose={() => setCutting(false)}
+        />
+      )}
     </Dialog>
   )
 }

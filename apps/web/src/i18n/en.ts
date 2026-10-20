@@ -2232,4 +2232,30 @@ export const en: Record<string, string> = {
   删除模型: 'Delete model',
   重试: 'Retry',
   '下载（约 170 MB）': 'Download (~170 MB)',
+  重新抠图: 'Redo cutout',
+  '重新抠图：{name}': 'Redo cutout: {name}',
+  '重新抠图：{expression}': 'Redo cutout: {expression}',
+  '重新抠图失败（详情见日志）': 'Cutout failed (see logs for details)',
+  '重新抠图 {count} 张立绘': 'Redo cutout for {count} sprites',
+  '有原图的从原图重新抠；早先生成、没保存原图的，会在现在的结果上再抠一次。单张想先看效果，可以点开表情格子，用图片上的剪刀按钮预览。':
+    'Sprites with a saved original are cut out again from it; older ones without an original are processed again from the current result. To preview a single sprite first, open its expression cell and use the scissors button on the image.',
+  开始: 'Start',
+  '重新抠图完成：{done} 张成功，{failed} 张失败（详情见日志）':
+    'Cutout finished: {done} succeeded, {failed} failed (see logs)',
+  '重新抠图完成：{done} 张': 'Cutout finished: {done} sprites',
+  '正在重新抠图… {done} / {total}': 'Redoing cutout… {done} / {total}',
+  算法抠图: 'Algorithm',
+  本地模型: 'Local model',
+  '本地模型要先在「扩展 → 图片生成 → 立绘抠图」里下载。':
+    'Download the local model first under Extensions → Image generation → Sprite background removal.',
+  '正在抠图…': 'Cutting out…',
+  棋盘格: 'Checker',
+  底色: 'Backdrop',
+  现在: 'Current',
+  重新抠图后: 'After',
+  '这张图生成时还没有保存原图，会在现在的结果上再抠一次；之后都以现在这张为原图。':
+    'No original was saved for this image, so the current result is processed again and kept as the original from now on.',
+  已重新抠图: 'Cutout updated',
+  '应用中…': 'Applying…',
+  应用: 'Apply',
 }

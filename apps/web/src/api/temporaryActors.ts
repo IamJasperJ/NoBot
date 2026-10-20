@@ -67,3 +67,12 @@ export function useRemoveTemporaryActor() {
     onSuccess: (_result, input) => refreshActors(qc, input.chatId),
   })
 }
+
+export function useCutoutTemporaryActor(chatId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: Omit<Parameters<typeof api.cutoutTemporaryActor>[0], 'chatId'>) =>
+      api.cutoutTemporaryActor({ ...input, chatId }),
+    onSuccess: (record) => refreshActors(qc, chatId, record),
+  })
+}

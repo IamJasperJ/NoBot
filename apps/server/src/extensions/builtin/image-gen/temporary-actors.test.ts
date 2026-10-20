@@ -163,6 +163,14 @@ test('临时立绘：存储兼容、舞台状态、自动重试和管理接口',
       expressions: ['neutral'],
     })
     expect(nativeSet).toMatchObject({ done: 1, failed: 0 })
+    const { listSprites, findSprite, spriteOriginalPath } = await import('../../../services/sprites')
+    const generated = listSprites(character.id)[0]!
+    expect(generated.hasOriginal).toBe(true)
+    expect(await Bun.file(spriteOriginalPath(findSprite(character.id, generated.id))!).exists()).toBe(true)
+    const actorOriginal = (readTemporaryActors(chat.id).merchant as TemporaryActorDTO & { original?: { id: string } })
+      .original
+    expect(actorOriginal).toBeTruthy()
+    expect(await Bun.file(join(paths.attachments, `${actorOriginal!.id}.webp`)).exists()).toBe(true)
     expect(calls.at(-1)).toMatchObject({ background: 'transparent', output_format: 'png' })
     expect(calls.at(-1)?.prompt).toContain('white background')
     ctx.settings.spriteMatting = 'algorithm'
@@ -182,11 +190,65 @@ test('临时立绘：存储兼容、舞台状态、自动重试和管理接口',
       const uploaded = await routes.request('/temporary-actors/upload', { method: 'POST', body: form })
       expect(uploaded.status, await uploaded.clone().text()).toBe(200)
       expect(await uploaded.json()).toMatchObject({
+        hasOriginal: removeBackground,
         status: 'done',
         prompt: '',
         image: { url: expect.stringContaining('/attachments/') },
       })
     }
+    const before = readTemporaryActors(chat.id).merchant!
+    const cutoutInput = { ...input, mode: 'algorithm' }
+    const previews = await Promise.all([
+      request('POST', '/cutout', { ...cutoutInput, preview: true }),
+      request('POST', '/cutout', { ...cutoutInput, preview: true }),
+    ])
+    expect(previews.map((response) => response.status)).toEqual([200, 200])
+    expect(actorTasks.size).toBe(0)
+    const preview = await request('POST', '/cutout', { ...cutoutInput, preview: true })
+    expect(preview.status).toBe(200)
+    expect(preview.headers.get('Content-Type')).toBe('image/png')
+    expect(readTemporaryActors(chat.id).merchant).toEqual(before)
+    const applied = await request('POST', '/cutout', cutoutInput)
+    expect(applied.status).toBe(200)
+    const result = (await applied.json()) as TemporaryActorDTO & { original?: unknown }
+    expect(result.image?.id).not.toBe(before.image?.id)
+    expect(result.hasOriginal).toBe(true)
+    expect(result.original).toBeUndefined()
+    expect(result.updatedAt).toBeGreaterThan(before.updatedAt)
+    const stored = readTemporaryActors(chat.id).merchant as TemporaryActorDTO & { original?: { id: string } }
+    expect(stored.original).toBeTruthy()
+    expect(await Bun.file(join(paths.attachments, `${stored.original!.id}.webp`)).exists()).toBe(true)
+    expect(await Bun.file(join(paths.attachments, `${before.image!.id}.webp`)).exists()).toBe(false)
+    for (const preview of [true, false]) {
+      expect((await request('POST', '/cutout', { ...input, mode: 'model', preview })).status).toBe(400)
+    }
+    actorTasks.add(JSON.stringify([chat.id, input.key]))
+    expect((await request('POST', '/cutout', cutoutInput)).status).toBe(409)
+    expect((await request('POST', '/cutout', { ...cutoutInput, preview: true })).status).toBe(409)
+    actorTasks.clear()
+    await request('DELETE', '', { ...input, purge: true })
+    expect(await Bun.file(join(paths.attachments, `${stored.original!.id}.webp`)).exists()).toBe(false)
+    expect(await Bun.file(join(paths.attachments, `${result.image!.id}.webp`)).exists()).toBe(false)
+    // 旧记录首次重抠保留当前附件；再次重抠仍使用同一附件。
+    const legacy = await host.saveImage(png)
+    writeTemporaryActor(chat.id, input.key, {
+      key: input.key,
+      name: before.name,
+      prompt: '',
+      status: 'done',
+      updatedAt: before.updatedAt,
+      image: legacy,
+      hasOriginal: false,
+    })
+    const legacyBefore = readTemporaryActors(chat.id).merchant
+    expect((await request('POST', '/cutout', { ...cutoutInput, preview: true })).status).toBe(200)
+    expect(readTemporaryActors(chat.id).merchant).toEqual(legacyBefore)
+    const firstCutout = await request('POST', '/cutout', cutoutInput)
+    expect(firstCutout.status).toBe(200)
+    const legacyStored = readTemporaryActors(chat.id).merchant as typeof stored
+    expect(legacyStored.original?.id).toBe(legacy.id)
+    expect((await request('POST', '/cutout', cutoutInput)).status).toBe(200)
+    expect((readTemporaryActors(chat.id).merchant as typeof stored).original?.id).toBe(legacy.id)
     const invalid = new FormData()
     invalid.set('chatId', chat.id)
     invalid.set('key', input.key)

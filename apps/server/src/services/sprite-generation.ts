@@ -159,7 +159,13 @@ export async function generateSpriteSet(
           settings.spriteMatting === 'native',
         )
         if (expression === expressions[0]) seed = settings.seed
-        await saveSprite(characterId, await cutoutSprite(bytes, mattingOptions(settings)), input.outfit, expression)
+        await saveSprite(
+          characterId,
+          await cutoutSprite(bytes, mattingOptions(settings)),
+          input.outfit,
+          expression,
+          bytes,
+        )
         // 以第一张成功保存的原始背景图固定整套外观，不把去底边缘传回模型。
         if (useReference && !referenceImage)
           referenceImage = `data:${getImageMime(bytes)};base64,${Buffer.from(bytes).toString('base64')}`

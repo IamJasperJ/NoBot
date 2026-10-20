@@ -134,6 +134,13 @@
       "when": 1792425142519,
       "tag": "0018_hard_wild_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1792492308173,
+      "tag": "0019_slimy_jackpot",
+      "breakpoints": true
     }
   ]
 }

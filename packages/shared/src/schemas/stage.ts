@@ -408,6 +408,8 @@ Write in the same language as the conversation.`,
 
 /** 会话里自动生成的临时 NPC 立绘，键与舞台 actor.key 一致。 */
 export interface TemporaryActorDTO {
+  /** API 始终返回布尔值；旧版内部存储记录可能缺少此字段。 */
+  hasOriginal?: boolean
   key: string
   /** 生成时舞台上的显示名 */
   name: string

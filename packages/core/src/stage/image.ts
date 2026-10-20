@@ -126,11 +126,15 @@ export function removeSpriteBackground(
   options: BackgroundOptions = {},
 ): Uint8Array {
   validate(rgba, width, height)
-  const { inner = 48, outer = 160 } = options
+  const bg = estimateBackground(rgba, width, height)
+  // 饱和度超过 45% 且通道跨度超过 80 才视为彩色幕布。
+  const max = Math.max(...bg)
+  const colored = max - Math.min(...bg) > 80 && (max - Math.min(...bg)) / max > 0.45
+  // 白灰底收紧阈值以保护浅肤色和白衣；彩色幕布较少接近人物颜色，可容忍更多噪声。
+  const { inner = colored ? 64 : 24, outer = colored ? 140 : 90 } = options
   if (!Number.isFinite(inner) || !Number.isFinite(outer) || inner < 0 || outer <= inner)
     throw new RangeError('Invalid background thresholds')
   const n = width * height
-  const bg = estimateBackground(rgba, width, height)
   // RGB 欧氏距离与混色比例单调，便于用同一软阈值处理白底和彩色幕布。
   const distance = (i: number) => Math.hypot(...bg.map((v, c) => rgba[i * 4 + c]! - v))
   const neighbors = (i: number, visit: (j: number) => void) => {
@@ -143,20 +147,17 @@ export function removeSpriteBackground(
   const seen = new Uint8Array(n)
   const queue: number[] = []
   const visit = (i: number) => {
-    if (seen[i] || (rgba[i * 4 + 3] !== 0 && distance(i) >= outer)) return
+    if (seen[i] || (rgba[i * 4 + 3] !== 0 && distance(i) > inner)) return
     seen[i] = 1
     queue.push(i)
   }
   border(width, height, visit)
   for (let head = 0; head < queue.length; head++) {
     const i = queue[head]!
-    const t = Math.max(0, Math.min(1, (distance(i) - inner) / (outer - inner)))
-    mask[i] = t * t * (3 - 2 * t)
+    mask[i] = 0
     neighbors(i, visit)
   }
-  // 饱和度超过 45% 且通道跨度超过 80 才视为彩色幕布；白灰底不移除封闭区域。
-  const max = Math.max(...bg)
-  const colored = max - Math.min(...bg) > 80 && (max - Math.min(...bg)) / max > 0.45
+  // 白灰底不主动移除封闭区域，避免把白衣当成背景。
   if (colored) {
     for (let i = 0; i < n; i++) {
       if (seen[i] || distance(i) > inner) continue
@@ -171,6 +172,25 @@ export function removeSpriteBackground(
         })
       if (region.length >= Math.max(64, n * 0.0002)) for (const j of region) mask[j] = 0
     }
+  }
+  // 以四邻接计算到背景掩码的距离；软化仅限两像素带，不能继续穿透浅色人物内部。
+  const boundary = new Uint8Array(n).fill(255)
+  const edge: number[] = []
+  for (let i = 0; i < n; i++)
+    if (mask[i] === 0) {
+      boundary[i] = 0
+      edge.push(i)
+    }
+  for (let head = 0; head < edge.length; head++) {
+    const i = edge[head]!
+    if (boundary[i]! >= 2) continue
+    neighbors(i, (j) => {
+      if (boundary[j] !== 255) return
+      boundary[j] = boundary[i]! + 1
+      edge.push(j)
+      const t = Math.max(0, Math.min(1, (distance(j) - inner) / (outer - inner)))
+      mask[j] = t * t * (3 - 2 * t)
+    })
   }
   const out = applyAlphaMask(rgba, width, height, mask, bg)
   if (colored) {

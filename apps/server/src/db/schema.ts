@@ -354,6 +354,7 @@ export const sprites = sqliteTable(
     width: integer('width').notNull(),
     height: integer('height').notNull(),
     createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull().default(0),
   },
   (t) => [index('sprites_character_outfit_expression_idx').on(t.characterId, t.outfit, t.expression)],
 )

@@ -108,7 +108,7 @@ test('VN2：立绘、CharX、演员与情绪判断集成', async () => {
       ['files', 'sadness.png', webp],
     ])
     expect(inferred.added.map((sprite) => sprite.expression)).toEqual(['joy', 'sadness'])
-    expect(inferred.added[1]!.url.endsWith('.webp')).toBe(true)
+    expect(new URL(inferred.added[1]!.url, 'http://localhost').pathname.endsWith('.webp')).toBe(true)
     expect(inferred.skipped).toEqual(['未知.png：无法从文件名判断表情，请在对应格子里上传'])
     const first = inferred.added[0]!
     const original = await app.request(first.url)

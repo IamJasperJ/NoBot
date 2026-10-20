@@ -43,7 +43,8 @@ test('边界泛洪、外圈中位数、内部白色保留且不改变输入', ()
   expect(result[(3 * size + 3) * 4 + 3]).toBe(255)
   expect(rgba).toEqual(original)
   const near = new Uint8Array([255, 255, 255, 255, 230, 230, 230, 255, 255, 255, 255, 255])
-  expect(removeSpriteBackground(near, 3, 1)[7]).toBe(0)
+  expect(removeSpriteBackground(near, 3, 1)[7]).toBeGreaterThan(0)
+  expect(removeSpriteBackground(near, 3, 1)[7]).toBeLessThan(255)
   expect(removeSpriteBackground(near, 3, 1, { inner: 0, outer: 60 })[7]).toBeGreaterThan(0)
   expect(() => removeSpriteBackground(near, 3, 2)).toThrow(RangeError)
 })
@@ -73,6 +74,60 @@ test('白底软阈值反解混色，外圈透明检测，遮罩保留原始 alph
     new Uint8Array([45, 45, 45, 64]),
   )
   expect(() => applyAlphaMask(rgba, 40, 40, [])).toThrow(RangeError)
+})
+
+test('两像素描边保护白底和绿幕浅肤色人形，只有外侧抗锯齿变半透明', () => {
+  for (const bg of [
+    [255, 255, 255],
+    [0, 255, 0],
+  ]) {
+    const { rgba, rect, pixel } = picture(64, bg)
+    rect(22, 6, 20, 16, [30, 35, 40])
+    rect(16, 22, 32, 24, [30, 35, 40])
+    rect(18, 46, 12, 12, [30, 35, 40])
+    rect(34, 46, 12, 12, [30, 35, 40])
+    rect(24, 8, 16, 12, [233, 225, 215])
+    rect(18, 24, 28, 20, [233, 225, 215])
+    rect(20, 46, 8, 10, [233, 225, 215])
+    rect(36, 46, 8, 10, [233, 225, 215])
+    const coverage = bg[0] === 255 ? 0.2 : 0.3
+    pixel(
+      15,
+      30,
+      bg.map((v) => Math.round(v * (1 - coverage) + 30 * coverage)),
+    )
+    const out = removeSpriteBackground(rgba, 64, 64)
+    for (const [x, y] of [
+      [32, 14],
+      [32, 32],
+      [24, 52],
+    ]) {
+      const i = (y! * 64 + x!) * 4
+      expect([...out.slice(i, i + 4)]).toEqual([233, 225, 215, 255])
+    }
+    const edge = (30 * 64 + 15) * 4
+    expect(out[edge + 3]).toBeGreaterThan(0)
+    expect(out[edge + 3]).toBeLessThan(255)
+    expect(out[(30 * 64 + 16) * 4 + 3]).toBe(255)
+    expect(out[3]).toBe(0)
+  }
+})
+
+test('无描边浅色区域仅边界两像素软化，内部颜色和原始 alpha 保留', () => {
+  const { rgba, rect } = picture(64, [255, 255, 255])
+  rect(12, 12, 40, 40, [240, 236, 230])
+  rgba[(30 * 64 + 30) * 4 + 3] = 192
+  const out = removeSpriteBackground(rgba, 64, 64)
+  for (let y = 14; y < 50; y++)
+    for (let x = 14; x < 50; x++) {
+      const i = (y * 64 + x) * 4
+      expect(out.slice(i, i + 4)).toEqual(rgba.slice(i, i + 4))
+    }
+  expect(out[(30 * 64 + 12) * 4 + 3]).toBeGreaterThan(0)
+  expect(out[(30 * 64 + 12) * 4 + 3]).toBeLessThan(255)
+  expect(out[(30 * 64 + 13) * 4 + 3]).toBeLessThan(255)
+  expect(out[(30 * 64 + 14) * 4 + 3]).toBe(255)
+  expect(removeSpriteBackground(rgba, 64, 64, { inner: 40, outer: 90 })[(30 * 64 + 30) * 4 + 3]).toBe(0)
 })
 
 test('绿幕封闭洞、三像素溢色带和绿色衣服内部', () => {

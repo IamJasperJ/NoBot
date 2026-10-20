@@ -1,5 +1,9 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  '本地抠图模型还没下载，请先在图片生成设置里下载':
+    'The local matting model is not downloaded. Download it in image generation settings first.',
+  该角色正在重新抠图: 'Sprites for this character are being cut out.',
+
   立绘抠图: 'Sprite background removal',
   抠图模式: 'Matting mode',
   算法抠图: 'Algorithm',

@@ -82,6 +82,7 @@ const activate: ActivateFn = (api) => {
       return t('声音')
     },
     order: 60,
+    defaultOpen: false,
     render: ({ chatId }) => <ChatVoiceSection key={chatId} chatId={chatId} />,
   })
   api.registerSlot('chat.composer.menu', {

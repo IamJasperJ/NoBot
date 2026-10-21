@@ -297,7 +297,7 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
 
         <QuickReplySection chatId={chatId} value={page.chat.quickReplySetIds ?? []} />
 
-        <Section title={t('会话世界书')} description={t('只在这个会话里生效，优先级最高')}>
+        <Section title={t('会话世界书')} description={t('只在这个会话里生效，优先级最高')} defaultOpen={false}>
           {lorebooks.data?.length === 0 && (
             <p className="text-sm text-zinc-500">{t('还没有世界书，去「世界书」页新建或导入')}</p>
           )}
@@ -362,6 +362,7 @@ function ChatSettingsForm({ page }: { page: ChatPage }) {
         <TemporaryActorsSection chatId={chatId} />
 
         <Section
+          defaultOpen={false}
           title={t('状态变量')}
           description={t('来自状态定义的初始值、正文里的 <state> 指令和工具调用，随分支和重新生成自动回退')}
         >

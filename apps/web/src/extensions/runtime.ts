@@ -18,6 +18,7 @@ type SlotEntry = Owned<{
   id: string
   title?: string
   order: number
+  defaultOpen?: boolean
   render: (props: never) => React.ReactNode
 }>
 type Transform = Owned<{ fn: (text: string, message: MessageDTO) => string }>

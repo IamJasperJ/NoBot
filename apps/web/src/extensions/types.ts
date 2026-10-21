@@ -93,6 +93,8 @@ export interface SlotContribution<K extends SlotName> {
   render: (props: SlotProps[K]) => ReactNode
   /** 越小越靠前，默认 100 */
   order?: number
+  /** 可折叠分组是否默认展开；不填时角色编辑器收起、会话设置展开 */
+  defaultOpen?: boolean
 }
 
 /** 扩展注册的页面：显示在扩展页里该扩展详情的标签中 */

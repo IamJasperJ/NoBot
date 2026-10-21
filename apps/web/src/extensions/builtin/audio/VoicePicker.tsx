@@ -1,6 +1,6 @@
 import type { DeliveryCapabilities, Gender, TtsEngineId, TtsLineResult, VoiceRef } from '@nobot/shared'
 import { useState } from 'react'
-import { usePreviewVoice, useTtsEngines, useTtsVoices } from '../../../api/tts'
+import { usePreviewVoice, useTtsEngines, useTtsVoiceDelivery, useTtsVoices } from '../../../api/tts'
 import { PlayIcon, PlusIcon, StopIcon, XIcon } from '../../../components/icons'
 import { controlClass, cx, IconButton, selectClass } from '../../../components/ui'
 import { t } from '../../../i18n'
@@ -144,7 +144,7 @@ export function VoicePicker({
           </IconButton>
         </>
       )}
-      {value && engine?.delivery && <DeliveryBadges capabilities={engine.delivery} />}
+      {value && engine?.delivery && <DeliveryBadges capabilities={engine.delivery} voice={value} />}
       {voices.error && value && value.engine !== 'browser' && (
         <p className="basis-full text-xs text-red-600 dark:text-red-400">{errorMessage(voices.error)}</p>
       )}
@@ -218,7 +218,9 @@ export function VoiceListPicker({
 }
 
 /** 当前引擎（和模型）能怎么控制语气：用一排小标签说明，帮用户挑引擎 */
-function DeliveryBadges({ capabilities: c }: { capabilities: DeliveryCapabilities }) {
+function DeliveryBadges({ capabilities, voice }: { capabilities: DeliveryCapabilities; voice: VoiceRef }) {
+  const perVoice = useTtsVoiceDelivery(capabilities.perVoice ? voice.engine : undefined, voice.voice)
+  const c = capabilities.perVoice ? (perVoice.data ?? capabilities) : capabilities
   const emotion: Record<DeliveryCapabilities['emotion'], string> = {
     none: t('不支持语气'),
     enum: t('情绪参数'),
@@ -229,7 +231,7 @@ function DeliveryBadges({ capabilities: c }: { capabilities: DeliveryCapabilitie
     prosody: t('只调语速、音调、音量'),
   }
   const badges = [
-    emotion[c.emotion],
+    c.perVoice ? t('取决于所选声音的模式') : emotion[c.emotion],
     c.intensity && t('强弱'),
     c.volume && t('耳语 / 喊叫'),
     c.direction && t('演绎说明'),

@@ -89,11 +89,9 @@ export function deliveryCapabilities(id: TtsEngineId, s: AudioSettings, voice?: 
       break
     }
     case 'cosyvoice': {
+      if (s.cosyvoiceApi === 'official' && !voice) caps.perVoice = true
       const instruct =
-        s.cosyvoiceApi === 'gateway' ||
-        (voice
-          ? s.cosyvoiceVoices.find((v) => v.id === voice)?.mode === 'instruct'
-          : s.cosyvoiceVoices.some((v) => v.mode === 'instruct'))
+        s.cosyvoiceApi === 'gateway' || s.cosyvoiceVoices.find((v) => v.id === voice)?.mode === 'instruct'
       if (instruct)
         Object.assign(caps, {
           emotion: 'instruction',

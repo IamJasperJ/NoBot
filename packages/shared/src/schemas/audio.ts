@@ -169,6 +169,8 @@ export type DeliveryFormat =
   | 'prosody'
   | 'none'
 export interface DeliveryCapabilities {
+  /** 引擎级能力需在选定声音后进一步查询。 */
+  perVoice?: boolean
   emotion: 'none' | 'enum' | 'instruction' | 'tags-free' | 'tags-fixed' | 'ref-audio' | 'prosody'
   intensity: boolean
   direction: boolean

@@ -7,6 +7,7 @@ export const en: Record<string, string> = {
   按立绘表情: 'Follow sprite expressions',
   模型标注语气和声音: 'Model annotates delivery and sounds',
   语气控制: 'Delivery control',
+  取决于所选声音的模式: 'Depends on the selected voice mode',
   不支持语气: 'No delivery support',
   情绪参数: 'Emotion parameter',
   自然语言指令: 'Natural language instructions',

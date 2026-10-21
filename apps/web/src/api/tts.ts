@@ -45,10 +45,12 @@ export const ttsApi = {
   inferChatGenders: (chatId: string) =>
     request<ChatVoiceDTO>('POST', `/chat/${encodeURIComponent(chatId)}/infer-genders`),
   resetChatVoice: (chatId: string) => request<ChatVoiceDTO>('DELETE', `/chat/${encodeURIComponent(chatId)}`),
-  engines: () =>
+  engines: (engine?: TtsEngineId, voice?: string, signal?: AbortSignal) =>
     request<{ id: TtsEngineId; label: string; configured: boolean; delivery: DeliveryCapabilities }[]>(
       'GET',
-      '/engines',
+      `/engines${engine || voice ? `?${new URLSearchParams({ ...(engine ? { engine } : {}), ...(voice ? { voice } : {}) })}` : ''}`,
+      undefined,
+      signal,
     ),
   voices: (engine: TtsEngineId, settings?: Record<string, unknown>, signal?: AbortSignal) =>
     request<{ options: TtsOption[] }>('POST', '/voices', { engine, settings }, signal),
@@ -78,7 +80,15 @@ export const ttsApi = {
   cache: () => request<{ bytes: number; files: number }>('GET', '/cache'),
   clearCache: () => request<{ ok: true }>('DELETE', '/cache'),
 }
-export const useTtsEngines = () => useQuery({ queryKey: ['tts', 'engines'], queryFn: ttsApi.engines })
+export const useTtsEngines = () =>
+  useQuery({ queryKey: ['tts', 'engines'], queryFn: ({ signal }) => ttsApi.engines(undefined, undefined, signal) })
+export const useTtsVoiceDelivery = (engine?: TtsEngineId, voice?: string) =>
+  useQuery({
+    queryKey: ['tts', 'engines', engine, voice],
+    queryFn: ({ signal }) => ttsApi.engines(engine, voice, signal),
+    enabled: !!engine && !!voice,
+    select: (engines) => engines.find((item) => item.id === engine)?.delivery,
+  })
 export function browserVoices(): TtsOption[] {
   return typeof speechSynthesis === 'undefined'
     ? []

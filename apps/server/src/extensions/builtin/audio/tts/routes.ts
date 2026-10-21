@@ -76,17 +76,24 @@ export function registerTtsRoutes(
   app.post('/tts/ref-tracks', (c) =>
     c.json({ options: listAudioTracks('ref').map((v) => ({ value: v.id, label: v.name })) }),
   )
-  app.get('/tts/engines', (c) => {
-    const settings = audioSettings.parse(ctx.settings)
-    return c.json(
-      Object.values(ttsEngines).map((engine) => ({
-        id: engine.id,
-        label: engine.label,
-        configured: engine.configured(settings),
-        delivery: engine.deliveryCapabilities(settings),
-      })),
-    )
-  })
+  app.get(
+    '/tts/engines',
+    validate('query', z.object({ engine: z.enum(TTS_ENGINES).optional(), voice: z.string().optional() })),
+    (c) => {
+      const settings = audioSettings.parse(ctx.settings)
+      const query = c.req.valid('query')
+      return c.json(
+        Object.values(ttsEngines)
+          .filter((engine) => !query.engine || engine.id === query.engine)
+          .map((engine) => ({
+            id: engine.id,
+            label: engine.label,
+            configured: engine.configured(settings),
+            delivery: engine.deliveryCapabilities(settings, query.voice),
+          })),
+      )
+    },
+  )
   app.post('/tts/connections', (c) =>
     c.json({
       options: [{ value: '', label: t('单独配置') }, ...listApiPresets().map((v) => ({ value: v.id, label: v.name }))],

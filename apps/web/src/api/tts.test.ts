@@ -11,6 +11,7 @@ import {
   useResetChatVoice,
   useSetChatVoice,
   useTtsEngines,
+  useTtsVoiceDelivery,
   useTtsVoices,
 } from './tts'
 
@@ -44,6 +45,11 @@ test('TTS 客户端编码角色路径、发送草稿与分段参数、传递取�
     expect(JSON.parse(String(calls[4]?.init?.body))).toEqual({ enabled: false, characters: {}, npcs: {} })
     await ttsApi.resetChatVoice('a/b')
     expect(calls[5]?.init?.method).toBe('DELETE')
+    await ttsApi.engines('cosyvoice', 'voice / 中文', signal)
+    const query = new URL(String(calls[6]?.url), 'http://localhost').searchParams
+    expect(query.get('engine')).toBe('cosyvoice')
+    expect(query.get('voice')).toBe('voice / 中文')
+    expect(calls[6]?.init?.signal).toBe(signal)
     fetcher.mockImplementation(
       Object.assign(
         async () => Response.json({ error: { code: 'TTS_DISABLED', message: '还没有开启朗读' } }, { status: 400 }),
@@ -75,11 +81,15 @@ test('TTS hooks 读取查询缓存，服务端渲染没有浏览器语音时返�
     },
   ]
   qc.setQueryData(['tts', 'engines'], engines)
+  qc.setQueryData(['tts', 'engines', 'browser', 'Alice'], engines)
   qc.setQueryData(['tts', 'chat', 'chat'], { effective: { enabled: false } })
   qc.setQueryData(['tts', 'voices', 'browser', undefined], [{ value: 'Alice', label: 'Alice' }])
   try {
     expect(render(() => useChatVoice('chat')).data).toMatchObject({ effective: { enabled: false } })
     expect(render(useTtsEngines).data).toEqual(engines)
+    expect(render(() => useTtsVoiceDelivery('browser', 'Alice')).data).toEqual(engines[0]?.delivery)
+    expect(render(() => useTtsVoiceDelivery('browser', 'Bob')).data).toBeUndefined()
+    expect(render(() => useTtsVoiceDelivery('browser', '')).fetchStatus).toBe('idle')
     expect(render(() => useTtsVoices('browser')).data).toEqual([{ value: 'Alice', label: 'Alice' }])
     expect(browserVoices()).toEqual([])
   } finally {

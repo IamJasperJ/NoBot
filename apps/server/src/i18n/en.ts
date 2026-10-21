@@ -1,5 +1,14 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  按性别分配声音: 'Match voices by gender',
+  用模型判断角色性别: 'Infer character gender with the model',
+  '每个角色只判断一次并缓存；关闭时只用角色卡上手动设置的性别':
+    'Infer each character once and cache the result; when disabled, use only manually set character card genders',
+  声音性别: 'Voice gender',
+  男: 'Male',
+  女: 'Female',
+  中性: 'Neutral',
+  不确定: 'Unknown',
   语音导演: 'Voice director',
   '朗读前用模型给整条消息标注语气，每条消息多一次调用':
     'Use the model to annotate delivery before reading; adds one model call per message',
@@ -89,6 +98,11 @@ export const en: Record<string, string> = {
   '在火山控制台开通的资源 ID，如 seed-tts-1.0 / seed-tts-2.0':
     'Resource ID enabled in the Volcengine console, e.g. seed-tts-1.0 / seed-tts-2.0',
   火山语音地址: 'Volcengine speech endpoint',
+  服务类型: 'Service type',
+  '官方 FastAPI（inference_* 接口）': 'Official FastAPI (inference_* endpoints)',
+  'OpenAI 兼容网关（/voices + /v1/audio/speech）': 'OpenAI-compatible gateway (/voices + /v1/audio/speech)',
+  '网关模式会从服务端拉取已保存的音色，不用手填；地址填到网关路由为止，例如 http://host:8800/api/cosyvoice3':
+    'Gateway mode fetches saved voices from the server without manual entry. Enter the URL up to the gateway route, e.g. http://host:8800/api/cosyvoice3',
   'CosyVoice 语音': 'CosyVoice speech',
   'CosyVoice 地址': 'CosyVoice endpoint',
   'CosyVoice 采样率': 'CosyVoice sample rate',

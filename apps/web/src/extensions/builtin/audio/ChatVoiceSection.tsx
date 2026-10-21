@@ -1,11 +1,12 @@
 import { castKey } from '@nobot/core/stage'
-import type { ChatVoiceConfig, VoiceRef } from '@nobot/shared'
-import { useEffect, useState } from 'react'
-import { useChatVoice, useResetChatVoice, useSetChatVoice, useTtsEngines } from '../../../api/tts'
+import type { CharacterGender, ChatVoiceConfig, VoiceRef } from '@nobot/shared'
+import { type ReactNode, useEffect, useState } from 'react'
+import { useChatVoice, useInferChatGenders, useResetChatVoice, useSetChatVoice, useTtsEngines } from '../../../api/tts'
 import { PlusIcon, XIcon } from '../../../components/icons'
 import { Button, controlClass, cx, IconButton, selectClass } from '../../../components/ui'
 import { t } from '../../../i18n'
 import { errorMessage, toast } from '../../../stores/toast'
+import { type ChatVoiceDraft, mergeChatVoiceDraft } from './chat-voice-draft'
 import { VoicePicker } from './VoicePicker'
 
 type Flag = 'enabled' | 'autoRead' | 'vnVoice' | 'readNarration' | 'readUser'
@@ -31,27 +32,19 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
   const query = useChatVoice(chatId)
   const save = useSetChatVoice()
   const reset = useResetChatVoice()
+  const infer = useInferChatGenders(chatId)
   const engines = useTtsEngines()
-  const [draft, setDraft] = useState<ChatVoiceConfig | null>(null)
+  const [state, setState] = useState<ChatVoiceDraft>({ chatId, config: null })
+  const draft = state.chatId === chatId ? state.config : null
+  const setDraft = (config: ChatVoiceConfig) => setState({ chatId, config })
   const [npcName, setNpcName] = useState('')
   useEffect(() => {
-    if (!query.data) return
-    const saved = query.data.config
-    // 服务端只存完整的声音；刷新时把本地还没选完声音的条目留下，免得改别的开关时把它们冲掉
-    setDraft((prev) => {
-      if (!prev) return saved
-      const pending = (r: Record<string, VoiceRef>) => Object.fromEntries(Object.entries(r).filter(([, v]) => !v.voice))
-      const keep = (v: VoiceRef | null | undefined, next: VoiceRef | null | undefined) =>
-        v && !v.voice && next === undefined ? v : next
-      return {
-        ...saved,
-        narratorVoice: keep(prev.narratorVoice, saved.narratorVoice),
-        userVoice: keep(prev.userVoice, saved.userVoice),
-        characters: { ...pending(prev.characters), ...saved.characters },
-        npcs: { ...pending(prev.npcs), ...saved.npcs },
-      }
-    })
-  }, [query.data])
+    setNpcName('')
+    setState((prev) => (prev.chatId === chatId ? prev : { chatId, config: null }))
+  }, [chatId])
+  useEffect(() => {
+    if (query.data) setState((prev) => mergeChatVoiceDraft(prev, chatId, query.data.config))
+  }, [chatId, query.data])
 
   if (query.isLoading || !draft || !query.data) return <p className="text-sm text-zinc-500">{t('加载中…')}</p>
   if (query.error) return <p className="text-sm text-red-600">{errorMessage(query.error)}</p>
@@ -60,9 +53,14 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
   const engineLabel = (id: string) => engines.data?.find((e) => e.id === id)?.label ?? id
   const describe = (v: VoiceRef | null) => (v ? `${engineLabel(v.engine)} · ${v.voice}` : t('无'))
   const onOff = (v: boolean) => (v ? t('开') : t('关'))
-  // 声音池为空时借用旁白声音；旁白也没有时不读
+  // 回退声音来自声音池（按性别挑）；池里没有时借用旁白声音；都没有时不读
+  const narrator = draft.narratorVoice === undefined ? global.narratorVoice : draft.narratorVoice
   const fallback = (v: VoiceRef | null) =>
-    v ? t('旁白声音（{value}）', { value: describe(v) }) : t('不读（没有可用声音）')
+    !v
+      ? t('不读（没有可用声音）')
+      : narrator && narrator.engine === v.engine && narrator.voice === v.voice
+        ? t('旁白声音（{value}）', { value: describe(v) })
+        : t('声音池（{value}）', { value: describe(v) })
 
   const update = (next: ChatVoiceConfig) => {
     setDraft(next)
@@ -140,16 +138,42 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
     )
   }
   /** 角色、NPC：跟随（角色卡 / 声音池）或指定 */
+  const genderLabels: Record<CharacterGender, string> = { male: t('男'), female: t('女'), other: t('其他') }
+  /** 性别：会话里手动指定，否则显示角色卡或模型判断的结果（按性别从声音池挑声音） */
+  const genderSelect = (key: string, gender: CharacterGender | null, source: string | null) => {
+    const own = draft.genders?.[key]
+    const auto = own ? null : gender
+    return (
+      <select
+        aria-label={t('性别')}
+        title={source === 'card' ? t('角色卡上设置的性别') : source === 'inferred' ? t('模型判断的性别') : t('性别')}
+        className={cx(selectClass, 'h-8 w-24 shrink-0 pl-2 text-[12px]')}
+        value={own ?? ''}
+        onChange={(e) => {
+          const v = e.target.value as CharacterGender | ''
+          const { [key]: _, ...rest } = draft.genders ?? {}
+          update({ ...draft, genders: v ? { ...rest, [key]: v } : rest })
+        }}
+      >
+        <option value="">{auto ? t('自动·{value}', { value: genderLabels[auto] }) : t('自动·未知')}</option>
+        <option value="male">{genderLabels.male}</option>
+        <option value="female">{genderLabels.female}</option>
+        <option value="other">{genderLabels.other}</option>
+      </select>
+    )
+  }
   const overrideRow = (
     name: string,
     fallback: string,
     value: VoiceRef | undefined,
     set: (v: VoiceRef | undefined) => void,
     onRemove?: () => void,
+    gender?: ReactNode,
   ) => (
     <div key={name} className="space-y-1.5 rounded-lg border border-zinc-100 px-2.5 py-2 dark:border-zinc-800">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{name}</span>
+        {gender}
         <select
           className={cx(selectClass, 'h-8 w-44 shrink-0 pl-2.5 text-[13px]')}
           value={value ? 'custom' : 'inherit'}
@@ -184,11 +208,27 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
     ...npcs,
     ...Object.keys(draft.npcs)
       .filter((key) => !npcs.some((n) => n.key === key))
-      .map((key) => ({ key, name: key, poolVoice: null, fallbackVoice: null })),
+      .map((key) => ({ key, name: key, poolVoice: null, fallbackVoice: null, gender: null, genderSource: null })),
   ]
+  const inferButton = (
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={infer.isPending}
+      title={t('用模型判断还不知道性别的角色和 NPC，结果会缓存')}
+      onClick={() =>
+        infer.mutate(undefined, {
+          onSuccess: () => toast.info(t('已识别性别')),
+          onError: (e) => toast.error(errorMessage(e)),
+        })
+      }
+    >
+      {infer.isPending ? t('识别中…') : t('识别性别')}
+    </Button>
+  )
   const overridden = Object.keys(sanitize(draft)).some((k) => {
     const v = draft[k as keyof ChatVoiceConfig]
-    return k === 'characters' || k === 'npcs' ? Object.keys(v as object).length > 0 : v !== undefined
+    return k === 'characters' || k === 'npcs' || k === 'genders' ? Object.keys(v ?? {}).length > 0 : v !== undefined
   })
 
   return (
@@ -213,20 +253,28 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
 
       {members.length > 0 && (
         <div className="space-y-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-          <div className="text-xs font-medium text-zinc-500">{t('角色')}</div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-medium text-zinc-500">{t('角色')}</div>
+            {inferButton}
+          </div>
           {members.map((m) =>
             overrideRow(
               m.name,
               m.cardVoice ? t('角色卡（{value}）', { value: describe(m.cardVoice) }) : fallback(m.fallbackVoice),
               draft.characters[m.id],
               (v) => setCharacter(m.id, v),
+              undefined,
+              genderSelect(m.id, m.gender, m.genderSource),
             ),
           )}
         </div>
       )}
 
       <div className="space-y-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-        <div className="text-xs font-medium text-zinc-500">{t('NPC')}</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-medium text-zinc-500">{t('NPC')}</div>
+          {members.length === 0 && inferButton}
+        </div>
         {npcRows.length === 0 && (
           <p className="text-xs text-zinc-400">{t('这个会话里还没有出现过 NPC，可以手动添加名字。')}</p>
         )}
@@ -237,6 +285,7 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
             draft.npcs[n.key],
             (v) => setNpc(n.key, v),
             npcs.some((c) => c.key === n.key) ? undefined : () => setNpc(n.key, undefined),
+            genderSelect(n.key, 'gender' in n ? n.gender : null, 'genderSource' in n ? n.genderSource : null),
           ),
         )}
         <form

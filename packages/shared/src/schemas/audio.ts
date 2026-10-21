@@ -42,8 +42,18 @@ export const TTS_ENGINES = [
   'cosyvoice',
 ] as const
 export type TtsEngineId = (typeof TTS_ENGINES)[number]
+export const GENDERS = ['male', 'female', 'neutral'] as const
+export type Gender = (typeof GENDERS)[number]
+export type CharacterGender = 'male' | 'female' | 'other'
+export interface TtsOption {
+  value: string
+  label: string
+  lang?: string
+  gender?: Gender
+}
 export const voiceRefSchema = z.object({
   engine: z.enum(TTS_ENGINES),
+  gender: z.enum(GENDERS).optional(),
   voice: z.string().min(1),
   /** 语速倍率。 */
   speed: z.number().min(0.5).max(2).default(1),
@@ -63,6 +73,7 @@ export const deliveryModeSchema = z.enum(['off', 'basic', 'rich'])
 
 /** 会话级语音覆盖：字段缺省表示跟随全局设置。 */
 export const chatVoiceConfigSchema = z.object({
+  genders: z.record(z.string(), z.enum(['male', 'female', 'other'])).optional(),
   enabled: z.boolean().optional(),
   deliveryMode: deliveryModeSchema.optional(),
   autoRead: z.boolean().optional(),
@@ -76,10 +87,19 @@ export const chatVoiceConfigSchema = z.object({
   npcs: z.record(z.string(), voiceRefSchema).default({}),
 })
 export type ChatVoiceConfig = z.infer<typeof chatVoiceConfigSchema>
+export interface ChatVoiceGender {
+  gender: CharacterGender | null
+  genderSource: 'chat' | 'card' | 'inferred' | null
+}
 export interface ChatVoiceDTO {
   config: ChatVoiceConfig
-  members: { id: string; name: string; cardVoice: VoiceRef | null; fallbackVoice: VoiceRef | null }[]
-  npcs: { key: string; name: string; poolVoice: VoiceRef | null; fallbackVoice: VoiceRef | null }[]
+  members: (ChatVoiceGender & {
+    id: string
+    name: string
+    cardVoice: VoiceRef | null
+    fallbackVoice: VoiceRef | null
+  })[]
+  npcs: (ChatVoiceGender & { key: string; name: string; poolVoice: VoiceRef | null; fallbackVoice: VoiceRef | null })[]
   global: {
     enabled: boolean
     autoRead: boolean

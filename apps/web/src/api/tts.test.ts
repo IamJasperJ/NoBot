@@ -6,6 +6,7 @@ import {
   ttsApi,
   useChatVoice,
   useFishVoiceSearch,
+  useInferChatGenders,
   useRefreshFishVoices,
   useResetChatVoice,
   useSetChatVoice,
@@ -96,6 +97,12 @@ test('会话语音写入和重置后用返回值更新查询缓存', async () =>
     await render(useSetChatVoice).mutateAsync({ chatId: 'chat', config: { characters: {}, npcs: {} } })
     expect(qc.getQueryData(['tts', 'chat', 'chat'])).toEqual(dto)
     qc.setQueryData(['tts', 'chat', 'chat'], { effective: { enabled: false } })
+    qc.setQueryData(['tts', 'chat', 'other'], { marker: 'other' })
+    await render(() => useInferChatGenders('chat')).mutateAsync()
+    expect(String(fetcher.mock.calls.at(-1)?.[0])).toEndWith('/chat/chat/infer-genders')
+    expect(fetcher.mock.calls.at(-1)?.[1]?.method).toBe('POST')
+    expect(qc.getQueryData(['tts', 'chat', 'chat'])).toEqual(dto)
+    expect(qc.getQueryData(['tts', 'chat', 'other'])).toEqual({ marker: 'other' })
     await render(useResetChatVoice).mutateAsync('chat')
     expect(qc.getQueryData(['tts', 'chat', 'chat'])).toEqual(dto)
   } finally {

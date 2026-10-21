@@ -4,6 +4,22 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '按性别分配声音':
+      return t('按性别分配声音')
+    case '用模型判断角色性别':
+      return t('用模型判断角色性别')
+    case '每个角色只判断一次并缓存；关闭时只用角色卡上手动设置的性别':
+      return t('每个角色只判断一次并缓存；关闭时只用角色卡上手动设置的性别')
+    case '声音性别':
+      return t('声音性别')
+    case '男':
+      return t('男')
+    case '女':
+      return t('女')
+    case '中性':
+      return t('中性')
+    case '不确定':
+      return t('不确定')
     case '语音导演':
       return t('语音导演')
     case '朗读前用模型给整条消息标注语气，每条消息多一次调用':
@@ -128,6 +144,16 @@ export function translateMetadata(text: string): string {
       return t('在火山控制台开通的资源 ID，如 seed-tts-1.0 / seed-tts-2.0')
     case '火山语音地址':
       return t('火山语音地址')
+    case '服务类型':
+      return t('服务类型')
+    case '官方 FastAPI（inference_* 接口）':
+      return t('官方 FastAPI（inference_* 接口）')
+    case 'OpenAI 兼容网关（/voices + /v1/audio/speech）':
+      return t('OpenAI 兼容网关（/voices + /v1/audio/speech）')
+    case '网关模式会从服务端拉取已保存的音色，不用手填；地址填到网关路由为止，例如 http://host:8800/api/cosyvoice3':
+      return t(
+        '网关模式会从服务端拉取已保存的音色，不用手填；地址填到网关路由为止，例如 http://host:8800/api/cosyvoice3',
+      )
     case 'CosyVoice 语音':
       return t('CosyVoice 语音')
     case 'CosyVoice 地址':

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { TONES } from '@nobot/core'
-import { deliveryModeSchema, type ExtensionSettingField, voiceRefSchema } from '@nobot/shared'
+import { deliveryModeSchema, type ExtensionSettingField, GENDERS, voiceRefSchema } from '@nobot/shared'
 import { z } from 'zod'
+import { t } from '../../../../i18n'
 
 // 设置页里刚选了引擎、还没选声音的条目（voice 为空）先存着，解析时当作没设置
 const voiceSetting = voiceRefSchema.nullable().catch(null)
@@ -28,6 +29,8 @@ const audioSettingsSchema = z.object({
   userVoice: voiceSetting.default(null),
   readUser: z.boolean().default(false),
   npcVoices: voiceListSetting,
+  genderMatch: z.boolean().default(true),
+  genderInference: z.boolean().default(true),
   autoRead: z.boolean().default(false),
   vnVoice: z.boolean().default(true),
   vnWaitVoice: z.boolean().default(true),
@@ -44,7 +47,15 @@ const audioSettingsSchema = z.object({
   // 填错或清空时退回默认值：设置整份解析失败会让整个音频扩展不可用
   fishEndpoint: z.url().catch('https://api.fish.audio/v1/tts'),
   fishModel: z.string().trim().min(1).catch('s2.1-pro'),
-  fishVoices: z.array(z.object({ id: z.string().trim(), name: z.string().default('') })).default([]),
+  fishVoices: z
+    .array(
+      z.object({
+        id: z.string().trim(),
+        name: z.string().default(''),
+        gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
+      }),
+    )
+    .default([]),
   gptsovitsEndpoint: z.string().default('http://127.0.0.1:9880'),
   gptsovitsVoices: z
     .array(
@@ -52,6 +63,7 @@ const audioSettingsSchema = z.object({
         .object({
           id: z.string().default(''),
           name: z.string().default(''),
+          gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
           emotionRefs: z
             .array(z.object({ tone: z.enum(TONES), refAudioPath: z.string(), promptText: z.string().default('') }))
             .default([]),
@@ -77,8 +89,24 @@ const audioSettingsSchema = z.object({
         })),
     )
     .default([]),
-  minimaxCustomVoices: z.array(z.object({ id: z.string(), name: z.string().default('') })).default([]),
-  volcengineCustomVoices: z.array(z.object({ id: z.string(), name: z.string().default('') })).default([]),
+  minimaxCustomVoices: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string().default(''),
+        gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
+      }),
+    )
+    .default([]),
+  volcengineCustomVoices: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string().default(''),
+        gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
+      }),
+    )
+    .default([]),
   minimaxApiKey: z.string().default(''),
   minimaxApiHost: z.string().default('https://api.minimaxi.com'),
   minimaxModel: z.string().default('speech-02-hd'),
@@ -86,6 +114,8 @@ const audioSettingsSchema = z.object({
   volcengineAccessKey: z.string().default(''),
   volcengineResourceId: z.string().default('seed-tts-2.0'),
   volcengineEndpoint: z.string().default('https://openspeech.bytedance.com/api/v3/tts/unidirectional'),
+  cosyvoiceApi: z.enum(['official', 'gateway']).default('official'),
+  cosyvoiceHeaders: z.string().default(''),
   cosyvoiceEndpoint: z.string().default('http://127.0.0.1:50000'),
   cosyvoiceSampleRate: z.number().int().min(1).default(22050),
   cosyvoiceVoices: z
@@ -93,6 +123,7 @@ const audioSettingsSchema = z.object({
       z.object({
         id: z.string(),
         name: z.string(),
+        gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
         mode: z.enum(['sft', 'instruct', 'zero_shot']).default('sft'),
         spkId: z.string().default(''),
         promptText: z.string().default(''),
@@ -115,8 +146,52 @@ export const audioSettings = z.preprocess((value) => {
   return migrateAudioSettings(value as Record<string, unknown>)
 }, audioSettingsSchema)
 export type AudioSettings = z.infer<typeof audioSettings>
+/** 额外请求头沿用其他引擎的 JSON 对象规则，并统一大小写及顺序以稳定缓存。 */
+export function cosyvoiceHeaders(text: string): Record<string, string> {
+  if (!text.trim()) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error(t('{label}额外请求头不是合法的 JSON', { label: 'CosyVoice ' }))
+  }
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    Array.isArray(parsed) ||
+    Object.values(parsed).some((value) => typeof value !== 'string')
+  )
+    throw new Error(t('{label}额外请求头必须是字符串值的 JSON 对象', { label: 'CosyVoice ' }))
+  return Object.fromEntries(
+    [...new Headers(parsed as Record<string, string>).entries()].sort(([a], [b]) => a.localeCompare(b)),
+  )
+}
+
+export function cosyvoiceHeadersHash(text: string): string {
+  return createHash('sha256')
+    .update(JSON.stringify(cosyvoiceHeaders(text)))
+    .digest('hex')
+}
+const genderField: ExtensionSettingField = {
+  key: 'gender',
+  type: 'select',
+  label: '声音性别',
+  options: [
+    { value: '', label: '不确定' },
+    { value: 'male', label: '男' },
+    { value: 'female', label: '女' },
+    { value: 'neutral', label: '中性' },
+  ],
+}
 export const ttsFields: ExtensionSettingField[] = [
   { key: 'tts', type: 'heading', label: '朗读设置' },
+  { key: 'genderMatch', type: 'boolean', label: '按性别分配声音' },
+  {
+    key: 'genderInference',
+    type: 'boolean',
+    label: '用模型判断角色性别',
+    hint: '每个角色只判断一次并缓存；关闭时只用角色卡上手动设置的性别',
+  },
   ...(
     [
       ['ttsEnabled', '开启朗读'],
@@ -194,6 +269,7 @@ export const ttsFields: ExtensionSettingField[] = [
     itemFields: [
       { key: 'id', type: 'string', label: '声音标识' },
       { key: 'name', type: 'string', label: '声音名称' },
+      genderField,
     ],
   },
   // 搜索 Fish Audio 声音库的控件由前端渲染（值不用），搜到的声音加进上面的 fishVoices
@@ -208,6 +284,7 @@ export const ttsFields: ExtensionSettingField[] = [
     itemFields: [
       { key: 'id', type: 'string', label: '声音标识' },
       { key: 'name', type: 'string', label: '声音名称' },
+      genderField,
       { key: 'refAudioPath', type: 'string', label: '参考音频路径' },
       { key: 'promptText', type: 'textarea', label: '参考音频文字' },
       { key: 'promptLang', type: 'string', label: '参考音频语言' },
@@ -275,9 +352,21 @@ ttsFields.push(
   },
   { key: 'volcengineEndpoint', type: 'string', label: '火山语音地址' },
   { key: 'cosyvoice', type: 'heading', label: 'CosyVoice 语音', defaultCollapsed: true },
+  {
+    key: 'cosyvoiceApi',
+    type: 'select',
+    label: '服务类型',
+    options: [
+      { value: 'official', label: '官方 FastAPI（inference_* 接口）' },
+      { value: 'gateway', label: 'OpenAI 兼容网关（/voices + /v1/audio/speech）' },
+    ],
+    hint: '网关模式会从服务端拉取已保存的音色，不用手填；地址填到网关路由为止，例如 http://host:8800/api/cosyvoice3',
+  },
   { key: 'cosyvoiceEndpoint', type: 'string', label: 'CosyVoice 地址' },
+  { key: 'cosyvoiceHeaders', type: 'textarea', label: '额外请求头（JSON）' },
   {
     key: 'cosyvoiceSampleRate',
+    visibleWhen: { key: 'cosyvoiceApi', equals: 'official' },
     type: 'number',
     label: 'CosyVoice 采样率',
     hint: 'CosyVoice 默认 22050，CosyVoice2 使用 24000',
@@ -285,12 +374,14 @@ ttsFields.push(
   },
   {
     key: 'cosyvoiceVoices',
+    visibleWhen: { key: 'cosyvoiceApi', equals: 'official' },
     type: 'list',
     label: 'CosyVoice 声音预设',
     titleKey: 'name',
     itemFields: [
       { key: 'id', type: 'string', label: '声音标识' },
       { key: 'name', type: 'string', label: '声音名称' },
+      genderField,
       {
         key: 'mode',
         type: 'select',
@@ -318,6 +409,7 @@ for (const [key, after] of [
     itemFields: [
       { key: 'id', type: 'string', label: '声音标识' },
       { key: 'name', type: 'string', label: '声音名称' },
+      genderField,
     ],
   })
 }

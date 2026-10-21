@@ -1,4 +1,6 @@
 import { join } from 'node:path'
+import { guessVoiceGender } from '@nobot/core'
+import type { TtsOption } from '@nobot/shared'
 
 export { toneInstruction } from '@nobot/core'
 
@@ -8,6 +10,7 @@ import { t } from '../../../../i18n'
 import { listAudioTracks } from '../../../../services/audio-library'
 import { deliveryCapabilities, engineInput } from './delivery'
 import type { TtsEngine } from './engines'
+import { cosyvoiceHeaders, cosyvoiceHeadersHash } from './settings'
 
 const failed = () => new HttpError(502, 'TTS_FAILED', t('语音服务请求失败，请检查配置'))
 
@@ -31,7 +34,7 @@ export function pcmWav(pcm: Uint8Array, sampleRate: number) {
 }
 
 export function additionalEngines(
-  request: (url: string, init?: RequestInit) => Promise<Response>,
+  request: (url: string, init?: RequestInit, timeout?: number) => Promise<Response>,
   offline: () => boolean,
   mockAudio: Uint8Array,
 ): Pick<Record<string, TtsEngine>, 'minimax' | 'volcengine' | 'cosyvoice'> {
@@ -42,6 +45,7 @@ export function additionalEngines(
       body: JSON.stringify(body),
       signal,
     })
+  const voicesCache = new Map<string, { expires: number; voices: TtsOption[] }>()
   const mock = { bytes: mockAudio, mime: 'audio/wav' }
   return {
     minimax: {
@@ -66,9 +70,21 @@ export function additionalEngines(
           'English_Whispering_girl',
           'English_Diligent_Man',
         ]
-          .map((value) => ({ value, label: value, lang: value.startsWith('English') ? 'en' : 'zh' }))
+          .map((value) => ({
+            value,
+            label: value,
+            lang: value.startsWith('English') ? 'en' : 'zh',
+            gender: guessVoiceGender('minimax', value),
+          }))
           .concat(
-            s.minimaxCustomVoices.filter((v) => v.id).map((v) => ({ value: v.id, label: v.name || v.id, lang: '' })),
+            s.minimaxCustomVoices
+              .filter((v) => v.id)
+              .map((v) => ({
+                value: v.id,
+                label: v.name || v.id,
+                lang: '',
+                gender: v.gender ?? guessVoiceGender('minimax', v.id, v.name),
+              })),
           ),
       synthesize: async (input, s, signal) => {
         const rendered = engineInput('minimax', input, s)
@@ -120,9 +136,16 @@ export function additionalEngines(
           'saturn_zh_male_tiancaitongzhuo_tob',
           'zh_male_taocheng_uranus_bigtts',
         ]
-          .map((value) => ({ value, label: value, lang: 'zh' }))
+          .map((value) => ({ value, label: value, lang: 'zh', gender: guessVoiceGender('volcengine', value) }))
           .concat(
-            s.volcengineCustomVoices.filter((v) => v.id).map((v) => ({ value: v.id, label: v.name || v.id, lang: '' })),
+            s.volcengineCustomVoices
+              .filter((v) => v.id)
+              .map((v) => ({
+                value: v.id,
+                label: v.name || v.id,
+                lang: '',
+                gender: v.gender ?? guessVoiceGender('volcengine', v.id, v.name),
+              })),
           ),
       synthesize: async (input, s, signal) => {
         const rendered = engineInput('volcengine', input, s)
@@ -184,13 +207,75 @@ export function additionalEngines(
       id: 'cosyvoice',
       deliveryCapabilities: (s, voice) => deliveryCapabilities('cosyvoice', s, voice),
       label: 'CosyVoice',
-      configured: (s) => !!s.cosyvoiceEndpoint && s.cosyvoiceVoices.length > 0,
-      voices: async (s) => s.cosyvoiceVoices.map((v) => ({ value: v.id, label: v.name })),
+      configured: (s) => !!s.cosyvoiceEndpoint && (s.cosyvoiceApi === 'gateway' || s.cosyvoiceVoices.length > 0),
+      voices: async (s, signal) => {
+        if (s.cosyvoiceApi !== 'gateway')
+          return s.cosyvoiceVoices.map((v) => ({
+            value: v.id,
+            label: v.name,
+            gender: v.gender ?? guessVoiceGender('cosyvoice', v.id, v.name),
+          }))
+        if (offline()) return [{ value: 'default', label: 'default' }]
+        try {
+          const endpoint = s.cosyvoiceEndpoint.replace(/\/+$/, '')
+          const key = JSON.stringify([endpoint, cosyvoiceHeadersHash(s.cosyvoiceHeaders)])
+          const cached = voicesCache.get(key)
+          if (cached && cached.expires > Date.now()) return cached.voices
+          const response = await request(
+            `${endpoint}/voices`,
+            { headers: cosyvoiceHeaders(s.cosyvoiceHeaders), signal },
+            180000,
+          )
+          const data: unknown = await response.json()
+          if (
+            !data ||
+            typeof data !== 'object' ||
+            !('voices' in data) ||
+            !Array.isArray(data.voices) ||
+            !data.voices.every((name: unknown) => typeof name === 'string' && name.length > 0)
+          )
+            throw failed()
+          const voices = (data.voices as string[]).map((name) => ({
+            value: name,
+            label: name,
+            gender: guessVoiceGender('cosyvoice', name, name),
+          }))
+          voicesCache.set(key, { expires: Date.now() + 120000, voices })
+          return voices
+        } catch {
+          throw failed()
+        }
+      },
       synthesize: async (input, s, signal) => {
         const rendered = engineInput('cosyvoice', input, s)
         const params = rendered.params
         input = rendered
         signal?.throwIfAborted()
+        if (s.cosyvoiceApi === 'gateway') {
+          if (offline()) return mock
+          const headers = new Headers({ 'Content-Type': 'application/json' })
+          for (const [key, value] of Object.entries(cosyvoiceHeaders(s.cosyvoiceHeaders))) headers.set(key, value)
+          const response = await request(
+            `${s.cosyvoiceEndpoint.replace(/\/+$/, '')}/v1/audio/speech`,
+            {
+              method: 'POST',
+              headers,
+              signal,
+              body: JSON.stringify({
+                input: input.text,
+                model: 'cosyvoice3',
+                voice: input.voice,
+                speed: input.speed,
+                response_format: 'wav',
+                instructions: s.deliveryMode === 'off' ? '' : (params.instructions ?? ''),
+              }),
+            },
+            180000,
+          )
+          const bytes = new Uint8Array(await response.arrayBuffer())
+          if (!bytes.length) throw failed()
+          return { bytes, mime: 'audio/wav' }
+        }
         const preset = s.cosyvoiceVoices.find((v) => v.id === input.voice)
         if (!preset) throw new HttpError(502, 'TTS_FAILED', t('参考声音预设不存在或不完整'))
         if (offline()) return mock
@@ -208,6 +293,7 @@ export function additionalEngines(
         const response = await request(`${s.cosyvoiceEndpoint.replace(/\/+$/, '')}/inference_${preset.mode}`, {
           method: 'POST',
           body: form,
+          headers: cosyvoiceHeaders(s.cosyvoiceHeaders),
           signal,
         })
         return { bytes: pcmWav(new Uint8Array(await response.arrayBuffer()), s.cosyvoiceSampleRate), mime: 'audio/wav' }

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { FishVoiceItem, FishVoiceSearchResult } from '@nobot/shared'
+import { guessVoiceGender } from '@nobot/core'
+import type { FishVoiceItem, FishVoiceSearchResult, TtsOption } from '@nobot/shared'
 import { z } from 'zod'
 import { HttpError } from '../../../../errors'
 import { t } from '../../../../i18n'
@@ -92,9 +93,14 @@ export function createFishClient(network: { fetch?: typeof fetch; mock?: boolean
     }
   }
   const voices = async (settings: AudioSettings, signal?: AbortSignal) => {
-    const merged = new Map<string, { value: string; label: string }>()
+    const merged = new Map<string, TtsOption>()
     for (const voice of settings.fishVoices) {
-      if (voice.id && !merged.has(voice.id)) merged.set(voice.id, { value: voice.id, label: voice.name || voice.id })
+      if (voice.id && !merged.has(voice.id))
+        merged.set(voice.id, {
+          value: voice.id,
+          label: voice.name || voice.id,
+          gender: voice.gender ?? guessVoiceGender('fish', voice.id, voice.name),
+        })
     }
     if (!settings.fishApiKey.trim() || (network.mock ?? process.env.TTS_FETCH_MOCK === '1')) return [...merged.values()]
     const cacheKey = JSON.stringify([
@@ -117,7 +123,12 @@ export function createFishClient(network: { fetch?: typeof fetch; mock?: boolean
         if (generation === cacheGeneration) cache.set(cacheKey, { items, expires: now() + 5 * 60 * 1000 })
       }
       for (const voice of items) {
-        if (!merged.has(voice.id)) merged.set(voice.id, { value: voice.id, label: voice.title })
+        if (!merged.has(voice.id))
+          merged.set(voice.id, {
+            value: voice.id,
+            label: voice.title,
+            gender: guessVoiceGender('fish', voice.id, voice.title),
+          })
       }
     } catch {
       console.warn('Fish Audio 自己的声音拉取失败，使用手填声音')

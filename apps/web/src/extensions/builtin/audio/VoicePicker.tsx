@@ -1,4 +1,4 @@
-import type { DeliveryCapabilities, TtsEngineId, TtsLineResult, VoiceRef } from '@nobot/shared'
+import type { DeliveryCapabilities, Gender, TtsEngineId, TtsLineResult, VoiceRef } from '@nobot/shared'
 import { useState } from 'react'
 import { usePreviewVoice, useTtsEngines, useTtsVoices } from '../../../api/tts'
 import { PlayIcon, PlusIcon, StopIcon, XIcon } from '../../../components/icons'
@@ -46,8 +46,15 @@ export function VoicePicker({
 
   const setEngine = (id: TtsEngineId | '') => {
     if (!id) return onChange(null)
-    onChange({ engine: id, voice: value?.engine === id ? value.voice : '', speed: value?.speed ?? 1 })
+    onChange({
+      engine: id,
+      voice: value?.engine === id ? value.voice : '',
+      speed: value?.speed ?? 1,
+      gender: value?.engine === id ? value.gender : undefined,
+    })
   }
+  const setVoice = (voice: string) =>
+    value && onChange({ ...value, voice, gender: options.find((o) => o.value === voice)?.gender })
   const test = () => {
     if (!value?.voice) return
     if (playing) {
@@ -91,7 +98,7 @@ export function VoicePicker({
               aria-label={t('声音')}
               disabled={disabled}
               value={value.voice}
-              onChange={(e) => onChange({ ...value, voice: e.target.value })}
+              onChange={(e) => setVoice(e.target.value)}
             >
               {!value.voice && <option value="">{t('选择声音…')}</option>}
               {!known && <option value={value.voice}>{value.voice}</option>}
@@ -108,7 +115,7 @@ export function VoicePicker({
               disabled={disabled}
               placeholder={voices.isLoading ? t('加载中…') : t('声音名称或 ID')}
               value={value.voice}
-              onChange={(e) => onChange({ ...value, voice: e.target.value })}
+              onChange={(e) => setVoice(e.target.value)}
             />
           )}
           <label className="flex items-center gap-1 text-xs text-zinc-500" title={t('语速倍率')}>
@@ -170,6 +177,23 @@ export function VoiceListPicker({
               onChange={(next) => next && onChange(value.map((v, j) => (j === i ? next : v)))}
             />
           </div>
+          {/* 声音的性别：按性别分配时用；自动则由服务端按引擎信息或名字判断 */}
+          <select
+            aria-label={t('声音性别')}
+            className={cx(selectClass, 'h-8 w-20 shrink-0 pl-2 text-[12px]')}
+            disabled={disabled}
+            value={voice.gender ?? ''}
+            onChange={(e) => {
+              const g = e.target.value as Gender | ''
+              const { gender: _, ...rest } = voice
+              onChange(value.map((v, j) => (j === i ? (g ? { ...rest, gender: g } : rest) : v)))
+            }}
+          >
+            <option value="">{t('自动')}</option>
+            <option value="male">{t('男')}</option>
+            <option value="female">{t('女')}</option>
+            <option value="neutral">{t('中性')}</option>
+          </select>
           <IconButton
             label={t('移除这个声音')}
             className="size-8"

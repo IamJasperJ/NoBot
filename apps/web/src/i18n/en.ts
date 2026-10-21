@@ -2363,4 +2363,20 @@ export const en: Record<string, string> = {
     'Leave empty to use the image generation extension headers (shown in gray in the box). Anything you enter replaces them entirely.',
   填入扩展里的地址和请求头: 'Fill in the extension URL and headers',
   正在朗读: 'Reading aloud',
+  性别: 'Gender',
+  '没给角色设声音时，按性别从声音池里挑。「自动」由模型根据角色描述判断一次。':
+    'When the character has no voice set, a voice of the matching gender is picked from the pool. "Auto" asks the model once, based on the character description.',
+  男: 'Male',
+  女: 'Female',
+  角色卡上设置的性别: 'Gender set on the character card',
+  模型判断的性别: 'Gender detected by the model',
+  '自动·{value}': 'Auto · {value}',
+  自动·未知: 'Auto · unknown',
+  '用模型判断还不知道性别的角色和 NPC，结果会缓存':
+    'Ask the model for characters and NPCs whose gender is unknown; results are cached',
+  已识别性别: 'Genders detected',
+  '识别中…': 'Detecting…',
+  识别性别: 'Detect genders',
+  声音性别: 'Voice gender',
+  中性: 'Neutral',
 }

@@ -15,6 +15,7 @@ import { chatVoiceDTO, chatVoiceKey, effectiveSettings } from './chat-voice'
 import { applyDirection, directMessage, directorDeliverySchema, waitForVnDirections } from './director'
 import { ttsEngines } from './engines'
 import { fishClient } from './fish'
+import { inferGender } from './gender'
 import {
   cacheEntries,
   cleanTtsText,
@@ -38,6 +39,28 @@ export function registerTtsRoutes(
 ) {
   const dto = (chatId: string) => chatVoiceDTO(ctx.storage, chatId, audioSettings.parse(ctx.settings))
   app.get('/tts/chat/:chatId', (c) => c.json(dto(c.req.param('chatId'))))
+  app.post('/tts/chat/:chatId/infer-genders', async (c) => {
+    const chatId = c.req.param('chatId')
+    const before = dto(chatId)
+    const settings = audioSettings.parse(ctx.settings)
+    const speakers = [
+      ...before.members.map((m) => ({ kind: 'character' as const, characterId: m.id })),
+      ...before.npcs.map((n) => ({ kind: 'npc' as const, name: n.name })),
+    ]
+    const queue = [...speakers]
+    const worker = async () => {
+      for (let speaker = queue.shift(); speaker; speaker = queue.shift())
+        await inferGender(
+          { ...ctx, userKey: currentUser().handle },
+          chatId,
+          speaker,
+          before.config,
+          settings.genderInference,
+        )
+    }
+    await Promise.all([worker(), worker()])
+    return c.json(dto(chatId))
+  })
   app.put('/tts/chat/:chatId', validate('json', chatVoiceConfigSchema), (c) => {
     const chatId = c.req.param('chatId')
     dto(chatId)
@@ -174,7 +197,7 @@ export function registerTtsRoutes(
       }
       const text = cleanTtsText(input.text)
       if (!text) return c.json({ kind: 'skip', reason: 'empty' } as const)
-      const voice = resolveVoice(input.chatId, input.speaker, settings)
+      const voice = await resolveVoice(input.chatId, input.speaker, settings, { ...ctx, userKey: currentUser().handle })
       return c.json(
         'kind' in voice
           ? voice
@@ -205,6 +228,11 @@ export function registerTtsRoutes(
       )
       result.segments = result.segments.map((segment, i) => applyDirection(segment, directions[i]))
     }
+    await Promise.all(
+      result.segments.map((segment) =>
+        resolveVoice(result.chatId, segment.speaker, settings, { ...ctx, userKey: currentUser().handle }),
+      ),
+    )
     return c.json(result)
   })
   app.post(

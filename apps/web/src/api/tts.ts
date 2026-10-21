@@ -8,6 +8,7 @@ import type {
   SpokenLine,
   TtsEngineId,
   TtsLineResult,
+  TtsOption,
   TtsSpeaker,
   VoiceRef,
 } from '@nobot/shared'
@@ -16,11 +17,7 @@ import { useEffect } from 'react'
 import { readError } from './client'
 import { apiFetch } from './fetch'
 
-export interface TtsOption {
-  value: string
-  label: string
-  lang?: string
-}
+export type { TtsOption } from '@nobot/shared'
 export interface TtsSegment {
   speaker: TtsSpeaker
   text: string
@@ -45,6 +42,8 @@ export const ttsApi = {
     request<ChatVoiceDTO>('GET', `/chat/${encodeURIComponent(chatId)}`, undefined, signal),
   setChatVoice: ({ chatId, config }: { chatId: string; config: ChatVoiceConfig }) =>
     request<ChatVoiceDTO>('PUT', `/chat/${encodeURIComponent(chatId)}`, config),
+  inferChatGenders: (chatId: string) =>
+    request<ChatVoiceDTO>('POST', `/chat/${encodeURIComponent(chatId)}/infer-genders`),
   resetChatVoice: (chatId: string) => request<ChatVoiceDTO>('DELETE', `/chat/${encodeURIComponent(chatId)}`),
   engines: () =>
     request<{ id: TtsEngineId; label: string; configured: boolean; delivery: DeliveryCapabilities }[]>(
@@ -138,6 +137,19 @@ export function useSetChatVoice() {
       await qc.cancelQueries({ queryKey: ['tts', 'chat', chatId] })
       await qc.invalidateQueries({ queryKey: ['tts', 'chat', chatId], refetchType: 'none' })
       qc.setQueryData(['tts', 'chat', chatId], dto)
+    },
+  })
+}
+export function useInferChatGenders(chatId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => ttsApi.inferChatGenders(chatId),
+    // 请求期间切换会话时，回答仍只写回发起请求的会话。
+    onMutate: () => ({ chatId }),
+    onSuccess: async (dto, _variables, context) => {
+      const id = context.chatId
+      await qc.cancelQueries({ queryKey: ['tts', 'chat', id] })
+      qc.setQueryData(['tts', 'chat', id], dto)
     },
   })
 }

@@ -30,8 +30,15 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
   const { createChat, editMessage } = await import('../../../../services/chats')
   const { createTtsEngines, ttsEngines, mockAudio } = await import('./engines')
   const { audioSettings } = await import('./settings')
-  const { cleanTtsText, resolveVoice, poolVoice, cacheEntries, synthesizeVoice, clearTtsCache, messageSegments } =
-    await import('./service')
+  const {
+    cleanTtsText,
+    resolveVoiceSync: resolveVoice,
+    poolVoice,
+    cacheEntries,
+    synthesizeVoice,
+    clearTtsCache,
+    messageSegments,
+  } = await import('./service')
   const { edgeGec, xmlEscape, edgeSynthesize } = await import('./edge')
   const request = (path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST') =>
     app.request(`/api/ext/audio/tts${path}`, {
@@ -376,7 +383,16 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     const before = await json<ChatVoiceDTO>(`/chat/${chat.id}`)
     expect(before.config).toEqual({ characters: {}, npcs: {} })
     expect(before.effective.enabled).toBe(true)
-    expect(before.members).toEqual([{ id: character.id, name: character.name, cardVoice: voice, fallbackVoice: voice }])
+    expect(before.members).toEqual([
+      {
+        id: character.id,
+        name: character.name,
+        cardVoice: voice,
+        fallbackVoice: voice,
+        gender: null,
+        genderSource: null,
+      },
+    ])
     const { writeTemporaryActor } = await import('../../../../services/temporary-actors')
     for (const name of ['Bob', ' B ob ', 'Alice', 'Saved']) {
       writeTemporaryActor(chat.id, name, { key: name, name, image: null, prompt: '', status: 'done', updatedAt: 0 })
@@ -516,7 +532,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     expect(engineList).toHaveLength(9)
     expect(engineList.find((v) => v.id === 'openai')?.delivery.emotion).toBe('instruction')
     expect(await json('/voices', { engine: 'openai' })).toMatchObject({
-      options: expect.arrayContaining([{ value: 'verse', label: 'verse' }]),
+      options: expect.arrayContaining([{ value: 'verse', label: 'verse', gender: 'male' }]),
     })
     await json('/cache', undefined, 'DELETE')
     expect(await json('/cache')).toEqual({ bytes: 0, files: 0 })
@@ -528,7 +544,8 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
         async (url: string | URL | Request, init?: RequestInit) => {
           calls.push({ url: String(url), init })
           if (new URL(String(url)).pathname === '/model') return Response.json({ items: [] })
-          if (String(url).endsWith('/voices')) return Response.json({ voices: [{ voice_id: 'v1', name: 'Test' }] })
+          if (String(url).endsWith('/voices'))
+            return Response.json({ voices: [{ voice_id: 'v1', name: 'Test', labels: { gender: 'female' } }] })
           return new Response(mockAudio)
         },
         { preconnect: fetch.preconnect },
@@ -560,7 +577,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
       media_type: 'wav',
     })
     expect(await engines.elevenlabs.voices({ ...settings, elevenlabsApiKey: 'eleven-secret' })).toEqual([
-      { value: 'v1', label: 'Test' },
+      { value: 'v1', label: 'Test', gender: 'female' },
     ])
     await engines.elevenlabs.synthesize({ text: 'Hi', voice: 'a/b', speed: 1.2 }, settings)
     expect(calls.at(-1)?.url).toContain('a%2Fb?output_format=mp3_44100_128')

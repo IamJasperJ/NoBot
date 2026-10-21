@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
 import { readdir, stat, unlink, utimes } from 'node:fs/promises'
 import { join } from 'node:path'
-import { deliveryFromExpression, expressionTone, parseCues, renderDelivery } from '@nobot/core'
+import { deliveryFromExpression, expressionTone, guessVoiceGender, parseCues, renderDelivery } from '@nobot/core'
 import { castKey, parseStageMessage, toDisplayText } from '@nobot/core/stage'
 import {
+  type CharacterGender,
   characterDeliveryStyleSchema,
   type Delivery,
   type LineDelivery,
@@ -22,7 +23,9 @@ import { currentUser } from '../../../../user-context'
 import { toneInstruction } from './additional'
 import type { EffectiveAudioSettings } from './chat-voice'
 import { openaiConnection, ttsEngines } from './engines'
+import { type GenderContext, inferGender, readGender, waitForGender } from './gender'
 import type { AudioSettings } from './settings'
+import { cosyvoiceHeadersHash } from './settings'
 
 export function cleanTtsText(text: string) {
   const cues: string[] = []
@@ -36,15 +39,21 @@ export function cleanTtsText(text: string) {
     .trim()
     .replace(/\uE000(\d+)\uE001/g, (_, index: string) => cues[Number(index)] ?? '')
 }
-export function poolVoice(name: string, pool: VoiceRef[]): VoiceRef | null {
+export function poolVoice(name: string, pool: VoiceRef[], gender?: CharacterGender | null): VoiceRef | null {
+  const wanted = gender === 'other' ? 'neutral' : gender
+  const matched = wanted ? pool.filter((v) => (v.gender ?? guessVoiceGender(v.engine, v.voice)) === wanted) : []
+  if (matched.length) pool = matched
   const hash = createHash('sha256').update(castKey(name)).digest().readUInt32BE(0)
   return pool.length ? pool[hash % pool.length]! : null
 }
-export function resolveVoice(
+export function resolveVoiceSync(
   chatId: string,
   speaker: TtsSpeaker,
   s: EffectiveAudioSettings,
+  ctx?: GenderContext,
 ): VoiceRef | Extract<TtsLineResult, { kind: 'skip' }> {
+  const gender = (speaker: Extract<TtsSpeaker, { kind: 'character' | 'npc' }>) =>
+    s.genderMatch && ctx ? readGender(ctx.storage, chatId, speaker, s.chatVoice, s.genderInference).gender : null
   const skip = (reason: 'no-voice' | 'narration-off' | 'user-off') => ({ kind: 'skip' as const, reason })
   const narrator = s.chatVoice?.narratorVoice === undefined ? s.narratorVoice : s.chatVoice.narratorVoice
   switch (speaker.kind) {
@@ -53,7 +62,7 @@ export function resolveVoice(
       return (
         s.chatVoice?.characters[speaker.characterId] ??
         voiceRefSchema.safeParse(card.extensions.nobot_tts).data ??
-        poolVoice(card.name, s.npcVoices) ??
+        poolVoice(card.name, s.npcVoices, gender(speaker)) ??
         narrator ??
         skip('no-voice')
       )
@@ -64,14 +73,48 @@ export function resolveVoice(
       return !s.readNarration ? skip('narration-off') : (s.narratorVoice ?? skip('no-voice'))
     case 'npc': {
       const member = matchStageMember(chatId, speaker.name)
-      if (member) return resolveVoice(chatId, { kind: 'character', characterId: member.id }, s)
+      if (member) return resolveVoiceSync(chatId, { kind: 'character', characterId: member.id }, s, ctx)
       const persona = resolvePersona(getChatRow(chatId))
-      if (castKey(persona.name) === castKey(speaker.name)) return resolveVoice(chatId, { kind: 'user' }, s)
+      if (castKey(persona.name) === castKey(speaker.name)) return resolveVoiceSync(chatId, { kind: 'user' }, s, ctx)
       return (
-        s.chatVoice?.npcs[castKey(speaker.name)] ?? poolVoice(speaker.name, s.npcVoices) ?? narrator ?? skip('no-voice')
+        s.chatVoice?.npcs[castKey(speaker.name)] ??
+        poolVoice(speaker.name, s.npcVoices, gender(speaker)) ??
+        narrator ??
+        skip('no-voice')
       )
     }
   }
+}
+/** 只有需要声音池时才调用模型；显式声音和关闭性别匹配的旧行为直接返回。 */
+export async function resolveVoice(
+  chatId: string,
+  speaker: TtsSpeaker,
+  s: EffectiveAudioSettings,
+  ctx?: GenderContext,
+) {
+  if (speaker.kind === 'npc') {
+    const member = matchStageMember(chatId, speaker.name)
+    if (member) speaker = { kind: 'character', characterId: member.id }
+    else if (castKey(resolvePersona(getChatRow(chatId)).name) === castKey(speaker.name)) speaker = { kind: 'user' }
+  }
+  if (ctx && s.genderMatch && s.npcVoices.length && (speaker.kind === 'character' || speaker.kind === 'npc')) {
+    const explicit =
+      speaker.kind === 'character'
+        ? (s.chatVoice?.characters[speaker.characterId] ??
+          voiceRefSchema.safeParse(getCharacterRow(speaker.characterId).extensions.nobot_tts).data)
+        : s.chatVoice?.npcs[castKey(speaker.name)]
+    if (!explicit) {
+      const gender = await waitForGender(inferGender(ctx, chatId, speaker, s.chatVoice, s.genderInference))
+      if (gender) {
+        const id = speaker.kind === 'character' ? speaker.characterId : castKey(speaker.name)
+        s = {
+          ...s,
+          chatVoice: { characters: {}, npcs: {}, ...s.chatVoice, genders: { ...s.chatVoice?.genders, [id]: gender } },
+        }
+      }
+    }
+  }
+  return resolveVoiceSync(chatId, speaker, s, ctx)
 }
 /** 暂不提供会话覆盖，统一入口为后续扩展保留会话参数。 */
 export function characterDeliveryStyle(characterId: string, _chatId: string): string {
@@ -222,7 +265,15 @@ export function cacheSettings(voice: VoiceRef, s: AudioSettings) {
     case 'volcengine':
       return { endpoint: s.volcengineEndpoint, resourceId: s.volcengineResourceId }
     case 'cosyvoice':
+      if (s.cosyvoiceApi === 'gateway')
+        return {
+          api: s.cosyvoiceApi,
+          endpoint: s.cosyvoiceEndpoint,
+          headers: cosyvoiceHeadersHash(s.cosyvoiceHeaders),
+          voice: voice.voice,
+        }
       return {
+        headers: cosyvoiceHeadersHash(s.cosyvoiceHeaders),
         endpoint: s.cosyvoiceEndpoint,
         sampleRate: s.cosyvoiceSampleRate,
         preset: s.cosyvoiceVoices.find((v) => v.id === voice.voice),

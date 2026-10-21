@@ -1,4 +1,5 @@
-import type { DeliveryCapabilities, TtsEngineId } from '@nobot/shared'
+import { guessVoiceGender } from '@nobot/core'
+import type { DeliveryCapabilities, TtsEngineId, TtsOption } from '@nobot/shared'
 import { HttpError } from '../../../../errors'
 import { t } from '../../../../i18n'
 import { getApiPresetRow } from '../../../../services/connections'
@@ -11,7 +12,7 @@ import type { AudioSettings } from './settings'
 export interface TtsEngine {
   id: TtsEngineId
   label: string
-  voices(settings: AudioSettings, signal?: AbortSignal): Promise<{ value: string; label: string; lang?: string }[]>
+  voices(settings: AudioSettings, signal?: AbortSignal): Promise<TtsOption[]>
   synthesize(
     input: SynthesisInput,
     settings: AudioSettings,
@@ -33,8 +34,10 @@ export function createTtsEngines(
 ): Record<TtsEngineId, TtsEngine> {
   const fish = Object.keys(network).length ? createFishClient(network) : fishClient
   const offline = () => network.mock ?? process.env.TTS_FETCH_MOCK === '1'
-  const request = async (url: string, init: RequestInit = {}) => {
-    const signal = init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000)
+  const request = async (url: string, init: RequestInit = {}, timeout = 30000) => {
+    const signal = init.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)])
+      : AbortSignal.timeout(timeout)
     try {
       const result = await (network.fetch ?? fetch)(url, { ...init, signal })
       if (!result.ok) throw new Error()
@@ -93,7 +96,7 @@ export function createTtsEngines(
       },
       voices: async () =>
         ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse'].map(
-          (value) => ({ value, label: value }),
+          (value) => ({ value, label: value, gender: guessVoiceGender('openai', value) }),
         ),
       synthesize: (input, s, signal) => {
         const rendered = engineInput('openai', input, s)
@@ -142,7 +145,13 @@ export function createTtsEngines(
       deliveryCapabilities: (s, voice) => deliveryCapabilities('gptsovits', s, voice),
       label: 'GPT-SoVITS',
       configured: (s) => !!s.gptsovitsEndpoint && s.gptsovitsVoices.some((v) => !!v.refAudioPath),
-      voices: async (s) => s.gptsovitsVoices.map((v) => ({ value: v.id, label: v.name, lang: v.textLang })),
+      voices: async (s) =>
+        s.gptsovitsVoices.map((v) => ({
+          value: v.id,
+          label: v.name,
+          lang: v.textLang,
+          gender: v.gender ?? guessVoiceGender('gptsovits', v.id, v.name),
+        })),
       synthesize: (input, s, signal) => {
         const rendered = engineInput('gptsovits', input, s)
         input = rendered
@@ -177,7 +186,8 @@ export function createTtsEngines(
       },
       configured: () => true,
       voices: async (_s, signal) => {
-        if (offline()) return [{ value: 'zh-CN-XiaoxiaoNeural', label: 'zh-CN Female', lang: 'zh-CN' }]
+        if (offline())
+          return [{ value: 'zh-CN-XiaoxiaoNeural', label: 'zh-CN Female', lang: 'zh-CN', gender: 'female' }]
         try {
           const response = await request(`https://${EDGE_BASE}/voices/list?trustedclienttoken=${EDGE_TOKEN}`, {
             headers: edgeHeaders,
@@ -186,7 +196,12 @@ export function createTtsEngines(
           const voices = (await response.json()) as { ShortName: string; Locale: string; Gender: string }[]
           return voices
             .filter((v) => /^(zh|en|ja)-/.test(v.Locale))
-            .map((v) => ({ value: v.ShortName, label: `${v.ShortName} (${v.Locale}, ${v.Gender})`, lang: v.Locale }))
+            .map((v) => ({
+              value: v.ShortName,
+              label: `${v.ShortName} (${v.Locale}, ${v.Gender})`,
+              lang: v.Locale,
+              gender: guessVoiceGender('edge', v.ShortName, v.Gender),
+            }))
         } catch {
           throw new HttpError(502, 'TTS_FAILED', t('Edge 朗读失败，接口可能已变化'))
         }
@@ -226,8 +241,14 @@ export function createTtsEngines(
           headers: { 'xi-api-key': s.elevenlabsApiKey },
           signal,
         })
-        const data = (await result.json()) as { voices: { voice_id: string; name: string }[] }
-        return data.voices.map((v) => ({ value: v.voice_id, label: v.name }))
+        const data = (await result.json()) as {
+          voices: { voice_id: string; name: string; labels?: { gender?: string } }[]
+        }
+        return data.voices.map((v) => ({
+          value: v.voice_id,
+          label: v.name,
+          gender: guessVoiceGender('elevenlabs', '', v.labels?.gender),
+        }))
       },
       synthesize: (input, s, signal) => {
         const rendered = engineInput('elevenlabs', input, s)

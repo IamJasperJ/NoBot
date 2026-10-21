@@ -1,7 +1,15 @@
-import { type CharacterDTO, type MessageDTO, TTS_ENGINES, type TtsEngineId, type VoiceRef } from '@nobot/shared'
+import {
+  type CharacterDTO,
+  GENDERS,
+  type Gender,
+  type MessageDTO,
+  TTS_ENGINES,
+  type TtsEngineId,
+  type VoiceRef,
+} from '@nobot/shared'
 import { useState } from 'react'
 import { useClearTtsCache, useTtsCache } from '../../../api/tts'
-import { Button, controlClass, cx } from '../../../components/ui'
+import { Button, controlClass, cx, selectClass } from '../../../components/ui'
 import { t } from '../../../i18n'
 import { errorMessage, toast } from '../../../stores/toast'
 import type { SlotProps } from '../../types'
@@ -17,6 +25,8 @@ const asVoice = (value: unknown): VoiceRef | null => {
     engine: v.engine as TtsEngineId,
     voice: typeof v.voice === 'string' ? v.voice : '',
     speed: typeof v.speed === 'number' ? v.speed : 1,
+    // 声音池里手动标的性别要保留，否则表单重绘后丢失
+    ...(GENDERS.includes(v.gender as Gender) ? { gender: v.gender as Gender } : {}),
   }
 }
 const asVoices = (value: unknown): VoiceRef[] =>
@@ -89,6 +99,21 @@ export function CharacterVoiceSection({
       setSaving(false)
     }
   }
+  const [gender, setGender] = useState(
+    typeof character.extensions.nobot_gender === 'string' ? character.extensions.nobot_gender : '',
+  )
+  // 空串表示自动：从卡上删掉这个字段
+  const saveGender = async (next: string) => {
+    setGender(next)
+    setSaving(true)
+    try {
+      await save({ extensions: { nobot_gender: next || null } })
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
   const update = async (next: VoiceRef | null) => {
     setValue(next)
     // 选了引擎但还没选声音时先不保存，免得存进一个空声音
@@ -108,6 +133,25 @@ export function CharacterVoiceSection({
         {t('朗读这个角色的台词时用的声音。不设置时从「音频」扩展设置里的 NPC 声音池按名字分配。')}
       </p>
       <VoicePicker value={value} onChange={(next) => void update(next)} disabled={saving} />
+      <label className="flex items-center justify-between gap-3 pt-1">
+        <span className="min-w-0">
+          <span className="block text-[13px] font-medium">{t('性别')}</span>
+          <span className="block text-xs text-zinc-500">
+            {t('没给角色设声音时，按性别从声音池里挑。「自动」由模型根据角色描述判断一次。')}
+          </span>
+        </span>
+        <select
+          className={cx(selectClass, 'h-8 w-28 shrink-0 pl-2.5 text-[13px]')}
+          disabled={saving}
+          value={gender}
+          onChange={(e) => void saveGender(e.target.value)}
+        >
+          <option value="">{t('自动')}</option>
+          <option value="male">{t('男')}</option>
+          <option value="female">{t('女')}</option>
+          <option value="other">{t('其他')}</option>
+        </select>
+      </label>
       <label className="block space-y-1 pt-1">
         <span className="text-[13px] font-medium">{t('演绎风格')}</span>
         <span className="block text-xs text-zinc-500">

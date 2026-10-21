@@ -6,6 +6,7 @@ import { resolvePersona } from '../../../../services/context'
 import { computeStage, matchStageMember, stageMembers } from '../../../../services/stage'
 import { readTemporaryActors } from '../../../../services/temporary-actors'
 import type { ExtensionStorage } from '../../../types'
+import { readGender } from './gender'
 import { poolVoice } from './service'
 import type { AudioSettings } from './settings'
 
@@ -62,18 +63,34 @@ export function chatVoiceDTO(storage: ExtensionStorage, chatId: string, global: 
   for (const key of Object.keys(config.npcs)) add(key)
   return {
     config,
-    members: stageMembers(chatId).map(({ id, name }) => ({
-      id,
-      name,
-      fallbackVoice: poolVoice(name, settings.npcVoices) ?? settings.narratorVoice,
-      cardVoice: voiceRefSchema.safeParse(getCharacterRow(id).extensions.nobot_tts).data ?? null,
-    })),
-    npcs: [...candidates].map(([key, name]) => ({
-      key,
-      name,
-      poolVoice: poolVoice(key, global.npcVoices),
-      fallbackVoice: poolVoice(key, settings.npcVoices) ?? settings.narratorVoice,
-    })),
+    members: stageMembers(chatId).map(({ id, name }) => {
+      const gender = readGender(
+        storage,
+        chatId,
+        { kind: 'character', characterId: id },
+        config,
+        settings.genderInference,
+      )
+      return {
+        id,
+        name,
+        ...gender,
+        fallbackVoice:
+          poolVoice(name, settings.npcVoices, settings.genderMatch ? gender.gender : null) ?? settings.narratorVoice,
+        cardVoice: voiceRefSchema.safeParse(getCharacterRow(id).extensions.nobot_tts).data ?? null,
+      }
+    }),
+    npcs: [...candidates].map(([key, name]) => {
+      const gender = readGender(storage, chatId, { kind: 'npc', name }, config, settings.genderInference)
+      return {
+        key,
+        name,
+        ...gender,
+        poolVoice: poolVoice(key, global.npcVoices, settings.genderMatch ? gender.gender : null),
+        fallbackVoice:
+          poolVoice(key, settings.npcVoices, settings.genderMatch ? gender.gender : null) ?? settings.narratorVoice,
+      }
+    }),
     global: {
       enabled: global.ttsEnabled,
       deliveryMode: global.deliveryMode,

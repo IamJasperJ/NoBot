@@ -7,23 +7,32 @@ import { ChatBgmDialog, ChatBgmMenuEntry } from './ChatBgmUi'
 import { ChatVoiceSection } from './ChatVoiceSection'
 import { FishVoiceSearch } from './FishVoiceSearch'
 import { AudioLibraryPage } from './LibraryPage'
+import { TtsNowPlaying } from './TtsNowPlaying'
 import { CharacterVoiceSection, ReadAloudAction, TtsCacheFooter, VoiceField, VoiceListField } from './TtsUi'
 import { ttsPlayer } from './tts-player'
 import { useChatAudio } from './useChatAudio'
+import { getVisibleTtsChat, useStopTtsOnLeave } from './useStopTtsOnLeave'
 import { useVnAudio } from './useVnAudio'
 import { useVnVoice } from './useVnVoice'
 import { VolumeControl } from './VolumeControl'
 
 function ChatAudioLayer({ chatId }: SlotProps['chat.layer']) {
+  useStopTtsOnLeave(chatId)
   useChatAudio(chatId)
   // BGM 选择框放在这一层：「+」菜单收起时会卸载里面的内容
-  return <ChatBgmDialog chatId={chatId} />
+  return (
+    <>
+      <ChatBgmDialog chatId={chatId} />
+      <TtsNowPlaying chatId={chatId} />
+    </>
+  )
 }
 
 export function VnAudioLayer(props: SlotProps['vn.layer']) {
+  useStopTtsOnLeave(props.chatId)
   useVnAudio(props)
   useVnVoice(props)
-  return null
+  return <TtsNowPlaying chatId={props.chatId} vn />
 }
 
 /**
@@ -37,6 +46,8 @@ const activate: ActivateFn = (api) => {
   let active = true
   let requestId = 0
   const off = api.on('generation:complete', ({ chatId }) => {
+    const view = getVisibleTtsChat()
+    if (view?.chatId !== chatId) return
     const current = ++requestId
     void (async () => {
       const { effective } = await ttsApi.chatVoice(chatId)
@@ -45,9 +56,15 @@ const activate: ActivateFn = (api) => {
       const presets = await client.listPlayPresets()
       const preset = presets.find((p) => p.id === page.playPresetId)
       const mode = useVn.getState().mode[chatId]
-      if (!active || current !== requestId || (mode ? mode === 'vn' : preset?.data.basic.openInVn)) return
+      if (
+        !active ||
+        current !== requestId ||
+        getVisibleTtsChat() !== view ||
+        (mode ? mode === 'vn' : preset?.data.basic.openInVn)
+      )
+        return
       const message = page.messages.filter((m) => m.role === 'assistant').at(-1)
-      if (message) await ttsPlayer.speakMessage(message.id)
+      if (message) await ttsPlayer.speakMessage(message.id, chatId)
     })().catch(() => console.warn('TTS playback failed'))
   })
   api.registerPage({

@@ -6,14 +6,17 @@ import { ttsApi } from '../../../api/tts'
 import { t } from '../../../i18n'
 import { useAudioPrefs } from '../../../stores/audioPrefs'
 import { audioEngine } from './engine'
+import { getVisibleTtsChat } from './useStopTtsOnLeave'
 
-export const useTtsPlayer = create<{ messageId: string | null; playing: boolean }>(() => ({
+export const useTtsPlayer = create<{ messageId: string | null; chatId: string | null; playing: boolean }>(() => ({
   messageId: null,
+  chatId: null,
   playing: false,
 }))
 export const useTtsPlayback = useTtsPlayer
 export class TtsPlayer {
   private controller?: AbortController
+  private stoppedChats = new Set<string>()
   private cache = new Map<string, TtsLineResult>()
   private pending = new Map<string, Promise<TtsLineResult | undefined>>()
   private lineKey(chatId: string, speaker: TtsSpeaker, text: string, expression?: string) {
@@ -69,20 +72,27 @@ export class TtsPlayer {
     this.controller?.abort()
     this.controller = undefined
     this.engine.stopVoice()
-    useTtsPlayer.setState({ messageId: null, playing: false })
+    useTtsPlayer.setState({ messageId: null, chatId: null, playing: false })
   }
-  private start(messageId: string | null) {
+  stopChat(chatId: string) {
+    const state = useTtsPlayer.getState()
+    if (state.chatId === chatId) this.stop()
+    // 未知归属的消息仍在请求时，记住离开的会话，收到结果后再按归属取消。
+    else if (this.controller && state.chatId === null) this.stoppedChats.add(chatId)
+  }
+  private start(messageId: string | null, chatId: string | null) {
     this.stop()
+    this.stoppedChats.clear()
     const controller = new AbortController()
     this.controller = controller
-    useTtsPlayer.setState({ messageId, playing: true })
+    useTtsPlayer.setState({ messageId, chatId, playing: true })
     return controller
   }
   private finish(controller: AbortController) {
     if (this.controller !== controller) return
     controller.abort()
     this.controller = undefined
-    useTtsPlayer.setState({ messageId: null, playing: false })
+    useTtsPlayer.setState({ messageId: null, chatId: null, playing: false })
   }
   private async play(result: TtsLineResult, signal: AbortSignal) {
     if (signal.aborted || result.kind === 'skip') return
@@ -90,7 +100,7 @@ export class TtsPlayer {
     if (outcome === 'error') throw new Error(t('语音播放失败'))
   }
   async speakLine(chatId: string, speaker: TtsSpeaker, text: string, expression?: string) {
-    const controller = this.start(null)
+    const controller = this.start(null, chatId)
     try {
       const key = this.lineKey(chatId, speaker, text, expression)
       const prepared = this.cached(key) ?? (await this.pending.get(key))
@@ -103,12 +113,17 @@ export class TtsPlayer {
       this.finish(controller)
     }
   }
-  async speakMessage(messageId: string) {
-    const controller = this.start(messageId)
+  async speakMessage(messageId: string, chatId: string | null = getVisibleTtsChat()?.chatId ?? null) {
+    const controller = this.start(messageId, chatId)
     const signal = controller.signal
     try {
       const { chatId, segments } = await this.api.message(messageId, signal)
       if (signal.aborted) return
+      if (this.stoppedChats.has(chatId)) {
+        this.stop()
+        return
+      }
+      useTtsPlayer.setState({ chatId })
       await this.prepareVolumes(chatId)
       if (signal.aborted) return
       // 预取也可能先失败；立即接住拒绝，等轮到该段时再抛出，避免未处理的 Promise。

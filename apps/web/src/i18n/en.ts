@@ -2337,4 +2337,10 @@ export const en: Record<string, string> = {
   已添加: 'Added',
   '第 {page} 页': 'Page {page}',
   汉语: 'Chinese',
+  '留空使用图片生成扩展里的地址：{url}': 'Leave empty to use the image generation extension URL: {url}',
+  '额外请求头（JSON）': 'Extra headers (JSON)',
+  '留空使用图片生成扩展里的请求头（输入框里灰色的就是）；填了则整份替换':
+    'Leave empty to use the image generation extension headers (shown in gray in the box). Anything you enter replaces them entirely.',
+  填入扩展里的地址和请求头: 'Fill in the extension URL and headers',
+  正在朗读: 'Reading aloud',
 }

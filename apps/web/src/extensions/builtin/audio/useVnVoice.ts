@@ -26,6 +26,7 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
   const seen = useRef(new Map<string, number>())
   const prefetchSeen = useRef(new Map<string, { index: number; count: number }>())
   const prefetchQueue = useRef<{ running: number; jobs: (() => Promise<void>)[] }>({ running: 0, jobs: [] })
+  useEffect(() => () => ttsPlayer.stopChat(chatId), [chatId])
   useEffect(
     () => () => {
       // 同拍的流式刷新保留队列；离开当前拍、关闭或卸载时丢弃尚未开始的预取。
@@ -99,7 +100,7 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
     return () => {
       clear()
       active = false
-      if (interrupt) ttsPlayer.stop()
+      if (interrupt) ttsPlayer.stopChat(chatId)
     }
     // 同一拍的舞台或流式文本更新不能重新触发朗读。
   }, [chatId, playKey, beatIndex, enabled, skipping, interrupt, wait])

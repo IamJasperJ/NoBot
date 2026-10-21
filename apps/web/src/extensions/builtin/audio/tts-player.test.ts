@@ -39,7 +39,7 @@ test('消息逐段播放，播放期间只预取下一段，跳过 skip 并清�
   await flush()
   expect(requests).toEqual(['one', 'two'])
   expect(played).toEqual(['one'])
-  expect(useTtsPlayer.getState()).toEqual({ messageId: 'message', playing: true })
+  expect(useTtsPlayer.getState()).toEqual({ messageId: 'message', chatId: 'chat', playing: true })
   ending.resolve('ended')
   await task
   expect(played).toEqual(['one', 'three'])
@@ -148,4 +148,87 @@ test('预取失败静默，等待中的朗读重新请求；缓存按访问顺�
   } finally {
     warn.mockRestore()
   }
+})
+
+test('stopChat 只停止对应会话的准备或播放，结束后清空归属', async () => {
+  const result = deferred<TtsLineResult>()
+  const engine = new AudioEngine()
+  let plays = 0
+  engine.playVoice = async () => {
+    plays++
+    return 'ended'
+  }
+  const player = new TtsPlayer({ ...ttsApi, line: () => result.promise }, engine)
+  const task = player.speakLine('a', { kind: 'narrator' }, 'hello')
+  expect(useTtsPlayer.getState().chatId).toBe('a')
+  player.stopChat('b')
+  expect(useTtsPlayer.getState().playing).toBe(true)
+  player.stopChat('a')
+  expect(useTtsPlayer.getState()).toEqual({ messageId: null, chatId: null, playing: false })
+  result.resolve({ kind: 'audio', url: 'late' })
+  await task
+  expect(plays).toBe(0)
+  await player.speakLine('b', { kind: 'narrator' }, 'hello')
+  expect(plays).toBe(1)
+  expect(useTtsPlayer.getState().chatId).toBeNull()
+})
+
+test('消息请求期间离开会话，已知和未知归属的迟到结果都不能播放', async () => {
+  for (const known of [true, false]) {
+    const response = deferred<Awaited<ReturnType<typeof ttsApi.message>>>()
+    const engine = new AudioEngine()
+    let synthesized = 0
+    const player = new TtsPlayer(
+      {
+        ...ttsApi,
+        message: () => response.promise,
+        line: async () => {
+          synthesized++
+          return { kind: 'skip', reason: 'no-voice' }
+        },
+      },
+      engine,
+    )
+    const task = player.speakMessage('m', known ? 'a' : null)
+    player.stopChat('other')
+    expect(useTtsPlayer.getState().playing).toBe(true)
+    player.stopChat('a')
+    response.resolve({ chatId: 'a', segments: [{ speaker: { kind: 'narrator' }, text: 'hello' }] })
+    await task
+    expect(synthesized).toBe(0)
+    expect(useTtsPlayer.getState()).toEqual({ messageId: null, chatId: null, playing: false })
+  }
+})
+
+test('正在播放时 stopChat 仅中断对应会话，旧请求完成不清空新播放状态', async () => {
+  const ending = deferred<'ended'>()
+  const nextEnding = deferred<'ended'>()
+  const engine = new AudioEngine()
+  let stops = 0
+  let plays = 0
+  engine.playVoice = () => (++plays === 1 ? ending.promise : nextEnding.promise)
+  engine.stopVoice = () => {
+    stops++
+  }
+  const result = deferred<TtsLineResult>()
+  const player = new TtsPlayer({ ...ttsApi, line: () => result.promise }, engine)
+  const first = player.speakLine('a', { kind: 'narrator' }, 'first')
+  result.resolve({ kind: 'audio', url: 'voice' })
+  await flush()
+  const before = stops
+  player.stopChat('b')
+  expect(stops).toBe(before)
+  expect(useTtsPlayer.getState().chatId).toBe('a')
+  player.stopChat('a')
+  expect(stops).toBe(before + 1)
+  const second = player.speakLine('b', { kind: 'narrator' }, 'second')
+  await flush()
+  ending.resolve('ended')
+  await first
+  // 旧任务的 finally 不能提前清掉后启动任务的归属。
+  expect(useTtsPlayer.getState().chatId).toBe('b')
+  expect(useTtsPlayer.getState().playing).toBe(true)
+  nextEnding.resolve('ended')
+  await second
+  expect(useTtsPlayer.getState()).toEqual({ messageId: null, chatId: null, playing: false })
 })

@@ -30,7 +30,7 @@ test('VN 语音：说话人、等待、切句中断、回退去重、跳读与�
     () => new Promise<void>((resolve) => completions.push(resolve)),
   )
   const prefetch = spyOn(ttsPlayer, 'prefetchLine').mockResolvedValue(undefined)
-  const stop = spyOn(ttsPlayer, 'stop').mockImplementation(() => {})
+  const stop = spyOn(ttsPlayer, 'stopChat').mockImplementation(() => {})
   const props: SlotProps['vn.layer'] = {
     chatId: 'chat',
     playKey: 'm#1',
@@ -146,7 +146,7 @@ test('VN 预取窗口最多三句、并发两句，流式追加完整拍可预�
     running--
   })
   const speak = spyOn(ttsPlayer, 'speakLine').mockResolvedValue(undefined)
-  const stop = spyOn(ttsPlayer, 'stop').mockImplementation(() => {})
+  const stop = spyOn(ttsPlayer, 'stopChat').mockImplementation(() => {})
   const props: SlotProps['vn.layer'] = {
     chatId: 'chat',
     playKey: 'stream',
@@ -211,6 +211,80 @@ test('VN 预取窗口最多三句、并发两句，流式追加完整拍可预�
     ref.mockRestore()
     prefetch.mockRestore()
     speak.mockRestore()
+    stop.mockRestore()
+    useVnVoiceStore.setState({ busyKey: null })
+  }
+})
+
+test('VN 不打断模式切句保留当前语音，换会话和卸载仍停止，离开的排队拍不再播放', async () => {
+  const query = spyOn(queries, 'useChatVoice').mockReturnValue({
+    data: { effective: { enabled: true, vnInterrupt: false } },
+  } as ReturnType<typeof queries.useChatVoice>)
+  const effects: { deps?: React.DependencyList; cleanup?: () => void }[] = []
+  const refs: { current: unknown }[] = []
+  let ei = 0
+  let ri = 0
+  const effect = spyOn(React, 'useEffect').mockImplementation((callback, deps) => {
+    const index = ei++
+    const old = effects[index]
+    if (old && deps?.every((value, i) => Object.is(value, old.deps?.[i]))) return
+    old?.cleanup?.()
+    effects[index] = { deps, cleanup: callback() || undefined }
+  })
+  const ref = spyOn(React, 'useRef').mockImplementation(
+    ((value: unknown) => (refs[ri++] ??= { current: value })) as typeof React.useRef,
+  )
+  let complete!: () => void
+  const speak = spyOn(ttsPlayer, 'speakLine').mockImplementation(
+    () =>
+      new Promise<void>((r) => {
+        complete = r
+      }),
+  )
+  const prefetch = spyOn(ttsPlayer, 'prefetchLine').mockResolvedValue(undefined)
+  const stop = spyOn(ttsPlayer, 'stopChat').mockImplementation(() => {})
+  const props: SlotProps['vn.layer'] = {
+    chatId: 'a',
+    playKey: 'm',
+    beatIndex: 0,
+    skipping: false,
+    play: playPresetDataSchema.parse({}),
+    stage: { scene: {}, cast: [] },
+    beats: [
+      { kind: 'narration', text: 'first' },
+      { kind: 'narration', text: 'queued' },
+    ],
+  }
+  const render = () => {
+    ei = 0
+    ri = 0
+    useVnVoice(props)
+  }
+  try {
+    render()
+    await Promise.resolve()
+    expect(speak).toHaveBeenCalledTimes(1)
+    props.beatIndex = 1
+    render()
+    expect(stop).not.toHaveBeenCalled()
+    props.chatId = 'b'
+    render()
+    expect(stop).toHaveBeenLastCalledWith('a')
+    for (const entry of effects) entry.cleanup?.()
+    effects.length = 0
+    expect(stop.mock.calls).toEqual([['a'], ['b']])
+    complete()
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+    expect(speak).toHaveBeenCalledTimes(1)
+    expect(useVnVoiceStore.getState().busyKey).toBeNull()
+  } finally {
+    for (const entry of effects) entry.cleanup?.()
+    complete?.()
+    query.mockRestore()
+    effect.mockRestore()
+    ref.mockRestore()
+    speak.mockRestore()
+    prefetch.mockRestore()
     stop.mockRestore()
     useVnVoiceStore.setState({ busyKey: null })
   }

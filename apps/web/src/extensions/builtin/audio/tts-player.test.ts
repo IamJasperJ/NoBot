@@ -257,3 +257,55 @@ test('逐句演绎和声音透传，预取缓存随演绎和插入点变化', as
   await player.speakLine('chat', speaker, 'Hi', 'sadness', delivery, [])
   expect(inputs).toHaveLength(3)
 })
+
+test('合成接口失败保留原始 message，播放成功清除；skip 不清除最近错误', async () => {
+  const { useVnVoiceStore } = await import('../../../stores/vnVoice')
+  const { spyOn } = await import('bun:test')
+  const fetch = spyOn(globalThis, 'fetch').mockResolvedValue(
+    Response.json({ error: { message: '语音服务尚未配置' } }, { status: 400 }),
+  )
+  const engine = new AudioEngine()
+  engine.playVoice = async () => 'ended'
+  const player = new TtsPlayer(ttsApi, engine)
+  try {
+    await expect(player.speakLine('chat', { kind: 'narrator' }, 'bad')).rejects.toThrow('语音服务尚未配置')
+    expect(useVnVoiceStore.getState().lastVoiceError?.message).toBe('语音服务尚未配置')
+    fetch.mockResolvedValueOnce(Response.json({ kind: 'skip', reason: 'no-voice' }))
+    await player.speakLine('chat', { kind: 'narrator' }, 'skip')
+    expect(useVnVoiceStore.getState().lastVoiceError?.message).toBe('语音服务尚未配置')
+    fetch.mockResolvedValueOnce(Response.json({ kind: 'audio', url: '/ok' }))
+    await player.speakLine('chat', { kind: 'narrator' }, 'ok')
+    expect(useVnVoiceStore.getState().lastVoiceError).toBeNull()
+  } finally {
+    fetch.mockRestore()
+  }
+})
+
+test('blocked 结束消息后不读下一段，也不抛给手动朗读 toast；error 仍拒绝', async () => {
+  const { useVnVoiceStore } = await import('../../../stores/vnVoice')
+  const engine = new AudioEngine()
+  let plays = 0
+  engine.playVoice = async () => {
+    plays++
+    return 'blocked'
+  }
+  const player = new TtsPlayer(
+    {
+      ...ttsApi,
+      message: async () => ({
+        chatId: 'chat',
+        segments: ['first', 'second'].map((text) => ({ speaker: { kind: 'narrator' as const }, text })),
+      }),
+      line: async () => ({ kind: 'audio', url: '/voice' }),
+    },
+    engine,
+  )
+  useVnVoiceStore.setState({ lastVoiceError: null })
+  await player.speakMessage('m')
+  expect(plays).toBe(1)
+  expect(useVnVoiceStore.getState().lastVoiceError).toBeNull()
+  await player.speakLine('chat', { kind: 'narrator' }, 'blocked')
+  engine.playVoice = async () => 'error'
+  await expect(player.speakMessage('m')).rejects.toThrow('语音播放失败')
+  expect(useVnVoiceStore.getState().lastVoiceError?.message).toBe('语音播放失败')
+})

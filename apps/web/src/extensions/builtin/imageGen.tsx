@@ -1,10 +1,31 @@
 import type { AttachmentDTO, CharacterDTO, CharacterSummary, ChatPage, MessageDTO } from '@nobot/shared'
+import type { QueryClient } from '@tanstack/react-query'
 import { createPortal } from 'react-dom'
 import { ImagePromptDialog } from '../../features/chat/ImagePromptDialog'
 import { t } from '../../i18n'
 import type { ClientExtensionAPI } from '../types'
 import { MattingModelField } from './imageGenMatting'
 import { SettingsFooter, StyleField, WorkflowField } from './imageGenSettings'
+
+/** 查询观察者也会在渲染期间通知缓存；只订阅聊天数据，并在当前调用栈结束后刷新组件。 */
+export function subscribeChatCache(queryClient: QueryClient, chatId: string, notify: () => void) {
+  let active = true
+  let queued = false
+  const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== 'updated' && event.type !== 'removed') return
+    const key = event.query.queryKey
+    if (key.length !== 2 || key[0] !== 'chat' || key[1] !== chatId || queued) return
+    queued = true
+    queueMicrotask(() => {
+      queued = false
+      if (active) notify()
+    })
+  })
+  return () => {
+    active = false
+    unsubscribe()
+  }
+}
 
 export const imageModes = () =>
   [
@@ -132,7 +153,7 @@ export default function activate(api: ClientExtensionAPI) {
     )
     const root = R.useRef<HTMLDivElement>(null)
     const cache = R.useSyncExternalStore(
-      (notify) => api.queryClient.getQueryCache().subscribe(notify),
+      (notify) => subscribeChatCache(api.queryClient, chatId, notify),
       () => api.queryClient.getQueryData<{ pages: ChatPage[] }>(['chat', chatId]),
       () => api.queryClient.getQueryData<{ pages: ChatPage[] }>(['chat', chatId]),
     )

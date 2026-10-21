@@ -1,9 +1,10 @@
 import { castKey } from '@nobot/core/stage'
 import type { TtsSpeaker } from '@nobot/shared'
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useChatVoice } from '../../../api/tts'
 import { useVnVoiceStore } from '../../../stores/vnVoice'
 import type { SlotProps } from '../../types'
+import { audioEngine } from './engine'
 import { ttsPlayer } from './tts-player'
 
 type VnProps = SlotProps['vn.layer']
@@ -74,7 +75,7 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
     const available = Math.min(2 - queue.running, queue.jobs.length)
     for (let i = 0; i < available; i++) void work()
   }, [chatId, playKey, beatIndex, enabled, skipping, beats])
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!settings || !playKey || beatIndex === undefined) return
     const key = `${playKey}:${beatIndex}`
     const beat = beats[beatIndex]
@@ -114,7 +115,8 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
     return () => {
       clear()
       active = false
-      if (interrupt) ttsPlayer.stopChat(chatId)
+      // 手势可能已经重试旧句；离拍时仍要丢弃这句，不能排到新拍前面。
+      if (interrupt || audioEngine.wasVoiceBlocked()) ttsPlayer.stopChat(chatId)
     }
     // 同一拍的舞台或流式文本更新不能重新触发朗读。
   }, [chatId, playKey, beatIndex, enabled, skipping, interrupt, wait])

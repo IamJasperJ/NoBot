@@ -2380,4 +2380,6 @@ export const en: Record<string, string> = {
   识别性别: 'Detect genders',
   声音性别: 'Voice gender',
   中性: 'Neutral',
+  '浏览器拦住了自动播放，点一下开启声音': 'The browser blocked autoplay. Tap to turn on sound',
+  '朗读失败：{message}': 'Read-aloud failed: {message}',
 }

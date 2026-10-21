@@ -2,6 +2,7 @@ import { api as client } from '../../../api/client'
 import { ttsApi } from '../../../api/tts'
 import { t } from '../../../i18n'
 import { useVn } from '../../../stores/vn'
+import { useVnVoiceStore } from '../../../stores/vnVoice'
 import type { ActivateFn, SlotProps } from '../../types'
 import { ChatBgmDialog, ChatBgmMenuEntry } from './ChatBgmUi'
 import { ChatVoiceSection } from './ChatVoiceSection'
@@ -65,7 +66,12 @@ const activate: ActivateFn = (api) => {
         return
       const message = page.messages.filter((m) => m.role === 'assistant').at(-1)
       if (message) await ttsPlayer.speakMessage(message.id, chatId)
-    })().catch(() => console.warn('TTS playback failed'))
+    })().catch((error: unknown) => {
+      if (!active || current !== requestId || getVisibleTtsChat() !== view) return
+      useVnVoiceStore.setState({
+        lastVoiceError: { message: error instanceof Error ? error.message : t('语音播放失败'), at: Date.now() },
+      })
+    })
   })
   api.registerPage({
     id: 'library',

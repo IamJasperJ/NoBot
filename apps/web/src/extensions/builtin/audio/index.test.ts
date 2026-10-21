@@ -2,6 +2,8 @@ import { expect, spyOn, test } from 'bun:test'
 import * as React from 'react'
 import { api as client } from '../../../api/client'
 import { ttsApi } from '../../../api/tts'
+import { toast } from '../../../stores/toast'
+import { useVnVoiceStore } from '../../../stores/vnVoice'
 import type { ClientExtensionAPI } from '../../types'
 import activate from './index'
 import { ttsPlayer } from './tts-player'
@@ -32,6 +34,7 @@ test('自动朗读只在当前聊天视图播放，各阶段切走或切走再�
   const voice = spyOn(ttsApi, 'chatVoice').mockResolvedValue(voiceValue)
   const page = spyOn(client, 'getChatPage').mockResolvedValue(pageValue)
   const presets = spyOn(client, 'listPlayPresets').mockResolvedValue([])
+  const toastError = spyOn(toast, 'error').mockImplementation(() => {})
   const speak = spyOn(ttsPlayer, 'speakMessage').mockResolvedValue(undefined)
   let deactivate: Awaited<ReturnType<typeof activate>>
   const leave = () => {
@@ -46,6 +49,11 @@ test('自动朗读只在当前聊天视图播放，各阶段切走或切走再�
     complete({ type: 'generation:complete', chatId: 'a' })
     await flush()
     expect(speak).toHaveBeenLastCalledWith('message', 'a')
+    speak.mockRejectedValueOnce(new Error('自动朗读失败'))
+    complete({ type: 'generation:complete', chatId: 'a' })
+    await flush()
+    expect(useVnVoiceStore.getState().lastVoiceError?.message).toBe('自动朗读失败')
+    expect(toastError).not.toHaveBeenCalled()
     speak.mockClear()
     for (const stage of ['voice', 'page', 'presets'] as const) {
       for (const returnToSameChat of [false, true]) {
@@ -91,5 +99,7 @@ test('自动朗读只在当前聊天视图播放，各阶段切走或切走再�
     page.mockRestore()
     presets.mockRestore()
     speak.mockRestore()
+    toastError.mockRestore()
+    useVnVoiceStore.setState({ lastVoiceError: null })
   }
 })

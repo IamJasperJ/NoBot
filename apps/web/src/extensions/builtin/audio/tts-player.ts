@@ -5,6 +5,7 @@ import { apiFetch } from '../../../api/fetch'
 import { ttsApi } from '../../../api/tts'
 import { t } from '../../../i18n'
 import { useAudioPrefs } from '../../../stores/audioPrefs'
+import { useVnVoiceStore } from '../../../stores/vnVoice'
 import { audioEngine } from './engine'
 import { getVisibleTtsChat } from './useStopTtsOnLeave'
 
@@ -120,9 +121,13 @@ export class TtsPlayer {
     useTtsPlayer.setState({ messageId: null, chatId: null, playing: false })
   }
   private async play(result: TtsLineResult, signal: AbortSignal) {
-    if (signal.aborted || result.kind === 'skip') return
+    if (signal.aborted) return 'stopped'
+    if (result.kind === 'skip') return 'skip'
     const outcome = await this.engine.playVoice(result.kind === 'audio' ? { url: result.url } : { browser: result })
+    if (signal.aborted) return 'stopped'
     if (outcome === 'error') throw new Error(t('语音播放失败'))
+    if (outcome === 'ended') useVnVoiceStore.setState({ lastVoiceError: null })
+    return outcome
   }
   async speakLine(
     chatId: string,
@@ -143,7 +148,12 @@ export class TtsPlayer {
         (await this.api.line({ chatId, speaker, text, expression, delivery, cues, ...context }, controller.signal))
       await this.play(result, controller.signal)
     } catch (error) {
-      if (!controller.signal.aborted) throw error
+      if (!controller.signal.aborted) {
+        useVnVoiceStore.setState({
+          lastVoiceError: { message: error instanceof Error ? error.message : t('语音播放失败'), at: Date.now() },
+        })
+        throw error
+      }
     } finally {
       this.finish(controller)
     }
@@ -173,10 +183,16 @@ export class TtsPlayer {
         if (signal.aborted) return
         if ('error' in prepared) throw prepared.error
         next = index + 1 < segments.length ? prepare(index + 1) : undefined
-        await this.play(prepared.result, signal)
+        const outcome = await this.play(prepared.result, signal)
+        if (outcome === 'blocked' || outcome === 'stopped') break
       }
     } catch (error) {
-      if (!controller.signal.aborted) throw error
+      if (!controller.signal.aborted) {
+        useVnVoiceStore.setState({
+          lastVoiceError: { message: error instanceof Error ? error.message : t('语音播放失败'), at: Date.now() },
+        })
+        throw error
+      }
     } finally {
       this.finish(controller)
     }

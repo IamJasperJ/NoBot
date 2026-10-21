@@ -293,9 +293,24 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
     if (!auto || voiceBusy || !complete || atLast || beat?.kind === 'choices') return
     const delay = autoAdvanceDelay(play.dialog.autoDelay, textLength, cg)
     if (delay === null) return
-    const timer = setTimeout(advance, delay)
+    const timer = setTimeout(() => {
+      // 子层刚进入新拍时可能尚未触发本组件重渲染，执行前再确认一次等待状态。
+      if (useVnVoiceStore.getState().busyKey !== `${playKey}:${beatIndex}`) advance()
+    }, delay)
     return () => clearTimeout(timer)
-  }, [auto, voiceBusy, complete, atLast, beat?.kind, textLength, advance, play.dialog.autoDelay, cg?.status])
+  }, [
+    auto,
+    voiceBusy,
+    complete,
+    atLast,
+    beat?.kind,
+    textLength,
+    advance,
+    play.dialog.autoDelay,
+    cg?.status,
+    playKey,
+    beatIndex,
+  ])
 
   // ---- 快进：读过的拍飞快地过；遇到没读过的（设置了「只跳读过的」时）或到头就停 ----
   const [skip, setSkip] = useState(false)

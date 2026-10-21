@@ -4,6 +4,7 @@ import * as React from 'react'
 import * as queries from '../../../api/tts'
 import { useVnVoiceStore } from '../../../stores/vnVoice'
 import type { SlotProps } from '../../types'
+import { audioEngine } from './engine'
 import { ttsPlayer } from './tts-player'
 import { useVnVoice } from './useVnVoice'
 
@@ -22,10 +23,12 @@ test('VN 语音：说话人、等待、切句中断、回退去重、跳读与�
     old?.cleanup?.()
     effects[index] = { deps, cleanup: callback() || undefined }
   })
+  const layoutEffect = spyOn(React, 'useLayoutEffect').mockImplementation(React.useEffect)
   const ref = spyOn(React, 'useRef').mockImplementation(
     ((value: unknown) => (refs[ri++] ??= { current: value })) as typeof React.useRef,
   )
   const completions: (() => void)[] = []
+  const speakLine = ttsPlayer.speakLine.bind(ttsPlayer)
   const speak = spyOn(ttsPlayer, 'speakLine').mockImplementation(
     () => new Promise<void>((resolve) => completions.push(resolve)),
   )
@@ -124,6 +127,16 @@ test('VN 语音：说话人、等待、切句中断、回退去重、跳读与�
       { messageId: 'm', beatIndex: 2 },
     )
     await flush()
+    // skip 或合成失败均会完成 speakLine，当前拍的 busy 必须随之释放。
+    const skipLine = spyOn(queries.ttsApi, 'line').mockResolvedValue({ kind: 'skip', reason: 'no-voice' })
+    speak.mockImplementationOnce(speakLine)
+    props.playKey = 'skip-message'
+    props.beatIndex = 0
+    render()
+    expect(useVnVoiceStore.getState().busyKey).toBe('skip-message:0')
+    await flush()
+    expect(useVnVoiceStore.getState().busyKey).toBeNull()
+    skipLine.mockRestore()
     const prefetchCount = prefetch.mock.calls.length
     const count = speak.mock.calls.length
     for (const effective of [
@@ -141,6 +154,7 @@ test('VN 语音：说话人、等待、切句中断、回退去重、跳读与�
     for (const entry of effects) entry.cleanup?.()
     for (const complete of completions) complete()
     query.mockRestore()
+    layoutEffect.mockRestore()
     effect.mockRestore()
     ref.mockRestore()
     speak.mockRestore()
@@ -165,6 +179,7 @@ test('VN 预取窗口最多三句、并发两句，流式追加完整拍可预�
     old?.cleanup?.()
     effects[index] = { deps, cleanup: callback() || undefined }
   })
+  const layoutEffect = spyOn(React, 'useLayoutEffect').mockImplementation(React.useEffect)
   const ref = spyOn(React, 'useRef').mockImplementation(
     ((value: unknown) => (refs[ri++] ??= { current: value })) as typeof React.useRef,
   )
@@ -246,6 +261,7 @@ test('VN 预取窗口最多三句、并发两句，流式追加完整拍可预�
     for (const complete of completions) complete()
     await flush()
     query.mockRestore()
+    layoutEffect.mockRestore()
     effect.mockRestore()
     ref.mockRestore()
     prefetch.mockRestore()
@@ -270,6 +286,7 @@ test('VN 不打断模式切句保留当前语音，换会话和卸载仍停止�
     old?.cleanup?.()
     effects[index] = { deps, cleanup: callback() || undefined }
   })
+  const layoutEffect = spyOn(React, 'useLayoutEffect').mockImplementation(React.useEffect)
   const ref = spyOn(React, 'useRef').mockImplementation(
     ((value: unknown) => (refs[ri++] ??= { current: value })) as typeof React.useRef,
   )
@@ -306,6 +323,13 @@ test('VN 不打断模式切句保留当前语音，换会话和卸载仍停止�
     props.beatIndex = 1
     render()
     expect(stop).not.toHaveBeenCalled()
+    expect(useVnVoiceStore.getState().busyKey).toBe('m:1')
+    const wasBlocked = spyOn(audioEngine, 'wasVoiceBlocked').mockReturnValue(true)
+    props.beatIndex = 0
+    render()
+    expect(stop).toHaveBeenLastCalledWith('a')
+    wasBlocked.mockRestore()
+    stop.mockClear()
     props.chatId = 'b'
     render()
     expect(stop).toHaveBeenLastCalledWith('a')
@@ -320,6 +344,7 @@ test('VN 不打断模式切句保留当前语音，换会话和卸载仍停止�
     for (const entry of effects) entry.cleanup?.()
     complete?.()
     query.mockRestore()
+    layoutEffect.mockRestore()
     effect.mockRestore()
     ref.mockRestore()
     speak.mockRestore()

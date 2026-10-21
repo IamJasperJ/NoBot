@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test'
 import type { MessageDTO } from '@nobot/shared'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Composer } from '../../features/chat/Composer'
 import { useExtensionsRuntime } from '../runtime'
 import type { ClientExtensionAPI, SlotContribution } from '../types'
-import activate from './imageGen'
+import activate, { subscribeChatCache } from './imageGen'
 import { postDraft } from './imageGenSettings'
 
 test('独立图片按钮打开菜单，连续选择发出两个请求，群聊按成员展开，+ 菜单无重复分组', async () => {
@@ -327,6 +327,37 @@ test('编辑预览确认与取消、角色提示词保存、swipe 事件和草�
     expect(errors).toEqual([])
   } finally {
     cleanup()
+    qc.clear()
+  }
+})
+
+test('图片输入区订阅忽略渲染中的观察者通知，聊天数据变化延后通知，卸载取消待通知', async () => {
+  const qc = new QueryClient()
+  qc.setQueryData(['chat', 'current'], { pages: [] })
+  let notifications = 0
+  const unsubscribe = subscribeChatCache(qc, 'current', () => notifications++)
+  try {
+    // 创建观察者和更新选项会同步通知 QueryCache，不能让另一个组件在 render 中更新。
+    const observer = new QueryObserver(qc, { queryKey: ['chat', 'current'], enabled: false })
+    observer.setOptions({ queryKey: ['chat', 'current'], enabled: false, staleTime: 1000 })
+    qc.setQueryData(['chat', 'other'], { pages: [] })
+    await Promise.resolve()
+    expect(notifications).toBe(0)
+    qc.setQueryData(['chat', 'current'], { pages: [{ messages: [{ id: 'pending' }] }] })
+    expect(notifications).toBe(0)
+    await Promise.resolve()
+    expect(notifications).toBe(1)
+    qc.removeQueries({ queryKey: ['chat', 'current'], exact: true })
+    expect(notifications).toBe(1)
+    await Promise.resolve()
+    expect(notifications).toBe(2)
+    qc.setQueryData(['chat', 'current'], { pages: [] })
+    unsubscribe()
+    await Promise.resolve()
+    expect(notifications).toBe(2)
+    observer.destroy()
+  } finally {
+    unsubscribe()
     qc.clear()
   }
 })

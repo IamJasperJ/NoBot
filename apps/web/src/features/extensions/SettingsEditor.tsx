@@ -41,7 +41,15 @@ function defaults(fields: ExtensionSettingField[]): Record<string, unknown> {
       .filter((field) => field.type !== 'heading')
       .map((field) => [
         field.key,
-        field.type === 'boolean' ? false : field.type === 'number' ? 0 : field.type === 'list' ? [] : '',
+        field.type === 'boolean'
+          ? false
+          : field.type === 'number'
+            ? 0
+            : field.type === 'list'
+              ? []
+              : field.type === 'select'
+                ? (field.options[0]?.value ?? '')
+                : '',
       ]),
   )
 }

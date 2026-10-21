@@ -327,7 +327,7 @@ test('列表默认标题、select 中文名、全部展开收起、新增聚焦�
     expect(draft.items).toEqual([
       { mode: 'portrait', name: '第一项' },
       { name: '' },
-      { mode: '', name: '', children: [] },
+      { mode: 'portrait', name: '', children: [] },
     ])
     // 新项的子列表仍能添加并自动展开。
     harness.click('添加一项')

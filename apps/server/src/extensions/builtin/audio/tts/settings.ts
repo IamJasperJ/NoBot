@@ -6,133 +6,140 @@ import { t } from '../../../../i18n'
 
 // 设置页里刚选了引擎、还没选声音的条目（voice 为空）先存着，解析时当作没设置
 const voiceSetting = voiceRefSchema.nullable().catch(null)
-const voiceListSetting = z
-  .array(z.unknown())
-  .default([])
-  .transform((items) =>
-    items.flatMap((item) => {
-      const parsed = voiceRefSchema.safeParse(item)
-      return parsed.success ? [parsed.data] : []
-    }),
-  )
+/** 列表草稿和旧设置允许残缺；逐项解析，避免隐藏字段拖垮整个音频扩展。 */
+function lenientArray<T extends z.ZodType>(itemSchema: T) {
+  return z
+    .unknown()
+    .transform((value): z.output<T>[] => {
+      if (value === undefined) return []
+      if (!Array.isArray(value)) {
+        console.warn('音频设置列表格式无效，已忽略')
+        return []
+      }
+      const items: z.output<T>[] = []
+      let skipped = 0
+      for (const item of value) {
+        const parsed = itemSchema.safeParse(item)
+        if (parsed.success) items.push(parsed.data)
+        else skipped++
+      }
+      // 每个列表只汇总一次，不输出可能包含密钥或本地路径的原始设置。
+      if (skipped) console.warn('音频设置列表已跳过无效条目：', skipped)
+      return items
+    })
+    .default([])
+}
+
+const voiceListSetting = lenientArray(voiceRefSchema)
+const voiceGender = z.enum(GENDERS).optional().catch(undefined)
 
 const audioSettingsSchema = z.object({
-  chatBgm: z.boolean().default(true),
-  autoBgm: z.boolean().default(false),
-  autoBgmEvery: z.number().int().min(1).default(5),
-  autoBgmConnectionId: z.string().default(''),
-  autoBgmModel: z.string().default(''),
-  listInPrompt: z.boolean().default(true),
-  ttsEnabled: z.boolean().default(false),
-  narratorVoice: voiceSetting.default(null),
-  readNarration: z.boolean().default(false),
-  userVoice: voiceSetting.default(null),
-  readUser: z.boolean().default(false),
+  chatBgm: z.boolean().catch(true),
+  autoBgm: z.boolean().catch(false),
+  autoBgmEvery: z.number().int().min(1).catch(5),
+  autoBgmConnectionId: z.string().catch(''),
+  autoBgmModel: z.string().catch(''),
+  listInPrompt: z.boolean().catch(true),
+  ttsEnabled: z.boolean().catch(false),
+  narratorVoice: voiceSetting.catch(null),
+  readNarration: z.boolean().catch(false),
+  userVoice: voiceSetting.catch(null),
+  readUser: z.boolean().catch(false),
   npcVoices: voiceListSetting,
-  genderMatch: z.boolean().default(true),
-  genderInference: z.boolean().default(true),
-  autoRead: z.boolean().default(false),
-  vnVoice: z.boolean().default(true),
-  vnWaitVoice: z.boolean().default(true),
-  vnInterrupt: z.boolean().default(true),
-  deliveryMode: deliveryModeSchema.default('basic'),
-  deliveryDirector: z.boolean().default(false),
-  edgeVolume: z.number().int().min(-100).max(100).default(0),
-  cacheMaxMb: z.number().finite().nonnegative().default(500),
-  openaiConnectionId: z.string().default(''),
-  openaiBaseUrl: z.string().default('https://api.openai.com/v1'),
-  openaiApiKey: z.string().default(''),
-  openaiModel: z.string().default('gpt-4o-mini-tts'),
-  fishApiKey: z.string().default(''),
+  genderMatch: z.boolean().catch(true),
+  genderInference: z.boolean().catch(true),
+  autoRead: z.boolean().catch(false),
+  vnVoice: z.boolean().catch(true),
+  vnWaitVoice: z.boolean().catch(true),
+  vnInterrupt: z.boolean().catch(true),
+  deliveryMode: deliveryModeSchema.catch('basic'),
+  deliveryDirector: z.boolean().catch(false),
+  edgeVolume: z.number().int().min(-100).max(100).catch(0),
+  cacheMaxMb: z.number().finite().nonnegative().catch(500),
+  openaiConnectionId: z.string().catch(''),
+  openaiBaseUrl: z.string().catch('https://api.openai.com/v1'),
+  openaiApiKey: z.string().catch(''),
+  openaiModel: z.string().catch('gpt-4o-mini-tts'),
+  fishApiKey: z.string().catch(''),
   // 填错或清空时退回默认值：设置整份解析失败会让整个音频扩展不可用
   fishEndpoint: z.url().catch('https://api.fish.audio/v1/tts'),
   fishModel: z.string().trim().min(1).catch('s2.1-pro'),
-  fishVoices: z
-    .array(
-      z.object({
-        id: z.string().trim(),
-        name: z.string().default(''),
-        gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
-      }),
-    )
-    .default([]),
-  gptsovitsEndpoint: z.string().default('http://127.0.0.1:9880'),
-  gptsovitsVoices: z
-    .array(
-      z
-        .object({
-          id: z.string().default(''),
-          name: z.string().default(''),
-          gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
-          emotionRefs: z
-            .array(z.object({ tone: z.enum(TONES), refAudioPath: z.string(), promptText: z.string().default('') }))
-            .default([]),
-          refAudioPath: z.string().default(''),
-          promptText: z.string().default(''),
-          promptLang: z
-            .string()
-            .default('zh')
-            .transform((value) => value || 'zh'),
-          textLang: z
-            .string()
-            .default('auto')
-            .transform((value) => value || 'auto'),
-        })
-        .transform((preset) => ({
-          ...preset,
-          id:
-            preset.id ||
-            createHash('sha256')
-              .update(JSON.stringify([preset.name, preset.refAudioPath]))
-              .digest('hex')
-              .slice(0, 16),
-        })),
-    )
-    .default([]),
-  minimaxCustomVoices: z
-    .array(
-      z.object({
-        id: z.string(),
-        name: z.string().default(''),
-        gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
-      }),
-    )
-    .default([]),
-  volcengineCustomVoices: z
-    .array(
-      z.object({
-        id: z.string(),
-        name: z.string().default(''),
-        gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
-      }),
-    )
-    .default([]),
-  minimaxApiKey: z.string().default(''),
-  minimaxApiHost: z.string().default('https://api.minimaxi.com'),
-  minimaxModel: z.string().default('speech-02-hd'),
-  volcengineAppId: z.string().default(''),
-  volcengineAccessKey: z.string().default(''),
-  volcengineResourceId: z.string().default('seed-tts-2.0'),
-  volcengineEndpoint: z.string().default('https://openspeech.bytedance.com/api/v3/tts/unidirectional'),
-  cosyvoiceApi: z.enum(['official', 'gateway']).default('official'),
-  cosyvoiceHeaders: z.string().default(''),
-  cosyvoiceEndpoint: z.string().default('http://127.0.0.1:50000'),
-  cosyvoiceSampleRate: z.number().int().min(1).default(22050),
-  cosyvoiceVoices: z
-    .array(
-      z.object({
-        id: z.string(),
-        name: z.string(),
-        gender: z.preprocess((v) => (v === '' ? undefined : v), z.enum(GENDERS).optional()),
-        mode: z.enum(['sft', 'instruct', 'zero_shot']).default('sft'),
-        spkId: z.string().default(''),
-        promptText: z.string().default(''),
-        refTrackId: z.string().default(''),
-      }),
-    )
-    .default([]),
-  elevenlabsApiKey: z.string().default(''),
-  elevenlabsModel: z.string().default('eleven_multilingual_v2'),
+  fishVoices: lenientArray(
+    z.object({
+      id: z.string().trim().min(1),
+      name: z.string().catch(''),
+      gender: voiceGender,
+    }),
+  ),
+  gptsovitsEndpoint: z.string().catch('http://127.0.0.1:9880'),
+  gptsovitsVoices: lenientArray(
+    z
+      .object({
+        id: z.string().catch(''),
+        name: z.string().catch(''),
+        gender: voiceGender,
+        emotionRefs: lenientArray(
+          z.object({ tone: z.enum(TONES), refAudioPath: z.string().trim().min(1), promptText: z.string().catch('') }),
+        ),
+        refAudioPath: z.string().catch(''),
+        promptText: z.string().catch(''),
+        promptLang: z
+          .string()
+          .catch('zh')
+          .transform((value) => value || 'zh'),
+        textLang: z
+          .string()
+          .catch('auto')
+          .transform((value) => value || 'auto'),
+      })
+      .transform((preset) => ({
+        ...preset,
+        id:
+          preset.id ||
+          createHash('sha256')
+            .update(JSON.stringify([preset.name, preset.refAudioPath]))
+            .digest('hex')
+            .slice(0, 16),
+      })),
+  ),
+  minimaxCustomVoices: lenientArray(
+    z.object({
+      id: z.string().trim().min(1),
+      name: z.string().catch(''),
+      gender: voiceGender,
+    }),
+  ),
+  volcengineCustomVoices: lenientArray(
+    z.object({
+      id: z.string().trim().min(1),
+      name: z.string().catch(''),
+      gender: voiceGender,
+    }),
+  ),
+  minimaxApiKey: z.string().catch(''),
+  minimaxApiHost: z.string().catch('https://api.minimaxi.com'),
+  minimaxModel: z.string().catch('speech-02-hd'),
+  volcengineAppId: z.string().catch(''),
+  volcengineAccessKey: z.string().catch(''),
+  volcengineResourceId: z.string().catch('seed-tts-2.0'),
+  volcengineEndpoint: z.string().catch('https://openspeech.bytedance.com/api/v3/tts/unidirectional'),
+  cosyvoiceApi: z.enum(['official', 'gateway']).catch('official'),
+  cosyvoiceHeaders: z.string().catch(''),
+  cosyvoiceEndpoint: z.string().catch('http://127.0.0.1:50000'),
+  cosyvoiceSampleRate: z.number().int().min(1).catch(22050),
+  cosyvoiceVoices: lenientArray(
+    z.object({
+      id: z.string().trim().min(1),
+      name: z.string().catch(''),
+      gender: voiceGender,
+      mode: z.enum(['sft', 'instruct', 'zero_shot']).catch('zero_shot'),
+      spkId: z.string().catch(''),
+      promptText: z.string().catch(''),
+      refTrackId: z.string().catch(''),
+    }),
+  ),
+  elevenlabsApiKey: z.string().catch(''),
+  elevenlabsModel: z.string().catch('eleven_multilingual_v2'),
 })
 /** 必须在合并扩展默认值前迁移，避免默认 basic 遮住旧版 false。 */
 export function migrateAudioSettings(record: Record<string, unknown>): Record<string, unknown> {

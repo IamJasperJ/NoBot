@@ -1,5 +1,6 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  '音频设置有无效内容：{path}': 'Audio settings contain invalid content: {path}',
   按性别分配声音: 'Match voices by gender',
   用模型判断角色性别: 'Infer character gender with the model',
   '每个角色只判断一次并缓存；关闭时只用角色卡上手动设置的性别':

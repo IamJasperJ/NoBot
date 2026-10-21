@@ -36,6 +36,24 @@ export default defineExtension({
   ],
   hooks: { onEvent: onBgmEvent },
   routes(app, ctx) {
+    // 仅在音频扩展收敛校验错误，避免把 Zod 的原始诊断透给设置页。
+    app.onError((error, c) => {
+      if (error instanceof HttpError)
+        return c.json({ error: { code: error.code, message: error.message } }, error.status)
+      if (error instanceof z.ZodError) {
+        const path = error.issues[0]?.path.join('.') || 'settings'
+        return c.json({ error: { code: 'BAD_REQUEST', message: t('音频设置有无效内容：{path}', { path }) } }, 400)
+      }
+      return c.json(
+        {
+          error: {
+            code: 'INTERNAL',
+            message: t('服务器内部错误：{error}', { error: error.message || t('扩展接口执行失败') }),
+          },
+        },
+        500,
+      )
+    })
     registerChatBgmRoutes(app, ctx)
     registerTtsRoutes(app, ctx)
     app.get('/tracks', validate('query', z.object({ kind: z.enum(AUDIO_KINDS).optional() })), (c) =>

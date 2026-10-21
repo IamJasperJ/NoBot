@@ -35,6 +35,8 @@ test('AUD3：参考音频、聊天 BGM、锁定与在途保护、CharX 音频导
   const { audioSettings } = await import('./tts/settings')
   const { autoChatBgm, onBgmEvent, readChatBgm, registerChatBgmRoutes } = await import('./chat-bgm')
   const { registerTtsRoutes } = await import('./tts/routes')
+  const { default: audio } = await import('./index')
+  const { z } = await import('zod')
   try {
     const character = createCharacter({ name: 'Alice' })
     const chat = createChat({ characterId: character.id })
@@ -81,6 +83,30 @@ test('AUD3：参考音频、聊天 BGM、锁定与在途保护、CharX 音频导
         headers: { 'Content-Type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
       })
+    // 使用实际扩展错误边界；根设置损坏及未来新增的严格字段都应返回可读的 400。
+    const invalidCtx = { ...ctx }
+    Reflect.set(invalidCtx, 'settings', null)
+    const audioApp = new Hono()
+    audio.routes?.(audioApp, invalidCtx)
+    audioApp.get('/invalid-settings-path', () => {
+      z.object({ cosyvoiceVoices: z.array(z.object({ mode: z.literal('sft') })) }).parse({ cosyvoiceVoices: [{}] })
+      throw new Error('校验应失败')
+    })
+    const invalidSettings = await audioApp.request('/tts/engines')
+    expect(invalidSettings.status).toBe(400)
+    expect(await invalidSettings.json()).toEqual({
+      error: { code: 'BAD_REQUEST', message: '音频设置有无效内容：settings' },
+    })
+    const invalidPath = await audioApp.request('/invalid-settings-path')
+    expect(invalidPath.status).toBe(400)
+    expect(await invalidPath.json()).toEqual({
+      error: { code: 'BAD_REQUEST', message: '音频设置有无效内容：cosyvoiceVoices.0.mode' },
+    })
+    const voices = await request('/tts/voices', {
+      engine: 'cosyvoice',
+      settings: { cosyvoiceApi: 'gateway', cosyvoiceVoices: [{ id: 'broken', mode: '' }, null] },
+    })
+    expect(voices.status).toBe(200)
     expect(await (await request('/tts/ref-tracks', {})).json()).toEqual({
       options: [{ value: ref.id, label: ref.name }],
     })

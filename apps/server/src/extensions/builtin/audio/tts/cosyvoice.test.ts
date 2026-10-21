@@ -127,7 +127,7 @@ test('官方模式保持预设、表单、PCM 包装并使用额外请求头', a
   }).cosyvoice
   const s = audioSettings.parse({
     cosyvoiceHeaders: '{"X-Key":"secret"}',
-    cosyvoiceVoices: [{ id: 'voice', name: '女声', spkId: 'speaker' }],
+    cosyvoiceVoices: [{ id: 'voice', name: '女声', mode: 'sft', spkId: 'speaker' }],
   })
   expect(engine.configured(audioSettings.parse({}))).toBe(false)
   expect(await engine.voices(s)).toEqual([{ value: 'voice', label: '女声', gender: 'female' }])

@@ -207,12 +207,21 @@ export function flattenPages(data: { pages: ChatPage[] } | undefined): MessageDT
  * 把新消息接到缓存里的对话末尾。
  * 规则和后端消息树一致：找到新消息的父节点，父节点之后的内容全部换成新消息。
  * 所以「发送」是追加，「重新生成」是替换掉旧回复，都用这一个函数。
- * 父节点不在缓存里时返回 false，调用方应该重新拉取。
+ * null 父节点表示从根开始的新路径；其他父节点不在缓存里时返回 false，调用方应该重新拉取。
  */
 export function applyNewMessage(qc: QueryClient, chatId: string, msg: MessageDTO): boolean {
   let ok = false
   qc.setQueryData<ChatCache>(keys.chat(chatId), (data) => {
     if (!data) return data
+    if (msg.parentId === null) {
+      const page = data.pages[0]
+      if (!page) return data
+      ok = true
+      return {
+        pages: [{ ...page, messages: [msg], hasMore: false }],
+        pageParams: [undefined],
+      }
+    }
     for (let k = 0; k < data.pages.length; k++) {
       const page = data.pages[k] as ChatPage
       const i = page.messages.findIndex((m) => m.id === msg.parentId)
@@ -274,13 +283,19 @@ export function markIdle(qc: QueryClient, chatId: string) {
 }
 
 /**
- * 消息树结构变了（切换 swipe、删除消息）：丢掉已加载的所有页，重新拉最新一页。
+ * 消息树结构变了（切换 swipe、删除消息）：丢掉旧分页游标，重新拉最新一页。
  * 不能用普通的 refetch，因为旧页的分页参数可能已经不在新路径上了。
  */
-export function resetChat(qc: QueryClient, chatId: string) {
+export async function resetChat(qc: QueryClient, chatId: string) {
   // 分支变了（swipe、移动、删除、切换书签分支）：书签的「是否在当前分支」也要跟着刷新
   void qc.invalidateQueries({ queryKey: keys.bookmarks(chatId) })
-  return qc.resetQueries({ queryKey: keys.chat(chatId) })
+  const queryKey = keys.chat(chatId)
+  await qc.cancelQueries({ queryKey, exact: true })
+  // 保留最新一页直到新路径返回，避免加载态卸载 VN、重置播放器的自动模式。
+  qc.setQueryData<ChatCache>(queryKey, (data) =>
+    data?.pages[0] ? { pages: [data.pages[0]], pageParams: [undefined] } : data,
+  )
+  return qc.invalidateQueries({ queryKey, exact: true })
 }
 
 /** 背景删除会清空多种实体的引用，库操作后统一刷新这些缓存。 */

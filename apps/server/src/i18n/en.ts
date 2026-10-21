@@ -1,5 +1,8 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  边生成边朗读: 'Read while generating',
+  '回复还在生成时，先把已经完整的句子读出来；关闭时等整条生成完再读':
+    'Read complete sentences while the reply is being generated; when disabled, wait until the whole reply is finished.',
   '音频设置有无效内容：{path}': 'Audio settings contain invalid content: {path}',
   按性别分配声音: 'Match voices by gender',
   用模型判断角色性别: 'Infer character gender with the model',

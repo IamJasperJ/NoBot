@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { readdir, stat, unlink, utimes } from 'node:fs/promises'
 import { join } from 'node:path'
 import { deliveryFromExpression, expressionTone, guessVoiceGender, parseCues, renderDelivery } from '@nobot/core'
-import { castKey, parseStageMessage, toDisplayText } from '@nobot/core/stage'
+import { castKey, speechSegments, toDisplayText } from '@nobot/core/stage'
 import {
   type CharacterGender,
   characterDeliveryStyleSchema,
@@ -135,70 +135,10 @@ export function speakerDeliveryStyle(speaker: TtsSpeaker, chatId: string): strin
 export function expressionInstructions(expression?: string) {
   return toneInstruction(expressionTone(expression))
 }
-export interface TtsSegment {
-  speaker: TtsSpeaker
-  text: string
-  expression?: string
-  delivery?: LineDelivery
-  cues?: SpokenLine['cues']
-  director?: Partial<Delivery>
-  beatIndex?: number
-}
-export function messageSegments(messageId: string): { chatId: string; segments: TtsSegment[] } {
+export type { TtsSegment } from '@nobot/core/stage'
+export function messageSegments(messageId: string) {
   const message = loadMessage(messageId)
-  const chatId = message.chatId
-  if (message.role === 'user')
-    return { chatId, segments: [{ speaker: { kind: 'user' }, text: message.content, beatIndex: 0 }] }
-  const members = stageMembers(chatId)
-  const beats =
-    message.meta.stage?.beats ??
-    parseStageMessage(message.content, {
-      knownNames: members.map((m) => m.name),
-      vars: {},
-      inline: false,
-      mvu: false,
-    }).stage.beats
-  const speaker: TtsSpeaker = message.speakerId
-    ? { kind: 'character', characterId: message.speakerId }
-    : members.length === 1
-      ? { kind: 'character', characterId: members[0]!.id }
-      : message.meta.name
-        ? { kind: 'npc', name: message.meta.name }
-        : { kind: 'narrator' }
-  // narration 拍也可能夹有角色引语，与普通聊天共用同一套归属规则。
-  const quotedSegments = (text: string): TtsSegment[] => {
-    const segments: TtsSegment[] = []
-    const pattern = /"([^"\n]+)"|“([^”]+)”|「([^」]+)」|『([^』]+)』/g
-    let start = 0
-    for (const match of text.matchAll(pattern)) {
-      if (match.index > start) segments.push({ speaker: { kind: 'narrator' }, text: text.slice(start, match.index) })
-      segments.push({ speaker, text: match.slice(1).find((value) => value !== undefined)! })
-      start = match.index + match[0].length
-    }
-    if (start < text.length) segments.push({ speaker: { kind: 'narrator' }, text: text.slice(start) })
-    return segments
-  }
-  if (!message.meta.stage && !beats.some((beat) => beat.kind === 'line'))
-    return { chatId, segments: quotedSegments(message.content).map((segment) => ({ ...segment, beatIndex: 0 })) }
-  return {
-    chatId,
-    segments: beats.flatMap((b, beatIndex): TtsSegment[] =>
-      b.kind === 'line'
-        ? [
-            {
-              speaker: { kind: 'npc', name: b.speaker },
-              text: b.text,
-              expression: b.expression,
-              delivery: b.delivery,
-              cues: b.cues,
-              beatIndex,
-            },
-          ]
-        : b.kind === 'narration'
-          ? quotedSegments(b.text).map((segment) => ({ ...segment, beatIndex }))
-          : [],
-    ),
-  }
+  return { chatId: message.chatId, segments: speechSegments(message, stageMembers(message.chatId)) }
 }
 
 export async function cacheEntries() {

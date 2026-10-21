@@ -18,14 +18,31 @@ function speakerOf(beat: SpokenBeat, stage: VnProps['stage']): TtsSpeaker {
     : { kind: 'npc', name: actor?.name ?? beat.speaker }
 }
 
-export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping }: SlotProps['vn.layer']) {
+export function useVnVoice({
+  chatId,
+  stage,
+  beats,
+  beatIndex,
+  playKey,
+  skipping,
+  streaming = false,
+  replayToken = 0,
+}: SlotProps['vn.layer']) {
   const settings = useChatVoice(chatId).data?.effective
   const enabled = settings?.enabled === true && settings?.vnVoice !== false
+  const canRead = !streaming || settings?.streamRead === true
+  const replayed = useRef(replayToken)
+  const deferredBeat = useRef<string | null>(null)
   const interrupt = settings?.vnInterrupt !== false
   const wait = settings?.vnWaitVoice !== false
   const ongoing = useRef<Promise<void>>(Promise.resolve())
   const seen = useRef(new Map<string, number>())
   const prefetchSeen = useRef(new Map<string, { index: number; count: number }>())
+  if (replayed.current !== replayToken) {
+    seen.current.clear()
+    prefetchSeen.current.clear()
+    replayed.current = replayToken
+  }
   const prefetchQueue = useRef<{ running: number; jobs: (() => Promise<void>)[] }>({ running: 0, jobs: [] })
   useEffect(() => () => ttsPlayer.stopChat(chatId), [chatId])
   useEffect(
@@ -36,12 +53,12 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
     [chatId, playKey, beatIndex, enabled, skipping],
   )
   useEffect(() => {
-    if (!settings || !playKey || beatIndex === undefined) return
+    if (!settings || !playKey || beatIndex === undefined || !canRead) return
     const previous = prefetchSeen.current.get(playKey)
     prefetchSeen.current.set(playKey, { index: Math.max(previous?.index ?? -1, beatIndex), count: beats.length })
     const forward =
       previous === undefined
-        ? beats.slice(0, beatIndex).every((b) => b.kind === 'stage' || b.kind === 'sfx')
+        ? replayToken > 0 || beats.slice(0, beatIndex).every((b) => b.kind === 'stage' || b.kind === 'sfx')
         : beatIndex > previous.index || (beatIndex === previous.index && beats.length > previous.count)
     if (!enabled || skipping || !forward) return
     const queue = prefetchQueue.current
@@ -74,9 +91,13 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
     }
     const available = Math.min(2 - queue.running, queue.jobs.length)
     for (let i = 0; i < available; i++) void work()
-  }, [chatId, playKey, beatIndex, enabled, skipping, beats])
+  }, [chatId, playKey, beatIndex, enabled, skipping, beats, canRead, replayToken])
   useLayoutEffect(() => {
     if (!settings || !playKey || beatIndex === undefined) return
+    if (!canRead) {
+      deferredBeat.current = `${playKey}:${beatIndex}`
+      return
+    }
     const key = `${playKey}:${beatIndex}`
     const beat = beats[beatIndex]
     const previous = seen.current.get(playKey)
@@ -84,9 +105,11 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
     // 只读向前进入的新拍；打开旧消息停在末尾、回退和跳过的拍都不能补读。
     const forward =
       previous === undefined
-        ? beats.slice(0, beatIndex).every((b) => b.kind === 'stage' || b.kind === 'sfx')
+        ? replayToken > 0 || beats.slice(0, beatIndex).every((b) => b.kind === 'stage' || b.kind === 'sfx')
         : beatIndex > previous
-    if (!enabled || skipping || !forward || (beat?.kind !== 'line' && beat?.kind !== 'narration')) return
+    const deferred = deferredBeat.current === key
+    deferredBeat.current = null
+    if (!enabled || skipping || (!forward && !deferred) || (beat?.kind !== 'line' && beat?.kind !== 'narration')) return
     const speaker = speakerOf(beat, stage)
     if (wait) useVnVoiceStore.setState({ busyKey: key })
     let active = true
@@ -119,5 +142,5 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
       if (interrupt || audioEngine.wasVoiceBlocked()) ttsPlayer.stopChat(chatId)
     }
     // 同一拍的舞台或流式文本更新不能重新触发朗读。
-  }, [chatId, playKey, beatIndex, enabled, skipping, interrupt, wait])
+  }, [chatId, playKey, beatIndex, enabled, skipping, interrupt, wait, canRead, replayToken])
 }

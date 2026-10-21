@@ -1,9 +1,12 @@
+import { parseStageMessage } from '@nobot/core/stage'
 import { api as client } from '../../../api/client'
 import { ttsApi } from '../../../api/tts'
 import { t } from '../../../i18n'
+import { useStreaming } from '../../../stores/streaming'
 import { useVn } from '../../../stores/vn'
 import { useVnVoiceStore } from '../../../stores/vnVoice'
 import type { ActivateFn, SlotProps } from '../../types'
+import { AutoReader } from './auto-read'
 import { ChatBgmDialog, ChatBgmMenuEntry } from './ChatBgmUi'
 import { ChatVoiceSection } from './ChatVoiceSection'
 import { FishVoiceSearch } from './FishVoiceSearch'
@@ -45,33 +48,123 @@ export function VnAudioLayer(props: SlotProps['vn.layer']) {
  */
 const activate: ActivateFn = (api) => {
   let active = true
-  let requestId = 0
+  const reader = new AutoReader()
+  let pending = Promise.resolve()
+  type View = NonNullable<ReturnType<typeof getVisibleTtsChat>>
+  const streamMessages = new Map<string, Awaited<ReturnType<typeof client.getChatPage>>['messages'][number]>()
+  const contexts = new WeakMap<
+    View,
+    Promise<{
+      voice: Awaited<ReturnType<typeof ttsApi.chatVoice>>
+      page: Awaited<ReturnType<typeof client.getChatPage>>
+      presets: Awaited<ReturnType<typeof client.listPlayPresets>>
+    }>
+  >()
+  const context = (view: View) => {
+    let result = contexts.get(view)
+    if (!result) {
+      result = Promise.all([
+        ttsApi.chatVoice(view.chatId),
+        client.getChatPage(view.chatId),
+        client.listPlayPresets(),
+      ]).then(([voice, page, presets]) => ({ voice, page, presets }))
+      contexts.set(view, result)
+    }
+    return result
+  }
+  const allowed = (view: View, data: Awaited<ReturnType<typeof context>>) => {
+    const mode = useVn.getState().mode[view.chatId]
+    const preset = data.presets.find((p) => p.id === data.page.playPresetId)
+    return (
+      active &&
+      getVisibleTtsChat() === view &&
+      data.voice.effective.enabled &&
+      data.voice.effective.autoRead &&
+      !(mode ? mode === 'vn' : preset?.data.basic.openInVn)
+    )
+  }
+  const report = (error: unknown, view: View) => {
+    if (!active || getVisibleTtsChat() !== view) return
+    useVnVoiceStore.setState({
+      lastVoiceError: { message: error instanceof Error ? error.message : t('语音播放失败'), at: Date.now() },
+    })
+  }
+  const offStream = useStreaming.subscribe((state, previous) => {
+    const view = getVisibleTtsChat()
+    if (!view) return
+    const ended = previous.chatId === view.chatId && previous.messageId && previous.messageId !== state.messageId
+    const live = state.chatId === view.chatId && state.messageId ? { ...state } : null
+    if (!ended && (!live || (state.text === previous.text && state.messageId === previous.messageId))) return
+    // 在回调时保存快照；网络请求串行完成后仍按生成顺序提交，不丢失短回复。
+    pending = pending
+      .then(async () => {
+        const data = await context(view)
+        if (!allowed(view, data) || !data.voice.effective.streamRead) return
+        if (ended) {
+          const page = await client.getChatPage(view.chatId)
+          if (!allowed(view, data)) return
+          const message = page.messages.find((m) => m.id === previous.messageId)
+          if (message && message.status !== 'streaming')
+            reader.read(view.chatId, message, data.voice.members, false, true)
+        }
+        if (live?.messageId) {
+          if (!streamMessages.has(live.messageId)) {
+            const page = await client.getChatPage(view.chatId)
+            for (const message of page.messages) streamMessages.set(message.id, message)
+          }
+          if (!allowed(view, data)) return
+          const message = streamMessages.get(live.messageId)
+          if (message) {
+            const play = data.presets.find((preset) => preset.id === data.page.playPresetId)?.data
+            // 开启舞台指令时按同一预设解析，避免完成后的旁白拆拍改变已入队分段的位置。
+            const stage = play?.directives.enabled
+              ? parseStageMessage(live.text, {
+                  knownNames: [...data.voice.members, ...data.voice.npcs].map((actor) => actor.name),
+                  narratorNames: [play.trpg.gmName],
+                  vars: {},
+                  inline: play.state.inline,
+                  mvu: play.state.mvu,
+                  narrationSplit: play.dialog.narrationSplit,
+                }).stage
+              : undefined
+            reader.read(
+              view.chatId,
+              { ...message, content: live.text, meta: { ...message.meta, stage } },
+              data.voice.members,
+              true,
+              true,
+            )
+          }
+        }
+      })
+      .catch((error: unknown) => report(error, view))
+  })
+  const offStart = api.on('generation:start', ({ chatId }) => {
+    const view = getVisibleTtsChat()
+    if (view?.chatId === chatId) {
+      contexts.delete(view)
+      streamMessages.clear()
+    }
+  })
   const off = api.on('generation:complete', ({ chatId }) => {
     const view = getVisibleTtsChat()
     if (view?.chatId !== chatId) return
-    const current = ++requestId
-    void (async () => {
-      const { effective } = await ttsApi.chatVoice(chatId)
-      if (!effective.enabled || !effective.autoRead) return
-      const page = await client.getChatPage(chatId)
-      const presets = await client.listPlayPresets()
-      const preset = presets.find((p) => p.id === page.playPresetId)
-      const mode = useVn.getState().mode[chatId]
-      if (
-        !active ||
-        current !== requestId ||
-        getVisibleTtsChat() !== view ||
-        (mode ? mode === 'vn' : preset?.data.basic.openInVn)
-      )
-        return
-      const message = page.messages.filter((m) => m.role === 'assistant').at(-1)
-      if (message) await ttsPlayer.speakMessage(message.id, chatId)
-    })().catch((error: unknown) => {
-      if (!active || current !== requestId || getVisibleTtsChat() !== view) return
-      useVnVoiceStore.setState({
-        lastVoiceError: { message: error instanceof Error ? error.message : t('语音播放失败'), at: Date.now() },
+    pending = pending
+      .then(async () => {
+        // 完成时重新读取设置与消息，群聊的一次 complete 要收齐最后一条用户消息后的全部回复。
+        const effective = await ttsApi.chatVoice(chatId)
+        if (!effective.effective.enabled || !effective.effective.autoRead) return
+        const page = await client.getChatPage(chatId)
+        const presets = await client.listPlayPresets()
+        const data = { voice: effective, page, presets }
+        if (!allowed(view, data)) return
+        const start = page.messages.findLastIndex((m) => m.role === 'user') + 1
+        for (const message of page.messages.slice(start)) {
+          if (message.role === 'assistant' && message.status !== 'streaming')
+            reader.read(chatId, message, effective.members, false, effective.effective.streamRead)
+        }
       })
-    })
+      .catch((error: unknown) => report(error, view))
   })
   api.registerPage({
     id: 'library',
@@ -119,6 +212,8 @@ const activate: ActivateFn = (api) => {
   return () => {
     active = false
     off()
+    offStart()
+    offStream()
     ttsPlayer.stop()
   }
 }

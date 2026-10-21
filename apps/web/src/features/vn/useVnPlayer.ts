@@ -11,7 +11,7 @@ import { autoAdvanceDelay, beatText, currentCg, type ShownBeat, shownBeatIndexes
 /**
  * VN 播放器（VN3）：一次演一条角色回复，一句一拍。
  *
- * - 演哪条：默认是最后一条角色回复，停在它的最后一拍（打开视图时不重演）；有新回复（包括正在流式生成的）就从它的第一拍开始演；
+ * - 演哪条：旧会话停在最后一条回复的末拍；本轮新回复按顺序排队，当前消息演完后才能推进到下一条；
  *   回想里点「从这里重演」可以换成任意一条
  * - 拍：完成的消息用后端解析好的 meta.stage.beats；流式中的消息在前端用同一个解析器现解析，最后一拍可能没写完，先不演
  * - 舞台：这条消息之前的舞台（后端算好）+ 演到当前拍为止的舞台操作；台词拍里带的表情、说话人上台也算进去
@@ -57,9 +57,29 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   )
   const latest = replies.at(-1) ?? null
 
-  // 正在演的消息；null 表示跟着最新一条
+  const openedAt = useRef(Date.now())
+  const read = useVn((s) => s.read)
+  const roundStart = messages.findLastIndex((m) => m.role === 'user') + 1
+  const roundIds = new Set(messages.slice(roundStart).map((message) => message.id))
+  const round = replies.filter((reply) => roundIds.has(reply.id))
+  const [queuedId, setQueuedId] = useState<string | null>(null)
+  const [replayToken, setReplayToken] = useState(0)
+  // 旧会话停在末尾；只有打开后产生且尚未读完的回复才进入本轮队列。
+  const pendingReplies = round.filter((reply) => {
+    const beats = reply.meta.stage?.beats
+    const indexes = beats ? shownBeatIndexes(beats, reply.meta.cg) : []
+    const last = indexes.at(-1)
+    const unread = last === undefined || !read.includes(`${reply.id}#${reply.swipeIndex}:${last}`)
+    return unread && (reply.id === liveId || reply.status === 'streaming' || reply.createdAt > openedAt.current)
+  })
+  const queued = round.find((reply) => reply.id === queuedId) ?? pendingReplies[0]
+  useEffect(() => {
+    if (queued && queued.id !== queuedId) setQueuedId(queued.id)
+  }, [queued?.id, queuedId])
+
+  // pinned 只表示用户主动回看，自动队列不使用它。
   const [pinnedId, setPinnedId] = useState<string | null>(null)
-  const currentId = pinnedId ?? live?.id ?? latest?.id ?? null
+  const currentId = pinnedId ?? queued?.id ?? latest?.id ?? null
   const current = messages.find((m) => m.id === currentId) ?? null
   const streaming = !!live?.id && live.id === currentId
   // 演出的单位是「消息的某个备选」：切换备选回复 / 开场白后内容整个换了，要从头演，读过标记也分开记
@@ -121,7 +141,6 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   })
   // 换了一条消息：打开视图之后才生成的（包括正在生成的）从头演；打开前就有的直接停在最后一拍。
   // 按时间判断，而不是「第一次看到的那条」：刷新页面时消息是后取回来的，不能当成新回复重演
-  const openedAt = useRef(Date.now())
   useEffect(() => {
     if (cursor.id === playKey || !current) return
     // 新会话还没有人说过话：开场白也从头演；同一条消息换了备选（切换、重新生成）也从头演
@@ -134,10 +153,6 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
       revealed: fresh ? 0 : Number.POSITIVE_INFINITY,
     })
   }, [playKey, current, cursor.id, streaming, shownIndexes.length, messages])
-  // 生成结束、跟随最新时：手动重演的那条如果就是最新的，取消固定
-  useEffect(() => {
-    if (pinnedId && pinnedId === latest?.id && !live?.id) setPinnedId(null)
-  }, [pinnedId, latest?.id, live?.id])
 
   const shownCount = shownIndexes.length
   const index = Math.min(cursor.shown, Math.max(0, shownCount - 1))
@@ -200,7 +215,6 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   const speakerKey = beat?.kind === 'line' ? castKey(beat.speaker) : null
 
   // ---- 读过标记 ----
-  const read = useVn((s) => s.read)
   const markRead = useVn((s) => s.markRead)
   const readKey = playKey && beatIndex !== undefined ? `${playKey}:${beatIndex}` : null
   useEffect(() => {
@@ -216,12 +230,14 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   // 前后相邻的回复（回退 / 前进跨消息用）
   const position = current ? replies.findIndex((m) => m.id === current.id) : -1
   const prevReply = position > 0 ? replies[position - 1] : undefined
-  const nextReply = position >= 0 ? replies[position + 1] : undefined
+  const adjacent = position >= 0 ? replies[position + 1] : undefined
+  const nextReply = pinnedId ? adjacent : pendingReplies.find((reply) => replies.indexOf(reply) > position)
   const advance = useCallback(() => {
-    // 重看旧回复时演到头：接着看下一条（已经看过的，直接显示整句）；下一条是最新的就回到跟随最新
-    if (pinnedId && ended && nextReply) {
-      setPinnedId(nextReply.id === latest?.id ? null : nextReply.id)
-      setCursor({ id: keyOf(nextReply), shown: 0, revealed: Number.POSITIVE_INFINITY })
+    // 末拍完成后跨消息推进；主动回看仍保持 pinned，本轮队列使用独立游标。
+    if (ended && nextReply) {
+      if (pinnedId) setPinnedId(nextReply.id)
+      else setQueuedId(nextReply.id)
+      setCursor({ id: keyOf(nextReply), shown: 0, revealed: pinnedId ? Number.POSITIVE_INFINITY : 0 })
       return
     }
     setCursor((c) => {
@@ -236,7 +252,7 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
       }
       return c
     })
-  }, [playKey, textLength, shownCount, shownIndexes, read, pinnedId, ended, nextReply, latest?.id])
+  }, [playKey, textLength, shownCount, shownIndexes, read, pinnedId, ended, nextReply])
   /** 回退：这条回复里往回一句（整句显示）；已经是第一句就回到上一条回复的最后一句 */
   const back = useCallback(() => {
     if (index > 0) {
@@ -254,11 +270,12 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   }, [shownCount])
   const replay = useCallback(
     (messageId: string) => {
-      setPinnedId(messageId === latest?.id ? null : messageId)
+      setPinnedId(messageId)
+      setReplayToken((token) => token + 1)
       const target = messages.find((m) => m.id === messageId)
       setCursor({ id: target ? `${target.id}#${target.swipeIndex}` : null, shown: 0, revealed: 0 })
     },
-    [latest?.id, messages],
+    [messages],
   )
 
   // ---- 打字机：按「字 / 秒」逐字显示；0 表示瞬间 ----
@@ -290,7 +307,15 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
   const voiceBusy = useVnVoiceStore((state) => state.busyKey === `${playKey}:${beatIndex}`)
   const [auto, setAuto] = useState(play.dialog.autoDefault)
   useEffect(() => {
-    if (!auto || voiceBusy || !complete || atLast || beat?.kind === 'choices') return
+    // 后续角色已接话时，当前选项已过时，按普通末拍延迟跨到下一条回复。
+    if (
+      !auto ||
+      voiceBusy ||
+      !complete ||
+      (atLast && (!ended || !nextReply)) ||
+      (beat?.kind === 'choices' && !nextReply)
+    )
+      return
     const delay = autoAdvanceDelay(play.dialog.autoDelay, textLength, cg)
     if (delay === null) return
     const timer = setTimeout(() => {
@@ -303,6 +328,8 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
     voiceBusy,
     complete,
     atLast,
+    ended,
+    nextReply?.id,
     beat?.kind,
     textLength,
     advance,
@@ -330,6 +357,7 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
 
   return {
     current,
+    replayToken,
     streaming,
     beat,
     beats: shownBeats,
@@ -361,7 +389,10 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
     jumpToEnd,
     replay,
     pinned: pinnedId !== null,
-    followLatest: () => setPinnedId(null),
+    followLatest: () => {
+      setPinnedId(null)
+      setQueuedId(latest?.id ?? null)
+    },
   }
 }
 

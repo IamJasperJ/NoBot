@@ -17,6 +17,78 @@ export const useTtsPlayer = create<{ messageId: string | null; chatId: string | 
 export const useTtsPlayback = useTtsPlayer
 export class TtsPlayer {
   private controller?: AbortController
+  private queue: { chatId: string; run: () => Promise<void> }[] = []
+  private autoRead = new Set<string>()
+  private queueEpoch = 0
+  private draining = false
+  private activeJob?: { chatId: string }
+
+  /** 自动朗读与流式分段共用顺序；手动操作通过 stop 清空尚未开始的任务。 */
+  enqueueMessage(chatId: string, messageId: string) {
+    const key = `${chatId}:${messageId}`
+    if (this.autoRead.has(key)) return
+    this.autoRead.add(key)
+    this.enqueue(chatId, () => this.speakMessage(messageId, chatId, true))
+  }
+  enqueueLine(
+    chatId: string,
+    segment: {
+      speaker: TtsSpeaker
+      text: string
+      expression?: string
+      delivery?: LineDelivery
+      cues?: SpokenLine['cues']
+    },
+  ) {
+    this.enqueue(chatId, () =>
+      this.speakLine(
+        chatId,
+        segment.speaker,
+        segment.text,
+        segment.expression,
+        segment.delivery,
+        segment.cues,
+        undefined,
+        true,
+      ),
+    )
+  }
+  private enqueue(chatId: string, run: () => Promise<void>) {
+    this.queue.push({ chatId, run })
+    void this.drain()
+  }
+  private async drain() {
+    if (this.draining || this.controller || !this.queue.length) return
+    this.draining = true
+    const epoch = this.queueEpoch
+    let preparedChat: string | undefined
+    try {
+      while (epoch === this.queueEpoch && this.queue.length) {
+        const job = this.queue.shift()!
+        this.activeJob = job
+        try {
+          if (preparedChat !== job.chatId) {
+            await this.prepareVolumes(job.chatId)
+            preparedChat = job.chatId
+          }
+          if (epoch !== this.queueEpoch) return
+          await job.run()
+        } catch (error) {
+          // 音量准备也可能失败；失败的回复不能堵住后续角色。
+          if (epoch === this.queueEpoch)
+            useVnVoiceStore.setState({
+              lastVoiceError: { message: error instanceof Error ? error.message : t('语音播放失败'), at: Date.now() },
+            })
+        }
+      }
+    } finally {
+      if (epoch === this.queueEpoch) {
+        this.draining = false
+        this.activeJob = undefined
+        void this.drain()
+      }
+    }
+  }
   private stoppedChats = new Set<string>()
   private cache = new Map<string, TtsLineResult>()
   private pending = new Map<string, Promise<TtsLineResult | undefined>>()
@@ -95,19 +167,38 @@ export class TtsPlayer {
     private prepareVolumes: (chatId: string) => Promise<void> = async () => {},
   ) {}
   stop() {
+    this.queue = []
+    this.queueEpoch++
+    this.draining = false
+    this.activeJob = undefined
+    this.stopPlayback()
+  }
+  private stopPlayback() {
     this.controller?.abort()
     this.controller = undefined
     this.engine.stopVoice()
     useTtsPlayer.setState({ messageId: null, chatId: null, playing: false })
   }
   stopChat(chatId: string) {
+    this.queue = this.queue.filter((job) => job.chatId !== chatId)
     const state = useTtsPlayer.getState()
-    if (state.chatId === chatId) this.stop()
+    if (this.activeJob?.chatId === chatId) {
+      // 在途音量准备也属于队列任务；离开后即使请求迟到也不能启动朗读。
+      this.queueEpoch++
+      this.draining = false
+      this.activeJob = undefined
+      if (state.chatId === chatId) this.stopPlayback()
+      void this.drain()
+    } else if (state.chatId === chatId) {
+      this.stopPlayback()
+      void this.drain()
+    }
     // 未知归属的消息仍在请求时，记住离开的会话，收到结果后再按归属取消。
     else if (this.controller && state.chatId === null) this.stoppedChats.add(chatId)
   }
-  private start(messageId: string | null, chatId: string | null) {
-    this.stop()
+  private start(messageId: string | null, chatId: string | null, queued = false) {
+    if (queued) this.stopPlayback()
+    else this.stop()
     this.stoppedChats.clear()
     const controller = new AbortController()
     this.controller = controller
@@ -119,6 +210,7 @@ export class TtsPlayer {
     controller.abort()
     this.controller = undefined
     useTtsPlayer.setState({ messageId: null, chatId: null, playing: false })
+    void this.drain()
   }
   private async play(result: TtsLineResult, signal: AbortSignal) {
     if (signal.aborted) return 'stopped'
@@ -137,8 +229,9 @@ export class TtsPlayer {
     delivery?: LineDelivery,
     cues?: SpokenLine['cues'],
     context?: { messageId: string; beatIndex: number },
+    queued = false,
   ) {
-    const controller = this.start(null, chatId)
+    const controller = this.start(null, chatId, queued)
     try {
       const key = this.lineKey(chatId, speaker, text, expression, delivery, cues, context)
       const prepared = this.cached(key) ?? (await this.pending.get(key))
@@ -158,8 +251,8 @@ export class TtsPlayer {
       this.finish(controller)
     }
   }
-  async speakMessage(messageId: string, chatId: string | null = getVisibleTtsChat()?.chatId ?? null) {
-    const controller = this.start(messageId, chatId)
+  async speakMessage(messageId: string, chatId: string | null = getVisibleTtsChat()?.chatId ?? null, queued = false) {
+    const controller = this.start(messageId, chatId, queued)
     const signal = controller.signal
     try {
       const { chatId, segments } = await this.api.message(messageId, signal)
@@ -169,7 +262,7 @@ export class TtsPlayer {
         return
       }
       useTtsPlayer.setState({ chatId })
-      await this.prepareVolumes(chatId)
+      if (!queued) await this.prepareVolumes(chatId)
       if (signal.aborted) return
       // 预取也可能先失败；立即接住拒绝，等轮到该段时再抛出，避免未处理的 Promise。
       const prepare = (index: number) =>

@@ -49,6 +49,7 @@ const audioSettingsSchema = z.object({
   genderMatch: z.boolean().catch(true),
   genderInference: z.boolean().catch(true),
   autoRead: z.boolean().catch(false),
+  streamRead: z.boolean().catch(false),
   vnVoice: z.boolean().catch(true),
   vnWaitVoice: z.boolean().catch(true),
   vnInterrupt: z.boolean().catch(true),
@@ -192,6 +193,12 @@ const genderField: ExtensionSettingField = {
 }
 export const ttsFields: ExtensionSettingField[] = [
   { key: 'tts', type: 'heading', label: '朗读设置' },
+  {
+    key: 'streamRead',
+    type: 'boolean',
+    label: '边生成边朗读',
+    hint: '回复还在生成时，先把已经完整的句子读出来；关闭时等整条生成完再读',
+  },
   { key: 'genderMatch', type: 'boolean', label: '按性别分配声音' },
   {
     key: 'genderInference',

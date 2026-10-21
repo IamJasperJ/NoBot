@@ -9,7 +9,7 @@ import { errorMessage, toast } from '../../../stores/toast'
 import { type ChatVoiceDraft, mergeChatVoiceDraft } from './chat-voice-draft'
 import { VoicePicker } from './VoicePicker'
 
-type Flag = 'enabled' | 'autoRead' | 'vnVoice' | 'readNarration' | 'readUser'
+type Flag = 'enabled' | 'streamRead' | 'autoRead' | 'vnVoice' | 'readNarration' | 'readUser'
 
 /** 去掉还没填完的声音（选了引擎、没选声音），服务端只收完整的 */
 function sanitize(config: ChatVoiceConfig): ChatVoiceConfig {
@@ -240,6 +240,7 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
       <div>
         {flag('enabled', t('朗读'))}
         {flag('autoRead', t('新回复自动朗读'))}
+        {flag('streamRead', t('边生成边朗读'))}
         {flag('vnVoice', t('VN 里逐句朗读'))}
         {flag('readNarration', t('朗读旁白'))}
         {flag('readUser', t('朗读你的台词'))}

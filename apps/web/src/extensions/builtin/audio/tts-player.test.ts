@@ -309,3 +309,107 @@ test('blocked 结束消息后不读下一段，也不抛给手动朗读 toast；
   await expect(player.speakMessage('m')).rejects.toThrow('语音播放失败')
   expect(useVnVoiceStore.getState().lastVoiceError?.message).toBe('语音播放失败')
 })
+
+test('自动消息和流式段按顺序排队，同一条消息不重复入队', async () => {
+  const endings = [deferred<'ended'>(), deferred<'ended'>(), deferred<'ended'>()]
+  const played: string[] = []
+  const requested: string[] = []
+  const engine = new AudioEngine()
+  engine.playVoice = (source) => {
+    const index = played.length
+    played.push('url' in source ? source.url : source.browser.text)
+    return endings[index]!.promise
+  }
+  const player = new TtsPlayer(
+    {
+      ...ttsApi,
+      message: async (id) => {
+        requested.push(id)
+        return { chatId: 'chat', segments: [{ speaker: { kind: 'narrator' }, text: id }] }
+      },
+      line: async ({ text }) => ({ kind: 'audio', url: text }),
+    },
+    engine,
+  )
+  player.enqueueMessage('chat', 'one')
+  player.enqueueMessage('chat', 'one')
+  player.enqueueLine('chat', { speaker: { kind: 'narrator' }, text: 'line' })
+  player.enqueueMessage('chat', 'two')
+  await flush()
+  expect(played).toEqual(['one'])
+  endings[0]!.resolve('ended')
+  await flush()
+  expect(played).toEqual(['one', 'line'])
+  endings[1]!.resolve('ended')
+  await flush()
+  expect(played).toEqual(['one', 'line', 'two'])
+  endings[2]!.resolve('ended')
+  await flush()
+  expect(requested).toEqual(['one', 'two'])
+  player.stop()
+})
+
+test('手动朗读、停止、离开会话都丢弃自动队列，迟到任务不能恢复', async () => {
+  for (const action of ['manual', 'stop', 'leave'] as const) {
+    const ending = deferred<'ended'>()
+    const played: string[] = []
+    const engine = new AudioEngine()
+    engine.playVoice = async (source) => {
+      if ('url' in source) played.push(source.url)
+      return ending.promise
+    }
+    const player = new TtsPlayer(
+      {
+        ...ttsApi,
+        message: async (id) => ({ chatId: 'chat', segments: [{ speaker: { kind: 'narrator' }, text: id }] }),
+        line: async ({ text }) => ({ kind: 'audio', url: text }),
+      },
+      engine,
+    )
+    player.enqueueMessage('chat', 'one')
+    player.enqueueMessage('chat', 'two')
+    await flush()
+    expect(played).toEqual(['one'])
+    let task: Promise<void> | undefined
+    if (action === 'manual') task = player.speakMessage('manual', 'chat')
+    else if (action === 'stop') player.stop()
+    else player.stopChat('chat')
+    await flush()
+    ending.resolve('ended')
+    await task
+    await flush()
+    expect(played).toEqual(action === 'manual' ? ['one', 'manual'] : ['one'])
+    player.stop()
+  }
+})
+
+test('离开会话取消尚未完成的队列准备，同时保留其他会话的队列', async () => {
+  const preparation = deferred<void>()
+  const played: string[] = []
+  const engine = new AudioEngine()
+  engine.playVoice = async (source) => {
+    if ('url' in source) played.push(source.url)
+    return 'ended'
+  }
+  const player = new TtsPlayer(
+    {
+      ...ttsApi,
+      message: async (id) => ({
+        chatId: id === 'one' ? 'a' : 'b',
+        segments: [{ speaker: { kind: 'narrator' }, text: id }],
+      }),
+      line: async ({ text }) => ({ kind: 'audio', url: text }),
+    },
+    engine,
+    (chatId) => (chatId === 'a' ? preparation.promise : Promise.resolve()),
+  )
+  player.enqueueMessage('a', 'one')
+  player.enqueueMessage('b', 'two')
+  player.stopChat('a')
+  await flush()
+  expect(played).toEqual(['two'])
+  preparation.resolve()
+  await flush()
+  expect(played).toEqual(['two'])
+  player.stop()
+})

@@ -77,6 +77,7 @@ export const chatVoiceConfigSchema = z.object({
   enabled: z.boolean().optional(),
   deliveryMode: deliveryModeSchema.optional(),
   autoRead: z.boolean().optional(),
+  streamRead: z.boolean().optional(),
   vnVoice: z.boolean().optional(),
   readNarration: z.boolean().optional(),
   readUser: z.boolean().optional(),
@@ -102,6 +103,7 @@ export interface ChatVoiceDTO {
   npcs: (ChatVoiceGender & { key: string; name: string; poolVoice: VoiceRef | null; fallbackVoice: VoiceRef | null })[]
   global: {
     enabled: boolean
+    streamRead: boolean
     autoRead: boolean
     vnVoice: boolean
     readNarration: boolean
@@ -110,7 +112,14 @@ export interface ChatVoiceDTO {
     narratorVoice: VoiceRef | null
     userVoice: VoiceRef | null
   }
-  effective: { enabled: boolean; autoRead: boolean; vnVoice: boolean; vnWaitVoice: boolean; vnInterrupt: boolean }
+  effective: {
+    streamRead: boolean
+    enabled: boolean
+    autoRead: boolean
+    vnVoice: boolean
+    vnWaitVoice: boolean
+    vnInterrupt: boolean
+  }
 }
 
 /** Fish Audio 声音目录的归一化条目。 */

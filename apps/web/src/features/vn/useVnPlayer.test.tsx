@@ -170,3 +170,189 @@ test('CG 拍保留前句与名牌、已读快进 60ms、pending 自动等待、�
     qc.clear()
   }
 })
+
+test('群聊带选项队列手动与自动跨消息推进，末条选项等待，刷新不重演，回看保持独立语义', () => {
+  const values: unknown[] = []
+  const refs: { current: unknown }[] = []
+  const effects: React.EffectCallback[] = []
+  const timers: (() => void)[] = []
+  let si = 0
+  let ri = 0
+  const state = spyOn(React, 'useState').mockImplementation(((initial: unknown) => {
+    const index = si++
+    if (!(index in values)) values[index] = typeof initial === 'function' ? initial() : initial
+    return [
+      values[index],
+      (next: unknown) => {
+        values[index] = typeof next === 'function' ? next(values[index]) : next
+      },
+    ]
+  }) as typeof React.useState)
+  const ref = spyOn(React, 'useRef').mockImplementation(
+    ((initial: unknown) => (refs[ri++] ??= { current: initial })) as typeof React.useRef,
+  )
+  const effect = spyOn(React, 'useEffect').mockImplementation((callback) => {
+    effects.push(callback)
+  })
+  const timeout = spyOn(globalThis, 'setTimeout').mockImplementation(((callback: () => void) => {
+    timers.push(callback)
+    return 1
+  }) as typeof setTimeout)
+  const previousStreaming = { ...useStreaming.getInitialState() }
+  const previousRead = [...useVn.getInitialState().read]
+  const { qc, render } = setupHooks()
+  const play = playPresetDataSchema.parse({ dialog: { cps: 0 } })
+  const first: MessageDTO = {
+    ...baseMessage,
+    id: 'one',
+    createdAt: Date.now() + 1000,
+    meta: {
+      stage: {
+        v: 1,
+        ops: [],
+        beats: [
+          { kind: 'narration', text: 'One' },
+          { kind: 'choices', options: [{ text: 'First choice' }] },
+        ],
+      },
+    },
+  }
+  const second: MessageDTO = {
+    ...baseMessage,
+    id: 'two',
+    createdAt: Date.now() + 1001,
+    status: 'streaming',
+    meta: {
+      stage: {
+        v: 1,
+        ops: [],
+        beats: [
+          { kind: 'narration', text: 'Three' },
+          { kind: 'choices', options: [{ text: 'Last choice' }] },
+        ],
+      },
+    },
+  }
+  const options = {
+    chatId: 'chat',
+    messages: [{ ...baseMessage, role: 'user' as const }, first],
+    play,
+    knownNames: [],
+    members: [],
+  }
+  const draw = () => {
+    si = 0
+    ri = 0
+    effects.length = 0
+    timers.length = 0
+    const player = render(() => useVnPlayer(options))
+    for (const callback of effects) callback()
+    return player
+  }
+  try {
+    draw()
+    draw()
+    let player = draw()
+    expect(player.current?.id).toBe('one')
+    options.messages.push(second)
+    Object.assign(useStreaming.getInitialState(), { chatId: 'chat', messageId: 'two', text: 'Three\nFour\n' })
+    player = draw()
+    expect(player.current?.id).toBe('one')
+    expect(player.pinned).toBe(false)
+    player.advance()
+    draw()
+    player = draw()
+    expect(player.ended).toBe(true)
+    expect(player.beat?.kind).toBe('choices')
+    // 下一条仍在生成时，过时选项也允许建立正常的自动推进定时器。
+    player.setAuto(true)
+    player = draw()
+    expect(timers).toHaveLength(1)
+    player.setAuto(false)
+    player = draw()
+    player.advance()
+    draw()
+    player = draw()
+    expect(player.current?.id).toBe('two')
+    expect(player.streaming).toBe(true)
+    expect(player.pinned).toBe(false)
+    // 流式结束后末拍等待语音，自动延迟结束才跨到下一条。
+    Object.assign(useStreaming.getInitialState(), previousStreaming)
+    second.status = 'done'
+    player.replay('one')
+    player = draw()
+    expect(player.pinned).toBe(true)
+    expect(player.replayToken).toBe(1)
+    player.jumpToEnd()
+    player = draw()
+    player.setAuto(true)
+    useVnVoiceStore.getInitialState().busyKey = 'one#1:1'
+    player = draw()
+    expect(timers).toHaveLength(0)
+    useVnVoiceStore.getInitialState().busyKey = null
+    player = draw()
+    expect(timers).toHaveLength(1)
+    timers[0]!()
+    player = draw()
+    expect(player.current?.id).toBe('two')
+    // 独立验证本轮队列的自动模式，不能借 pinned 跨消息。
+    values.length = 0
+    refs.length = 0
+    draw()
+    player = draw()
+    player.jumpToEnd()
+    player.setAuto(true)
+    useVnVoiceStore.getInitialState().busyKey = 'one#1:1'
+    player = draw()
+    expect(player.pinned).toBe(false)
+    expect(timers).toHaveLength(0)
+    useVnVoiceStore.getInitialState().busyKey = null
+    player = draw()
+    expect(timers).toHaveLength(1)
+    timers[0]!()
+    player = draw()
+    expect(player.current?.id).toBe('two')
+    expect(player.pinned).toBe(false)
+    player.jumpToEnd()
+    player = draw()
+    expect(player.beat).toEqual({ kind: 'choices', options: [{ text: 'Last choice' }] })
+    expect(timers).toHaveLength(0)
+    player.advance()
+    player = draw()
+    expect(player.current?.id).toBe('two')
+    expect(player.beat?.kind).toBe('choices')
+    // 已经读完的回复不重新排队，推进时直接进入后面的未读回复。
+    values.length = 0
+    refs.length = 0
+    useVn.getInitialState().read.push('two#1:1')
+    options.messages.push({ ...second, id: 'three' })
+    draw()
+    player = draw()
+    player.jumpToEnd()
+    player = draw()
+    player.advance()
+    player = draw()
+    expect(player.current?.id).toBe('three')
+    expect(player.pinned).toBe(false)
+    options.messages.pop()
+    // 模拟刷新：服务器拉回来的旧回复按 openedAt 停在最新回复的末拍。
+    values.length = 0
+    refs.length = 0
+    first.createdAt = 1
+    second.createdAt = 2
+    draw()
+    player = draw()
+    expect(player.current?.id).toBe('two')
+    expect(player.index).toBe(1)
+    expect(player.ended).toBe(true)
+  } finally {
+    qc.clear()
+    state.mockRestore()
+    ref.mockRestore()
+    effect.mockRestore()
+    timeout.mockRestore()
+    Object.assign(useStreaming.getInitialState(), previousStreaming)
+    useVn.getInitialState().read.splice(0, Number.POSITIVE_INFINITY, ...previousRead)
+    useVnVoiceStore.getInitialState().busyKey = null
+  }
+})

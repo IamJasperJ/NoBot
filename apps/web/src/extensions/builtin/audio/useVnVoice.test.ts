@@ -353,3 +353,76 @@ test('VN 不打断模式切句保留当前语音，换会话和卸载仍停止�
     useVnVoiceStore.setState({ busyKey: null })
   }
 })
+
+test('关闭边生成边朗读时当前拍等完成再读，主动重演可重新朗读已见拍', async () => {
+  const query = spyOn(queries, 'useChatVoice').mockReturnValue({
+    data: { effective: { enabled: true, vnVoice: true, streamRead: false } },
+  } as unknown as ReturnType<typeof queries.useChatVoice>)
+  const effects: { deps?: React.DependencyList; cleanup?: () => void }[] = []
+  const refs: { current: unknown }[] = []
+  let ei = 0
+  let ri = 0
+  const effect = spyOn(React, 'useEffect').mockImplementation((callback, deps) => {
+    const index = ei++
+    const old = effects[index]
+    if (old && deps?.every((value, i) => Object.is(value, old.deps?.[i]))) return
+    old?.cleanup?.()
+    effects[index] = { deps, cleanup: callback() || undefined }
+  })
+  const layoutEffect = spyOn(React, 'useLayoutEffect').mockImplementation(React.useEffect)
+  const ref = spyOn(React, 'useRef').mockImplementation(
+    ((value: unknown) => (refs[ri++] ??= { current: value })) as typeof React.useRef,
+  )
+  const speak = spyOn(ttsPlayer, 'speakLine').mockResolvedValue(undefined)
+  const prefetch = spyOn(ttsPlayer, 'prefetchLine').mockResolvedValue(undefined)
+  const stop = spyOn(ttsPlayer, 'stopChat').mockImplementation(() => {})
+  const props: SlotProps['vn.layer'] = {
+    chatId: 'chat',
+    playKey: 'm#1',
+    beatIndex: 1,
+    skipping: false,
+    streaming: true,
+    replayToken: 0,
+    play: playPresetDataSchema.parse({}),
+    stage: { scene: {}, cast: [] },
+    beats: [
+      { kind: 'narration', text: '前句' },
+      { kind: 'narration', text: '当前句' },
+    ],
+  }
+  const render = () => {
+    ei = 0
+    ri = 0
+    useVnVoice(props)
+  }
+  try {
+    render()
+    expect(speak).not.toHaveBeenCalled()
+    expect(prefetch).not.toHaveBeenCalled()
+    props.streaming = false
+    render()
+    expect(speak.mock.calls.map((c) => c[2])).toEqual(['当前句'])
+    render()
+    expect(speak).toHaveBeenCalledTimes(1)
+    props.replayToken = 1
+    props.beatIndex = 0
+    render()
+    props.beatIndex = 1
+    render()
+    expect(speak.mock.calls.map((c) => c[2])).toEqual(['当前句', '前句', '当前句'])
+    props.replayToken = 2
+    // 从回看起点（任意拍）开始朗读，不要求位于消息第一拍。
+    render()
+    expect(speak).toHaveBeenCalledTimes(4)
+  } finally {
+    for (const item of effects) item.cleanup?.()
+    query.mockRestore()
+    effect.mockRestore()
+    layoutEffect.mockRestore()
+    ref.mockRestore()
+    speak.mockRestore()
+    prefetch.mockRestore()
+    stop.mockRestore()
+    useVnVoiceStore.setState({ busyKey: null })
+  }
+})

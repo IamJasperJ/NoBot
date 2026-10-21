@@ -238,7 +238,9 @@ export function VnView({
           beatIndex: player.beatIndex,
           playKey: player.playKey,
           play,
-          skipping: player.skip || player.pinned,
+          skipping: player.skip,
+          streaming: player.streaming,
+          replayToken: player.replayToken,
         }}
       />
       {/* 点画面推进；隐藏界面时点一下恢复 */}

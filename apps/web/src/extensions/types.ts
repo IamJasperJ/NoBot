@@ -33,7 +33,11 @@ export interface SlotProps {
     /** 当前消息与备选共同组成的演出标识。 */
     playKey: string | null
     play: PlayPresetData
-    /** 快进或回看时不播放音效。 */
+    /** 当前拍属于尚未生成完的回复。 */
+    streaming?: boolean
+    /** 主动重演时改变，允许语音重新从起点向前播放。 */
+    replayToken?: number
+    /** 真正快进时不播放音效和语音。 */
     skipping: boolean
   }
   /** VN 顶部工具栏按钮区。 */

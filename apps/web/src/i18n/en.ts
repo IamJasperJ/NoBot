@@ -1,5 +1,6 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  边生成边朗读: 'Read while generating',
   演绎风格: 'Delivery style',
   '用英文写这个角色一贯的说话方式，例如 speaks softly, slightly shy, occasional stutter。支持自然语言指令的引擎会参考它；留空则不加。':
     'Describe this character’s usual speaking style in English, e.g. speaks softly, slightly shy, occasional stutter. Engines supporting natural language instructions will use it; leave blank to omit.',

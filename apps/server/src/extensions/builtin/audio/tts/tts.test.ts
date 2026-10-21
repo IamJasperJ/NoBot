@@ -407,8 +407,10 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
         { key: 'stageonly', name: 'Stage Only', at: 'center', expression: '' },
       ],
     })
+    expect((await json<ChatVoiceDTO>(`/chat/${chat.id}`)).effective.streamRead).toBe(false)
     const config = {
       enabled: true,
+      streamRead: true,
       autoRead: true,
       vnVoice: false,
       narratorVoice: null,
@@ -417,7 +419,10 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     }
     const saved = await json<ChatVoiceDTO>(`/chat/${chat.id}`, config, 'PUT')
     stageSpy.mockRestore()
+    expect(saved.config.streamRead).toBe(true)
+    expect(saved.global.streamRead).toBe(false)
     expect(saved.effective).toEqual({
+      streamRead: true,
       enabled: true,
       autoRead: true,
       vnVoice: false,

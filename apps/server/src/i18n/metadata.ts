@@ -238,6 +238,10 @@ export function translateMetadata(text: string): string {
       return t('朗读旁白')
     case '朗读用户台词':
       return t('朗读用户台词')
+    case '边生成边朗读':
+      return t('边生成边朗读')
+    case '回复还在生成时，先把已经完整的句子读出来；关闭时等整条生成完再读':
+      return t('回复还在生成时，先把已经完整的句子读出来；关闭时等整条生成完再读')
     case '自动朗读新回复':
       return t('自动朗读新回复')
     case 'VN 逐句朗读':

@@ -1,5 +1,6 @@
-export const TONES = ['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm', 'neutral'] as const
-export type Tone = (typeof TONES)[number]
+import { TONES, type Tone } from '@nobot/shared'
+
+export { TONES, type Tone } from '@nobot/shared'
 
 const groups: Record<Tone, readonly string[]> = {
   happy: [

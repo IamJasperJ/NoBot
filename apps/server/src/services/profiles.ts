@@ -6,6 +6,7 @@ import { db, getSetting, newId, setSetting } from '../db/client'
 import { type ChatRow, characters, chats, profiles, promptPresets } from '../db/schema'
 import { notFound } from '../errors'
 import { t } from '../i18n'
+import { translateMetadata } from '../i18n/metadata'
 import { getApiPresetRow, listApiPresets, resolveApiPreset } from './connections'
 import { SETTING_KEYS } from './settings'
 
@@ -102,7 +103,15 @@ export function resolveProfile(chat?: ChatRow, requireConnection = true) {
     image: profile?.image ?? null,
     promptConnectionId: profile?.promptConnectionId ?? null,
     source,
-    summary: { baseUrl: connection?.baseUrl ?? '', model, presetName: presetRow?.name ?? '', source },
+    summary: {
+      baseUrl: connection?.baseUrl ?? '',
+      model,
+      presetName:
+        presetRow?.id === getSetting<string>(SETTING_KEYS.builtinPromptPresetId) && presetRow?.name === '默认预设'
+          ? translateMetadata(presetRow.name)
+          : (presetRow?.name ?? ''),
+      source,
+    },
   }
 }
 /** 仅通过已打码的连接 DTO 返回摘要，避免把密钥暴露给前端。 */

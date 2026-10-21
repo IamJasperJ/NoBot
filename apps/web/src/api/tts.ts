@@ -1,7 +1,11 @@
 import type {
   ChatVoiceConfig,
   ChatVoiceDTO,
+  Delivery,
+  DeliveryCapabilities,
   FishVoiceSearchResult,
+  LineDelivery,
+  SpokenLine,
   TtsEngineId,
   TtsLineResult,
   TtsSpeaker,
@@ -21,6 +25,10 @@ export interface TtsSegment {
   speaker: TtsSpeaker
   text: string
   expression?: string
+  delivery?: LineDelivery
+  cues?: SpokenLine['cues']
+  director?: Partial<Delivery>
+  beatIndex?: number
 }
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await apiFetch(`/api/ext/audio/tts${path}`, {
@@ -38,14 +46,30 @@ export const ttsApi = {
   setChatVoice: ({ chatId, config }: { chatId: string; config: ChatVoiceConfig }) =>
     request<ChatVoiceDTO>('PUT', `/chat/${encodeURIComponent(chatId)}`, config),
   resetChatVoice: (chatId: string) => request<ChatVoiceDTO>('DELETE', `/chat/${encodeURIComponent(chatId)}`),
-  engines: () => request<{ id: TtsEngineId; label: string; configured: boolean }[]>('GET', '/engines'),
+  engines: () =>
+    request<{ id: TtsEngineId; label: string; configured: boolean; delivery: DeliveryCapabilities }[]>(
+      'GET',
+      '/engines',
+    ),
   voices: (engine: TtsEngineId, settings?: Record<string, unknown>, signal?: AbortSignal) =>
     request<{ options: TtsOption[] }>('POST', '/voices', { engine, settings }, signal),
   characterVoice: (id: string) => request<VoiceRef | null>('GET', `/voice/character/${encodeURIComponent(id)}`),
   setCharacterVoice: ({ id, voice }: { id: string; voice: VoiceRef | null }) =>
     request<VoiceRef | null>('PUT', `/voice/character/${encodeURIComponent(id)}`, { voice }),
-  line: (input: { chatId: string; speaker: TtsSpeaker; text: string; expression?: string }, signal?: AbortSignal) =>
-    request<TtsLineResult>('POST', '/line', input, signal),
+  line: (
+    input: {
+      chatId: string
+      speaker: TtsSpeaker
+      text: string
+      expression?: string
+      delivery?: LineDelivery
+      cues?: SpokenLine['cues']
+      director?: Partial<Delivery>
+      messageId?: string
+      beatIndex?: number
+    },
+    signal?: AbortSignal,
+  ) => request<TtsLineResult>('POST', '/line', input, signal),
   message: (messageId: string, signal?: AbortSignal) =>
     request<{ chatId: string; segments: TtsSegment[] }>('POST', '/message', { messageId }, signal),
   preview: (input: { voice: VoiceRef; text?: string }) => request<TtsLineResult>('POST', '/preview', input),

@@ -16,6 +16,7 @@ import {
 import {
   type ChatMessage,
   type CheckResult,
+  chatVoiceConfigSchema,
   EXPRESSIONS,
   type GenerationType,
   type GroupDTO,
@@ -38,6 +39,7 @@ import {
   personas,
 } from '../db/schema'
 import { HttpError, notFound, promptBudgetMessage } from '../errors'
+import { audioSettings as audioSettingsSchema } from '../extensions/builtin/audio/tts/settings'
 import { collectMacros, runAfterPrompt, runBeforePrompt } from '../extensions/registry'
 import { t } from '../i18n'
 import { enabledToolNames } from '../tools'
@@ -367,7 +369,14 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
     const audioEnabled = getSetting<Record<string, boolean>>(SETTING_KEYS.extensionsEnabled)?.audio === true
     const audioSettings = getSetting<Record<string, unknown>>(SETTING_KEYS.extensionSettings('audio'))
     const tracks = audioEnabled && audioSettings?.listInPrompt !== false ? listAudioTracks() : []
+    const globalAudio = audioSettingsSchema.parse(audioSettings ?? {})
+    const chatAudio = chatVoiceConfigSchema.safeParse(getSetting(`extdata:audio:tts-chat:${ctx.chat.id}`)).data
+    const richDelivery =
+      audioEnabled &&
+      (chatAudio?.enabled ?? globalAudio.ttsEnabled) &&
+      (chatAudio?.deliveryMode ?? globalAudio.deliveryMode) === 'rich'
     const instructionInput = {
+      richDelivery,
       ...play.directives,
       kinds: play.directives.kinds.filter((kind) => kind !== 'audio' || audioEnabled),
       bgm: tracks.filter((track) => track.kind === 'bgm').map((track) => track.name),

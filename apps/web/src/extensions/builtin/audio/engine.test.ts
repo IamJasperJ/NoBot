@@ -179,3 +179,29 @@ test('浏览器语音按名字选声音、语速与音量，取消不依赖浏�
   expect(await result).toBe('stopped')
   expect(cancelled).toBe(1)
 })
+
+test('浏览器应用演绎倍率、合法范围和播放中的音量更新', async () => {
+  const utterances: SpeechSynthesisUtterance[] = []
+  const engine = new AudioEngine({
+    speech: {
+      getVoices: () => [],
+      speak: (u: SpeechSynthesisUtterance) => utterances.push(u),
+      cancel: () => {},
+    } as unknown as SpeechSynthesis,
+    createUtterance: (text) => ({ text }) as SpeechSynthesisUtterance,
+  })
+  const result = engine.playVoice({
+    browser: { voice: '', speed: 2, text: 'hello', adjustments: { rate: 0.9, pitch: 1.03, volume: 0.6 } },
+  })
+  expect(utterances[0]).toMatchObject({ rate: 1.8, pitch: 1.03, volume: 0.6 })
+  engine.setVolumes({ master: 50, bgm: 100, sfx: 100, muted: false })
+  expect(utterances[0]?.volume).toBe(0.3)
+  engine.stopVoice()
+  expect(await result).toBe('stopped')
+  const clamped = engine.playVoice({
+    browser: { voice: '', speed: 2, text: 'hello', adjustments: { rate: 100, pitch: 3, volume: 10 } },
+  })
+  expect(utterances[1]).toMatchObject({ rate: 10, pitch: 2, volume: 1 })
+  engine.stopVoice()
+  await clamped
+})

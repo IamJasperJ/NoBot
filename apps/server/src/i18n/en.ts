@@ -1,5 +1,13 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  语音导演: 'Voice director',
+  '朗读前用模型给整条消息标注语气，每条消息多一次调用':
+    'Use the model to annotate delivery before reading; adds one model call per message',
+  语气控制: 'Tone control',
+  '关：不控制语气': 'Off: no delivery control',
+  '基础：按立绘表情': 'Basic: follow character expressions',
+  '丰富：让模型在台词里标注语气和声音': 'Rich: let the model mark tone and sounds in dialogue',
+
   'Fish Audio 声音库': 'Fish Audio voice library',
   '请先填写 Fish Audio 密钥': 'Please enter your Fish Audio API key first',
   's2.1-pro（推荐）': 's2.1-pro (recommended)',

@@ -1,7 +1,7 @@
 import { type CharacterDTO, type MessageDTO, TTS_ENGINES, type TtsEngineId, type VoiceRef } from '@nobot/shared'
 import { useState } from 'react'
 import { useClearTtsCache, useTtsCache } from '../../../api/tts'
-import { Button } from '../../../components/ui'
+import { Button, controlClass, cx } from '../../../components/ui'
 import { t } from '../../../i18n'
 import { errorMessage, toast } from '../../../stores/toast'
 import type { SlotProps } from '../../types'
@@ -73,14 +73,29 @@ export function CharacterVoiceSection({
 }) {
   const [value, setValue] = useState<VoiceRef | null>(asVoice(character.extensions.nobot_tts))
   const [saving, setSaving] = useState(false)
+  const savedStyle =
+    typeof character.extensions.nobot_tts_style === 'string' ? character.extensions.nobot_tts_style : ''
+  const [style, setStyle] = useState(savedStyle)
+  // 失焦时保存；没改动不发请求，清空就从卡上删掉这个字段
+  const saveStyle = async () => {
+    const next = style.trim()
+    if (next === savedStyle) return
+    setSaving(true)
+    try {
+      await save({ extensions: { nobot_tts_style: next || null } })
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
   const update = async (next: VoiceRef | null) => {
     setValue(next)
     // 选了引擎但还没选声音时先不保存，免得存进一个空声音
     if (next && !next.voice) return
     setSaving(true)
     try {
-      const { nobot_tts: _old, ...rest } = character.extensions
-      await save({ extensions: next ? { ...rest, nobot_tts: next } : rest })
+      await save({ extensions: { nobot_tts: next } })
     } catch (e) {
       toast.error(errorMessage(e))
     } finally {
@@ -93,6 +108,24 @@ export function CharacterVoiceSection({
         {t('朗读这个角色的台词时用的声音。不设置时从「音频」扩展设置里的 NPC 声音池按名字分配。')}
       </p>
       <VoicePicker value={value} onChange={(next) => void update(next)} disabled={saving} />
+      <label className="block space-y-1 pt-1">
+        <span className="text-[13px] font-medium">{t('演绎风格')}</span>
+        <span className="block text-xs text-zinc-500">
+          {t(
+            '用英文写这个角色一贯的说话方式，例如 speaks softly, slightly shy, occasional stutter。支持自然语言指令的引擎会参考它；留空则不加。',
+          )}
+        </span>
+        <textarea
+          rows={2}
+          maxLength={200}
+          disabled={saving}
+          className={cx(controlClass, 'w-full px-2.5 py-1.5 text-[13px]')}
+          value={style}
+          placeholder="speaks softly, slightly shy"
+          onChange={(e) => setStyle(e.target.value)}
+          onBlur={() => void saveStyle()}
+        />
+      </label>
     </div>
   )
 }

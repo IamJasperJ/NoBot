@@ -192,6 +192,24 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
     expect((await page(chat.id)).stage).toBeNull()
     expect((await page(chat.id)).vars).toEqual({})
     await json(`/chats/${chat.id}`, 'PATCH', { playPresetId: gal.id })
+    const { updateExtension } = await import('../src/extensions/registry')
+    for (const [enabled, ttsEnabled, deliveryMode, override, expected] of [
+      [true, true, 'rich', {}, true],
+      [true, false, 'rich', {}, false],
+      [true, true, 'basic', {}, false],
+      [true, true, 'off', {}, false],
+      [false, true, 'rich', {}, false],
+      [true, true, 'rich', { enabled: false }, false],
+      [true, false, 'basic', { enabled: true, deliveryMode: 'rich' }, true],
+      [true, true, 'rich', { deliveryMode: 'basic' }, false],
+    ] as const) {
+      updateExtension('audio', { enabled, settings: { ttsEnabled, deliveryMode } })
+      setSetting(`extdata:audio:tts-chat:${chat.id}`, override)
+      const rendered = JSON.stringify(await preview(chat.id))
+      expect(rendered.includes('Optionally add delivery hints')).toBe(expected)
+    }
+    updateExtension('audio', { enabled: false })
+    setSetting(`extdata:audio:tts-chat:${chat.id}`, {})
     const bgId = newId()
     db.insert(backgrounds)
       .values({ id: bgId, name: '黄昏的酒馆', width: 1, height: 1, source: 'upload', createdAt: Date.now() })

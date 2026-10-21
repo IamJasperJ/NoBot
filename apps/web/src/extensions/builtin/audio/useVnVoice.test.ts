@@ -39,7 +39,14 @@ test('VN 语音：说话人、等待、切句中断、回退去重、跳读与�
     play: playPresetDataSchema.parse({}),
     stage: { scene: {}, cast: [{ key: 'alice', name: 'Alice', characterId: 'card', at: 'center', expression: '' }] },
     beats: [
-      { kind: 'line', speaker: 'Alice', text: 'Hi', expression: 'joy' },
+      {
+        kind: 'line',
+        speaker: 'Alice',
+        text: 'Hi',
+        expression: 'joy',
+        delivery: { volume: 'whisper', intensity: 3, direction: 'holding back tears' },
+        cues: [{ at: 0, cue: 'sigh' }],
+      },
       { kind: 'narration', text: 'Night' },
       { kind: 'line', speaker: 'Bob', text: 'Hello' },
     ],
@@ -56,8 +63,24 @@ test('VN 语音：说话人、等待、切句中断、回退去重、跳读与�
     render()
     await flush()
     expect(prefetch.mock.calls.map((call) => call[2])).toEqual(['Hi', 'Night', 'Hello'])
-    expect(prefetch).toHaveBeenLastCalledWith('chat', { kind: 'npc', name: 'Bob' }, 'Hello', undefined)
-    expect(speak).toHaveBeenLastCalledWith('chat', { kind: 'character', characterId: 'card' }, 'Hi', 'joy')
+    expect(prefetch).toHaveBeenLastCalledWith(
+      'chat',
+      { kind: 'npc', name: 'Bob' },
+      'Hello',
+      undefined,
+      undefined,
+      undefined,
+      { messageId: 'm', beatIndex: 2 },
+    )
+    expect(speak).toHaveBeenLastCalledWith(
+      'chat',
+      { kind: 'character', characterId: 'card' },
+      'Hi',
+      'joy',
+      { volume: 'whisper', intensity: 3, direction: 'holding back tears' },
+      [{ at: 0, cue: 'sigh' }],
+      { messageId: 'm', beatIndex: 0 },
+    )
     expect(useVnVoiceStore.getState().busyKey).toBe('m#1:0')
     render()
     expect(speak).toHaveBeenCalledTimes(1)
@@ -91,7 +114,15 @@ test('VN 语音：说话人、等待、切句中断、回退去重、跳读与�
     expect(speak).toHaveBeenCalledTimes(3)
     props.beatIndex = 2
     render()
-    expect(speak).toHaveBeenLastCalledWith('chat', { kind: 'npc', name: 'Bob' }, 'Hello', undefined)
+    expect(speak).toHaveBeenLastCalledWith(
+      'chat',
+      { kind: 'npc', name: 'Bob' },
+      'Hello',
+      undefined,
+      undefined,
+      undefined,
+      { messageId: 'm', beatIndex: 2 },
+    )
     await flush()
     const prefetchCount = prefetch.mock.calls.length
     const count = speak.mock.calls.length
@@ -193,7 +224,15 @@ test('VN 预取窗口最多三句、并发两句，流式追加完整拍可预�
     await flush()
     props.beats = [...props.beats, { kind: 'line', speaker: 'New NPC', text: 'arrived' }]
     render()
-    expect(prefetch).toHaveBeenLastCalledWith('chat', { kind: 'npc', name: 'New NPC' }, 'arrived', undefined)
+    expect(prefetch).toHaveBeenLastCalledWith(
+      'chat',
+      { kind: 'npc', name: 'New NPC' },
+      'arrived',
+      undefined,
+      undefined,
+      undefined,
+      { messageId: 'stream-next', beatIndex: 1 },
+    )
     completions[7]!()
     await flush()
     const count = prefetch.mock.calls.length

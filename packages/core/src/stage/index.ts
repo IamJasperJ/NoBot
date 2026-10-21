@@ -204,6 +204,8 @@ export interface InstructionsInput {
   /** 模板原文；空串时用 DEFAULT_DIRECTIVE_TEMPLATES[style] */
   template: string
   style: 'shorthand' | 'xml'
+  /** 服务端仅在丰富演绎且会话开启朗读时启用。 */
+  richDelivery?: boolean
   kinds: DirectiveKind[]
   lists: PromptList[]
   cast: string[]
@@ -313,3 +315,5 @@ export function matchByName<T extends { name: string }>(query: string, items: T[
       .sort((a, b) => b.name.length - a.name.length)[0]
   )
 }
+
+export { parseCues, parseLineDelivery } from './delivery'

@@ -1,9 +1,9 @@
-import type { Tone } from '@nobot/core'
-import type { TtsEngineId } from '@nobot/shared'
+import type { DeliveryCapabilities, TtsEngineId } from '@nobot/shared'
 import { HttpError } from '../../../../errors'
 import { t } from '../../../../i18n'
 import { getApiPresetRow } from '../../../../services/connections'
-import { additionalEngines, toneInstruction } from './additional'
+import { additionalEngines } from './additional'
+import { deliveryCapabilities, engineInput, type SynthesisInput } from './delivery'
 import { EDGE_BASE, EDGE_TOKEN, EdgeHandshakeError, edgeHeaders, edgeSynthesize, type SocketFactory } from './edge'
 import { createFishClient, fishClient } from './fish'
 import type { AudioSettings } from './settings'
@@ -13,10 +13,11 @@ export interface TtsEngine {
   label: string
   voices(settings: AudioSettings, signal?: AbortSignal): Promise<{ value: string; label: string; lang?: string }[]>
   synthesize(
-    input: { text: string; voice: string; speed: number; style?: string; tone?: Tone },
+    input: SynthesisInput,
     settings: AudioSettings,
     signal?: AbortSignal,
   ): Promise<{ bytes: Uint8Array; mime: string }>
+  deliveryCapabilities(settings: AudioSettings, voice?: string): DeliveryCapabilities
   configured(settings: AudioSettings): boolean
 }
 export function openaiConnection(settings: AudioSettings) {
@@ -66,6 +67,7 @@ export function createTtsEngines(
     ...additionalEngines(request, offline, mockAudio),
     browser: {
       id: 'browser',
+      deliveryCapabilities: (s, voice) => deliveryCapabilities('browser', s, voice),
       get label() {
         return t('浏览器系统语音')
       },
@@ -77,6 +79,7 @@ export function createTtsEngines(
     },
     openai: {
       id: 'openai',
+      deliveryCapabilities: (s, voice) => deliveryCapabilities('openai', s, voice),
       get label() {
         return t('OpenAI 兼容语音')
       },
@@ -93,6 +96,8 @@ export function createTtsEngines(
           (value) => ({ value, label: value }),
         ),
       synthesize: (input, s, signal) => {
+        const rendered = engineInput('openai', input, s)
+        input = rendered
         const c = openaiConnection(s)
         return synth(
           `${c.baseUrl.replace(/\/+$/, '')}/audio/speech`,
@@ -102,9 +107,7 @@ export function createTtsEngines(
             voice: input.voice,
             speed: input.speed,
             response_format: 'mp3',
-            ...(/gpt-4o-mini-tts/.test(s.openaiModel) && input.style
-              ? { instructions: input.tone ? toneInstruction(input.tone) : input.style }
-              : {}),
+            ...(rendered.params.instructions ? { instructions: rendered.params.instructions } : {}),
           },
           { ...(c.apiKey ? { Authorization: `Bearer ${c.apiKey}` } : {}), ...c.headers },
           signal,
@@ -113,33 +116,39 @@ export function createTtsEngines(
     },
     fish: {
       id: 'fish',
+      deliveryCapabilities: (s, voice) => deliveryCapabilities('fish', s, voice),
       get label() {
         return t('Fish Audio 语音')
       },
       configured: (s) => !!s.fishApiKey.trim() && !!s.fishEndpoint && !!s.fishModel,
       voices: fish.voices,
-      synthesize: (input, s, signal) =>
-        synth(
+      synthesize: (input, s, signal) => {
+        const rendered = engineInput('fish', input, s)
+        return synth(
           s.fishEndpoint,
           {
-            text: input.text,
+            text: rendered.text,
             reference_id: input.voice,
             prosody: { speed: input.speed },
             format: 'mp3',
           },
           { Authorization: `Bearer ${s.fishApiKey.trim()}`, model: s.fishModel },
           signal,
-        ),
+        )
+      },
     },
     gptsovits: {
       id: 'gptsovits',
+      deliveryCapabilities: (s, voice) => deliveryCapabilities('gptsovits', s, voice),
       label: 'GPT-SoVITS',
       configured: (s) => !!s.gptsovitsEndpoint && s.gptsovitsVoices.some((v) => !!v.refAudioPath),
       voices: async (s) => s.gptsovitsVoices.map((v) => ({ value: v.id, label: v.name, lang: v.textLang })),
       synthesize: (input, s, signal) => {
+        const rendered = engineInput('gptsovits', input, s)
+        input = rendered
         const preset = s.gptsovitsVoices.find((v) => v.id === input.voice)
         if (!preset?.refAudioPath) throw new HttpError(502, 'TTS_FAILED', t('参考声音预设不存在或不完整'))
-        const ref = input.tone ? preset.emotionRefs.find((v) => v.tone === input.tone) : undefined
+        const ref = rendered.params.tone ? preset.emotionRefs.find((v) => v.tone === rendered.params.tone) : undefined
         return synth(
           `${s.gptsovitsEndpoint.replace(/\/+$/, '')}/tts`,
           {
@@ -162,6 +171,7 @@ export function createTtsEngines(
     },
     edge: {
       id: 'edge',
+      deliveryCapabilities: (s, voice) => deliveryCapabilities('edge', s, voice),
       get label() {
         return t('Edge 语音')
       },
@@ -185,7 +195,19 @@ export function createTtsEngines(
         signal?.throwIfAborted()
         if (offline()) return { bytes: mockAudio, mime: 'audio/wav' }
         try {
-          return await edgeSynthesize({ ...input, volume: _s.edgeVolume }, signal, network.socket, network.fetch)
+          const rendered = engineInput('edge', input, _s)
+          const prosody = rendered.params.prosody ?? { rate: 1, pitch: 1, volume: 1 }
+          return await edgeSynthesize(
+            {
+              ...rendered,
+              speed: input.speed * prosody.rate,
+              pitch: (prosody.pitch - 1) * 100,
+              volume: Math.max(-100, Math.min(100, ((1 + _s.edgeVolume / 100) * prosody.volume - 1) * 100)),
+            },
+            signal,
+            network.socket,
+            network.fetch,
+          )
         } catch (error) {
           signal?.throwIfAborted()
           if (error instanceof EdgeHandshakeError) throw new HttpError(502, 'TTS_HANDSHAKE_FAILED', error.message)
@@ -195,6 +217,7 @@ export function createTtsEngines(
     },
     elevenlabs: {
       id: 'elevenlabs',
+      deliveryCapabilities: (s, voice) => deliveryCapabilities('elevenlabs', s, voice),
       label: 'ElevenLabs',
       configured: (s) => !!s.elevenlabsApiKey,
       voices: async (s, signal) => {
@@ -206,20 +229,19 @@ export function createTtsEngines(
         const data = (await result.json()) as { voices: { voice_id: string; name: string }[] }
         return data.voices.map((v) => ({ value: v.voice_id, label: v.name }))
       },
-      synthesize: (input, s, signal) =>
-        synth(
+      synthesize: (input, s, signal) => {
+        const rendered = engineInput('elevenlabs', input, s)
+        return synth(
           `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(input.voice)}?output_format=mp3_44100_128`,
           {
-            text:
-              s.elevenlabsModel === 'eleven_v3' && input.tone
-                ? `[${({ fearful: 'scared', disgusted: 'disgusted' } as Partial<Record<Tone, string>>)[input.tone] ?? input.tone}] ${input.text}`
-                : input.text,
+            text: rendered.text,
             model_id: s.elevenlabsModel,
-            voice_settings: { speed: input.speed },
+            voice_settings: { speed: input.speed, ...rendered.params.voiceSettings },
           },
           { 'xi-api-key': s.elevenlabsApiKey },
           signal,
-        ),
+        )
+      },
     },
   }
 }

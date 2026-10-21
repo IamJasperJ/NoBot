@@ -46,6 +46,19 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
   }
   try {
     updateExtension('audio', { enabled: true })
+    expect(updateExtension('audio', { settings: { expressionStyle: false } }).settings).toMatchObject({
+      deliveryMode: 'off',
+    })
+    expect(
+      (await json<ChatVoiceDTO>(`/chat/${createChat({ characterId: createCharacter({ name: 'Migration' }).id }).id}`))
+        .global.deliveryMode,
+    ).toBe('off')
+    expect(updateExtension('audio', { settings: { expressionStyle: true } }).settings).toMatchObject({
+      deliveryMode: 'basic',
+    })
+    expect(
+      updateExtension('audio', { settings: { expressionStyle: false, deliveryMode: 'rich' } }).settings,
+    ).toMatchObject({ deliveryMode: 'rich' })
     const { fishClient, createFishClient } = await import('./fish')
     const clearFish = spyOn(fishClient, 'clearCache')
     updateExtension('audio', { settings: { fishApiKey: 'saved-key' } })
@@ -184,6 +197,147 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
       text: '「Hi」',
       expression: 'joy',
     })
+    editMessage(opening.id, 'Alice[sadness|very whispering, holding back tears]：Hi<sigh/>')
+    expect(messageSegments(opening.id).segments[0]).toMatchObject({
+      text: 'Hi<sigh/>',
+      expression: 'sadness',
+      delivery: { intensity: 3, volume: 'whisper', direction: 'holding back tears' },
+      cues: [{ at: 2, cue: 'sigh' }],
+    })
+    updateExtension('audio', { settings: { ttsEnabled: true, deliveryMode: 'rich' } })
+    const annotated = messageSegments(opening.id).segments[0]!
+    const lineVoice = spyOn(ttsEngines.openai, 'synthesize').mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      mime: 'audio/mpeg',
+    })
+    try {
+      await json('/line', {
+        chatId: chat.id,
+        speaker: { kind: 'character', characterId: character.id },
+        text: 'Unique rich line<sigh/>',
+        expression: annotated.expression,
+        delivery: annotated.delivery,
+        cues: [{ at: 16, cue: 'sigh' }],
+      })
+      expect(lineVoice.mock.calls.at(-1)?.[0].text).toBe('Unique rich line')
+      expect(lineVoice.mock.calls.at(-1)?.[0].params?.instructions).toContain('very sad')
+      expect(lineVoice.mock.calls.at(-1)?.[0].params?.instructions).toContain('Whisper.')
+      expect(lineVoice.mock.calls.at(-1)?.[0].params?.instructions).toContain('holding back tears')
+      expect(lineVoice.mock.calls.at(-1)?.[0].params?.instructions).toContain('Include a sigh')
+      expect(lineVoice.mock.calls.at(-1)?.[0].params?.instructions?.match(/Include a sigh/g)).toHaveLength(1)
+      await json('/line', {
+        chatId: chat.id,
+        speaker: { kind: 'character', characterId: character.id },
+        text: 'Unique explicit cues',
+        cues: [
+          { at: 0, cue: 'sigh' },
+          { at: 0, cue: 'laugh' },
+        ],
+      })
+      const cueInstructions = lineVoice.mock.calls.at(-1)?.[0].params?.instructions ?? ''
+      expect(cueInstructions).toContain('Include a sigh at character offset 0')
+      expect(cueInstructions).toContain('Include a laugh at character offset 0')
+      expect(cueInstructions.indexOf('Include a sigh')).toBeLessThan(cueInstructions.indexOf('Include a laugh'))
+
+      expect(
+        (
+          await request('/line', {
+            chatId: chat.id,
+            speaker: { kind: 'narrator' },
+            text: 'bad',
+            delivery: { intensity: 4 },
+          })
+        ).status,
+      ).toBe(400)
+      expect(
+        (
+          await request('/line', {
+            chatId: chat.id,
+            speaker: { kind: 'narrator' },
+            text: 'bad',
+            delivery: { direction: 'x'.repeat(121) },
+          })
+        ).status,
+      ).toBe(400)
+    } finally {
+      lineVoice.mockRestore()
+      await clearTtsCache()
+    }
+    // 独立路由注入静默模型，验证 HTTP 到合成参数全链路而不联网。
+    const { Hono } = await import('hono')
+    const { registerTtsRoutes } = await import('./routes')
+    const { updateCharacter } = await import('../../../../services/characters')
+    const { characterDeliveryStyle } = await import('./service')
+    updateCharacter(character.id, {
+      extensions: { ...getCharacter(character.id).extensions, nobot_tts_style: 'Warm and measured.' },
+    })
+    expect(characterDeliveryStyle(character.id, chat.id)).toBe('Warm and measured.')
+    const directorData = new Map<string, unknown>()
+    let directorCalls = 0
+    const directorApp = new Hono()
+    const directorSettings = { ...settings, ttsEnabled: true, deliveryMode: 'rich', deliveryDirector: true }
+    registerTtsRoutes(directorApp, {
+      settings: directorSettings,
+      storage: {
+        get: <T>(key: string) => directorData.get(key) as T | undefined,
+        set: (key, value) => {
+          directorData.set(key, value)
+        },
+        delete: (key) => {
+          directorData.delete(key)
+        },
+      },
+      host: {
+        quietPrompt: async (input) => {
+          directorCalls++
+          expect(input.includeHistory).toBe(false)
+          expect(input.instruction).toContain('<clear-throat/>')
+          return '[{"i":0,"tone":"angry","intensity":1,"volume":"shout","text":"<laugh/>Hi"}]'
+        },
+      },
+    })
+    const directedRequest = (path: string, input: unknown) =>
+      directorApp.request(`/tts${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+    editMessage(opening.id, 'Alice Example[joy|very whispering]：Hi')
+    const directedSegments = (await (await directedRequest('/message', { messageId: opening.id })).json()) as {
+      segments: import('./service').TtsSegment[]
+    }
+    expect(directedSegments.segments[0]?.text).toBe('<laugh/>Hi')
+    const directorVoice = spyOn(ttsEngines.openai, 'synthesize').mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      mime: 'audio/mpeg',
+    })
+    try {
+      await directedRequest('/line', { chatId: chat.id, ...directedSegments.segments[0] })
+      const instructions = directorVoice.mock.calls.at(-1)?.[0].params?.instructions ?? ''
+      expect(instructions).toContain('very angry')
+      expect(instructions).toContain('Whisper.')
+      expect(instructions).toContain('Warm and measured.')
+      expect(instructions).toContain('Include a laugh')
+      // VN 与消息朗读使用同一份分段和缓存，不能再发一次导演请求。
+      const response = await directedRequest('/line', {
+        chatId: chat.id,
+        messageId: opening.id,
+        beatIndex: 0,
+        speaker: { kind: 'character', characterId: character.id },
+        text: 'Hi',
+        expression: 'joy',
+        delivery: { intensity: 3, volume: 'whisper' },
+      })
+      expect(response.status).toBe(200)
+      expect(directorCalls).toBe(1)
+      directorSettings.deliveryDirector = false
+      await directedRequest('/message', { messageId: opening.id })
+      expect(directorCalls).toBe(1)
+    } finally {
+      directorVoice.mockRestore()
+      updateCharacter(character.id, { extensions: { ...getCharacter(character.id).extensions, nobot_tts_style: '' } })
+      await clearTtsCache()
+    }
     const narration = '她笑着说：「你好呀。」然后转身离开。'
     const expectedSegments = [
       { speaker: { kind: 'narrator' }, text: '她笑着说：' },
@@ -192,7 +346,10 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     ]
     updateExtension('audio', { settings: { ...settings, ttsEnabled: true } })
     editMessage(opening.id, narration)
-    expect(await json('/message', { messageId: opening.id })).toEqual({ chatId: chat.id, segments: expectedSegments })
+    expect(await json('/message', { messageId: opening.id })).toEqual({
+      chatId: chat.id,
+      segments: expectedSegments.map((segment) => ({ ...segment, beatIndex: 0 })),
+    })
     // 显式保存舞台拍，覆盖 /tts/message 读取 meta.stage 而非重新解析的路径。
     sqlite
       .query('UPDATE messages SET meta = ? WHERE id = ?')
@@ -200,7 +357,10 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
         JSON.stringify({ ...opening.meta, stage: { v: 1, beats: [{ kind: 'narration', text: narration }], ops: [] } }),
         opening.id,
       )
-    expect(await json('/message', { messageId: opening.id })).toEqual({ chatId: chat.id, segments: expectedSegments })
+    expect(await json('/message', { messageId: opening.id })).toEqual({
+      chatId: chat.id,
+      segments: expectedSegments.map((segment) => ({ ...segment, beatIndex: 0 })),
+    })
     const { ttsFields } = await import('./settings')
     const edgeHeading = ttsFields.find((field) => field.key === 'edge')!
     expect(edgeHeading.hint).toBe('Edge 使用非官方接口，可能随时失效')
@@ -287,6 +447,43 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     setSetting(`extdata:audio:tts-chat:${chat.id}`, { enabled: 'bad' })
     expect((await json<ChatVoiceDTO>(`/chat/${chat.id}`)).config).toEqual({ characters: {}, npcs: {} })
     await json(`/chat/${chat.id}`, undefined, 'DELETE')
+    expect(cleanTtsText('你好<laugh />！<unknown/>')).toBe('你好<laugh />！')
+    await json(`/chat/${chat.id}`, { deliveryMode: 'off', narratorVoice: override, readNarration: true }, 'PUT')
+    expect(
+      await json('/line', { chatId: chat.id, speaker: { kind: 'narrator' }, text: 'Hello<laugh/>', expression: 'sad' }),
+    ).toMatchObject({ kind: 'browser', text: 'Hello' })
+    await json(`/chat/${chat.id}`, { deliveryMode: 'rich', narratorVoice: override, readNarration: true }, 'PUT')
+    expect(
+      await json('/line', { chatId: chat.id, speaker: { kind: 'narrator' }, text: 'Hello<laugh/>', expression: 'sad' }),
+    ).toMatchObject({ kind: 'browser', text: 'Hello', adjustments: { rate: 0.92, pitch: 0.96, volume: 1 } })
+    expect(
+      await json('/line', {
+        chatId: chat.id,
+        speaker: { kind: 'narrator' },
+        text: 'Hello',
+        expression: 'sadness',
+        delivery: { volume: 'whisper', intensity: 3, direction: 'holding back tears' },
+      }),
+    ).toMatchObject({
+      kind: 'browser',
+      text: 'Hello',
+      adjustments: { rate: 0.88, pitch: 0.94, volume: 0.6 },
+    })
+    await json(`/chat/${chat.id}`, { deliveryMode: 'basic', narratorVoice: override, readNarration: true }, 'PUT')
+    expect(
+      await json('/line', {
+        chatId: chat.id,
+        speaker: { kind: 'narrator' },
+        text: 'Hello',
+        expression: 'sadness',
+        delivery: { volume: 'whisper', intensity: 3 },
+      }),
+    ).toMatchObject({
+      kind: 'browser',
+      text: 'Hello',
+      adjustments: { rate: 0.92, pitch: 0.96, volume: 1 },
+    })
+    await json(`/chat/${chat.id}`, undefined, 'DELETE')
     const synthesis = spyOn(ttsEngines.openai, 'synthesize')
     const results = await Promise.all(
       Array.from({ length: 4 }, () => synthesizeVoice(voice, 'Hello cache', settings, 'joy')),
@@ -302,12 +499,22 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     expect(synthesis).toHaveBeenCalledTimes(1)
     await synthesizeVoice(voice, 'Hello cache', { ...settings, openaiModel: 'tts-1' })
     expect(synthesis).toHaveBeenCalledTimes(2)
+    await synthesizeVoice(voice, 'Hello cache', settings, 'grief')
+    expect(synthesis).toHaveBeenCalledTimes(3)
+    await synthesizeVoice(voice, 'Hello cache', { ...settings, deliveryMode: 'off' }, 'joy')
+    expect(synthesis).toHaveBeenCalledTimes(4)
+    await synthesizeVoice(voice, 'Hello cache', { ...settings, deliveryMode: 'off' }, 'grief')
+    expect(synthesis).toHaveBeenCalledTimes(4)
+    await synthesizeVoice(voice, 'Hello cache', { ...settings, deliveryMode: 'rich' }, 'joy')
+    expect(synthesis).toHaveBeenCalledTimes(4)
     synthesis.mockRestore()
     expect(await json('/preview', { voice: { engine: 'browser', voice: 'system', speed: 1 } })).toMatchObject({
       kind: 'browser',
       text: '你好，这是声音试听。',
     })
-    expect(await json('/engines')).toHaveLength(9)
+    const engineList = await json<{ id: string; delivery: { emotion: string } }[]>('/engines')
+    expect(engineList).toHaveLength(9)
+    expect(engineList.find((v) => v.id === 'openai')?.delivery.emotion).toBe('instruction')
     expect(await json('/voices', { engine: 'openai' })).toMatchObject({
       options: expect.arrayContaining([{ value: 'verse', label: 'verse' }]),
     })

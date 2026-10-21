@@ -12,6 +12,21 @@ import {
 import { setupHooks } from './hooks.test-utils'
 
 test('音频客户端与 hooks：元数据、表单、路由、错误和清单失效', async () => {
+  // 全量测试中的 Bun 原生异步清理也会调用 URL 静态方法；独立进程隔离这些全局 mock。
+  if (!process.env.AUDIO_CLIENT_TEST_CHILD) {
+    const child = Bun.spawn([process.execPath, 'test', import.meta.path], {
+      env: { ...process.env, AUDIO_CLIENT_TEST_CHILD: '1' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [out, err, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
+    expect(code, out + err).toBe(0)
+    return
+  }
   const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document')
   let mode: 'success' | 'error' | 'timeout' = 'success'
   let released = 0

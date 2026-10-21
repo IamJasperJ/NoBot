@@ -34,7 +34,7 @@ export class EdgeHandshakeError extends Error {
 }
 const defaultSocket: SocketFactory = (url, options) => new WebSocket(url, options)
 export async function edgeSynthesize(
-  input: { text: string; voice: string; speed: number; volume?: number },
+  input: { text: string; voice: string; speed: number; volume?: number; pitch?: number },
   signal?: AbortSignal,
   socket: SocketFactory = defaultSocket,
   request: typeof fetch = fetch,
@@ -62,7 +62,7 @@ export async function edgeSynthesize(
   }
 }
 function edgeAttempt(
-  input: { text: string; voice: string; speed: number; volume?: number },
+  input: { text: string; voice: string; speed: number; volume?: number; pitch?: number },
   now: number,
   signal: AbortSignal | undefined,
   socket: SocketFactory,
@@ -110,7 +110,7 @@ function edgeAttempt(
       const percent = Math.round((input.speed - 1) * 100)
       const rate = `${percent >= 0 ? '+' : ''}${percent}%`
       ws.send(
-        `X-RequestId:${crypto.randomUUID().replaceAll('-', '')}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp}Z\r\nPath:ssml\r\n\r\n<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${xmlEscape(input.voice)}"><prosody pitch="+0Hz" rate="${rate}" volume="${(input.volume ?? 0) >= 0 ? '+' : ''}${input.volume ?? 0}%">${xmlEscape(input.text)}</prosody></voice></speak>`,
+        `X-RequestId:${crypto.randomUUID().replaceAll('-', '')}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp}Z\r\nPath:ssml\r\n\r\n<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${xmlEscape(input.voice)}"><prosody pitch="${(input.pitch ?? 0) >= 0 ? '+' : ''}${input.pitch ?? 0}%" rate="${rate}" volume="${(input.volume ?? 0) >= 0 ? '+' : ''}${input.volume ?? 0}%">${xmlEscape(input.text)}</prosody></voice></speak>`,
       )
     }
     ws.onmessage = (event) => {

@@ -298,6 +298,7 @@ export function ExtensionsPage() {
       await Promise.all([
         qc.invalidateQueries({ queryKey: keys.extensions }),
         qc.invalidateQueries({ queryKey: keys.tools }),
+        ...(id === 'audio' ? [qc.invalidateQueries({ queryKey: ['tts'] })] : []),
       ])
       await loadExtensions(qc, id)
       return result

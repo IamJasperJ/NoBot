@@ -90,6 +90,7 @@ function attributes(raw: string): Record<string, string> {
 export interface Speech {
   speaker: string
   expression?: string
+  tone?: string
   text: string
   narrator: boolean
 }
@@ -106,10 +107,11 @@ export function shorthand(line: string, known: Set<string>, narrators: Set<strin
     if (!name || line.slice(0, name.length).toLowerCase() !== name) continue
     const suffix = /^(?:\[([^\]\r\n]+)\])?\s*[:：]\s*(.*)$/u.exec(line.slice(name.length))
     if (!suffix) continue
-    const expression = suffix[1]?.trim()
+    const [expression, tone] = suffix[1]?.split(/\|(.*)/s).map((part) => part.trim()) ?? []
     return {
       speaker: line.slice(0, name.length),
       ...(expression !== undefined ? { expression } : {}),
+      ...(tone !== undefined ? { tone } : {}),
       text: suffix[2]!,
       narrator: narrators.has(name),
     }
@@ -119,7 +121,7 @@ export function shorthand(line: string, known: Set<string>, narrators: Set<strin
   const speaker = match[1]!.trim()
   if (!speaker || /^[*「」『』“”‘’"']/.test(speaker) || Array.from(speaker).length > 24) return
   const key = speaker.toLowerCase()
-  const expression = match[2]?.trim()
+  const [expression, tone] = match[2]?.split(/\|(.*)/s).map((part) => part.trim()) ?? []
   const text = match[3]!
   const narrator = narrators.has(key)
   if (!narrator && !known.has(key) && expression === undefined) {
@@ -128,5 +130,11 @@ export function shorthand(line: string, known: Set<string>, narrators: Set<strin
     const end = closing ? text.indexOf(closing, 1) : -1
     if (end < 0 || !/^[\s\p{P}]*$/u.test(text.slice(end + 1))) return
   }
-  return { speaker, ...(expression !== undefined ? { expression } : {}), text, narrator }
+  return {
+    speaker,
+    ...(expression !== undefined ? { expression } : {}),
+    ...(tone !== undefined ? { tone } : {}),
+    text,
+    narrator,
+  }
 }

@@ -142,3 +142,36 @@ test('列表快捷图标直接选中页面，详情标签点击可切回设置',
     client.clear()
   }
 })
+
+test('音频设置保存成功使 TTS 查询失效，其他扩展和失败请求不触发', async () => {
+  const { api } = await import('../../api/client')
+  const runtime = await import('../../extensions/runtime')
+  const { client, render } = setup()
+  let detail: ReactNode
+  const manager = spyOn(layout, 'ManagerLayout').mockImplementation((props) => {
+    detail = props.detail
+    return <div />
+  })
+  const reload = spyOn(runtime, 'loadExtensions').mockResolvedValue(undefined)
+  const update = spyOn(api, 'updateExtension').mockResolvedValue(extension)
+  try {
+    useUi.getState().openView('extensions', extension.id)
+    render(<ExtensionsPage />)
+    const save = (detail as React.ReactElement<React.ComponentProps<typeof ExtensionDetail>>).props.update
+    client.setQueryData(['tts', 'engines'], [{ id: 'openai', capabilities: { instructions: true } }])
+    client.setQueryData(['tts', 'voices', 'openai'], [])
+    await save('fixture', { settings: {} })
+    expect(client.getQueryState(['tts', 'engines'])?.isInvalidated).toBe(false)
+    update.mockRejectedValueOnce(new Error('保存失败'))
+    await expect(save('audio', { settings: { openaiModel: 'tts-1' } })).rejects.toThrow('保存失败')
+    expect(client.getQueryState(['tts', 'engines'])?.isInvalidated).toBe(false)
+    await save('audio', { settings: { openaiModel: 'tts-1' } })
+    expect(client.getQueryState(['tts', 'engines'])?.isInvalidated).toBe(true)
+    expect(client.getQueryState(['tts', 'voices', 'openai'])?.isInvalidated).toBe(true)
+  } finally {
+    manager.mockRestore()
+    reload.mockRestore()
+    update.mockRestore()
+    client.clear()
+  }
+})

@@ -90,6 +90,27 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
       </label>
     )
   }
+  const modeLabels = { off: t('不控制语气'), basic: t('按立绘表情'), rich: t('模型标注语气和声音') } as const
+  /** 语气控制：跟随全局 / 关 / 按表情 / 模型标注 */
+  const deliveryField = () => (
+    <label className="flex items-center justify-between gap-3 py-1">
+      <span className="min-w-0 text-[13px]">{t('语气控制')}</span>
+      <select
+        className={cx(selectClass, 'h-8 w-44 shrink-0 pl-2.5 text-[13px]')}
+        value={draft.deliveryMode ?? ''}
+        onChange={(e) => {
+          const v = e.target.value
+          const { deliveryMode: _, ...rest } = draft
+          update(v === '' ? (rest as ChatVoiceConfig) : { ...draft, deliveryMode: v as keyof typeof modeLabels })
+        }}
+      >
+        <option value="">{t('跟随全局（{value}）', { value: modeLabels[global.deliveryMode] })}</option>
+        <option value="off">{modeLabels.off}</option>
+        <option value="basic">{modeLabels.basic}</option>
+        <option value="rich">{modeLabels.rich}</option>
+      </select>
+    </label>
+  )
   /** 旁白、用户声音：跟随全局 / 不读 / 指定 */
   const voiceField = (key: 'narratorVoice' | 'userVoice', label: string) => {
     const value = draft[key]
@@ -182,6 +203,7 @@ export function ChatVoiceSection({ chatId }: { chatId: string }) {
         {flag('vnVoice', t('VN 里逐句朗读'))}
         {flag('readNarration', t('朗读旁白'))}
         {flag('readUser', t('朗读你的台词'))}
+        {deliveryField()}
       </div>
 
       <div className="border-t border-zinc-100 pt-3 dark:border-zinc-800">

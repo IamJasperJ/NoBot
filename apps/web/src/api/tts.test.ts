@@ -58,7 +58,21 @@ test('TTS 客户端编码角色路径、发送草稿与分段参数、传递取�
 })
 test('TTS hooks 读取查询缓存，服务端渲染没有浏览器语音时返回空列表', () => {
   const { qc, render } = setupHooks()
-  const engines = [{ id: 'browser' as const, label: 'Browser', configured: true }]
+  const engines = [
+    {
+      id: 'browser' as const,
+      label: 'Browser',
+      configured: true,
+      delivery: {
+        emotion: 'prosody' as const,
+        intensity: true,
+        direction: false,
+        cues: [],
+        volume: true,
+        format: 'prosody' as const,
+      },
+    },
+  ]
   qc.setQueryData(['tts', 'engines'], engines)
   qc.setQueryData(['tts', 'chat', 'chat'], { effective: { enabled: false } })
   qc.setQueryData(['tts', 'voices', 'browser', undefined], [{ value: 'Alice', label: 'Alice' }])

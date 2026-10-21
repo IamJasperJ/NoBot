@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test'
 import { EDGE_VERSION, EdgeHandshakeError, edgeGec, edgeHeaders, edgeSynthesize, type SocketFactory } from './edge'
+import { createTtsEngines } from './engines'
+import { audioSettings } from './settings'
 
 // 参考值由 Python edge-tts 7.3.1 的 generate_sec_ms_gec_v2 计算，包含窗口边界和当前纪元。
 test.each([
@@ -89,4 +91,35 @@ test('打开连接后的合成失败不走握手重试', async () => {
   ws.onopen?.(new Event('open'))
   ws.onerror?.(new Event('error'))
   await expect(result).rejects.toThrow('Edge 朗读失败，接口可能已变化')
+})
+
+test('Edge 演绎写入 SSML，合并默认音量和用户语速', async () => {
+  const sent: string[] = []
+  const engines = createTtsEngines({
+    mock: false,
+    socket: () => {
+      const ws = fakeSocket()
+      ws.send = (text) => {
+        sent.push(String(text))
+      }
+      queueMicrotask(() => audioReply(ws))
+      return ws
+    },
+    fetch: (() => {
+      throw new Error('不应联网')
+    }) as unknown as typeof fetch,
+  })
+  await engines.edge.synthesize(
+    {
+      ...input,
+      speed: 1.5,
+      delivery: { tone: 'sad', intensity: 2, volume: 'whisper', direction: '' },
+    },
+    audioSettings.parse({ edgeVolume: 50 }),
+  )
+  const ssml = sent.find((text) => text.includes('Path:ssml'))!
+  expect(ssml).toContain('rate="+38%"')
+  expect(ssml).toMatch(/pitch="-4(?:\.0+\d*)?%"/)
+  expect(ssml).toMatch(/volume="-10(?:\.0+\d*)?%"/)
+  expect(ssml).not.toContain('express-as')
 })

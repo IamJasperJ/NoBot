@@ -1,12 +1,14 @@
 import { join } from 'node:path'
-import type { Tone } from '@nobot/core'
+
+export { toneInstruction } from '@nobot/core'
+
 import { paths } from '../../../../env'
 import { HttpError } from '../../../../errors'
 import { t } from '../../../../i18n'
 import { listAudioTracks } from '../../../../services/audio-library'
+import { deliveryCapabilities, engineInput } from './delivery'
 import type { TtsEngine } from './engines'
 
-export const toneInstruction = (tone: Tone) => `Speak in a ${tone} tone.`
 const failed = () => new HttpError(502, 'TTS_FAILED', t('语音服务请求失败，请检查配置'))
 
 /** 官方 FastAPI 输出单声道 int16 PCM，补标准 WAV 头后才能直接交给浏览器播放。 */
@@ -44,6 +46,7 @@ export function additionalEngines(
   return {
     minimax: {
       id: 'minimax',
+      deliveryCapabilities: (s, voice) => deliveryCapabilities('minimax', s, voice),
       label: 'MiniMax',
       configured: (s) => !!s.minimaxApiKey,
       voices: async (s) =>
@@ -68,6 +71,9 @@ export function additionalEngines(
             s.minimaxCustomVoices.filter((v) => v.id).map((v) => ({ value: v.id, label: v.name || v.id, lang: '' })),
           ),
       synthesize: async (input, s, signal) => {
+        const rendered = engineInput('minimax', input, s)
+        const params = rendered.params
+        input = rendered
         signal?.throwIfAborted()
         if (offline()) return mock
         const response = await post(
@@ -81,7 +87,7 @@ export function additionalEngines(
               speed: input.speed,
               vol: 1,
               pitch: 0,
-              ...(input.tone ? { emotion: input.tone } : {}),
+              ...(params.emotion ? { emotion: params.emotion } : {}),
             },
             audio_setting: { sample_rate: 32000, bitrate: 128000, format: 'mp3', channel: 1 },
           },
@@ -98,6 +104,7 @@ export function additionalEngines(
     },
     volcengine: {
       id: 'volcengine',
+      deliveryCapabilities: (s, voice) => deliveryCapabilities('volcengine', s, voice),
       get label() {
         return t('火山引擎语音')
       },
@@ -118,18 +125,11 @@ export function additionalEngines(
             s.volcengineCustomVoices.filter((v) => v.id).map((v) => ({ value: v.id, label: v.name || v.id, lang: '' })),
           ),
       synthesize: async (input, s, signal) => {
+        const rendered = engineInput('volcengine', input, s)
+        const params = rendered.params
+        input = rendered
         signal?.throwIfAborted()
         if (offline()) return mock
-        const emotion: Record<Tone, string> = {
-          happy: 'happy',
-          sad: 'sad',
-          angry: 'angry',
-          fearful: 'fear',
-          disgusted: 'hate',
-          surprised: 'surprised',
-          calm: 'neutral',
-          neutral: 'neutral',
-        }
         const response = await post(
           s.volcengineEndpoint,
           {
@@ -140,9 +140,10 @@ export function additionalEngines(
                 format: 'mp3',
                 sample_rate: 24000,
                 speech_rate: Math.round(Math.max(-50, Math.min(100, (input.speed - 1) * 100))),
-                ...(input.tone ? { emotion: emotion[input.tone], emotion_scale: 4 } : {}),
+                ...(params.emotion ? { emotion: params.emotion, emotion_scale: params.emotionScale } : {}),
               },
               additions: JSON.stringify({
+                ...(params.contextTexts ? { context_texts: params.contextTexts } : {}),
                 mute_cut_threshold: '400',
                 mute_cut_remain_ms: '1',
                 explicit_language: 'crosslingual',
@@ -181,10 +182,14 @@ export function additionalEngines(
     },
     cosyvoice: {
       id: 'cosyvoice',
+      deliveryCapabilities: (s, voice) => deliveryCapabilities('cosyvoice', s, voice),
       label: 'CosyVoice',
       configured: (s) => !!s.cosyvoiceEndpoint && s.cosyvoiceVoices.length > 0,
       voices: async (s) => s.cosyvoiceVoices.map((v) => ({ value: v.id, label: v.name })),
       synthesize: async (input, s, signal) => {
+        const rendered = engineInput('cosyvoice', input, s)
+        const params = rendered.params
+        input = rendered
         signal?.throwIfAborted()
         const preset = s.cosyvoiceVoices.find((v) => v.id === input.voice)
         if (!preset) throw new HttpError(502, 'TTS_FAILED', t('参考声音预设不存在或不完整'))
@@ -198,7 +203,7 @@ export function additionalEngines(
           form.set('prompt_wav', Bun.file(join(paths.audio, track.url.split('/').pop()!)), track.name)
         } else {
           form.set('spk_id', preset.spkId)
-          if (preset.mode === 'instruct') form.set('instruct_text', toneInstruction(input.tone ?? 'neutral'))
+          if (preset.mode === 'instruct') form.set('instruct_text', params.instructions ?? '')
         }
         const response = await request(`${s.cosyvoiceEndpoint.replace(/\/+$/, '')}/inference_${preset.mode}`, {
           method: 'POST',

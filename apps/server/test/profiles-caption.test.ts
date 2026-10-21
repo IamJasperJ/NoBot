@@ -70,6 +70,21 @@ test('配置组优先级、删除、正则、生图连接与图片说明完整�
     const character = createCharacter({ name: '角色' })
     const chat = createChat({ characterId: character.id })
     expect(resolveProfile(getChatRow(chat.id)).source).toBe('legacy')
+    const { getPromptPreset, updatePromptPreset, createPromptPreset } = await import('../src/services/promptPresets')
+    const builtinId = (await import('../src/db/client')).getSetting<string>(SETTING_KEYS.builtinPromptPresetId)!
+    const builtinName = getPromptPreset(builtinId).name
+    setAppSettings({ language: 'zh' })
+    expect((await json<ResolvedProfileDTO>(`/chats/${chat.id}/profile`)).summary.presetName).toBe('默认预设')
+    setAppSettings({ language: 'en' })
+    expect((await json<ResolvedProfileDTO>(`/chats/${chat.id}/profile`)).summary.presetName).toBe('Default preset')
+    updatePromptPreset(builtinId, { name: '自定义内置名' })
+    expect(resolveProfile(getChatRow(chat.id)).summary.presetName).toBe('自定义内置名')
+    updatePromptPreset(builtinId, { name: builtinName })
+    const customPreset = createPromptPreset({ name: '默认预设', data: {} })
+    updateChat(chat.id, { promptPresetId: customPreset.id })
+    expect(resolveProfile(getChatRow(chat.id)).summary.presetName).toBe('默认预设')
+    updateChat(chat.id, { promptPresetId: null })
+    setAppSettings({ language: 'zh' })
     const script = { name: '规则', find: 'cat', replace: '猫', input: true, output: true, prompt: true, enabled: true }
     const preset = await json<PromptPresetDTO>('/presets', 'POST', {
       name: '配置组预设',

@@ -152,7 +152,7 @@ test('AUD3：参考音频、聊天 BGM、锁定与在途保护、CharX 音频导
     const original = ttsEngines.minimax.synthesize
     ttsEngines.minimax.synthesize = async (input) => {
       synthesized++
-      expect(input.tone).toBeDefined()
+      expect(input.params?.emotion).toBeDefined()
       return { bytes: mockAudio, mime: 'audio/wav' }
     }
     try {

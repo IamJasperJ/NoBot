@@ -1,4 +1,4 @@
-import { chatVoiceConfigSchema, TTS_ENGINES, voiceRefSchema } from '@nobot/shared'
+import { chatVoiceConfigSchema, lineDeliverySchema, spokenCuesSchema, TTS_ENGINES, voiceRefSchema } from '@nobot/shared'
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { HttpError } from '../../../../errors'
@@ -8,12 +8,22 @@ import { listAudioTracks } from '../../../../services/audio-library'
 import { getCharacterRow, updateCharacter } from '../../../../services/characters'
 import { listApiPresets } from '../../../../services/connections'
 import { getLanguage } from '../../../../services/settings'
-import type { ExtensionStorage } from '../../../types'
+import { currentUser } from '../../../../user-context'
+import type { ExtensionHost, ExtensionStorage } from '../../../types'
 import { parseSettingsDraft } from '../../../types'
 import { chatVoiceDTO, chatVoiceKey, effectiveSettings } from './chat-voice'
+import { applyDirection, directMessage, directorDeliverySchema, waitForVnDirections } from './director'
 import { ttsEngines } from './engines'
 import { fishClient } from './fish'
-import { cacheEntries, cleanTtsText, clearTtsCache, messageSegments, resolveVoice, synthesizeVoice } from './service'
+import {
+  cacheEntries,
+  cleanTtsText,
+  clearTtsCache,
+  messageSegments,
+  resolveVoice,
+  speakerDeliveryStyle,
+  synthesizeVoice,
+} from './service'
 import { audioSettings } from './settings'
 
 export const speakerSchema = z.discriminatedUnion('kind', [
@@ -22,7 +32,10 @@ export const speakerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('narrator') }),
   z.object({ kind: z.literal('npc'), name: z.string().min(1) }),
 ])
-export function registerTtsRoutes(app: Hono, ctx: { settings: Record<string, unknown>; storage: ExtensionStorage }) {
+export function registerTtsRoutes(
+  app: Hono,
+  ctx: { settings: Record<string, unknown>; storage: ExtensionStorage; host?: Pick<ExtensionHost, 'quietPrompt'> },
+) {
   const dto = (chatId: string) => chatVoiceDTO(ctx.storage, chatId, audioSettings.parse(ctx.settings))
   app.get('/tts/chat/:chatId', (c) => c.json(dto(c.req.param('chatId'))))
   app.put('/tts/chat/:chatId', validate('json', chatVoiceConfigSchema), (c) => {
@@ -47,6 +60,7 @@ export function registerTtsRoutes(app: Hono, ctx: { settings: Record<string, unk
         id: engine.id,
         label: engine.label,
         configured: engine.configured(settings),
+        delivery: engine.deliveryCapabilities(settings),
       })),
     )
   })
@@ -115,22 +129,82 @@ export function registerTtsRoutes(app: Hono, ctx: { settings: Record<string, unk
         speaker: speakerSchema,
         text: z.string().max(100000),
         expression: z.string().optional(),
+        delivery: lineDeliverySchema.optional(),
+        cues: spokenCuesSchema.optional(),
+        director: directorDeliverySchema.optional(),
+        messageId: z.string().min(1).optional(),
+        beatIndex: z.number().int().nonnegative().optional(),
       }),
     ),
     async (c) => {
       const input = c.req.valid('json')
       const settings = effectiveSettings(input.chatId, audioSettings.parse(ctx.settings), ctx.storage)
       if (!settings.ttsEnabled) throw new HttpError(400, 'TTS_DISABLED', t('还没有开启朗读'))
+      if (
+        input.messageId &&
+        input.beatIndex !== undefined &&
+        settings.deliveryDirector &&
+        settings.deliveryMode !== 'off'
+      ) {
+        const message = messageSegments(input.messageId)
+        if (message.chatId !== input.chatId) throw new HttpError(400, 'BAD_REQUEST', t('音频参数不合法'))
+        const index = message.segments.findIndex((segment) => segment.beatIndex === input.beatIndex)
+        if (index >= 0) {
+          const directions = await waitForVnDirections(
+            directMessage({ ...ctx, userKey: currentUser().handle }, input.messageId, input.chatId, message.segments),
+          )
+          const segment = applyDirection(message.segments[index]!, directions?.[index])
+          if (message.segments[index]!.text === input.text) input.text = segment.text
+          else {
+            // VN 旁白保留整拍，消息朗读可能按引语拆段；只插入相应子串的声音。
+            let text = ''
+            let offset = 0
+            for (const [i, part] of message.segments.entries()) {
+              if (part.beatIndex !== input.beatIndex) continue
+              const at = input.text.indexOf(part.text, offset)
+              if (at < 0) continue
+              const directed = applyDirection(part, directions?.[i])
+              text += input.text.slice(offset, at) + directed.text
+              offset = at + part.text.length
+            }
+            input.text = text + input.text.slice(offset)
+          }
+          input.director = segment.director
+        }
+      }
       const text = cleanTtsText(input.text)
       if (!text) return c.json({ kind: 'skip', reason: 'empty' } as const)
       const voice = resolveVoice(input.chatId, input.speaker, settings)
-      return c.json('kind' in voice ? voice : await synthesizeVoice(voice, text, settings, input.expression))
+      return c.json(
+        'kind' in voice
+          ? voice
+          : await synthesizeVoice(
+              voice,
+              input.text,
+              settings,
+              input.expression,
+              input.delivery,
+              input.cues,
+              speakerDeliveryStyle(input.speaker, input.chatId),
+              settings.deliveryDirector ? input.director : undefined,
+            ),
+      )
     },
   )
-  app.post('/tts/message', validate('json', z.object({ messageId: z.string().min(1) })), (c) => {
-    const result = messageSegments(c.req.valid('json').messageId)
+  app.post('/tts/message', validate('json', z.object({ messageId: z.string().min(1) })), async (c) => {
+    const messageId = c.req.valid('json').messageId
+    const result = messageSegments(messageId)
     const settings = effectiveSettings(result.chatId, audioSettings.parse(ctx.settings), ctx.storage)
     if (!settings.ttsEnabled) throw new HttpError(400, 'TTS_DISABLED', t('还没有开启朗读'))
+    if (settings.deliveryDirector && settings.deliveryMode !== 'off') {
+      const directions = await directMessage(
+        { ...ctx, userKey: currentUser().handle },
+        messageId,
+        result.chatId,
+        result.segments,
+      )
+      result.segments = result.segments.map((segment, i) => applyDirection(segment, directions[i]))
+    }
     return c.json(result)
   })
   app.post(

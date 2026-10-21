@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Beat, MessageMeta } from '@nobot/shared'
-import { autoAdvanceDelay, currentCg, shownBeatIndexes } from './player-logic'
+import { autoAdvanceDelay, beatText, currentCg, shownBeatIndexes } from './player-logic'
 
 const beats: Beat[] = [
   { kind: 'stage', ops: [] },
@@ -36,4 +36,10 @@ test('自动播放等待 pending，CG 完成后等待双倍，文字时长封顶
   expect(autoAdvanceDelay(2, 0, { status: 'done', prompt: '', url: '/cg' })).toBe(4000)
   expect(autoAdvanceDelay(2, 10)).toBe(2300)
   expect(autoAdvanceDelay(2, 1000)).toBe(5000)
+})
+
+test('显示台词去掉声音标记，保留朗读原文与插入点', () => {
+  const beat: Beat = { kind: 'line', speaker: 'Alice', text: 'Hi<laugh/> there<sigh />' }
+  expect(beatText(beat)).toBe('Hi there')
+  expect(beat.text).toBe('Hi<laugh/> there<sigh />')
 })

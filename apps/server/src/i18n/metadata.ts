@@ -4,6 +4,19 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '语音导演':
+      return t('语音导演')
+    case '朗读前用模型给整条消息标注语气，每条消息多一次调用':
+      return t('朗读前用模型给整条消息标注语气，每条消息多一次调用')
+    case '语气控制':
+      return t('语气控制')
+    case '关：不控制语气':
+      return t('关：不控制语气')
+    case '基础：按立绘表情':
+      return t('基础：按立绘表情')
+    case '丰富：让模型在台词里标注语气和声音':
+      return t('丰富：让模型在台词里标注语气和声音')
+
     case 'Fish Audio 声音库':
       return t('Fish Audio 声音库')
     case 's2.1-pro（推荐）':

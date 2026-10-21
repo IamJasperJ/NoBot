@@ -1,4 +1,4 @@
-import { DEFAULT_DIRECTIVE_REMINDERS, DEFAULT_DIRECTIVE_TEMPLATES, type DirectiveKind } from '@nobot/shared'
+import { CUES, DEFAULT_DIRECTIVE_REMINDERS, DEFAULT_DIRECTIVE_TEMPLATES, type DirectiveKind } from '@nobot/shared'
 import type { InstructionsInput } from './index'
 
 /** 默认指令说明模板以 shared 契约为准（英文，保留解析器依赖的标签、属性和台词速记标点；编辑器的「填入默认模板」也用它） */
@@ -98,7 +98,16 @@ function guide(input: InstructionsInput, kind: DirectiveKind): string {
     return '- Start combat with <combat start: A, B> listing all participants; advance turns with <combat next>; finish with <combat end>. Prefix a choice requiring a check with [Perception DC 12] using English skill names; legacy Chinese skill names are also accepted. Call roll_dice for random outcomes and ability_check for checks; never invent dice results.'
   if (kind === 'audio')
     return '- Change background music with <bgm name="music" />, copying a name from Available music; <bgm name="none" /> stops it. Play a one-shot sound with <sfx name="sound" /> from Available sound effects. Use only listed names and skip audio tags when nothing fits.'
-  return DIRECTIVE_KIND_GUIDES[input.style][kind] ?? ''
+  const text = DIRECTIVE_KIND_GUIDES[input.style][kind] ?? ''
+  return kind === 'expression' && input.richDelivery ? `${text}\n${deliveryGuide(input)}` : text
+}
+
+function deliveryGuide(input: InstructionsInput): string {
+  const syntax =
+    input.style === 'xml'
+      ? 'an optional tone="whispering, holding back tears" attribute on <say>'
+      : 'an optional delivery hint after the expression: name[expression|whispering, holding back tears]：「dialogue」'
+  return `- Optionally add delivery hints using ${syntax}. Use English hints (whispering/shouting, slightly/very, or a short direction). When appropriate, insert a few nonverbal sounds inside dialogue: ${CUES.map((cue) => `<${cue}/>`).join(', ')}. Use at most 1–2 cues per sentence. Do not turn action descriptions into sound tags. Write dialogue in the same language as the conversation.`
 }
 
 function example(input: InstructionsInput): string {
@@ -118,7 +127,9 @@ function example(input: InstructionsInput): string {
       [second, 'Shall we begin?'],
     ]) {
       lines.push(
-        input.style === 'xml' ? `<say who="${who}" expr="${expr}">${text}</say>` : `${who}[${expr}]：「${text}」`,
+        input.style === 'xml'
+          ? `<say who="${who}" expr="${expr}"${input.richDelivery ? ' tone="whispering, holding back tears"' : ''}>${input.richDelivery ? '<sigh/>' : ''}${text}</say>`
+          : `${who}[${expr}${input.richDelivery ? '|whispering, holding back tears' : ''}]：「${input.richDelivery ? '<sigh/>' : ''}${text}」`,
       )
     }
   }
@@ -173,7 +184,11 @@ export function renderDirectiveReminder(input: InstructionsInput & { reminderTem
     audio:
       '- Use listed names with <bgm name="music" /> or <sfx name="sound" />; <bgm name="none" /> stops music. Skip audio tags when nothing fits.',
   }
-  const rules = input.kinds.map((kind) => rulesByKind[kind]).join('\n')
+  const rules = input.kinds
+    .map((kind) =>
+      kind === 'expression' && input.richDelivery ? `${rulesByKind[kind]}\n${deliveryGuide(input)}` : rulesByKind[kind],
+    )
+    .join('\n')
   return (input.reminderTemplate || DEFAULT_DIRECTIVE_REMINDERS[input.style])
     .split('\n')
     .filter((line) => rules || !line.includes('{{vn_rules}}'))

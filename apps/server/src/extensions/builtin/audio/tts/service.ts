@@ -1,9 +1,18 @@
 import { createHash } from 'node:crypto'
 import { readdir, stat, unlink, utimes } from 'node:fs/promises'
 import { join } from 'node:path'
-import { expressionTone } from '@nobot/core'
+import { deliveryFromExpression, expressionTone, parseCues, renderDelivery } from '@nobot/core'
 import { castKey, parseStageMessage, toDisplayText } from '@nobot/core/stage'
-import { type TtsLineResult, type TtsSpeaker, type VoiceRef, voiceRefSchema } from '@nobot/shared'
+import {
+  characterDeliveryStyleSchema,
+  type Delivery,
+  type LineDelivery,
+  type SpokenLine,
+  type TtsLineResult,
+  type TtsSpeaker,
+  type VoiceRef,
+  voiceRefSchema,
+} from '@nobot/shared'
 import { paths } from '../../../../env'
 import { getCharacterRow } from '../../../../services/characters'
 import { getChatRow, loadMessage } from '../../../../services/chats'
@@ -16,10 +25,16 @@ import { openaiConnection, ttsEngines } from './engines'
 import type { AudioSettings } from './settings'
 
 export function cleanTtsText(text: string) {
+  const cues: string[] = []
+  text = text.replace(/<(laugh|chuckle|sigh|gasp|breath|sob|cough|clear-throat)\s*\/>/gi, (tag) => {
+    cues.push(tag)
+    return `\uE000${cues.length - 1}\uE001`
+  })
   return toDisplayText(text, { knownNames: [], speaker: 'none' })
     .replace(/<[^>]*>/g, '')
     .replace(/[*_]/g, '')
     .trim()
+    .replace(/\uE000(\d+)\uE001/g, (_, index: string) => cues[Number(index)] ?? '')
 }
 export function poolVoice(name: string, pool: VoiceRef[]): VoiceRef | null {
   const hash = createHash('sha256').update(castKey(name)).digest().readUInt32BE(0)
@@ -58,6 +73,22 @@ export function resolveVoice(
     }
   }
 }
+/** 暂不提供会话覆盖，统一入口为后续扩展保留会话参数。 */
+export function characterDeliveryStyle(characterId: string, _chatId: string): string {
+  const style = getCharacterRow(characterId).extensions.nobot_tts_style
+  return (
+    characterDeliveryStyleSchema.safeParse(typeof style === 'string' ? style.trim().slice(0, 200) : style).data ?? ''
+  )
+}
+export function speakerDeliveryStyle(speaker: TtsSpeaker, chatId: string): string {
+  const id =
+    speaker.kind === 'character'
+      ? speaker.characterId
+      : speaker.kind === 'npc'
+        ? matchStageMember(chatId, speaker.name)?.id
+        : undefined
+  return id ? characterDeliveryStyle(id, chatId) : ''
+}
 export function expressionInstructions(expression?: string) {
   return toneInstruction(expressionTone(expression))
 }
@@ -65,11 +96,16 @@ export interface TtsSegment {
   speaker: TtsSpeaker
   text: string
   expression?: string
+  delivery?: LineDelivery
+  cues?: SpokenLine['cues']
+  director?: Partial<Delivery>
+  beatIndex?: number
 }
 export function messageSegments(messageId: string): { chatId: string; segments: TtsSegment[] } {
   const message = loadMessage(messageId)
   const chatId = message.chatId
-  if (message.role === 'user') return { chatId, segments: [{ speaker: { kind: 'user' }, text: message.content }] }
+  if (message.role === 'user')
+    return { chatId, segments: [{ speaker: { kind: 'user' }, text: message.content, beatIndex: 0 }] }
   const members = stageMembers(chatId)
   const beats =
     message.meta.stage?.beats ??
@@ -100,14 +136,23 @@ export function messageSegments(messageId: string): { chatId: string; segments: 
     return segments
   }
   if (!message.meta.stage && !beats.some((beat) => beat.kind === 'line'))
-    return { chatId, segments: quotedSegments(message.content) }
+    return { chatId, segments: quotedSegments(message.content).map((segment) => ({ ...segment, beatIndex: 0 })) }
   return {
     chatId,
-    segments: beats.flatMap((b): TtsSegment[] =>
+    segments: beats.flatMap((b, beatIndex): TtsSegment[] =>
       b.kind === 'line'
-        ? [{ speaker: { kind: 'npc', name: b.speaker }, text: b.text, expression: b.expression }]
+        ? [
+            {
+              speaker: { kind: 'npc', name: b.speaker },
+              text: b.text,
+              expression: b.expression,
+              delivery: b.delivery,
+              cues: b.cues,
+              beatIndex,
+            },
+          ]
         : b.kind === 'narration'
-          ? quotedSegments(b.text)
+          ? quotedSegments(b.text).map((segment) => ({ ...segment, beatIndex }))
           : [],
     ),
   }
@@ -195,14 +240,35 @@ export async function synthesizeVoice(
   text: string,
   s: AudioSettings,
   expression?: string,
+  delivery?: LineDelivery,
+  cues?: SpokenLine['cues'],
+  style = '',
+  director?: Partial<Delivery>,
 ): Promise<TtsLineResult> {
-  text = cleanTtsText(text)
-  if (!text) return { kind: 'skip', reason: 'empty' }
-  if (voice.engine === 'browser') return { kind: 'browser', voice: voice.voice, speed: voice.speed, text }
-  const tone = s.expressionStyle ? expressionTone(expression) : undefined
-  const style = tone ?? ''
+  const parsed = parseCues(text)
+  // 原文标记优先；只有无标记的调用才使用显式插入点，再统一清理文本以免偏移失效。
+  if (!parsed.cues.length && cues?.length) {
+    for (const { at, cue } of [...cues].sort((a, b) => a.at - b.at).reverse()) {
+      if (at <= text.length) text = `${text.slice(0, at)}<${cue}/>${text.slice(at)}`
+    }
+  }
+  const line = parseCues(cleanTtsText(text))
+  if (!line.text.trim()) return { kind: 'skip', reason: 'empty' }
+  const engine = ttsEngines[voice.engine]
+  const rendered = renderDelivery(
+    engine.deliveryCapabilities(s, voice.voice),
+    s.deliveryMode === 'off'
+      ? undefined
+      : { ...deliveryFromExpression(expression), ...director, ...(s.deliveryMode === 'rich' ? delivery : {}) },
+    line,
+    s.deliveryMode === 'off' ? '' : style,
+  )
+  text = rendered.text
+  const params = rendered.params
+  if (voice.engine === 'browser')
+    return { kind: 'browser', voice: voice.voice, speed: voice.speed, text, adjustments: params.prosody }
   const key = createHash('sha256')
-    .update(JSON.stringify([voice, style, text, cacheSettings(voice, s)]))
+    .update(JSON.stringify([voice, text, params, cacheSettings(voice, s)]))
     .digest('hex')
   const pendingKey = `${currentUser().handle}:${key}`
   const existing = pending.get(pendingKey)
@@ -215,10 +281,7 @@ export async function synthesizeVoice(
         return { kind: 'audio', url: `/api/assets/tts-cache/${name}` }
       }
     }
-    const result = await ttsEngines[voice.engine].synthesize(
-      { ...voice, text, style: tone ? toneInstruction(tone) : undefined, tone },
-      s,
-    )
+    const result = await ttsEngines[voice.engine].synthesize({ ...voice, text, params }, s)
     const name = `${key}.${result.mime === 'audio/wav' ? 'wav' : 'mp3'}`
     await Bun.write(join(paths.ttsCache, name), result.bytes)
     // 写入完成后异步清理，不让目录扫描拖慢合成响应。

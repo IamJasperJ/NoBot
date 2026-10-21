@@ -115,3 +115,26 @@ test('音频清单、空行删除和示例按可用名字生成', () => {
   expect(hidden).not.toContain('Night')
   expect(hidden).not.toContain('Bell')
 })
+
+test.each(['shorthand', 'xml'] as const)('丰富演绎说明和示例只按服务端标志启用：%s', (style) => {
+  for (const richDelivery of [false, undefined]) {
+    const prompt = renderDirectiveInstructions({ ...input, style, richDelivery })
+    expect(prompt).not.toContain('delivery hints')
+    expect(prompt).not.toContain('<sigh/>')
+    expect(prompt).not.toContain('tone=')
+  }
+  const prompt = renderDirectiveInstructions({ ...input, style, richDelivery: true })
+  expect(prompt).toContain('delivery hints')
+  for (const cue of ['laugh', 'chuckle', 'sigh', 'gasp', 'breath', 'sob', 'cough', 'clear-throat'])
+    expect(prompt).toContain(`<${cue}/>`)
+  expect(prompt).toContain('at most 1–2 cues per sentence')
+  expect(prompt).toContain('Do not turn action descriptions into sound tags')
+  expect(prompt).toContain(
+    style === 'xml' ? 'tone="whispering, holding back tears"' : '[joy|whispering, holding back tears]',
+  )
+  const reminder = renderDirectiveReminder({ ...input, style, richDelivery: true, reminderTemplate: '' })
+  expect(reminder).toContain('delivery hints')
+  expect(renderDirectiveInstructions({ ...input, style, richDelivery: true, kinds: ['cast'] })).not.toContain(
+    'delivery hints',
+  )
+})

@@ -1,4 +1,5 @@
 import type { Beat, ChoiceOption, MessageStage, StageOp, StagePosition } from '@nobot/shared'
+import { parseCues, parseLineDelivery } from './delivery'
 import type { DisplayOptions, ParseOptions, ParseResult } from './index'
 import { nameSet, type Speech, scanTags, shorthand, type Tag } from './scan'
 import { mvuCalls, VariableUpdates } from './vars'
@@ -200,6 +201,9 @@ export function parseStageMessage(content: string, opts: ParseOptions): ParseRes
     )
     const beat: Beat = { kind: 'line', speaker: line.speaker, text: line.text }
     if (line.expression !== undefined) beat.expression = line.expression
+    if (line.tone !== undefined) beat.delivery = parseLineDelivery(line.tone)
+    const cues = parseCues(line.text).cues
+    if (cues.length) beat.cues = cues
     stage.beats.push(beat)
   }
   walk(
@@ -221,6 +225,7 @@ export function parseStageMessage(content: string, opts: ParseOptions): ParseRes
         speech({
           speaker,
           text: body,
+          tone: tag.attrs.tone,
           ...(tag.attrs.expr !== undefined ? { expression: tag.attrs.expr } : {}),
           narrator: narrators.has(speaker.toLowerCase()),
         })
@@ -271,9 +276,8 @@ export function toDisplayText(content: string, opts: DisplayOptions): string {
       }
     },
   )
-  return parts
-    .join('')
-    .replace(/\r\n/g, '\n')
+  return parseCues(parts.join(''))
+    .text.replace(/\r\n/g, '\n')
     .replace(/\n[\t ]*\n(?:[\t ]*\n)+/g, '\n\n')
     .trim()
 }

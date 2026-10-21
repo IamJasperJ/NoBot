@@ -1,4 +1,4 @@
-import type { TtsLineResult, TtsSpeaker } from '@nobot/shared'
+import type { LineDelivery, SpokenLine, TtsLineResult, TtsSpeaker } from '@nobot/shared'
 import { create } from 'zustand'
 import { api as client } from '../../../api/client'
 import { apiFetch } from '../../../api/fetch'
@@ -19,9 +19,26 @@ export class TtsPlayer {
   private stoppedChats = new Set<string>()
   private cache = new Map<string, TtsLineResult>()
   private pending = new Map<string, Promise<TtsLineResult | undefined>>()
-  private lineKey(chatId: string, speaker: TtsSpeaker, text: string, expression?: string) {
+  private lineKey(
+    chatId: string,
+    speaker: TtsSpeaker,
+    text: string,
+    expression?: string,
+    delivery?: LineDelivery,
+    cues?: SpokenLine['cues'],
+    context?: { messageId: string; beatIndex: number },
+  ) {
     const identity = speaker.kind === 'character' ? speaker.characterId : speaker.kind === 'npc' ? speaker.name : ''
-    return JSON.stringify([chatId, speaker.kind, identity, text, expression ?? null])
+    return JSON.stringify([
+      chatId,
+      speaker.kind,
+      identity,
+      text,
+      expression ?? null,
+      delivery ?? null,
+      cues ?? null,
+      context ?? null,
+    ])
   }
   private cached(key: string) {
     const result = this.cache.get(key)
@@ -31,8 +48,16 @@ export class TtsPlayer {
     }
     return result
   }
-  async prefetchLine(chatId: string, speaker: TtsSpeaker, text: string, expression?: string) {
-    const key = this.lineKey(chatId, speaker, text, expression)
+  async prefetchLine(
+    chatId: string,
+    speaker: TtsSpeaker,
+    text: string,
+    expression?: string,
+    delivery?: LineDelivery,
+    cues?: SpokenLine['cues'],
+    context?: { messageId: string; beatIndex: number },
+  ) {
+    const key = this.lineKey(chatId, speaker, text, expression, delivery, cues, context)
     if (this.cached(key)) return
     const existing = this.pending.get(key)
     if (existing) {
@@ -41,14 +66,14 @@ export class TtsPlayer {
     }
     const task = (async () => {
       try {
-        const result = await this.api.line({ chatId, speaker, text, expression })
+        const result = await this.api.line({ chatId, speaker, text, expression, delivery, cues, ...context })
         if (result.kind === 'audio') {
           const response = await apiFetch(result.url)
           if (!response.ok) throw new Error('TTS prefetch failed')
           // 消费完整响应后浏览器才能缓存音频，避免播放时再等下载。
           await response.arrayBuffer()
         }
-        this.cache.set(key, result)
+        if (!context) this.cache.set(key, result)
         if (this.cache.size > 200) this.cache.delete(this.cache.keys().next().value!)
         return result
       } catch (error) {
@@ -99,13 +124,23 @@ export class TtsPlayer {
     const outcome = await this.engine.playVoice(result.kind === 'audio' ? { url: result.url } : { browser: result })
     if (outcome === 'error') throw new Error(t('语音播放失败'))
   }
-  async speakLine(chatId: string, speaker: TtsSpeaker, text: string, expression?: string) {
+  async speakLine(
+    chatId: string,
+    speaker: TtsSpeaker,
+    text: string,
+    expression?: string,
+    delivery?: LineDelivery,
+    cues?: SpokenLine['cues'],
+    context?: { messageId: string; beatIndex: number },
+  ) {
     const controller = this.start(null, chatId)
     try {
-      const key = this.lineKey(chatId, speaker, text, expression)
+      const key = this.lineKey(chatId, speaker, text, expression, delivery, cues, context)
       const prepared = this.cached(key) ?? (await this.pending.get(key))
       if (controller.signal.aborted) return
-      const result = prepared ?? (await this.api.line({ chatId, speaker, text, expression }, controller.signal))
+      const result =
+        prepared ??
+        (await this.api.line({ chatId, speaker, text, expression, delivery, cues, ...context }, controller.signal))
       await this.play(result, controller.signal)
     } catch (error) {
       if (!controller.signal.aborted) throw error

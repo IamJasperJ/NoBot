@@ -38,6 +38,7 @@ export function effectiveSettings(
 ): EffectiveAudioSettings {
   const config = readChatVoice(storage, chatId)
   const settings = { ...global, chatVoice: config }
+  settings.deliveryMode = config.deliveryMode ?? global.deliveryMode
   settings.ttsEnabled = config.enabled ?? global.ttsEnabled
   for (const key of ['autoRead', 'vnVoice', 'readNarration', 'readUser'] as const)
     settings[key] = config[key] ?? global[key]
@@ -75,6 +76,7 @@ export function chatVoiceDTO(storage: ExtensionStorage, chatId: string, global: 
     })),
     global: {
       enabled: global.ttsEnabled,
+      deliveryMode: global.deliveryMode,
       autoRead: global.autoRead,
       vnVoice: global.vnVoice,
       readNarration: global.readNarration,

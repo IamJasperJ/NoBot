@@ -55,13 +55,16 @@ export type TtsSpeaker =
   | { kind: 'narrator' }
   | { kind: 'npc'; name: string }
 export type TtsLineResult =
-  | { kind: 'browser'; voice: string; speed: number; text: string }
+  | { kind: 'browser'; voice: string; speed: number; text: string; adjustments?: DeliveryProsody }
   | { kind: 'audio'; url: string }
   | { kind: 'skip'; reason: 'no-voice' | 'narration-off' | 'user-off' | 'empty' }
+
+export const deliveryModeSchema = z.enum(['off', 'basic', 'rich'])
 
 /** 会话级语音覆盖：字段缺省表示跟随全局设置。 */
 export const chatVoiceConfigSchema = z.object({
   enabled: z.boolean().optional(),
+  deliveryMode: deliveryModeSchema.optional(),
   autoRead: z.boolean().optional(),
   vnVoice: z.boolean().optional(),
   readNarration: z.boolean().optional(),
@@ -83,6 +86,7 @@ export interface ChatVoiceDTO {
     vnVoice: boolean
     readNarration: boolean
     readUser: boolean
+    deliveryMode: z.infer<typeof deliveryModeSchema>
     narratorVoice: VoiceRef | null
     userVoice: VoiceRef | null
   }
@@ -107,3 +111,67 @@ export interface FishVoiceSearchResult {
   total: number
   hasMore: boolean
 }
+
+export const TONES = ['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm', 'neutral'] as const
+export type Tone = (typeof TONES)[number]
+export const CUES = ['laugh', 'chuckle', 'sigh', 'gasp', 'breath', 'sob', 'cough', 'clear-throat'] as const
+export type Cue = (typeof CUES)[number]
+export const spokenCuesSchema = z.array(z.object({ at: z.number().int().min(0), cue: z.enum(CUES) }))
+export const deliverySchema = z.object({
+  tone: z.enum(TONES),
+  intensity: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(2),
+  volume: z.enum(['whisper', 'normal', 'shout']).default('normal'),
+  direction: z.string().max(120).default(''),
+})
+export type Delivery = z.infer<typeof deliverySchema>
+/** 逐句标注只覆盖演绎方式，情绪仍由立绘表情决定。 */
+export const lineDeliverySchema = z.object({
+  volume: deliverySchema.shape.volume.removeDefault().optional(),
+  direction: deliverySchema.shape.direction.removeDefault().optional(),
+  intensity: deliverySchema.shape.intensity.removeDefault().optional(),
+})
+export type LineDelivery = z.infer<typeof lineDeliverySchema>
+/** 插入点使用 JavaScript 字符串偏移，插在该位置之前。 */
+export interface SpokenLine {
+  text: string
+  cues: { at: number; cue: Cue }[]
+}
+export type DeliveryFormat =
+  | 'openai'
+  | 'eleven-tags'
+  | 'eleven-settings'
+  | 'fish-s2'
+  | 'fish-s1'
+  | 'minimax'
+  | 'volcengine'
+  | 'cosyvoice'
+  | 'gptsovits'
+  | 'prosody'
+  | 'none'
+export interface DeliveryCapabilities {
+  emotion: 'none' | 'enum' | 'instruction' | 'tags-free' | 'tags-fixed' | 'ref-audio' | 'prosody'
+  intensity: boolean
+  direction: boolean
+  cues: Cue[]
+  volume: boolean
+  /** 同类能力的供应商语法不同，渲染时按此字段选择翻译表。 */
+  format?: DeliveryFormat
+}
+export interface DeliveryProsody {
+  rate: number
+  pitch: number
+  volume: number
+}
+export interface EngineDeliveryParams {
+  instructions?: string
+  emotion?: string
+  emotionScale?: number
+  contextTexts?: string[]
+  voiceSettings?: { style: number; stability: number }
+  tone?: Tone
+  prosody?: DeliveryProsody
+}
+
+/** 角色卡 extensions.nobot_tts_style 的演绎说明。 */
+export const characterDeliveryStyleSchema = z.string().max(200)
+export type CharacterDeliveryStyle = z.infer<typeof characterDeliveryStyleSchema>

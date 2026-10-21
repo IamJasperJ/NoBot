@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { TONES } from '@nobot/core'
-import { type ExtensionSettingField, voiceRefSchema } from '@nobot/shared'
+import { deliveryModeSchema, type ExtensionSettingField, voiceRefSchema } from '@nobot/shared'
 import { z } from 'zod'
 
 // 设置页里刚选了引擎、还没选声音的条目（voice 为空）先存着，解析时当作没设置
@@ -15,7 +15,7 @@ const voiceListSetting = z
     }),
   )
 
-export const audioSettings = z.object({
+const audioSettingsSchema = z.object({
   chatBgm: z.boolean().default(true),
   autoBgm: z.boolean().default(false),
   autoBgmEvery: z.number().int().min(1).default(5),
@@ -32,7 +32,8 @@ export const audioSettings = z.object({
   vnVoice: z.boolean().default(true),
   vnWaitVoice: z.boolean().default(true),
   vnInterrupt: z.boolean().default(true),
-  expressionStyle: z.boolean().default(true),
+  deliveryMode: deliveryModeSchema.default('basic'),
+  deliveryDirector: z.boolean().default(false),
   edgeVolume: z.number().int().min(-100).max(100).default(0),
   cacheMaxMb: z.number().finite().nonnegative().default(500),
   openaiConnectionId: z.string().default(''),
@@ -102,6 +103,17 @@ export const audioSettings = z.object({
   elevenlabsApiKey: z.string().default(''),
   elevenlabsModel: z.string().default('eleven_multilingual_v2'),
 })
+/** 必须在合并扩展默认值前迁移，避免默认 basic 遮住旧版 false。 */
+export function migrateAudioSettings(record: Record<string, unknown>): Record<string, unknown> {
+  const { expressionStyle, ...settings } = record
+  return { ...settings, deliveryMode: settings.deliveryMode ?? (expressionStyle === false ? 'off' : 'basic') }
+}
+
+/** 旧开关只在未设置新字段时参与迁移，显式的新模式始终优先。 */
+export const audioSettings = z.preprocess((value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  return migrateAudioSettings(value as Record<string, unknown>)
+}, audioSettingsSchema)
 export type AudioSettings = z.infer<typeof audioSettings>
 export const ttsFields: ExtensionSettingField[] = [
   { key: 'tts', type: 'heading', label: '朗读设置' },
@@ -114,9 +126,24 @@ export const ttsFields: ExtensionSettingField[] = [
       ['vnVoice', 'VN 逐句朗读'],
       ['vnWaitVoice', 'VN 自动播放等待语音'],
       ['vnInterrupt', '切句时打断语音'],
-      ['expressionStyle', '用表情控制语气'],
     ] as const
   ).map(([key, label]) => ({ key, label, type: 'boolean' as const })),
+  {
+    key: 'deliveryMode',
+    type: 'select',
+    label: '语气控制',
+    options: [
+      { value: 'off', label: '关：不控制语气' },
+      { value: 'basic', label: '基础：按立绘表情' },
+      { value: 'rich', label: '丰富：让模型在台词里标注语气和声音' },
+    ],
+  },
+  {
+    key: 'deliveryDirector',
+    type: 'boolean',
+    label: '语音导演',
+    hint: '朗读前用模型给整条消息标注语气，每条消息多一次调用',
+  },
   { key: 'narratorVoice', type: 'custom', label: '旁白声音' },
   { key: 'userVoice', type: 'custom', label: '用户声音' },
   { key: 'npcVoices', type: 'custom', label: 'NPC 声音池', hint: '为空时，没设声音的角色和 NPC 用旁白声音' },

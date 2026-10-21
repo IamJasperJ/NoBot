@@ -324,7 +324,7 @@ export function useVnPlayer({ chatId, messages, play, knownNames, members }: Pla
     /** 消息、备选与原始拍序号组成的标识，供立绘记忆区分换拍与普通重渲染。 */
     beatKey: readKey,
     shownCount,
-    revealedText: lastSaid ? lastSaid.text : Array.from(text).slice(0, revealed).join(''),
+    revealedText: lastSaid ? beatText(lastSaid) : Array.from(text).slice(0, revealed).join(''),
     /** 对话框里显示的那一拍：一般就是当前拍；选项拍、CG 拍时是它前面那一句 */
     said: lastSaid ?? (beat?.kind === 'choices' || beat?.kind === 'cg' ? undefined : beat),
     /** 当前拍是 CG 时：出图状态和图片地址（还在画时没有地址） */

@@ -39,6 +39,7 @@ test('火山：语速边界、情感、additions 和多行流（无末尾换行�
       expect(body.req_params.audio_params.emotion_scale).toBe(4)
       expect(body.req_params.audio_params.sample_rate).toBe(24000)
       expect(JSON.parse(body.req_params.additions)).toEqual({
+        context_texts: ['你可以用害怕的语气说吗？'],
         mute_cut_threshold: '400',
         mute_cut_remain_ms: '1',
         explicit_language: 'crosslingual',

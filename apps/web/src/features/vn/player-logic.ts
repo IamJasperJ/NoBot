@@ -1,3 +1,4 @@
+import { parseCues } from '@nobot/core/stage'
 import type { Beat, MessageMeta } from '@nobot/shared'
 
 export type ShownBeat = Extract<Beat, { kind: 'line' | 'narration' | 'choices' | 'cg' }>
@@ -16,7 +17,7 @@ export function shownBeatIndexes(beats: Beat[], cg: MessageMeta['cg'] = []): num
 }
 
 export const beatText = (beat: ShownBeat | undefined) =>
-  beat && (beat.kind === 'line' || beat.kind === 'narration') ? beat.text : ''
+  beat && (beat.kind === 'line' || beat.kind === 'narration') ? parseCues(beat.text).text : ''
 
 export function currentCg(beats: Beat[], index: number | undefined, meta?: MessageMeta) {
   const beat = index === undefined ? undefined : beats[index]

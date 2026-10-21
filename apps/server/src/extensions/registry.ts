@@ -21,6 +21,7 @@ import { setExtensionToolsProvider } from '../tools'
 import { currentUser } from '../user-context'
 import audio from './builtin/audio'
 import { fishClient } from './builtin/audio/tts/fish'
+import { migrateAudioSettings } from './builtin/audio/tts/settings'
 import caption, { generateCaption } from './builtin/caption'
 import imageGen from './builtin/image-gen'
 import { applyProfileImage } from './builtin/image-gen/profile'
@@ -407,7 +408,8 @@ function isEnabled(l: Loaded): boolean {
 }
 
 function settingsOf(ext: Extension): Record<string, unknown> {
-  return { ...ext.defaultSettings, ...getSetting<Record<string, unknown>>(SETTING_KEYS.extensionSettings(ext.id)) }
+  const stored = getSetting<Record<string, unknown>>(SETTING_KEYS.extensionSettings(ext.id))
+  return { ...ext.defaultSettings, ...(ext.id === 'audio' ? migrateAudioSettings(stored ?? {}) : stored) }
 }
 
 /** 设置里标了 secret 的字段名（API 密钥、Basic Auth 等） */

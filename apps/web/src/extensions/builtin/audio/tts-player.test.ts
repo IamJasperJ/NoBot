@@ -232,3 +232,28 @@ test('正在播放时 stopChat 仅中断对应会话，旧请求完成不清空�
   await second
   expect(useTtsPlayer.getState()).toEqual({ messageId: null, chatId: null, playing: false })
 })
+
+test('逐句演绎和声音透传，预取缓存随演绎和插入点变化', async () => {
+  const inputs: Parameters<typeof ttsApi.line>[0][] = []
+  const engine = new AudioEngine()
+  engine.playVoice = async () => 'ended'
+  const player = new TtsPlayer(
+    {
+      ...ttsApi,
+      line: async (input) => {
+        inputs.push(input)
+        return { kind: 'browser', voice: 'v', speed: 1, text: input.text }
+      },
+    },
+    engine,
+  )
+  const speaker = { kind: 'npc' as const, name: 'Alice' }
+  const delivery = { volume: 'whisper' as const, direction: 'holding back tears' }
+  const cues = [{ at: 0, cue: 'sigh' as const }]
+  await player.prefetchLine('chat', speaker, 'Hi', 'sadness', delivery, cues)
+  await player.speakLine('chat', speaker, 'Hi', 'sadness', delivery, cues)
+  expect(inputs).toEqual([{ chatId: 'chat', speaker, text: 'Hi', expression: 'sadness', delivery, cues }])
+  await player.speakLine('chat', speaker, 'Hi', 'sadness', { volume: 'shout' }, cues)
+  await player.speakLine('chat', speaker, 'Hi', 'sadness', delivery, [])
+  expect(inputs).toHaveLength(3)
+})

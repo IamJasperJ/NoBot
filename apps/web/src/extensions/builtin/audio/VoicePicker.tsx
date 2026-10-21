@@ -1,4 +1,4 @@
-import type { TtsEngineId, TtsLineResult, VoiceRef } from '@nobot/shared'
+import type { DeliveryCapabilities, TtsEngineId, TtsLineResult, VoiceRef } from '@nobot/shared'
 import { useState } from 'react'
 import { usePreviewVoice, useTtsEngines, useTtsVoices } from '../../../api/tts'
 import { PlayIcon, PlusIcon, StopIcon, XIcon } from '../../../components/icons'
@@ -137,6 +137,7 @@ export function VoicePicker({
           </IconButton>
         </>
       )}
+      {value && engine?.delivery && <DeliveryBadges capabilities={engine.delivery} />}
       {voices.error && value && value.engine !== 'browser' && (
         <p className="basis-full text-xs text-red-600 dark:text-red-400">{errorMessage(voices.error)}</p>
       )}
@@ -188,6 +189,44 @@ export function VoiceListPicker({
         <PlusIcon width={15} height={15} />
         {t('添加声音')}
       </button>
+    </div>
+  )
+}
+
+/** 当前引擎（和模型）能怎么控制语气：用一排小标签说明，帮用户挑引擎 */
+function DeliveryBadges({ capabilities: c }: { capabilities: DeliveryCapabilities }) {
+  const emotion: Record<DeliveryCapabilities['emotion'], string> = {
+    none: t('不支持语气'),
+    enum: t('情绪参数'),
+    instruction: t('自然语言指令'),
+    'tags-free': t('文本标签（可自由描述）'),
+    'tags-fixed': t('文本标签（固定几种）'),
+    'ref-audio': t('按语气切参考音频'),
+    prosody: t('只调语速、音调、音量'),
+  }
+  const badges = [
+    emotion[c.emotion],
+    c.intensity && t('强弱'),
+    c.volume && t('耳语 / 喊叫'),
+    c.direction && t('演绎说明'),
+    c.cues.length > 0 && t('笑声、叹气等 {count} 种', { count: c.cues.length }),
+  ].filter((b): b is string => !!b)
+  return (
+    <div className="flex basis-full flex-wrap items-center gap-1 text-[11px] text-zinc-500">
+      <span>{t('语气控制：')}</span>
+      {badges.map((b) => (
+        <span
+          key={b}
+          className={cx(
+            'rounded px-1.5 py-0.5',
+            c.emotion === 'none'
+              ? 'bg-zinc-100 dark:bg-zinc-800'
+              : 'bg-violet-50 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300',
+          )}
+        >
+          {b}
+        </span>
+      ))}
     </div>
   )
 }

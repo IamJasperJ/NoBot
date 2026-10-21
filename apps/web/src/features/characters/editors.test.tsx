@@ -159,7 +159,10 @@ test('角色编辑插槽使用折叠分组，保存仅浅合并 extensions 并�
   const { api } = await import('../../api/client')
   const { useExtensionsRuntime } = await import('../../extensions/runtime')
   let save: ((patch: { extensions: Record<string, unknown> }) => Promise<void>) | undefined
-  const latest = { ...character, extensions: { other: true, nested: { before: true } } }
+  const latest = {
+    ...character,
+    extensions: { other: true, nested: { before: true }, nobot_tts_style: 'soft', nobot_tts: { voice: 'old' } },
+  }
   const get = spyOn(api, 'getCharacter').mockResolvedValue(latest)
   const update = spyOn(api, 'updateCharacter').mockResolvedValue({
     ...latest,
@@ -187,7 +190,15 @@ test('角色编辑插槽使用折叠分组，保存仅浅合并 extensions 并�
     expect(lastGroup).not.toContain('open=')
     expect(save).toBeDefined()
     await save?.({ extensions: { nested: { after: true } } })
-    expect(update).toHaveBeenCalledWith(character.id, { extensions: { other: true, nested: { after: true } } })
+    expect(update).toHaveBeenCalledWith(character.id, {
+      extensions: { ...latest.extensions, nested: { after: true } },
+    })
+    for (const empty of [undefined, null]) {
+      await save?.({ extensions: { nobot_tts_style: empty, nobot_tts: empty } })
+      expect(update).toHaveBeenLastCalledWith(character.id, {
+        extensions: { other: true, nested: { before: true } },
+      })
+    }
   } finally {
     get.mockRestore()
     update.mockRestore()

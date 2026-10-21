@@ -588,9 +588,13 @@ export function CharacterEditor({
             save: async (patch) => {
               // 读取最新扩展数据，防止多个分组依次保存时覆盖彼此；普通表单草稿仍保留。
               const latest = await api.getCharacter(character.id)
-              const result = await api.updateCharacter(character.id, {
-                extensions: { ...latest.extensions, ...patch.extensions },
-              })
+              const extensions = { ...latest.extensions }
+              // 空值是插槽约定的删除标记；未传入的键仍保留最新值。
+              for (const [key, value] of Object.entries(patch.extensions)) {
+                if (value === undefined || value === null) delete extensions[key]
+                else extensions[key] = value
+              }
+              const result = await api.updateCharacter(character.id, { extensions })
               setDraft((d) => ({ ...d, extensions: result.extensions }))
               setOriginal((d) => ({ ...d, extensions: result.extensions }))
               await refresh()

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { LineDelivery, SpokenLine } from './audio'
 import type { AttachmentDTO } from './message'
 import type { CombatantState, CombatState } from './trpg'
 
@@ -115,7 +116,14 @@ export interface ChoiceOption {
 
 /** VN 视图的播放单位：一句一拍 */
 export type Beat =
-  | { kind: 'line'; speaker: string; expression?: string; text: string }
+  | {
+      kind: 'line'
+      speaker: string
+      expression?: string
+      text: string
+      delivery?: LineDelivery
+      cues?: SpokenLine['cues']
+    }
   | { kind: 'narration'; text: string }
   | { kind: 'stage'; ops: StageOp[] }
   | { kind: 'choices'; options: ChoiceOption[] }

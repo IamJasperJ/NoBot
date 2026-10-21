@@ -1,5 +1,25 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  演绎风格: 'Delivery style',
+  '用英文写这个角色一贯的说话方式，例如 speaks softly, slightly shy, occasional stutter。支持自然语言指令的引擎会参考它；留空则不加。':
+    'Describe this character’s usual speaking style in English, e.g. speaks softly, slightly shy, occasional stutter. Engines supporting natural language instructions will use it; leave blank to omit.',
+  不控制语气: 'No delivery control',
+  按立绘表情: 'Follow sprite expressions',
+  模型标注语气和声音: 'Model annotates delivery and sounds',
+  语气控制: 'Delivery control',
+  不支持语气: 'No delivery support',
+  情绪参数: 'Emotion parameter',
+  自然语言指令: 'Natural language instructions',
+  '文本标签（可自由描述）': 'Text tags (free-form)',
+  '文本标签（固定几种）': 'Text tags (fixed set)',
+  按语气切参考音频: 'Select reference audio by tone',
+  '只调语速、音调、音量': 'Rate, pitch and volume adjustments',
+  强弱: 'Intensity',
+  '耳语 / 喊叫': 'Whisper / shout',
+  演绎说明: 'Delivery direction',
+  '笑声、叹气等 {count} 种': '{count} sounds such as laughter and sighs',
+  '语气控制：': 'Delivery control: ',
+
   参考音频: 'Reference audio',
   '背景音乐…': 'Background music\u2026',
   '「自动」时跟随舞台指令里的 <bgm>，没有时按「音频」扩展的设置让模型挑选；指定一首后会一直播放它，直到切回自动。':

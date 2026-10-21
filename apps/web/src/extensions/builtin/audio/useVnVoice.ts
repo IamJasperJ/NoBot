@@ -55,6 +55,12 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
         speakerOf(beat, stage),
         beat.text,
         beat.kind === 'line' ? beat.expression : undefined,
+        beat.kind === 'line' ? beat.delivery : undefined,
+        beat.kind === 'line' ? beat.cues : undefined,
+        {
+          messageId: playKey.includes('#') ? playKey.slice(0, playKey.lastIndexOf('#')) : playKey,
+          beatIndex: beats.indexOf(beat),
+        },
       )
     })
     const work = async () => {
@@ -88,7 +94,15 @@ export function useVnVoice({ chatId, stage, beats, beatIndex, playKey, skipping 
     }
     const speak = () =>
       active
-        ? ttsPlayer.speakLine(chatId, speaker, beat.text, beat.kind === 'line' ? beat.expression : undefined)
+        ? ttsPlayer.speakLine(
+            chatId,
+            speaker,
+            beat.text,
+            beat.kind === 'line' ? beat.expression : undefined,
+            beat.kind === 'line' ? beat.delivery : undefined,
+            beat.kind === 'line' ? beat.cues : undefined,
+            { messageId: playKey.includes('#') ? playKey.slice(0, playKey.lastIndexOf('#')) : playKey, beatIndex },
+          )
         : Promise.resolve()
     // 不打断时等上一句完成；已离开的排队拍不再补播。
     const task = interrupt ? speak() : ongoing.current.then(speak, speak)

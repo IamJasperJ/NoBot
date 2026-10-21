@@ -1,3 +1,4 @@
+import type { DeliveryProsody } from '@nobot/shared'
 export interface AudioVolumes {
   master: number
   bgm: number
@@ -5,7 +6,9 @@ export interface AudioVolumes {
   voice?: number
   muted: boolean
 }
-export type VoiceSource = { url: string } | { browser: { voice: string; speed: number; text: string } }
+export type VoiceSource =
+  | { url: string }
+  | { browser: { voice: string; speed: number; text: string; adjustments?: DeliveryProsody } }
 export type VoiceOutcome = 'ended' | 'stopped' | 'error'
 export interface AudioEngineOptions {
   speech?: SpeechSynthesis
@@ -33,6 +36,7 @@ export class AudioEngine {
   private effects: Channel[] = []
   private current: Channel | undefined
   private url: string | null = null
+  private voiceDeliveryVolume = 1
   private volumes: AudioVolumes = { master: 100, bgm: 60, sfx: 80, muted: false }
   private pending = new Map<Channel, number>()
   private frameId: number | undefined
@@ -190,12 +194,14 @@ export class AudioEngine {
             finish('error')
             return
           }
+          this.voiceDeliveryVolume = source.browser.adjustments?.volume ?? 1
           const utterance = this.createUtterance(source.browser.text)
           this.utterance = utterance
           const voice = this.speech.getVoices().find((v) => v.name === source.browser.voice)
           if (voice) utterance.voice = voice
-          utterance.rate = source.browser.speed
-          utterance.volume = this.voiceVolume()
+          utterance.rate = Math.max(0.1, Math.min(10, source.browser.speed * (source.browser.adjustments?.rate ?? 1)))
+          utterance.pitch = Math.max(0, Math.min(2, source.browser.adjustments?.pitch ?? 1))
+          utterance.volume = Math.max(0, Math.min(1, this.voiceVolume() * (source.browser.adjustments?.volume ?? 1)))
           utterance.onend = () => finish('ended')
           utterance.onerror = () => finish('error')
           this.speech.speak(utterance)
@@ -221,7 +227,7 @@ export class AudioEngine {
       muted: volumes.muted,
     }
     if (this.voiceAudio) this.voiceAudio.volume = this.voiceVolume()
-    if (this.utterance) this.utterance.volume = this.voiceVolume()
+    if (this.utterance) this.utterance.volume = Math.max(0, Math.min(1, this.voiceVolume() * this.voiceDeliveryVolume))
     for (const channel of this.bgms) this.volume(channel, 'bgm')
     for (const channel of this.effects) this.volume(channel, 'sfx')
   }

@@ -6,6 +6,8 @@ services:
       args:
         BUN_IMAGE: ${BUN_IMAGE:-oven/bun:1.4.3-slim}
         DEBIAN_MIRROR: ${DEBIAN_MIRROR:-deb.debian.org}
+        # Dockerfile 首行的构建前端（docker/dockerfile）也要从 Docker Hub 拉；连不上时在 .env 里换成镜像源
+        BUILDKIT_SYNTAX: ${BUILDKIT_SYNTAX:-docker/dockerfile:1.7}
     restart: unless-stopped
     init: true
     environment:
@@ -20,6 +22,13 @@ services:
       NOBOT_ADMIN_RESET: ${NOBOT_ADMIN_RESET:-0}
       # 只有受信任的反向代理能覆盖客户端 IP 时才设为 1。
       TRUST_PROXY: ${TRUST_PROXY:-0}
+      # 留空时直连；代理只作用于遵循这些环境变量的出站请求。
+      HTTP_PROXY: ${NOBOT_PROXY:-}
+      HTTPS_PROXY: ${NOBOT_PROXY:-}
+      http_proxy: ${NOBOT_PROXY:-}
+      https_proxy: ${NOBOT_PROXY:-}
+      NO_PROXY: ${NOBOT_NO_PROXY:-localhost,127.0.0.1,::1}
+      no_proxy: ${NOBOT_NO_PROXY:-localhost,127.0.0.1,::1}
     ports:
       # 默认只允许本机访问；
       - '${NOBOT_BIND_IP:-127.0.0.1}:${NOBOT_PORT:-3000}:3000'

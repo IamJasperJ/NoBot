@@ -23,6 +23,7 @@ export function applyProfileImage(
       break
     case 'comfy':
       if (image.url) result.comfyUrl = image.url
+      if (image.headers.trim()) result.comfyHeaders = image.headers
       if (image.model) result.comfyCheckpoint = image.model
       if (image.comfyWorkflow !== null) result.comfyWorkflowName = image.comfyWorkflow
       break

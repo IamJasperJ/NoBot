@@ -17,6 +17,7 @@ test('四种后端覆盖连接、地址、模型、工作流和风格，且不�
         source,
         connectionId: 'profile',
         url: 'http://profile',
+        headers: '{"X-Profile":"1"}',
         model: 'chosen',
         comfyWorkflow: '',
         style: 'test',
@@ -28,7 +29,12 @@ test('四种后端覆盖连接、地址、模型、工作流和风格，且不�
       expect(result[`${source}ConnectionId`]).toBe('profile')
       expect(result[`${source}Model`]).toBe('chosen')
     } else if (source === 'comfy') {
-      expect(result).toMatchObject({ comfyUrl: 'http://profile', comfyCheckpoint: 'chosen', comfyWorkflowName: '' })
+      expect(result).toMatchObject({
+        comfyUrl: 'http://profile',
+        comfyHeaders: '{"X-Profile":"1"}',
+        comfyCheckpoint: 'chosen',
+        comfyWorkflowName: '',
+      })
     } else expect(result).toMatchObject({ a1111Url: 'http://profile', a1111Model: 'chosen' })
   }
   expect(settings).toEqual(original)

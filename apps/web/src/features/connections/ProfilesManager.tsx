@@ -8,7 +8,7 @@ import {
 } from '../../api/profileModels'
 import { useConnections, useExtensions, usePresets, useProfileMutations, useProfiles } from '../../api/queries'
 import { Combobox } from '../../components/combobox'
-import { DenseRow, Section, SelectField, TextField } from '../../components/form'
+import { DenseRow, Section, SelectField, TextAreaField, TextField } from '../../components/form'
 import { CheckIcon, RefreshIcon, TrashIcon } from '../../components/icons'
 import { DetailHeader, ListItem, ManagerLayout } from '../../components/layout'
 import { Menu, MenuEntry } from '../../components/menu'
@@ -67,6 +67,7 @@ const emptyImage = (source: ProfileImage['source']): ProfileImage => ({
   source,
   connectionId: null,
   url: '',
+  headers: '',
   model: '',
   comfyWorkflow: null,
   style: '',
@@ -141,6 +142,12 @@ export function ProfilesManager({ tabs }: { tabs: ReactNode }) {
   }
   // 全局正则规则（正则扩展的设置），「自定义」时以它为起点
   const globalRegex = (extensions.data?.find((e) => e.id === 'regex')?.settings.scripts ?? []) as RegexScript[]
+  // 图片生成扩展里配好的地址和请求头：配置组留空时用它们，这里显示出来方便对照、一键填入
+  const imageGen = extensions.data?.find((e) => e.id === 'image-gen')?.settings ?? {}
+  const text = (v: unknown) => (typeof v === 'string' ? v : '')
+  const extUrl = (source: ProfileImage['source']) =>
+    source === 'comfy' ? text(imageGen.comfyUrl) : source === 'a1111' ? text(imageGen.a1111Url) : ''
+  const extHeaders = text(imageGen.comfyHeaders)
 
   const connectionOptions = (empty: string) => [
     { value: '', label: empty },
@@ -326,12 +333,54 @@ export function ProfilesManager({ tabs }: { tabs: ReactNode }) {
                 {image && (image.source === 'comfy' || image.source === 'a1111') && (
                   <TextField
                     label={t('服务地址')}
-                    hint={t('留空跟随扩展')}
-                    placeholder={image.source === 'comfy' ? 'http://127.0.0.1:8188' : 'http://127.0.0.1:7860'}
+                    hint={
+                      extUrl(image.source)
+                        ? t('留空使用图片生成扩展里的地址：{url}', { url: extUrl(image.source) })
+                        : t('留空跟随扩展')
+                    }
+                    placeholder={
+                      extUrl(image.source) ||
+                      (image.source === 'comfy' ? 'http://127.0.0.1:8188' : 'http://127.0.0.1:7860')
+                    }
                     value={image.url}
                     onChange={(url) => setImage({ url })}
                   />
                 )}
+                {image?.source === 'comfy' && (
+                  <TextAreaField
+                    label={t('额外请求头（JSON）')}
+                    hint={
+                      extHeaders
+                        ? t('留空使用图片生成扩展里的请求头（输入框里灰色的就是）；填了则整份替换')
+                        : t('留空跟随扩展')
+                    }
+                    rows={2}
+                    mono
+                    placeholder={extHeaders}
+                    value={image.headers}
+                    onChange={(headers) => setImage({ headers })}
+                  />
+                )}
+                {image &&
+                  (image.source === 'comfy' || image.source === 'a1111') &&
+                  !!extUrl(image.source) &&
+                  (image.url !== extUrl(image.source) ||
+                    (image.source === 'comfy' && image.headers !== extHeaders)) && (
+                    <div className="col-span-full flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          setImage({
+                            url: extUrl(image.source),
+                            ...(image.source === 'comfy' ? { headers: extHeaders } : {}),
+                          })
+                        }
+                      >
+                        {t('填入扩展里的地址和请求头')}
+                      </Button>
+                    </div>
+                  )}
                 {image && (
                   <ModelField
                     label={

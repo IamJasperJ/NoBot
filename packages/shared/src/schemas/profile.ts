@@ -20,6 +20,8 @@ export const profileImageSchema = z.object({
   connectionId: z.string().nullable().default(null),
   /** ComfyUI / A1111 服务地址；空串跟随扩展。 */
   url: z.string().trim().default(''),
+  /** comfy：额外请求头（JSON，同扩展设置的 comfyHeaders）；空串跟随扩展 */
+  headers: z.string().default(''),
   /** 图片模型或 checkpoint；空串跟随扩展。 */
   model: z.string().trim().default(''),
   /** null 跟随扩展，空串选择内置默认工作流。 */

@@ -1,3 +1,4 @@
+import { parseCues } from '@nobot/core/stage'
 import { memo, type ReactNode } from 'react'
 
 /**
@@ -48,7 +49,7 @@ const Paragraph = memo(function Paragraph({ text }: { text: string }) {
 })
 
 export function FormattedText({ text }: { text: string }) {
-  const paragraphs = text.split('\n')
+  const paragraphs = parseCues(text).text.split('\n')
   return (
     <div className="message-text space-y-1.5">
       {paragraphs.map((p, i) => (

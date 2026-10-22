@@ -143,7 +143,23 @@ export interface FishVoiceSearchResult {
 
 export const TONES = ['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm', 'neutral'] as const
 export type Tone = (typeof TONES)[number]
-export const CUES = ['laugh', 'chuckle', 'sigh', 'gasp', 'breath', 'sob', 'cough', 'clear-throat'] as const
+export const CUES = [
+  'laugh',
+  'chuckle',
+  'sigh',
+  'gasp',
+  'breath',
+  'sob',
+  'cough',
+  'clear-throat',
+  'inhale',
+  'exhale',
+  'pant',
+  'groan',
+  'yawn',
+  'sniff',
+  'sneeze',
+] as const
 export type Cue = (typeof CUES)[number]
 export const spokenCuesSchema = z.array(z.object({ at: z.number().int().min(0), cue: z.enum(CUES) }))
 export const deliverySchema = z.object({
@@ -164,6 +180,9 @@ export type LineDelivery = z.infer<typeof lineDeliverySchema>
 export interface SpokenLine {
   text: string
   cues: { at: number; cue: Cue }[]
+  volume?: 'whisper' | 'shout'
+  spans?: { start: number; end: number; volume: 'whisper' | 'shout' }[]
+  pauses?: { at: number; ms: number }[]
 }
 export type DeliveryFormat =
   | 'openai'

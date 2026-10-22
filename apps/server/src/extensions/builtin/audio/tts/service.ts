@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { readdir, stat, unlink, utimes } from 'node:fs/promises'
 import { join } from 'node:path'
 import { deliveryFromExpression, expressionTone, guessVoiceGender, parseCues, renderDelivery } from '@nobot/core'
-import { castKey, speechSegments, toDisplayText } from '@nobot/core/stage'
+import { castKey, deliveryTokenSource, speechSegments, toDisplayText } from '@nobot/core/stage'
 import {
   type CharacterGender,
   characterDeliveryStyleSchema,
@@ -29,12 +29,12 @@ import { cosyvoiceHeadersHash } from './settings'
 
 export function cleanTtsText(text: string) {
   const cues: string[] = []
-  text = text.replace(/<(laugh|chuckle|sigh|gasp|breath|sob|cough|clear-throat)\s*\/>/gi, (tag) => {
+  text = text.replace(new RegExp(deliveryTokenSource, 'gi'), (tag) => {
     cues.push(tag)
     return `\uE000${cues.length - 1}\uE001`
   })
   return toDisplayText(text, { knownNames: [], speaker: 'none' })
-    .replace(/<[^>]*>/g, '')
+    .replace(/<\/?(?:b|i|em|strong|u|s|span|p|br)\b[^>]*>/gi, '')
     .replace(/[*_]/g, '')
     .trim()
     .replace(/\uE000(\d+)\uE001/g, (_, index: string) => cues[Number(index)] ?? '')

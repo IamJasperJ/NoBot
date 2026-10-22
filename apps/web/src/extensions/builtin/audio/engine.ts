@@ -1,3 +1,4 @@
+import { parseCues } from '@nobot/core/stage'
 import type { DeliveryProsody } from '@nobot/shared'
 import { t } from '../../../i18n'
 import { useVnVoiceStore } from '../../../stores/vnVoice'
@@ -292,7 +293,7 @@ export class AudioEngine {
             if (speechAttempted) {
               // cancel 的迟到事件不能结算重试中的新句，重试使用新的 utterance。
               const previous = this.utterance!
-              const next = this.createUtterance(source.browser.text)
+              const next = this.createUtterance(parseCues(source.browser.text).text)
               next.voice = previous.voice
               next.rate = previous.rate
               next.pitch = previous.pitch
@@ -333,7 +334,7 @@ export class AudioEngine {
             return
           }
           this.voiceDeliveryVolume = source.browser.adjustments?.volume ?? 1
-          const utterance = this.createUtterance(source.browser.text)
+          const utterance = this.createUtterance(parseCues(source.browser.text).text)
           this.utterance = utterance
           const voice = this.speech.getVoices().find((v) => v.name === source.browser.voice)
           if (voice) utterance.voice = voice

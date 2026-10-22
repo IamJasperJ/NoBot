@@ -43,3 +43,16 @@ test('显示台词去掉声音标记，保留朗读原文与插入点', () => {
   expect(beatText(beat)).toBe('Hi there')
   expect(beat.text).toBe('Hi<laugh/> there<sigh />')
 })
+
+test('VN 台词和旁白均清理音量、停顿及未知标签，保留范围正文', () => {
+  for (const text of ['普通。<whisper>秘密。</whisper>恢复。', 'Normal.<shout>Loud.</shout>Back.']) {
+    for (const beat of [
+      { kind: 'line' as const, speaker: 'Alice', text },
+      { kind: 'narration' as const, text },
+    ]) {
+      expect(beatText({ ...beat, text: `${text}<pause/><inhale/><foobar/>` })).toBe(
+        text.startsWith('普通') ? '普通。秘密。恢复。' : 'Normal.Loud.Back.',
+      )
+    }
+  }
+})

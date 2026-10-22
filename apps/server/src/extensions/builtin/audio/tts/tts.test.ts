@@ -469,6 +469,10 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     expect((await json<ChatVoiceDTO>(`/chat/${chat.id}`)).config).toEqual({ characters: {}, npcs: {} })
     await json(`/chat/${chat.id}`, undefined, 'DELETE')
     expect(cleanTtsText('你好<laugh />！<unknown/>')).toBe('你好<laugh />！')
+    const controlled = '<say who="Alice">甲<whisper>秘密</whisper><pause ms="500"/>乙[shouts]<inhale/></say>'
+    expect(cleanTtsText(controlled)).toBe('甲<whisper>秘密</whisper><pause ms="500"/>乙[shouts]<inhale/>')
+    const spoken = await synthesizeVoice({ engine: 'browser', voice: 'test', speed: 1 }, controlled, settings)
+    expect(spoken).toMatchObject({ kind: 'browser', text: '甲秘密乙', adjustments: { volume: 1.25 } })
     await json(`/chat/${chat.id}`, { deliveryMode: 'off', narratorVoice: override, readNarration: true }, 'PUT')
     expect(
       await json('/line', { chatId: chat.id, speaker: { kind: 'narrator' }, text: 'Hello<laugh/>', expression: 'sad' }),

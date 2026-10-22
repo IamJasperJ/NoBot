@@ -1,3 +1,19 @@
+/** 舞台指令先由舞台解析处理，台词清理不能抢先删除。 */
+export const stageDirectives = new Set([
+  'scene',
+  'show',
+  'hide',
+  'expr',
+  'say',
+  'state',
+  'choices',
+  'cg',
+  'sfx',
+  'updatevariable',
+  'combat',
+  'bgm',
+])
+
 export interface Tag {
   start: number
   end: number

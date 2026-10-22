@@ -85,7 +85,7 @@ test('网关 speech 的演绎、cues、off、请求头与 WAV 原样返回', asy
     intensity: true,
     direction: true,
     volume: true,
-    cues: ['laugh', 'breath'],
+    cues: ['laugh', 'breath', 'cough', 'sigh', 'gasp'],
     format: 'cosyvoice',
   })
   const rendered = renderDelivery(

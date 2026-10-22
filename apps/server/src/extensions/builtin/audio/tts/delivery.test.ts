@@ -36,11 +36,17 @@ test('能力随模型、火山资源和 CosyVoice 预设变化', () => {
   expect(engines.minimax.deliveryCapabilities({ ...s, minimaxModel: 'speech-2.6-hd' }).volume).toBe(true)
   expect(engines.minimax.deliveryCapabilities({ ...s, minimaxModel: 'speech-2.8-hd' })).toMatchObject({
     volume: false,
-    cues: expect.arrayContaining(['sob']),
+    cues: expect.arrayContaining(['sniff', 'inhale', 'exhale', 'pant', 'groan', 'sneeze']),
   })
   expect(engines.minimax.deliveryCapabilities(s).cues).toEqual([])
   for (const id of ['sft', 'zero']) expect(engines.cosyvoice.deliveryCapabilities(s, id).emotion).toBe('none')
-  expect(engines.cosyvoice.deliveryCapabilities(s, 'instruct').cues).toEqual(['laugh', 'breath'])
+  expect(engines.cosyvoice.deliveryCapabilities(s, 'instruct').cues).toEqual([
+    'laugh',
+    'breath',
+    'cough',
+    'sigh',
+    'gasp',
+  ])
   expect(
     engines.volcengine.deliveryCapabilities({ ...s, volcengineResourceId: 'seed-tts-2.0-standard' }).direction,
   ).toBe(false)
@@ -69,13 +75,13 @@ test('注入 fetch 验证每类 HTTP 引擎的渲染后请求', async () => {
     ],
     cosyvoiceVoices: [{ id: 'voice', name: '', mode: 'instruct' }],
   })
-  const run = async (id: keyof typeof engines, overrides: Partial<typeof settings> = {}) => {
+  const run = async (
+    id: keyof typeof engines,
+    overrides: Partial<typeof settings> = {},
+    source = '[hello]<laugh/><breath/><sob/> world',
+  ) => {
     const s = { ...settings, ...overrides }
-    const rendered = renderDelivery(
-      engines[id].deliveryCapabilities(s, 'voice'),
-      delivery,
-      parseCues('[hello]<laugh/><breath/><sob/> world'),
-    )
+    const rendered = renderDelivery(engines[id].deliveryCapabilities(s, 'voice'), delivery, parseCues(source))
     await engines[id].synthesize({ voice: 'voice', speed: 1.2, ...rendered }, s)
     return calls.at(-1)?.body
   }
@@ -85,7 +91,7 @@ test('注入 fetch 验证每类 HTTP 引擎的渲染后请求', async () => {
   })
   expect(await run('openai', { openaiModel: 'tts-1' })).not.toHaveProperty('instructions')
   expect(await run('elevenlabs', { elevenlabsModel: 'eleven_v4' })).toMatchObject({
-    text: '[slightly sad] [whispering] [holding back tears] 【hello】[laughs][breathes][sobbing] world',
+    text: '[slightly sad] [whispers] [holding back tears] 【hello】[laughs][breathes][sobbing] world',
   })
   expect(await run('elevenlabs')).toMatchObject({
     text: '[hello] world',
@@ -94,9 +100,11 @@ test('注入 fetch 验证每类 HTTP 引擎的渲染后请求', async () => {
   expect(await run('fish')).toMatchObject({
     text: '[slightly sad tone] [whispering] [holding back tears] 【hello】[laughing][sobbing] world',
   })
-  expect(await run('fish', { fishModel: 's1' })).toMatchObject({ text: '(sad) (whispering) [hello](laughing) world' })
+  expect(await run('fish', { fishModel: 's1' })).toMatchObject({
+    text: '(sad) (whispering) [hello](laughing)(sobbing) world',
+  })
   expect(await run('minimax', { minimaxModel: 'speech-2.8-turbo' })).toMatchObject({
-    text: '[hello](laughs)(breath)(sniffs) world',
+    text: '[hello](laughs)(breath) world',
     voice_setting: { emotion: 'sad' },
   })
   expect(await run('minimax', { minimaxModel: 'speech-2.6-hd' })).toMatchObject({
@@ -115,6 +123,37 @@ test('注入 fetch 验证每类 HTTP 引擎的渲染后请求', async () => {
     await run('cosyvoice', {
       cosyvoiceVoices: [{ id: 'voice', name: '', mode: 'sft', spkId: '', promptText: '', refTrackId: '' }],
     }),
-  ).toEqual({ tts_text: '[hello] world', spk_id: '' })
+  ).toEqual({ tts_text: '【hello】[laughter][breath] world', spk_id: '' })
   expect(await run('gptsovits')).toMatchObject({ text: '[hello] world', ref_audio_path: '/sad.wav' })
+  const source =
+    'A<whisper/>B<pause ms="500"/><cough/><sigh/><gasp/><inhale/><exhale/><pant/><groan/><yawn/><sniff/><sneeze/>C'
+  expect(await run('minimax', { minimaxModel: 'speech-2.8-turbo' }, source)).toMatchObject({
+    text: 'AB(coughs)(sighs)(gasps)(inhale)(exhale)(pant)(groans)(sniffs)(sneezes)<#0.5#>C',
+    voice_setting: { emotion: 'sad' },
+  })
+  expect(await run('minimax', { minimaxModel: 'speech-2.6-hd' }, source)).toMatchObject({
+    text: 'AB<#0.5#>C',
+    voice_setting: { emotion: 'whisper' },
+  })
+  expect(await run('minimax', {}, source)).toMatchObject({ text: 'AB<#0.5#>C', voice_setting: { emotion: 'sad' } })
+  expect(await run('fish', { fishModel: 's1' }, source)).toMatchObject({
+    text: '(sad) (whispering) AB(sighing)(gasping)(panting)(groaning)(yawning)(break)C',
+  })
+  expect(await run('fish', { fishModel: 's2-pro' }, source)).toMatchObject({
+    text: '[slightly sad tone] [whispering] [holding back tears] AB[sighing][gasping][panting][groaning][yawning][break]C',
+  })
+  expect(await run('elevenlabs', {}, source)).toMatchObject({ text: 'AB<break time="0.5s"/>C' })
+  expect(await run('openai', { openaiModel: 'tts-1' }, source)).toMatchObject({ input: 'ABC' })
+  expect(await run('gptsovits', {}, source)).toMatchObject({ text: 'ABC' })
+  const volc = (await run('volcengine', { volcengineResourceId: 'seed-tts-2.0' }, source)) as {
+    req_params: { text: string; additions: string }
+  }
+  expect(volc.req_params.text).toBe('ABC')
+  expect(JSON.parse(volc.req_params.additions).context_texts).toEqual([
+    'Speak in a slightly sad tone. Whisper. holding back tears',
+  ])
+  expect(await run('cosyvoice', {}, source)).toMatchObject({ tts_text: 'AB[cough][sigh][quick_breath]C' })
+  expect(await run('cosyvoice', { cosyvoiceApi: 'gateway' }, source)).toMatchObject({
+    input: 'AB[cough][sigh][quick_breath]C',
+  })
 })

@@ -1,9 +1,11 @@
 import type { Cue, Delivery, DeliveryCapabilities, EngineDeliveryParams, SpokenLine } from '@nobot/shared'
 import { expressionTone, type Tone } from './expression-tone'
+import { lineVolume, parseCues } from './stage/delivery'
 
 export { parseCues } from './stage/delivery'
 
 export function sanitizeForEngine(text: string, capabilities: DeliveryCapabilities): string {
+  text = parseCues(text).text
   if (['eleven-tags', 'fish-s2', 'cosyvoice'].includes(capabilities.format ?? ''))
     return text.replace(/\[([^\]]*)\]/g, '【$1】')
   if (['fish-s1', 'minimax'].includes(capabilities.format ?? ''))
@@ -32,7 +34,7 @@ export function deliveryFromExpression(expression?: string): Delivery {
   return { tone: expressionTone(expression), intensity: 2, volume: 'normal', direction: '' }
 }
 
-const elevenCues: Record<Cue, string> = {
+const elevenCues: Partial<Record<Cue, string>> = {
   laugh: 'laughs',
   chuckle: 'chuckles',
   sigh: 'sighs',
@@ -41,6 +43,7 @@ const elevenCues: Record<Cue, string> = {
   sob: 'sobbing',
   cough: 'coughs',
   'clear-throat': 'clears throat',
+  exhale: 'exhales',
 }
 const fishCues: Partial<Record<Cue, string>> = {
   laugh: 'laughing',
@@ -48,45 +51,80 @@ const fishCues: Partial<Record<Cue, string>> = {
   sigh: 'sighing',
   gasp: 'gasping',
   sob: 'sobbing',
+  groan: 'groaning',
+  pant: 'panting',
+  yawn: 'yawning',
 }
-const miniCues: Record<Cue, string> = {
+const miniCues: Partial<Record<Cue, string>> = {
   laugh: 'laughs',
   chuckle: 'chuckle',
   sigh: 'sighs',
   gasp: 'gasps',
   breath: 'breath',
-  sob: 'sniffs',
+  sniff: 'sniffs',
+  inhale: 'inhale',
+  exhale: 'exhale',
+  pant: 'pant',
+  groan: 'groans',
+  sneeze: 'sneezes',
   cough: 'coughs',
   'clear-throat': 'clear-throat',
 }
 
-/** 先转义原文再插标签；全角括号长度不变，因此原始插入点仍然准确。 */
+/** 应用标记先解析，原文先转义，再按清理后的偏移插入已确认的引擎标记。 */
 export function renderDelivery(
   capabilities: DeliveryCapabilities,
   delivery: Delivery | undefined,
   line: SpokenLine,
   style = '',
 ): { text: string; params: EngineDeliveryParams } {
+  const parsed = parseCues(line.text)
+  // 同时兼容结构化调用和直接传入带标记正文的旧调用。
+  line = {
+    ...line,
+    ...parsed,
+    cues: parsed.cues.length ? parsed.cues : line.cues,
+    spans: parsed.spans ?? line.spans,
+    pauses: parsed.pauses ?? line.pauses,
+    volume: parsed.volume ?? line.volume,
+  }
+  const volume = lineVolume(line)
+  if (volume) delivery = { ...deliveryFromExpression(), ...delivery, volume }
   const params: EngineDeliveryParams = {}
   const format = capabilities.format
   const wrap = (tag: string) => (format === 'fish-s1' || format === 'minimax' ? `(${tag})` : `[${tag}]`)
   const prefix: string[] = []
   let cueMap: Partial<Record<Cue, string>> = {}
   if (format === 'eleven-tags') cueMap = elevenCues
-  if (format === 'fish-s2') cueMap = fishCues
-  if (format === 'fish-s1') cueMap = { laugh: 'laughing', sigh: 'sighing' }
+  if (format === 'fish-s2') cueMap = { ...fishCues, 'clear-throat': 'clear throat' }
+  if (format === 'fish-s1') cueMap = fishCues
   if (format === 'minimax') cueMap = miniCues
-  if (format === 'cosyvoice') cueMap = { laugh: 'laughter', breath: 'breath' }
+  if (format === 'cosyvoice')
+    cueMap = { laugh: 'laughter', breath: 'breath', cough: 'cough', sigh: 'sigh', gasp: 'quick_breath' }
   if (delivery) {
     const { tone, intensity, volume, direction } = delivery
     const strength = intensity === 1 ? 'slightly ' : intensity === 3 ? 'very ' : ''
-    if (format === 'openai' || format === 'cosyvoice')
+    if (format === 'openai' || (format === 'cosyvoice' && capabilities.emotion === 'instruction'))
       params.instructions = toneInstruction(tone, intensity, volume, direction, style)
     if (format === 'eleven-tags' || format === 'fish-s2' || format === 'fish-s1') {
-      if (tone !== 'neutral' && (format !== 'fish-s1' || ['happy', 'sad', 'angry'].includes(tone)))
-        prefix.push(wrap(`${format === 'fish-s1' ? '' : strength}${tone}${format === 'fish-s2' ? ' tone' : ''}`))
+      if (tone !== 'neutral')
+        prefix.push(
+          wrap(
+            `${format === 'fish-s1' ? '' : strength}${format === 'fish-s1' && tone === 'fearful' ? 'scared' : tone}${format === 'fish-s2' ? ' tone' : ''}`,
+          ),
+        )
       if (volume !== 'normal' && capabilities.volume)
-        prefix.push(wrap(volume === 'whisper' ? 'whispering' : 'shouting'))
+        prefix.push(
+          wrap(
+            format === 'eleven-tags'
+              ? volume === 'whisper'
+                ? 'whispers'
+                : 'shouts'
+              : volume === 'whisper'
+                ? 'whispering'
+                : 'shouting',
+          ),
+        )
       // 自由说明里的括号不能闭合生成的标签。
       if ((direction || style) && capabilities.direction && format !== 'fish-s1')
         prefix.push(wrap((direction || style).replace(/[[\]]/g, '')))
@@ -101,24 +139,7 @@ export function renderDelivery(
       params.emotion =
         ({ fearful: 'fear', disgusted: 'hate', calm: 'neutral' } as Partial<Record<Tone, string>>)[tone] ?? tone
       params.emotionScale = [2, 4, 5][intensity - 1]
-      // 这是 TTS 的语音指令，固定中文对话句式比英文更稳定，不属于 LLM 提示词。
-      const moods: Record<Tone, string> = {
-        happy: '开心',
-        sad: '痛心',
-        angry: '生气',
-        fearful: '害怕',
-        disgusted: '厌恶',
-        surprised: '惊讶',
-        calm: '平静',
-        neutral: '自然',
-      }
-      if (capabilities.direction)
-        params.contextTexts = [
-          `你可以用${['稍微', '', '特别特别'][intensity - 1]}${moods[tone]}的语气说吗？`,
-          ...(volume === 'whisper' ? ['你嗓门再小点。'] : volume === 'shout' ? ['你可以大声喊出来吗？'] : []),
-          ...(direction ? [direction] : []),
-          ...(style ? [style] : []),
-        ]
+      if (capabilities.direction) params.contextTexts = [toneInstruction(tone, intensity, volume, direction, style)]
     }
     if (format === 'gptsovits') params.tone = tone
     if (format === 'prosody') {
@@ -145,11 +166,40 @@ export function renderDelivery(
   const sanitized = sanitizeForEngine(line.text, capabilities)
   let text = ''
   let start = 0
-  for (const { at, cue } of line.cues) {
+  const insertions = [
+    ...line.cues.map(({ at, cue }) => ({
+      at,
+      token: capabilities.cues.includes(cue) && cueMap[cue] ? wrap(cueMap[cue]!) : '',
+    })),
+    ...(line.pauses ?? []).map(({ at, ms }) => {
+      let token = ''
+      if (format === 'eleven-settings') token = `<break time="${Math.min(3000, ms) / 1000}s"/>`
+      if (format === 'eleven-tags') token = ms >= 1000 ? '[long pause]' : '[short pause]'
+      if (format === 'fish-s1' || format === 'fish-s2') token = wrap(ms >= 1000 ? 'long-break' : 'break')
+      // MiniMax 停顿必须在可读文字之间；重复停顿只保留第一个，不能连续输出。
+      if (
+        format === 'minimax' &&
+        /[\p{L}\p{N}]/u.test(line.text.slice(0, at)) &&
+        /[\p{L}\p{N}]/u.test(line.text.slice(at))
+      )
+        token = `<#${Math.min(99990, Math.max(10, ms)) / 1000}#>`
+      // 其余已接入协议没有可核实的定点停顿能力，直接移除，不插静音或猜测 SSML。
+      return { at, token, pause: true }
+    }),
+  ].sort((a, b) => a.at - b.at)
+  let lastPauseAt: number | undefined
+  for (const insertion of insertions) {
+    const { at, token } = insertion
     if (at < start || at > line.text.length) continue
     text += sanitized.slice(start, at)
-    const tag = capabilities.cues.includes(cue) ? cueMap[cue] : undefined
-    if (tag) text += wrap(tag)
+    if (
+      !('pause' in insertion) ||
+      lastPauseAt === undefined ||
+      (at !== lastPauseAt && (format !== 'minimax' || /[\p{L}\p{N}]/u.test(line.text.slice(lastPauseAt, at))))
+    ) {
+      text += token
+      if ('pause' in insertion && token) lastPauseAt = at
+    }
     start = at
   }
   text += sanitized.slice(start)

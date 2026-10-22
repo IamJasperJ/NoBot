@@ -82,3 +82,12 @@ test('VN 只有首个等待者等待在途导演，后续句子立即回退，�
   expect(await first).toBe(42)
   expect(await waitForVnDirections(task)).toBe(42)
 })
+
+test('导演标注可插入成对语气和停顿，已有的范围、停顿与别名优先', () => {
+  const text = '<whisper>Hello</whisper><pause ms="500"/>!'
+  expect(parseDirections(JSON.stringify([{ i: 0, text }]), segments)[0]?.text).toBe(text)
+  for (const text of ['<whisper>Hello</whisper>!', 'Hello<pause/>!', '[whispers]Hello!']) {
+    const segment = { ...segments[0]!, text }
+    expect(applyDirection(segment, { delivery: {}, text: '<sigh/>Hello!' }).text).toBe(text)
+  }
+})

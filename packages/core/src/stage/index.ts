@@ -316,6 +316,6 @@ export function matchByName<T extends { name: string }>(query: string, items: T[
   )
 }
 
-export { parseCues, parseLineDelivery } from './delivery'
+export { deliveryTokenSource, lineVolume, parseCues, parseLineDelivery } from './delivery'
 
 export { speechSegments, type TtsSegment } from './speech'

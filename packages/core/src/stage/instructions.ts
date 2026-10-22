@@ -107,7 +107,7 @@ function deliveryGuide(input: InstructionsInput): string {
     input.style === 'xml'
       ? 'an optional tone="whispering, holding back tears" attribute on <say>'
       : 'an optional delivery hint after the expression: name[expression|whispering, holding back tears]：「dialogue」'
-  return `- Optionally add delivery hints using ${syntax}. Use English hints (whispering/shouting, slightly/very, or a short direction). When appropriate, insert a few nonverbal sounds inside dialogue: ${CUES.map((cue) => `<${cue}/>`).join(', ')}. Use at most 1–2 cues per sentence. Do not turn action descriptions into sound tags. Write dialogue in the same language as the conversation.`
+  return `- Optionally add delivery hints using ${syntax}. Use English hints (whispering/shouting, slightly/very, or a short direction). Put whole-line whisper/shout in the tone hint. Only for a change within a line, wrap the affected words in <whisper>...</whisper> or <shout>...</shout>; never generate self-closing whisper/shout tags. Use <pause ms="500"/> sparingly for pauses. Do not invent other tags. When appropriate, insert a few nonverbal sounds inside dialogue: ${CUES.map((cue) => `<${cue}/>`).join(', ')}. Use at most 1–2 cues per sentence. Do not turn action descriptions into sound tags. Write dialogue in the same language as the conversation.`
 }
 
 function example(input: InstructionsInput): string {

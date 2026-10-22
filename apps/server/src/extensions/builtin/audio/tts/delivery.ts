@@ -1,4 +1,4 @@
-import { deliveryFromExpression, renderDelivery } from '@nobot/core'
+import { deliveryFromExpression, parseCues, renderDelivery } from '@nobot/core'
 import {
   CUES,
   type Delivery,
@@ -49,7 +49,7 @@ export function deliveryCapabilities(id: TtsEngineId, s: AudioSettings, voice?: 
               emotion: 'tags-free',
               intensity: true,
               direction: true,
-              cues: [...CUES],
+              cues: ['laugh', 'chuckle', 'sigh', 'gasp', 'breath', 'sob', 'cough', 'clear-throat', 'exhale'],
               volume: true,
               format: 'eleven-tags',
             }
@@ -62,19 +62,24 @@ export function deliveryCapabilities(id: TtsEngineId, s: AudioSettings, voice?: 
           emotion: 'tags-free',
           intensity: true,
           direction: true,
-          cues: ['laugh', 'chuckle', 'sigh', 'gasp', 'sob'],
+          cues: ['laugh', 'chuckle', 'sigh', 'gasp', 'sob', 'pant', 'groan', 'yawn', 'clear-throat'],
           volume: true,
           format: 'fish-s2',
         })
       else if (s.fishModel === 's1')
-        Object.assign(caps, { emotion: 'tags-fixed', cues: ['laugh', 'sigh'], volume: true, format: 'fish-s1' })
+        Object.assign(caps, {
+          emotion: 'tags-fixed',
+          cues: ['laugh', 'chuckle', 'sigh', 'gasp', 'sob', 'pant', 'groan', 'yawn'],
+          volume: true,
+          format: 'fish-s1',
+        })
       break
     case 'minimax':
       Object.assign(caps, {
         emotion: 'enum',
         format: 'minimax',
         volume: /^speech-2\.6/.test(s.minimaxModel),
-        cues: /^speech-2\.8/.test(s.minimaxModel) ? [...CUES] : [],
+        cues: /^speech-2\.8/.test(s.minimaxModel) ? CUES.filter((cue) => cue !== 'sob' && cue !== 'yawn') : [],
       })
       break
     case 'volcengine': {
@@ -92,12 +97,15 @@ export function deliveryCapabilities(id: TtsEngineId, s: AudioSettings, voice?: 
       if (s.cosyvoiceApi === 'official' && !voice) caps.perVoice = true
       const instruct =
         s.cosyvoiceApi === 'gateway' || s.cosyvoiceVoices.find((v) => v.id === voice)?.mode === 'instruct'
+      // tokenizer 的声音 token 与是否转发 instructions 无关，所有官方模式及网关都可消费。
+      Object.assign(caps, { cues: ['laugh', 'breath', 'cough', 'sigh', 'gasp'], format: 'cosyvoice' })
       if (instruct)
         Object.assign(caps, {
           emotion: 'instruction',
           intensity: true,
           direction: true,
-          cues: ['laugh', 'breath'],
+          // quick_breath 是急促吸气，映射 gasp 而不把持续喘息 pant 混为同一事件。
+          cues: ['laugh', 'breath', 'cough', 'sigh', 'gasp'],
           volume: true,
           format: 'cosyvoice',
         })
@@ -120,7 +128,7 @@ export function engineInput(id: TtsEngineId, input: SynthesisInput, s: AudioSett
   const rendered = renderDelivery(
     deliveryCapabilities(id, s, input.voice),
     input.delivery ?? (input.tone ? { ...deliveryFromExpression(), tone: input.tone } : undefined),
-    { text: input.text, cues: [] },
+    parseCues(input.text),
   )
   if (
     input.style &&

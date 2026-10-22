@@ -125,9 +125,28 @@ test.each(['shorthand', 'xml'] as const)('丰富演绎说明和示例只按服�
   }
   const prompt = renderDirectiveInstructions({ ...input, style, richDelivery: true })
   expect(prompt).toContain('delivery hints')
-  for (const cue of ['laugh', 'chuckle', 'sigh', 'gasp', 'breath', 'sob', 'cough', 'clear-throat'])
+  for (const cue of [
+    'laugh',
+    'chuckle',
+    'sigh',
+    'gasp',
+    'breath',
+    'sob',
+    'cough',
+    'clear-throat',
+    'inhale',
+    'exhale',
+    'pant',
+    'groan',
+    'yawn',
+    'sniff',
+    'sneeze',
+  ])
     expect(prompt).toContain(`<${cue}/>`)
   expect(prompt).toContain('at most 1–2 cues per sentence')
+  expect(prompt).toContain('<pause ms="500"/>')
+  expect(prompt).toContain('<whisper>...</whisper>')
+  expect(prompt).toContain('Do not invent other tags')
   expect(prompt).toContain('Do not turn action descriptions into sound tags')
   expect(prompt).toContain(
     style === 'xml' ? 'tone="whispering, holding back tears"' : '[joy|whispering, holding back tears]',

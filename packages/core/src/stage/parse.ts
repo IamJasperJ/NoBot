@@ -1,23 +1,9 @@
 import type { Beat, ChoiceOption, MessageStage, StageOp, StagePosition } from '@nobot/shared'
 import { parseCues, parseLineDelivery } from './delivery'
 import type { DisplayOptions, ParseOptions, ParseResult } from './index'
-import { nameSet, type Speech, scanTags, shorthand, type Tag } from './scan'
+import { nameSet, type Speech, scanTags, shorthand, stageDirectives, type Tag } from './scan'
 import { mvuCalls, VariableUpdates } from './vars'
 
-const directives = new Set([
-  'scene',
-  'show',
-  'hide',
-  'expr',
-  'say',
-  'state',
-  'choices',
-  'cg',
-  'sfx',
-  'updatevariable',
-  'combat',
-  'bgm',
-])
 const blocks = new Set(['say', 'state', 'choices', 'updatevariable'])
 
 /** 按文中顺序分派文本与指令，两个视图共享边界判定。 */
@@ -26,7 +12,7 @@ function walk(source: string, text: (value: string) => void, directive: (tag: Ta
   let cursor = 0
   for (let i = 0; i < tags.length; i++) {
     const tag = tags[i]!
-    if (!directives.has(tag.name)) continue
+    if (!stageDirectives.has(tag.name)) continue
     text(source.slice(cursor, tag.start))
     let end = tag.end
     let body = ''

@@ -458,3 +458,24 @@ test('默认计时器按浏览器接收者规则调用，媒体和系统语音�
     clear.mockRestore()
   }
 })
+
+test('浏览器最终 utterance 使用共享解析，避免控制词成为朗读正文', async () => {
+  const utterances: SpeechSynthesisUtterance[] = []
+  const engine = new AudioEngine({
+    speech: {
+      getVoices: () => [],
+      speak: (u: SpeechSynthesisUtterance) => utterances.push(u),
+      cancel() {},
+    } as unknown as SpeechSynthesis,
+    createUtterance: (text) => ({ text }) as SpeechSynthesisUtterance,
+  })
+  for (const text of [
+    '普通。<whisper>秘密。</whisper>[pause]<sniff/><foobar/>（小声）',
+    'Normal.<shout>Loud.</shout>(whispering)<pause/>(quietly)',
+  ]) {
+    const result = engine.playVoice({ browser: { voice: '', speed: 1, text } })
+    expect(utterances.at(-1)?.text).toBe(text.startsWith('普通') ? '普通。秘密。（小声）' : 'Normal.Loud.(quietly)')
+    engine.stopVoice()
+    expect(await result).toBe('stopped')
+  }
+})

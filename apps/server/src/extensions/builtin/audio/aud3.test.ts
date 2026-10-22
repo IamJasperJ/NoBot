@@ -29,7 +29,7 @@ test('AUD3：参考音频、聊天 BGM、锁定与在途保护、CharX 音频导
   const { createChat, updateChat } = await import('../../../services/chats')
   const { createPlayPreset } = await import('../../../services/playPresets')
   const { createExtensionHost } = await import('../../host')
-  const { saveAudioTrack, listAudioTracks, deleteAudioTrack } = await import('../../../services/audio-library')
+  const { saveAudioTrack, listAudioTracks, deleteAudioTrack } = await import('../../../services/audio/audio-library')
   const { createTtsEngines, ttsEngines, mockAudio } = await import('./tts/engines')
   const { synthesizeVoice, clearTtsCache } = await import('./tts/service')
   const { audioSettings } = await import('./tts/settings')

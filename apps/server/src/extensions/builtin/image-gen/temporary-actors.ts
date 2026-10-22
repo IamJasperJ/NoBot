@@ -17,12 +17,12 @@ import { readUpload } from '../../../lib/files'
 import { validate } from '../../../lib/validate'
 import { saveAttachment } from '../../../services/attachments'
 import { getChatRow } from '../../../services/chats'
-import { cutoutSprite, mattingOptions } from '../../../services/matting'
-import { assertCutoutMode, recutImage } from '../../../services/sprite-cutout'
+import { cutoutSprite, mattingOptions } from '../../../services/sprites/matting'
+import { assertCutoutMode, recutImage } from '../../../services/sprites/sprite-cutout'
 import {
   readTemporaryActors as readActors,
   writeTemporaryActor as writeActor,
-} from '../../../services/temporary-actors'
+} from '../../../services/sprites/temporary-actors'
 import { type Context, stageImage } from './pipeline'
 import { parseSettings } from './settings'
 

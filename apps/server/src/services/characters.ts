@@ -31,13 +31,13 @@ import { cardParseMessage, HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { readCharx } from '../lib/charx'
 import { avatarUrl, deleteAvatar, readAvatar, saveAvatar } from '../lib/files'
-import { requireBackground } from './backgrounds'
-import { importCharacterAudio } from './character-audio'
+import { importCharacterAudio } from './audio/character-audio'
+import { requireBackground } from './backgrounds/backgrounds'
 import { createEntry, createLorebook, getLorebookWithEntries } from './lorebooks'
 import { getProfile } from './profiles'
 import { quickReplyScope, setQuickReplyScope } from './quick-replies'
-import { saveSprite } from './sprites'
-import { readSheet, withSheet } from './trpg-sheet'
+import { saveSprite } from './sprites/sprites'
+import { readSheet, withSheet } from './trpg/trpg-sheet'
 
 export function toSummary(row: CharacterRow): CharacterSummary {
   return {

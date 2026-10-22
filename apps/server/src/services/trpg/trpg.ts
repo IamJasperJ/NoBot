@@ -1,10 +1,10 @@
 import type { CheckInput } from '@nobot/core/stage'
 import { castKey, getRuleSystem } from '@nobot/core/stage'
-import { HttpError } from '../errors'
-import { t } from '../i18n'
-import { computeVars, getChatRow, loadPath } from './chats'
-import { resolvePersona } from './context'
-import { initialVars, matchStageMember, resolvePlayPreset, stageMembers } from './stage'
+import { HttpError } from '../../errors'
+import { t } from '../../i18n'
+import { computeVars, getChatRow, loadPath } from '../chats'
+import { resolvePersona } from '../generation/context'
+import { initialVars, matchStageMember, resolvePlayPreset, stageMembers } from '../generation/stage'
 import { readSheet } from './trpg-sheet'
 
 export function chatRules(chatId: string) {

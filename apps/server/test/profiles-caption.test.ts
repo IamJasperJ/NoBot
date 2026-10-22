@@ -37,7 +37,7 @@ test('配置组优先级、删除、正则、生图连接与图片说明完整�
   const { SETTING_KEYS, setAppSettings } = await import('../src/services/settings')
   const { getAttachment, saveAttachment } = await import('../src/services/attachments')
   const { replaceImageAttachments } = await import('../src/services/caption')
-  const { assemble, loadGenerationContext } = await import('../src/services/context')
+  const { assemble, loadGenerationContext } = await import('../src/services/generation/context')
   const { resolveImageConnection, promptModels } = await import('../src/extensions/builtin/image-gen/discovery')
   const { parseSettings } = await import('../src/extensions/builtin/image-gen/settings')
   const urls: string[] = []

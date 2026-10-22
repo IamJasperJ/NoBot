@@ -1,5 +1,5 @@
 import { basename, extname } from 'node:path'
-import { readZip } from '../lib/zip'
+import { readZip } from '../../lib/zip'
 import { deleteAudioTrack, listAudioTracks, saveAudioTrack } from './audio-library'
 
 const extensions = new Set(['mp3', 'ogg', 'wav', 'm4a', 'flac', 'webm'])

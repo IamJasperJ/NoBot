@@ -5,12 +5,12 @@ import { spriteNameFromPath } from '@nobot/core/stage'
 import { type SpriteDTO, type SpriteImportResult, updateSpriteInput } from '@nobot/shared'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import sharp, { type Metadata } from 'sharp'
-import { db, newId } from '../db/client'
-import { characters, sprites } from '../db/schema'
-import { paths } from '../env'
-import { HttpError, notFound } from '../errors'
-import { t } from '../i18n'
-import { readZip } from '../lib/zip'
+import { db, newId } from '../../db/client'
+import { characters, sprites } from '../../db/schema'
+import { paths } from '../../env'
+import { HttpError, notFound } from '../../errors'
+import { t } from '../../i18n'
+import { readZip } from '../../lib/zip'
 
 type SpriteRow = typeof sprites.$inferSelect
 export function requireCharacter(id: string) {

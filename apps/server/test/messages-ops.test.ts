@@ -45,7 +45,7 @@ test('消息操作：排除、思考过程、书签和分支式移动', async ()
   const { chats, messages, bookmarks, personas } = await import('../src/db/schema')
   const { app } = await import('../src/app')
   const { loadPath, loadMessage } = await import('../src/services/chats')
-  const { assemble, loadGenerationContext } = await import('../src/services/context')
+  const { assemble, loadGenerationContext } = await import('../src/services/generation/context')
   const request = (path: string, method = 'GET', body?: unknown) =>
     app.request(`/api${path}`, {
       method,
@@ -233,7 +233,7 @@ test('消息操作：排除、思考过程、书签和分支式移动', async ()
     await error(`/chats/${moving.id}/move`, 409, 'GENERATING', { messageId: streaming, direction: 'up' })
 
     const model = mockLlm()
-    const generation = await import('../src/services/generation')
+    const generation = await import('../src/services/generation/generation')
     try {
       model.setScript(() => ({ text: '慢速模拟生成', delayMs: 20 }))
       await json('/connections', 'POST', { name: '模拟连接', baseUrl: model.url, model: 'mock' })

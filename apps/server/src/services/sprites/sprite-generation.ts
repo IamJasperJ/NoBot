@@ -1,26 +1,26 @@
 import { spritePrompt } from '@nobot/core/stage'
 import { type GenerateSpritesInput, generateSpritesInput, type SpriteJobDTO } from '@nobot/shared'
-import { newId } from '../db/client'
-import { HttpError, notFound } from '../errors'
-import { backendDimensions, getBackend } from '../extensions/builtin/image-gen/backends'
-import { imageMime as getImageMime } from '../extensions/builtin/image-gen/backends/types'
+import { newId } from '../../db/client'
+import { HttpError, notFound } from '../../errors'
+import { backendDimensions, getBackend } from '../../extensions/builtin/image-gen/backends'
+import { imageMime as getImageMime } from '../../extensions/builtin/image-gen/backends/types'
 import {
   characterPrompt,
   composePrompt,
   dimensions,
   resolvePromptStyle,
-} from '../extensions/builtin/image-gen/composition'
-import { resolveImageConnection } from '../extensions/builtin/image-gen/discovery'
-import { cleanPrompt, promptInstruction, templates } from '../extensions/builtin/image-gen/modes'
-import { type Context, renderImage } from '../extensions/builtin/image-gen/pipeline'
-import { parseSettings } from '../extensions/builtin/image-gen/settings'
-import { t } from '../i18n'
-import { chatCompletion, toLlmConnection } from '../llm/openai'
-import { getCharacter } from './characters'
-import { getApiPresetRow, resolveApiPreset } from './connections'
-import { insertLog } from './logs'
+} from '../../extensions/builtin/image-gen/composition'
+import { resolveImageConnection } from '../../extensions/builtin/image-gen/discovery'
+import { cleanPrompt, promptInstruction, templates } from '../../extensions/builtin/image-gen/modes'
+import { type Context, renderImage } from '../../extensions/builtin/image-gen/pipeline'
+import { parseSettings } from '../../extensions/builtin/image-gen/settings'
+import { t } from '../../i18n'
+import { chatCompletion, toLlmConnection } from '../../llm/openai'
+import { getCharacter } from '../characters'
+import { getApiPresetRow, resolveApiPreset } from '../connections'
+import { insertLog } from '../logs'
+import { selectProfile } from '../profiles'
 import { cutoutSprite, mattingOptions } from './matting'
-import { selectProfile } from './profiles'
 import { requireCharacter, saveSprite } from './sprites'
 
 const jobs = new Map<string, { characterId: string; progress: SpriteJobDTO }>()
@@ -30,7 +30,7 @@ const running = new Set<string>()
 export async function startSpriteJob(characterId: string, input: unknown): Promise<{ jobId: string }> {
   requireCharacter(characterId)
   const data = generateSpritesInput.parse(input)
-  const { imageGenerationContext } = await import('../extensions/registry')
+  const { imageGenerationContext } = await import('../../extensions/registry')
   const ctx = imageGenerationContext('', characterId)
   getBackend(resolveImageConnection(parseSettings(ctx.settings), false)).validate(
     resolveImageConnection(parseSettings(ctx.settings), false),

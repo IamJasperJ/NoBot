@@ -1,10 +1,10 @@
 import { type ExtensionCatalogDTO, extensionPermissionsSchema } from '@nobot/shared'
 import { z } from 'zod'
-import { getSetting, setSetting } from '../db/client'
-import { HttpError } from '../errors'
-import { listExtensions } from '../extensions/registry'
-import { t } from '../i18n'
-import { currentUser } from '../user-context'
+import { getSetting, setSetting } from '../../db/client'
+import { HttpError } from '../../errors'
+import { listExtensions } from '../../extensions/registry'
+import { t } from '../../i18n'
+import { currentUser } from '../../user-context'
 import { validateGitUrl } from './extension-git'
 
 const itemSchema = z.object({

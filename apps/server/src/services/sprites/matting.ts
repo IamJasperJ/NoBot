@@ -7,10 +7,10 @@ import {
   applyAlphaMask,
   hasTransparentBackground,
   removeSpriteBackground,
-} from '../../../../packages/core/src/stage/image'
-import { env } from '../env'
-import type { Settings } from '../extensions/builtin/image-gen/settings'
-import { t } from '../i18n'
+} from '../../../../../packages/core/src/stage/image'
+import { env } from '../../env'
+import type { Settings } from '../../extensions/builtin/image-gen/settings'
+import { t } from '../../i18n'
 
 export type MattingMode = 'algorithm' | 'native' | 'model'
 export interface MattingOptions {

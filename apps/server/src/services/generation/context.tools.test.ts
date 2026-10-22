@@ -7,7 +7,7 @@ import type { CharacterDTO, ChatDTO, PromptPresetDTO, PromptPreview } from '@nob
 // 注册表和数据库是单例，用子进程隔离，且所有路由直接在内存调用，无需监听端口。
 test('工具启用集合在预览和组装中按会话过滤历史', async () => {
   if (!process.env.TOOLS2_TEST_CHILD) {
-    const child = Bun.spawn([process.execPath, 'test', 'apps/server/src/services/context.tools.test.ts'], {
+    const child = Bun.spawn([process.execPath, 'test', 'apps/server/src/services/generation/context.tools.test.ts'], {
       env: { ...process.env, TOOLS2_TEST_CHILD: '1' },
       stdout: 'pipe',
       stderr: 'pipe',
@@ -22,16 +22,16 @@ test('工具启用集合在预览和组装中按会话过滤历史', async () =>
   }
   const directory = await mkdtemp(join(tmpdir(), 'nobot-tools2-'))
   process.env.DATA_DIR = directory
-  let sqlite: typeof import('../db/client').sqlite | undefined
+  let sqlite: typeof import('../../db/client').sqlite | undefined
   try {
-    await (await import('../bootstrap')).bootstrap()
-    const database = await import('../db/client')
+    await (await import('../../bootstrap')).bootstrap()
+    const database = await import('../../db/client')
     sqlite = database.sqlite
-    const { chats, messages } = await import('../db/schema')
-    const { app } = await import('../app')
+    const { chats, messages } = await import('../../db/schema')
+    const { app } = await import('../../app')
     const { eq } = await import('drizzle-orm')
     const { assemble, loadGenerationContext } = await import('./context')
-    const { enabledToolNames, toOpenAITools } = await import('../tools')
+    const { enabledToolNames, toOpenAITools } = await import('../../tools')
     async function json<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
       const response = await app.request(`/api${path}`, {
         method,

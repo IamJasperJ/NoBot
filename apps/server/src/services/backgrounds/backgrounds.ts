@@ -14,12 +14,12 @@ import {
 } from '@nobot/shared'
 import { and, asc, desc, eq, isNull, or } from 'drizzle-orm'
 import sharp from 'sharp'
-import { db, getSetting, newId, setSetting } from '../db/client'
-import { backgroundFolderItems, backgroundFolders, backgrounds, lorebookEntries } from '../db/schema'
-import { paths } from '../env'
-import { HttpError, notFound } from '../errors'
-import { t } from '../i18n'
-import { SETTING_KEYS } from './settings'
+import { db, getSetting, newId, setSetting } from '../../db/client'
+import { backgroundFolderItems, backgroundFolders, backgrounds, lorebookEntries } from '../../db/schema'
+import { paths } from '../../env'
+import { HttpError, notFound } from '../../errors'
+import { t } from '../../i18n'
+import { SETTING_KEYS } from '../settings'
 
 function toDTO(row: typeof backgrounds.$inferSelect): BackgroundDTO {
   return {

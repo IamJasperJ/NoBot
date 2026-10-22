@@ -1,8 +1,11 @@
 import { DEFAULT_MAIN_PROMPT, utilityPromptsSchema } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
-import { db, getSetting, setSetting } from '../db/client'
-import { playPresets, promptPresets, settings } from '../db/schema'
-import { t } from '../i18n'
+import { db, getSetting, setSetting } from '../../db/client'
+import { playPresets, promptPresets, settings } from '../../db/schema'
+import { t } from '../../i18n'
+import { insertLog } from '../logs'
+import { BUILTIN_PLAY_PRESETS } from '../playPresets.builtin'
+import { SETTING_KEYS } from '../settings'
 import {
   LEGACY_DIRECTIVE_TEMPLATES,
   LEGACY_EXTENSION_PROMPTS,
@@ -10,9 +13,6 @@ import {
   LEGACY_STATE_SCHEMAS,
   LEGACY_UTILITY_PROMPTS,
 } from './legacy-zh-defaults'
-import { insertLog } from './logs'
-import { BUILTIN_PLAY_PRESETS } from './playPresets.builtin'
-import { SETTING_KEYS } from './settings'
 
 /** 仅替换逐字等于历史默认值的字段；标记、数据和日志一起提交，失败后可在下次启动重试。 */
 export function migrateLegacyPrompts(): number {

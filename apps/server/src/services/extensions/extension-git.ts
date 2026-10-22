@@ -8,21 +8,21 @@ import type {
   GitStatusDTO,
 } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
-import { db, getSetting, setSetting } from '../db/client'
-import { settings } from '../db/schema'
-import { paths } from '../env'
-import { HttpError, notFound } from '../errors'
-import { readManifest } from '../extensions/files'
-import { isApproved, permissionFingerprint, permissionWarnings } from '../extensions/permissions'
+import { db, getSetting, setSetting } from '../../db/client'
+import { settings } from '../../db/schema'
+import { paths } from '../../env'
+import { HttpError, notFound } from '../../errors'
+import { readManifest } from '../../extensions/files'
+import { isApproved, permissionFingerprint, permissionWarnings } from '../../extensions/permissions'
 import {
   extensionLocation,
   listExtensions,
   reloadExtension,
   unloadExtension,
   updateExtension,
-} from '../extensions/registry'
-import { t } from '../i18n'
-import { currentUser } from '../user-context'
+} from '../../extensions/registry'
+import { t } from '../../i18n'
+import { currentUser } from '../../user-context'
 
 const root = () => paths.extensions
 const staging = () => join(root(), '.staging')

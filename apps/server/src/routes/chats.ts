@@ -25,12 +25,12 @@ import { t } from '../i18n'
 import { validate } from '../lib/validate'
 import * as bookmarks from '../services/bookmarks'
 import * as chats from '../services/chats'
-import { assembleWithVectors, loadGenerationContext } from '../services/context'
-import * as generation from '../services/generation'
+import { assembleWithVectors, loadGenerationContext } from '../services/generation/context'
+import * as generation from '../services/generation/generation'
+import { computeStage, initialVars } from '../services/generation/stage'
 import { resolvedProfileDTO } from '../services/profiles'
-import { computeStage, initialVars } from '../services/stage'
-import { readTemporaryActors } from '../services/temporary-actors'
-import { performCheck } from '../services/trpg'
+import { readTemporaryActors } from '../services/sprites/temporary-actors'
+import { performCheck } from '../services/trpg/trpg'
 
 /** 把一个生成任务的事件流推给浏览器，直到任务结束或浏览器断开 */
 function streamJob(c: Context, job: NonNullable<ReturnType<typeof generation.getJob>>) {

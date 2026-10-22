@@ -42,8 +42,8 @@ test('背景二期：默认引用、世界书与定期切换、文件夹多对�
   await (await import('../src/bootstrap')).bootstrap()
   const { sqlite } = await import('../src/db/client')
   const { app } = await import('../src/app')
-  const { saveBackground } = await import('../src/services/backgrounds')
-  const { backgroundReplyCount } = await import('../src/services/auto-background')
+  const { saveBackground } = await import('../src/services/backgrounds/backgrounds')
+  const { backgroundReplyCount } = await import('../src/services/backgrounds/auto-background')
   const { loadPath } = await import('../src/services/chats')
   const model = mockLlm()
   const request = (path: string, method = 'GET', input?: unknown) =>

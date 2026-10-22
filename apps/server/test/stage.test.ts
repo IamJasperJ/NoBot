@@ -48,9 +48,9 @@ test('VN1：玩法预设、舞台、状态、历史与生成集成', async () =>
   const { db, sqlite, newId, setSetting } = await import('../src/db/client')
   const { backgrounds, characters, playPresets, personas, characterLorebooks } = await import('../src/db/schema')
   const { app } = await import('../src/app')
-  const stage = await import('../src/services/stage')
+  const stage = await import('../src/services/generation/stage')
   const chatService = await import('../src/services/chats')
-  const { toHistory, loadGenerationContext } = await import('../src/services/context')
+  const { toHistory, loadGenerationContext } = await import('../src/services/generation/context')
   const model = mockLlm()
   const request = (path: string, method = 'GET', body?: unknown) =>
     app.request(`/api${path}`, {

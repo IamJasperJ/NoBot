@@ -11,7 +11,7 @@ import { unloadUserExtensions } from '../extensions/registry'
 import { t } from '../i18n'
 import { validate } from '../lib/validate'
 import { createUser, userDTO } from '../services/auth'
-import { cancelUserInstallPreviews, extensionOperation } from '../services/extension-git'
+import { cancelUserInstallPreviews, extensionOperation } from '../services/extensions/extension-git'
 import { closeUserDatabase, currentUser, runAsUser } from '../user-context'
 
 function findUser(id: string) {

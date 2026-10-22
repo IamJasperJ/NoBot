@@ -91,7 +91,7 @@ test('旧数据库扩展键迁移后，API 与角色卡导出保留属性卡和 
     const chat = (await chatResponse.json()) as ChatDTO
     const page = (await (await app.request(`/api/chats/${chat.id}`)).json()) as ChatPage
     expect(page.vars.共同).toBe(7)
-    const { resolvePlayPreset } = await import('../src/services/stage')
+    const { resolvePlayPreset } = await import('../src/services/generation/stage')
     expect(resolvePlayPreset(chat.id).data.basic.layout).toBe('adv')
     const { exportCharacter } = await import('../src/services/characters')
     const exported = JSON.parse(new TextDecoder().decode((await exportCharacter('legacy', 'json')).bytes))

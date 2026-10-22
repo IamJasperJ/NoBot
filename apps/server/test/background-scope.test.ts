@@ -33,8 +33,10 @@ test('BG-SCOPE：字段、范围、清单、自动选择、命名、固定和删
   await (await import('../src/bootstrap')).bootstrap()
   const { sqlite } = await import('../src/db/client')
   const { app } = await import('../src/app')
-  const { saveBackground, backgroundsForChat, requireBackground } = await import('../src/services/backgrounds')
-  const { computeStage } = await import('../src/services/stage')
+  const { saveBackground, backgroundsForChat, requireBackground } = await import(
+    '../src/services/backgrounds/backgrounds'
+  )
+  const { computeStage } = await import('../src/services/generation/stage')
   const { createExtensionHost } = await import('../src/extensions/host')
   const { updateExtension } = await import('../src/extensions/registry')
   const { nameBackground } = await import('../src/extensions/builtin/image-gen/pipeline')

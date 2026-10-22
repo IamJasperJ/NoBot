@@ -24,7 +24,7 @@ test('静默指令角色：无对话时 user，有历史时 system，显式指�
     }
     return
   }
-  const { paths } = await import('../env')
+  const { paths } = await import('../../env')
   paths.db = ':memory:'
   const { instructionRole, textOnlyHistory } = await import('./quiet-prompt')
   expect(instructionRole([])).toBe('user')

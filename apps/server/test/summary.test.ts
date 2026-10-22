@@ -41,7 +41,7 @@ test('剧情总结：素材、增量、注入、分支、自动、编辑、并�
   const { createExtensionHost } = await import('../src/extensions/host')
   const { parseSettings } = await import('../src/extensions/builtin/summary/settings')
   const summaryExtension = (await import('../src/extensions/builtin/summary')).default
-  const { assemble, loadGenerationContext } = await import('../src/services/context')
+  const { assemble, loadGenerationContext } = await import('../src/services/generation/context')
   const requests: {
     messages: { role: string; content: string }[]
     stream: boolean

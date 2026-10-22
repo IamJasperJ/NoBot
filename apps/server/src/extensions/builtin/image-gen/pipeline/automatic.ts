@@ -1,6 +1,6 @@
 import { t } from '../../../../i18n'
 import { getChatRow, loadPath } from '../../../../services/chats'
-import { computeStage, resolvePlayPreset } from '../../../../services/stage'
+import { computeStage, resolvePlayPreset } from '../../../../services/generation/stage'
 import { resolveImageConnection } from '../discovery'
 import { parseSettings } from '../settings'
 import { missingBackground } from './background'

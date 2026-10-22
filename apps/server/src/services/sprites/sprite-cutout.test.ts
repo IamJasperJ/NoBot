@@ -25,10 +25,10 @@ test('重新抠图：原图、预览、任务锁、缓存版本及文件清理',
     }
     return
   }
-  const { paths } = await import('../env')
+  const { paths } = await import('../../env')
   paths.db = ':memory:'
-  await (await import('../bootstrap')).bootstrap()
-  const { app } = await import('../app')
+  await (await import('../../bootstrap')).bootstrap()
+  const { app } = await import('../../app')
   const { saveSprite, deleteSprite, listSprites, spriteOriginalPath, findSprite, deleteOutfit } = await import(
     './sprites'
   )

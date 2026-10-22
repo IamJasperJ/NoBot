@@ -46,9 +46,9 @@ test('VN2：立绘、CharX、演员与情绪判断集成', async () => {
   const { db, sqlite, newId } = await import('../src/db/client')
   const { messages, sprites, generationLogs } = await import('../src/db/schema')
   const { app } = await import('../src/app')
-  const { computeStage } = await import('../src/services/stage')
+  const { computeStage } = await import('../src/services/generation/stage')
   const { loadMessage } = await import('../src/services/chats')
-  const { classifyMessage } = await import('../src/services/classify')
+  const { classifyMessage } = await import('../src/services/generation/classify')
   const model = mockLlm()
   const request = (path: string, method = 'GET', body?: unknown) =>
     app.request(`/api${path}`, {

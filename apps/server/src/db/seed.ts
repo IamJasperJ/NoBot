@@ -1,6 +1,6 @@
 import { parsePresetWithEnglishDefaults } from '@nobot/core'
 import { t } from '../i18n'
-import { migrateLegacyPrompts } from '../services/migrate-legacy-prompts'
+import { migrateLegacyPrompts } from '../services/legacy/migrate-legacy-prompts'
 import { seedPlayPresets } from '../services/playPresets.builtin'
 import { SETTING_KEYS } from '../services/settings'
 import { db, getSetting, newId, setSetting } from './client'

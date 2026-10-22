@@ -30,12 +30,8 @@ import { HttpError, notFound } from '../errors'
 import { emitServerEvent } from '../extensions/registry'
 import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
-import { deleteBackground, getBackgroundSettings, requireBackground } from './backgrounds'
-import { isGenerating } from './generation'
-import { getPlayPreset } from './playPresets'
-import { getProfile } from './profiles'
-import { quickReplyScope, setQuickReplyScope } from './quick-replies'
-import { SETTING_KEYS } from './settings'
+import { deleteBackground, getBackgroundSettings, requireBackground } from './backgrounds/backgrounds'
+import { isGenerating } from './generation/generation'
 import {
   applyStageParse,
   backfillStage,
@@ -43,7 +39,11 @@ import {
   initialVars,
   resolvePlayPreset,
   resolveStateSchema,
-} from './stage'
+} from './generation/stage'
+import { getPlayPreset } from './playPresets'
+import { getProfile } from './profiles'
+import { quickReplyScope, setQuickReplyScope } from './quick-replies'
+import { SETTING_KEYS } from './settings'
 
 // ---------------------------------------------------------------------------
 // 消息树查询：用递归 CTE 从叶子沿 parent_id 往上走，一条 SQL 拿到整条路径。

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { NameBackgroundsResult } from '@nobot/shared'
 import sharp from 'sharp'
-import { firstJsonObject } from '../lib/json-object'
+import { firstJsonObject } from '../../lib/json-object'
 
 test('首个 JSON 对象兼容围栏、嵌套对象和字符串内花括号', () => {
   expect(firstJsonObject('```json\n{"name":"酒馆"}\n```')).toEqual({ name: '酒馆' })
@@ -37,12 +37,12 @@ test('背景 AI 命名：连接选择、看图请求、逐张容错及建议模�
     }
     return
   }
-  const { initDatabase, setSetting } = await import('../db/client')
+  const { initDatabase, setSetting } = await import('../../db/client')
   initDatabase()
-  const { app } = await import('../app')
-  const { createApiPreset } = await import('./connections')
-  const { saveProfile, setDefaultProfile } = await import('./profiles')
-  const { SETTING_KEYS } = await import('./settings')
+  const { app } = await import('../../app')
+  const { createApiPreset } = await import('../connections')
+  const { saveProfile, setDefaultProfile } = await import('../profiles')
+  const { SETTING_KEYS } = await import('../settings')
   const { saveBackground, requireBackground } = await import('./backgrounds')
   const { nameBackgrounds } = await import('./background-naming')
   const connection = createApiPreset({ name: '视觉', baseUrl: 'http://naming.test/v1', model: 'gpt-4o' })

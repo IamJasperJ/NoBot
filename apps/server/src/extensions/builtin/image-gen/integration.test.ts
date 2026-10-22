@@ -36,7 +36,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     const { updateExtension } = await import('../../registry')
     const { loadMessage, getChatRow } = await import('../../../services/chats')
     const { listLogs, getLog } = await import('../../../services/logs')
-    const { listBackgrounds } = await import('../../../services/backgrounds')
+    const { listBackgrounds } = await import('../../../services/backgrounds/backgrounds')
     const { setAppSettings } = await import('../../../services/settings')
     const { availableTools, runTool } = await import('../../../tools')
     const { createExtensionHost } = await import('../../host')
@@ -224,7 +224,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     textGate = new Promise<void>((resolve) => {
       finishText = resolve
     })
-    const { startGeneration } = await import('../../../services/generation')
+    const { startGeneration } = await import('../../../services/generation/generation')
     startGeneration(chat.id, { mode: 'send', text: '先回复文字', images: [] })
     expect(host.isGenerating(chat.id)).toBe(true)
     expect(() => host.appendMessage(chat.id, { role: 'assistant', content: '' })).toThrow('会话正在生成')

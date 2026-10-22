@@ -33,7 +33,7 @@ test('扩展管理：权限、Git 安装更新切换、热重载及目录缓存'
     const client = await import('../src/db/client')
     sqlite = client.sqlite
     const registry = await import('../src/extensions/registry')
-    const git = await import('../src/services/extension-git')
+    const git = await import('../src/services/extensions/extension-git')
     const permissions = await import('../src/extensions/permissions')
     const { extensionPermissionsSchema } = await import('@nobot/shared')
     const { app } = await import('../src/app')
@@ -159,7 +159,7 @@ test('扩展管理：权限、Git 安装更新切换、热重载及目录缓存'
     expect((await request('/manual/update')).status).toBe(400)
     expect((await request('/regex', 'DELETE')).status).toBe(400)
 
-    const catalog = await import('../src/services/extension-catalog')
+    const catalog = await import('../src/services/extensions/extension-catalog')
     expect((await request('/catalog/sources', 'PUT', { urls: ['file:///bad'] })).status).toBe(400)
     expect(
       (

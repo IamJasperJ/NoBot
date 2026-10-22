@@ -12,7 +12,7 @@ import {
   listAudioTracks,
   saveAudioTrack,
   updateAudioTrack,
-} from '../../../services/audio-library'
+} from '../../../services/audio/audio-library'
 import { defineExtension } from '../../types'
 import { onBgmEvent, registerChatBgmRoutes } from './chat-bgm'
 import { registerTtsRoutes } from './tts/routes'

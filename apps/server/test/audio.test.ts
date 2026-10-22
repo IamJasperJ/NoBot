@@ -25,9 +25,9 @@ test('AUD1：音频格式、CRUD、导入、Range 与上下文开关', async () 
   await (await import('../src/bootstrap')).bootstrap()
   const { sqlite } = await import('../src/db/client')
   const { app } = await import('../src/app')
-  const { detectAudioMime, saveAudioTrack, importAudioUrl } = await import('../src/services/audio-library')
+  const { detectAudioMime, saveAudioTrack, importAudioUrl } = await import('../src/services/audio/audio-library')
   const { updateExtension } = await import('../src/extensions/registry')
-  const { assemble, loadGenerationContext } = await import('../src/services/context')
+  const { assemble, loadGenerationContext } = await import('../src/services/generation/context')
   const headers = [
     [Buffer.from('ID3'), 'audio/mpeg'],
     [Buffer.from([0xff, 0xfb]), 'audio/mpeg'],

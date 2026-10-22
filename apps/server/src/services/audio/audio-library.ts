@@ -11,11 +11,11 @@ import {
 } from '@nobot/shared'
 import { desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { db, newId } from '../db/client'
-import { audioTracks } from '../db/schema'
-import { paths } from '../env'
-import { HttpError, notFound } from '../errors'
-import { t } from '../i18n'
+import { db, newId } from '../../db/client'
+import { audioTracks } from '../../db/schema'
+import { paths } from '../../env'
+import { HttpError, notFound } from '../../errors'
+import { t } from '../../i18n'
 
 export const AUDIO_LIMIT = 30 * 1024 * 1024
 const formats: Record<string, string> = {

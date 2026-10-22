@@ -20,15 +20,15 @@ import {
   type StateSchema,
 } from '@nobot/shared'
 import { and, asc, eq, isNull } from 'drizzle-orm'
-import { db } from '../db/client'
-import { characters, groupMembers, messages } from '../db/schema'
-import { backgroundsForChat } from './backgrounds'
-import { computeVars, getChatRow, loadPath } from './chats'
+import { db } from '../../db/client'
+import { characters, groupMembers, messages } from '../../db/schema'
+import { backgroundsForChat } from '../backgrounds/backgrounds'
+import { computeVars, getChatRow, loadPath } from '../chats'
+import { getDefault, listPlayPresets } from '../playPresets'
+import { readTemporaryActors } from '../sprites/temporary-actors'
+import { resolveWho } from '../trpg/trpg'
+import { readSheet } from '../trpg/trpg-sheet'
 import { loadLore, resolvePersona } from './context'
-import { getDefault, listPlayPresets } from './playPresets'
-import { readTemporaryActors } from './temporary-actors'
-import { resolveWho } from './trpg'
-import { readSheet } from './trpg-sheet'
 
 export function stageMembers(chatId: string) {
   const chat = getChatRow(chatId)

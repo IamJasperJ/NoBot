@@ -123,7 +123,7 @@ describe.skipIf(!process.env.TRASH_TEST_CHILD)('角色与群组回收站', () =>
     await json(`/characters/${a.id}`, 'DELETE')
     expect((await json<GroupDTO>(`/groups/${group.id}`)).members.map((m) => m.characterId)).toEqual([b.id])
     expect((await json<ChatPage>(`/chats/${chat.id}`)).group?.members.map((m) => m.characterId)).toEqual([b.id])
-    const { loadGenerationContext } = await import('../src/services/context')
+    const { loadGenerationContext } = await import('../src/services/generation/context')
     expect(loadGenerationContext(chat.id, { requireConnection: false }).members.map((m) => m.id)).toEqual([b.id])
     expect(sqlite.query('SELECT character_id FROM group_members WHERE group_id = ?').all(group.id)).toHaveLength(2)
     const newChat = await json<ChatDTO>('/chats', 'POST', { groupId: group.id })

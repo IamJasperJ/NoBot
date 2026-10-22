@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { extensionAsset, listExtensions, loadLocalExtensions, updateExtension } from '../extensions/registry'
 import { validate } from '../lib/validate'
-import { catalogSources, extensionCatalog, setCatalogSources } from '../services/extension-catalog'
+import { catalogSources, extensionCatalog, setCatalogSources } from '../services/extensions/extension-catalog'
 import {
   cancelInstall,
   checkExtensionUpdate,
@@ -15,7 +15,7 @@ import {
   switchExtension,
   uninstallExtension,
   updateGitExtension,
-} from '../services/extension-git'
+} from '../services/extensions/extension-git'
 import { listToolInfo } from '../tools'
 
 /** 扩展管理与工具列表 */

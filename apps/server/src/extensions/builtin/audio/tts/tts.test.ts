@@ -177,7 +177,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     }
 
     const fallbackChat = createChat({ characterId: unvoiced.id })
-    const { writeTemporaryActor: addFallbackNpc } = await import('../../../../services/temporary-actors')
+    const { writeTemporaryActor: addFallbackNpc } = await import('../../../../services/sprites/temporary-actors')
     addFallbackNpc(fallbackChat.id, 'Stranger', {
       key: 'stranger',
       name: 'Stranger',
@@ -393,14 +393,14 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
         genderSource: null,
       },
     ])
-    const { writeTemporaryActor } = await import('../../../../services/temporary-actors')
+    const { writeTemporaryActor } = await import('../../../../services/sprites/temporary-actors')
     for (const name of ['Bob', ' B ob ', 'Alice', 'Saved']) {
       writeTemporaryActor(chat.id, name, { key: name, name, image: null, prompt: '', status: 'done', updatedAt: 0 })
     }
     const { getChatRow, loadPath } = await import('../../../../services/chats')
-    const { computeStage } = await import('../../../../services/stage')
+    const { computeStage } = await import('../../../../services/generation/stage')
     const currentStage = computeStage(chat.id, loadPath(getChatRow(chat.id).activeLeafId))
-    const stageSpy = spyOn(await import('../../../../services/stage'), 'computeStage').mockReturnValue({
+    const stageSpy = spyOn(await import('../../../../services/generation/stage'), 'computeStage').mockReturnValue({
       scene: currentStage?.scene ?? {},
       cast: [
         { key: 'bob', name: 'Bob', at: 'center', expression: '' },

@@ -12,7 +12,7 @@ import { db, newId } from '../db/client'
 import { type LorebookEntryRow, type LorebookRow, lorebookEntries, lorebooks } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
-import { requireBackground } from './backgrounds'
+import { requireBackground } from './backgrounds/backgrounds'
 
 function getRow(id: string) {
   const row = db.select().from(lorebooks).where(eq(lorebooks.id, id)).get()

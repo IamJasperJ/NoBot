@@ -5,7 +5,7 @@ import { characters, groupMembers, groups } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
-import { requireBackground } from './backgrounds'
+import { requireBackground } from './backgrounds/backgrounds'
 
 export function getGroup(id: string): GroupDTO {
   const row = db

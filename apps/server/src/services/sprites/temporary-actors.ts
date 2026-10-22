@@ -1,5 +1,5 @@
 import type { AttachmentDTO, TemporaryActorDTO } from '@nobot/shared'
-import { getSetting, setSetting } from '../db/client'
+import { getSetting, setSetting } from '../../db/client'
 
 /** 旧版附件在读取时适配，下一次写入时一并升级，避免舞台依赖扩展。 */
 export function readTemporaryActors(chatId: string): Record<string, TemporaryActorDTO> {

@@ -5,9 +5,9 @@ import { HttpError } from '../errors'
 import { t } from '../i18n'
 import { readUpload } from '../lib/files'
 import { validate } from '../lib/validate'
-import { previewSpriteCutout, spriteCutoutJob, startSpriteCutout } from '../services/sprite-cutout'
-import { spriteJob, startSpriteJob } from '../services/sprite-generation'
-import * as service from '../services/sprites'
+import { previewSpriteCutout, spriteCutoutJob, startSpriteCutout } from '../services/sprites/sprite-cutout'
+import { spriteJob, startSpriteJob } from '../services/sprites/sprite-generation'
+import * as service from '../services/sprites/sprites'
 
 export const spriteRoutes = new Hono()
   .post('/:spriteId/cutout/preview', validate('json', spriteCutoutPreviewInput), async (c) => {

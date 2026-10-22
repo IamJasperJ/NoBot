@@ -32,8 +32,8 @@ test('临时立绘：存储兼容、舞台状态、自动重试和管理接口',
   const { app } = await import('../../../app')
   const { getSetting, setSetting } = await import('../../../db/client')
   const { createExtensionHost } = await import('../../host')
-  const { readTemporaryActors, writeTemporaryActor } = await import('../../../services/temporary-actors')
-  const { computeStage, applyStageParse } = await import('../../../services/stage')
+  const { readTemporaryActors, writeTemporaryActor } = await import('../../../services/sprites/temporary-actors')
+  const { computeStage, applyStageParse } = await import('../../../services/generation/stage')
   const { loadPath } = await import('../../../services/chats')
   const { parseSettings } = await import('./settings')
   const { autoActors } = await import('./vn6')
@@ -156,14 +156,14 @@ test('临时立绘：存储兼容、舞台状态、自动重试和管理接口',
     expect(await wait()).toMatchObject({ status: 'done', prompt: 'green hair, red coat' })
     expect(calls.at(-1)).toMatchObject({ background: 'transparent', output_format: 'png' })
     expect(calls.at(-1)?.prompt).toContain('white background')
-    const { generateSpriteSet } = await import('../../../services/sprite-generation')
+    const { generateSpriteSet } = await import('../../../services/sprites/sprite-generation')
     const nativeSet = await generateSpriteSet(ctx, character.id, {
       basePrompt: 'blue hair, red coat',
       outfit: '',
       expressions: ['neutral'],
     })
     expect(nativeSet).toMatchObject({ done: 1, failed: 0 })
-    const { listSprites, findSprite, spriteOriginalPath } = await import('../../../services/sprites')
+    const { listSprites, findSprite, spriteOriginalPath } = await import('../../../services/sprites/sprites')
     const generated = listSprites(character.id)[0]!
     expect(generated.hasOriginal).toBe(true)
     expect(await Bun.file(spriteOriginalPath(findSprite(character.id, generated.id))!).exists()).toBe(true)

@@ -27,7 +27,7 @@ test('性别推断、优先级、缓存失效、异步分配和双会话 DTO 隔
   const { sqlite } = await import('../../../../db/client')
   const { createCharacter, updateCharacter } = await import('../../../../services/characters')
   const { createChat } = await import('../../../../services/chats')
-  const { writeTemporaryActor } = await import('../../../../services/temporary-actors')
+  const { writeTemporaryActor } = await import('../../../../services/sprites/temporary-actors')
   const { inferGender, readGender, parseGender, waitForGender } = await import('./gender')
   const { poolVoice, resolveVoice, resolveVoiceSync } = await import('./service')
   const { audioSettings } = await import('./settings')

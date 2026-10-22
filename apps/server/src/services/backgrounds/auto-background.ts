@@ -1,14 +1,14 @@
 import type { LorebookEntryData, WIActivation } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
-import { db } from '../db/client'
-import { backgrounds } from '../db/schema'
-import { HttpError } from '../errors'
-import { t } from '../i18n'
+import { db } from '../../db/client'
+import { backgrounds } from '../../db/schema'
+import { HttpError } from '../../errors'
+import { t } from '../../i18n'
+import { getChatRow, loadPath, updateChat } from '../chats'
+import { quietPrompt } from '../generation/quiet-prompt'
+import { logError } from '../logs'
 import { matchBackground } from './background-match'
 import { backgroundsForChat } from './backgrounds'
-import { getChatRow, loadPath, updateChat } from './chats'
-import { logError } from './logs'
-import { quietPrompt } from './quiet-prompt'
 
 /** 手动与定期自动选择使用相同的候选范围、静默提示词和匹配规则。 */
 export async function autoSelectBackground(chatId: string) {

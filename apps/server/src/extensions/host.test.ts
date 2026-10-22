@@ -39,7 +39,7 @@ test('扩展宿主：消息、静默请求、内置路由、动态工具及保�
     const { app } = await import('../app')
     const registry = await import('./registry')
     const { availableTools, runTool } = await import('../tools')
-    const { assemble, loadGenerationContext, toHistory } = await import('../services/context')
+    const { assemble, loadGenerationContext, toHistory } = await import('../services/generation/context')
     const { getChatRow, loadPath } = await import('../services/chats')
     const { listLogs, getLog } = await import('../services/logs')
     const events: ServerEvent[] = []
@@ -333,13 +333,13 @@ test('扩展宿主：消息、静默请求、内置路由、动态工具及保�
       'PATCH',
     )
     toolMode = true
-    const { startGeneration, isGenerating } = await import('../services/generation')
+    const { startGeneration, isGenerating } = await import('../services/generation/generation')
     const job = startGeneration(emptyChat.id, { mode: 'send', text: '触发工具', images: [] })
     expect(host.isGenerating(emptyChat.id)).toBe(true)
     expect(() => host.appendMessage(emptyChat.id, { role: 'assistant', content: '' })).toThrow(
       '会话正在生成，请稍后再试',
     )
-    const { subscribe } = await import('../services/generation')
+    const { subscribe } = await import('../services/generation/generation')
     await new Promise<void>((resolve) => {
       subscribe(job, (event) => {
         if (event.type === 'complete') resolve()

@@ -269,7 +269,7 @@ test('翻译扩展：服务、保护标记、路由、命令与真实生成流�
       result: '你好 世界',
     })
     client.setSetting('ext:translate', { ...config, autoMode: 'both' })
-    const { startGeneration, subscribe } = await import('../../../services/generation')
+    const { startGeneration, subscribe } = await import('../../../services/generation/generation')
     async function generate(text: string) {
       const job = startGeneration(chat.id, { mode: 'send', text, images: [] })
       await new Promise<void>((resolve) =>
@@ -293,7 +293,7 @@ test('翻译扩展：服务、保护标记、路由、命令与真实生成流�
     expect(savedUser.content).toBe('Translated input')
     expect(savedUser.meta.translation).toMatchObject({ direction: 'source', text: '原文', lang: 'auto', auto: true })
     expect(JSON.stringify(llmRequests.at(-1)!.messages)).toContain('Translated input')
-    const { toHistory, loadGenerationContext } = await import('../../../services/context')
+    const { toHistory, loadGenerationContext } = await import('../../../services/generation/context')
     const history = toHistory(loadGenerationContext(chat.id, { requireConnection: true }), reply.id)
     expect(history.find((message) => message.id === reply.id)!.content).toContain('Hello world')
     expect(history.find((message) => message.id === savedUser.id)!.content).toContain('Translated input')

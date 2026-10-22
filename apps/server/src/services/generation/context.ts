@@ -26,7 +26,7 @@ import {
   type PromptPreview,
 } from '@nobot/shared'
 import { asc, eq, inArray } from 'drizzle-orm'
-import { db, getSetting } from '../db/client'
+import { db, getSetting } from '../../db/client'
 import {
   type ApiPresetRow,
   type CharacterRow,
@@ -37,23 +37,23 @@ import {
   lorebookEntries,
   lorebooks,
   personas,
-} from '../db/schema'
-import { HttpError, notFound, promptBudgetMessage } from '../errors'
-import { audioSettings as audioSettingsSchema } from '../extensions/builtin/audio/tts/settings'
-import { collectMacros, runAfterPrompt, runBeforePrompt } from '../extensions/registry'
-import { t } from '../i18n'
-import { enabledToolNames } from '../tools'
-import { listAudioTracks } from './audio-library'
-import { backgroundsForChat } from './backgrounds'
-import { replaceImageAttachments } from './caption'
-import { computeVars, getChatRow, loadGroupDTO, loadPath } from './chats'
-import { matchLoreVectors } from './lore-vectors'
-import { resolveProfile } from './profiles'
-import { getWorldInfoSettings, SETTING_KEYS } from './settings'
-import { listSprites } from './sprites'
+} from '../../db/schema'
+import { HttpError, notFound, promptBudgetMessage } from '../../errors'
+import { audioSettings as audioSettingsSchema } from '../../extensions/builtin/audio/tts/settings'
+import { collectMacros, runAfterPrompt, runBeforePrompt } from '../../extensions/registry'
+import { t } from '../../i18n'
+import { enabledToolNames } from '../../tools'
+import { listAudioTracks } from '../audio/audio-library'
+import { backgroundsForChat } from '../backgrounds/backgrounds'
+import { replaceImageAttachments } from '../caption'
+import { computeVars, getChatRow, loadGroupDTO, loadPath } from '../chats'
+import { matchLoreVectors } from '../lore-vectors'
+import { resolveProfile } from '../profiles'
+import { getWorldInfoSettings, SETTING_KEYS } from '../settings'
+import { listSprites } from '../sprites/sprites'
+import { chatRules, describeParty } from '../trpg/trpg'
+import { readSheet } from '../trpg/trpg-sheet'
 import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema } from './stage'
-import { chatRules, describeParty } from './trpg'
-import { readSheet } from './trpg-sheet'
 
 /**
  * 生成上下文：组装 Prompt 需要的一切，一次性从数据库读出来。

@@ -6,11 +6,11 @@ import { bookmarks, characters } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
-import { backgroundsForChat, listBackgrounds } from './backgrounds'
+import { backgroundsForChat, listBackgrounds } from './backgrounds/backgrounds'
 import { computeVars, getChatRow, loadMessage, loadPath } from './chats'
-import { resolvePersona } from './context'
-import { listSprites } from './sprites'
-import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema, stageMembers } from './stage'
+import { resolvePersona } from './generation/context'
+import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema, stageMembers } from './generation/stage'
+import { listSprites } from './sprites/sprites'
 
 /** 摘要和默认名用的纯文字：角色回复先去掉舞台指令（<scene>、<state> 等标签和台词速记），再把换行压成空格 */
 const plainText = (message: MessageDTO) =>

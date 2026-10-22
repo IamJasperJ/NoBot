@@ -1,13 +1,13 @@
 import type { ChatMessage } from '@nobot/shared'
-import { HttpError } from '../errors'
-import type { ExtensionHost } from '../extensions/types'
-import { t } from '../i18n'
-import { buildRequestBody, chatCompletion, toLlmConnection } from '../llm/openai'
-import { redactImages, resolveImages } from './attachments'
-import { replaceImageAttachments } from './caption'
-import { getApiPresetRow } from './connections'
+import { HttpError } from '../../errors'
+import type { ExtensionHost } from '../../extensions/types'
+import { t } from '../../i18n'
+import { buildRequestBody, chatCompletion, toLlmConnection } from '../../llm/openai'
+import { redactImages, resolveImages } from '../attachments'
+import { replaceImageAttachments } from '../caption'
+import { getApiPresetRow } from '../connections'
+import { insertLog } from '../logs'
 import { assembleWithVectors, loadGenerationContext, loadLore } from './context'
-import { insertLog } from './logs'
 
 /** 与扩展宿主共用静默生成，保持上下文、图片处理和日志行为一致。 */
 export function quietPrompt(opts: Parameters<ExtensionHost['quietPrompt']>[0]): Promise<string> {

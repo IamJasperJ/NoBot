@@ -41,10 +41,10 @@ test('VN5：属性卡、检定、工具、提示词与战斗分支集成', async
   const chars = await import('../src/services/characters')
   const personas = await import('../src/services/personas')
   const chats = await import('../src/services/chats')
-  const stage = await import('../src/services/stage')
-  const trpg = await import('../src/services/trpg')
+  const stage = await import('../src/services/generation/stage')
+  const trpg = await import('../src/services/trpg/trpg')
   const { availableTools, runTool } = await import('../src/tools')
-  const { assemble, loadGenerationContext, toHistory } = await import('../src/services/context')
+  const { assemble, loadGenerationContext, toHistory } = await import('../src/services/generation/context')
   const model = mockLlm()
   const request = (path: string, body?: unknown) =>
     app.request(`/api${path}`, {

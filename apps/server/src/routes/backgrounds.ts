@@ -13,8 +13,8 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
-import { autoSelectBackground } from '../services/auto-background'
-import { nameBackgrounds } from '../services/background-naming'
+import { autoSelectBackground } from '../services/backgrounds/auto-background'
+import { nameBackgrounds } from '../services/backgrounds/background-naming'
 import {
   batchDeleteBackgrounds,
   changeBackgroundFolderItems,
@@ -29,7 +29,7 @@ import {
   setBackgroundSettings,
   updateBackground,
   updateBackgroundFolder,
-} from '../services/backgrounds'
+} from '../services/backgrounds/backgrounds'
 
 const tooLarge = () => new HttpError(413, 'TOO_LARGE', t('文件太大（视频上限 100MB，图片上限 20MB）'))
 

@@ -40,14 +40,14 @@ test('内置变量双语标签和旧默认值精确迁移（独立数据库）',
   }
   const directory = await mkdtemp(join(tmpdir(), 'nobot-legacy-prompts-'))
   process.env.DATA_DIR = directory
-  const { db, sqlite, initDatabase, setSetting, getSetting } = await import('../db/client')
+  const { db, sqlite, initDatabase, setSetting, getSetting } = await import('../../db/client')
   try {
     initDatabase()
-    const { playPresets, promptPresets, generationLogs } = await import('../db/schema')
-    const { SETTING_KEYS, setAppSettings } = await import('./settings')
-    const { BUILTIN_PLAY_PRESETS } = await import('./playPresets.builtin')
+    const { playPresets, promptPresets, generationLogs } = await import('../../db/schema')
+    const { SETTING_KEYS, setAppSettings } = await import('../settings')
+    const { BUILTIN_PLAY_PRESETS } = await import('../playPresets.builtin')
     const { migrateLegacyPrompts } = await import('./migrate-legacy-prompts')
-    const { seedUserDatabase } = await import('../db/seed')
+    const { seedUserDatabase } = await import('../../db/seed')
     for (const language of ['zh', 'en'] as const) {
       setAppSettings({ language })
       for (const def of BUILTIN_PLAY_PRESETS.filter((def) => ['galgame', 'rpg', 'dnd5e'].includes(def.key))) {

@@ -40,7 +40,7 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
   const { createExtensionHost } = await import('../src/extensions/host')
   const { autoCgs, autoActors } = await import('../src/extensions/builtin/image-gen/vn6')
   const { loadMessage, loadPath } = await import('../src/services/chats')
-  const { computeStage, applyStageParse } = await import('../src/services/stage')
+  const { computeStage, applyStageParse } = await import('../src/services/generation/stage')
   const { parseSettings } = await import('../src/extensions/builtin/image-gen/settings')
   const { updateExtension } = await import('../src/extensions/registry')
   const host = createExtensionHost(() => {})

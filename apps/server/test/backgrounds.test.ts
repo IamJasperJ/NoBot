@@ -31,7 +31,9 @@ test('背景上传、设置、删除与校验使用独立数据库', async () =>
   seedPlayPresets()
   const { app } = await import('../src/app')
   const { paths } = await import('../src/env')
-  const { saveBackground, checkBackgroundSize, detectBackgroundMime } = await import('../src/services/backgrounds')
+  const { saveBackground, checkBackgroundSize, detectBackgroundMime } = await import(
+    '../src/services/backgrounds/backgrounds'
+  )
   const request = (path: string, method = 'GET', body?: unknown) =>
     app.request(`/api${path}`, {
       method,

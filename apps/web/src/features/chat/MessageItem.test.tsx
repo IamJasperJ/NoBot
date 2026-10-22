@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Children, isValidElement, type ReactElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { keys } from '../../api/queries'
-import { MessageItem, MessageMedia } from './MessageItem'
+import { MessageItem } from './MessageItem'
+import { MessageMedia } from './MessageMedia'
 
 const image = { id: 'image', url: '/image.webp', mime: 'image/webp', width: 64, height: 64 }
 function message(meta: MessageDTO['meta']): MessageDTO {

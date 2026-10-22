@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { XIcon } from '../../components/icons'
 import { cx } from '../../components/ui'
 import { t } from '../../i18n'
-import { MessageMedia } from '../chat/MessageItem'
+import { MessageMedia } from '../chat/MessageMedia'
 
 /**
  * VN 视图里的图片框：生成的图片（含占位、失败、备选切换、设为背景、改提示词）不进对话框，

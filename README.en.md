@@ -20,18 +20,66 @@ The model writes the narrative and NoBot stages it: sprites, backgrounds, CGs, m
 
 </div>
 
-## Design goals
+## Highlights
 
-| Common issue | NoBot's approach |
-|---|---|
-| Existing VN modes only swap character expressions beside the chat | The model emits **stage directions**, and NoBot performs entrances, blocking, expressions, scene changes, CGs, BGM and branching choices line by line |
-| Sprites and backgrounds must be collected, cut out and named by hand | Full expression sets can be generated with automatic cutouts; when the story enters a new scene and the library has no match, **a background is generated** and named by a vision model |
-| Text-to-speech reads markers such as `*sighs*` and `<laugh/>` aloud, and every character shares one voice | Each character has its own voice, with gender-based assignment as a fallback; whispers, shouts, laughter and sighs are converted to each engine's supported controls, and unrecognized markers are never read aloud |
-| Replies from multiple characters in a group chat interrupt each other | Replies within a round are **performed and read in order**, with optional reading while generating |
-| In tabletop play the model rolls its own dice without constraint | Dice rolls and checks are resolved by NoBot, so **the model cannot alter the result**; HP, inventory and other state are recorded on the message tree and roll back on regeneration |
-| A page refresh or network interruption loses the reply in progress | Generation runs on the server and **continues on screen** after a refresh or reconnect; the message list is virtualized for long conversations |
-| It is hard to tell why a lorebook entry did not activate | The prompt preview lists the activation reason for each entry (keyword, constant, sticky, vector match) and the reason it was skipped (cooldown, budget, probability, inclusion group) |
-| Installing an extension requires a restart, and its permissions are opaque | Install from Git, update, switch branches and uninstall **without restarting**, with required permissions listed before enabling |
+<table>
+<tr>
+<td width="50%" valign="top">
+
+#### 🎭 Performance driven by stage directions
+The model emits stage directions, and entrances, blocking, expressions, scene changes, CGs, BGM and branching choices are presented line by line.
+
+</td>
+<td width="50%" valign="top">
+
+#### 🎨 Automatic sprites and backgrounds
+Generate full expression sets with automatic cutouts; when a new scene has no matching background, one is generated and named by a vision model.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+#### 🗣️ Multi-character voice acting
+Each character has its own voice, with gender-based assignment as a fallback; delivery and sound markers are converted to each engine's capabilities instead of being read aloud.
+
+</td>
+<td valign="top">
+
+#### 👥 Ordered group performance
+Replies within a round are performed and read in order, with optional reading while generating.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+#### 🎲 Rule-enforced tabletop
+Dice rolls and checks are resolved by NoBot and cannot be altered by the model; HP, inventory and other state roll back with the message tree.
+
+</td>
+<td valign="top">
+
+#### 🌳 Uninterrupted generation
+Generation runs on the server and continues after a refresh or reconnect; a virtualized list keeps long chats responsive.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+#### 🔍 Explainable lorebooks
+The prompt preview lists why each entry was activated or skipped, making issues easy to trace.
+
+</td>
+<td valign="top">
+
+#### 🧩 Hot-pluggable extensions
+Install, update and uninstall extensions from Git without restarting, with required permissions listed before enabling.
+
+</td>
+</tr>
+</table>
 
 ## Key features
 
@@ -108,18 +156,14 @@ The model writes stage directions inline (shorthand or XML format, with MVU vari
 
 ## SillyTavern compatibility and general features
 
-<details>
-<summary><b>📚 SillyTavern data compatibility</b></summary>
+### 📚 SillyTavern data compatibility
 
 - Import character cards (PNG / JSON), lorebooks, generation presets, sprite packs and quick replies; exported cards can be used in SillyTavern
 - Covers every SillyTavern Chat Completion source: native protocols for Claude / Gemini / Vertex AI / Azure, plus more than thirty preconfigured providers with their API differences handled automatically
 - Sampler settings, prompt manager (drag to reorder, depth injection, generation-type triggers), utility prompts, message post-processing, continue and response prefill
 - Lorebooks: keywords (regex supported), optional filters, constant, probability, recursion, inclusion groups, delay / sticky / cooldown, character filters, outlets and vector matching across eight insertion positions, attachable to global, character, persona or chat scope
 
-</details>
-
-<details>
-<summary><b>💬 Chat</b></summary>
+### 💬 Chat
 
 - Streaming, reasoning display, stop, continue and impersonate; pressing Enter on an empty input lets the character continue
 - Group chats with natural, list, round-robin and manual turn order, forced speakers and muted members
@@ -129,18 +173,13 @@ The model writes stage directions inline (shorthand or XML format, with MVU vari
 - Translation (model, Google, DeepL, DeepLX, LibreTranslate, Lingva) that preserves the original text and keeps stage directions functional
 - Chat summaries, trash bin, multiple personas, and request logs accessible from any message
 
-</details>
-
-<details>
-<summary><b>🏠 Deployment and multiple users</b></summary>
+### 🏠 Deployment and multiple users
 
 - Runs as a single process or via `docker compose`, and supports mobile browsers
 - Multi-user: administrators can create users, reset passwords, and disable or delete accounts under **Settings → Account → Users**; each user's characters, chats and API keys are isolated
 - Profiles combine connection, model, generation preset, regex and image settings, and can be set as default, bound to a character or switched per chat
 - Extensions: backends can register macros, tools, slash commands and routes and participate in prompt assembly, and frontends can add components to UI slots; see `examples/extensions/hello-world`
 - Chinese and English interface
-
-</details>
 
 ## Quick start
 
@@ -178,8 +217,7 @@ docker compose up -d --build
 
 By default the service listens on `127.0.0.1:3000` only and stores data in `./data`. To update, pull the new code and run `docker compose up -d --build` again.
 
-<details>
-<summary>Common <code>.env</code> variables</summary>
+Common `.env` variables:
 
 | Variable | Description |
 |---|---|
@@ -189,8 +227,6 @@ By default the service listens on `127.0.0.1:3000` only and stores data in `./da
 | `TRUST_PROXY=1` | Enable only behind a trusted reverse proxy so login rate limiting sees real client IPs |
 | `NOBOT_PROXY` / `NOBOT_NO_PROXY` | Proxy for outbound requests (models, voice and image services) |
 | `BUN_IMAGE` / `DEBIAN_MIRROR` / `BUILDKIT_SYNTAX` | Mirror addresses for builds when Docker Hub or Debian repositories are unreachable |
-
-</details>
 
 ## Data storage
 

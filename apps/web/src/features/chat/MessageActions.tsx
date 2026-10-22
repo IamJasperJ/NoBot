@@ -155,7 +155,13 @@ export function MessageActions({
           <MenuItem
             icon={<CopyIcon />}
             label={t('复制文本')}
-            onClick={() => navigator.clipboard.writeText(msg.content).then(() => toast.info(t('已复制')))}
+            onClick={() =>
+              // 浏览器不给剪贴板权限时会拒绝，提示原因而不是留下未捕获的异常
+              void navigator.clipboard.writeText(msg.content).then(
+                () => toast.info(t('已复制')),
+                (e: unknown) => toast.error(errorMessage(e)),
+              )
+            }
           />
           {msg.meta.logId && (
             <MenuItem

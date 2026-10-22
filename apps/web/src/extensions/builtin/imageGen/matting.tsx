@@ -1,10 +1,10 @@
 import type { MattingPart } from '@nobot/shared'
 import { useId } from 'react'
-import { useInstallMatting, useMattingStatus, useRemoveMatting } from '../../api/matting'
-import { DenseRow } from '../../components/form'
-import { Button } from '../../components/ui'
-import { t } from '../../i18n'
-import { errorMessage, toast } from '../../stores/toast'
+import { useInstallMatting, useMattingStatus, useRemoveMatting } from '../../../api/matting'
+import { DenseRow } from '../../../components/form'
+import { Button } from '../../../components/ui'
+import { t } from '../../../i18n'
+import { errorMessage, toast } from '../../../stores/toast'
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`
 

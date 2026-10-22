@@ -1,10 +1,10 @@
 import type { AttachmentDTO } from '@nobot/shared'
 import { useId, useMemo, useState } from 'react'
-import { DenseRow, denseSelectClass, TextAreaField } from '../../components/form'
-import { EditIcon, PlusIcon, TrashIcon } from '../../components/icons'
-import { Button, cx, Dialog, IconButton, inputClass } from '../../components/ui'
-import { t } from '../../i18n'
-import type { ClientExtensionAPI } from '../types'
+import { DenseRow, denseSelectClass, TextAreaField } from '../../../components/form'
+import { EditIcon, PlusIcon, TrashIcon } from '../../../components/icons'
+import { Button, cx, Dialog, IconButton, inputClass } from '../../../components/ui'
+import { t } from '../../../i18n'
+import type { ClientExtensionAPI } from '../../types'
 
 /**
  * 图片生成扩展的自定义设置控件（设置表单里 type 为 custom 的字段）。

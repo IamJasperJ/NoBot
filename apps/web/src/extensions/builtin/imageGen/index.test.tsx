@@ -3,11 +3,11 @@ import type { MessageDTO } from '@nobot/shared'
 import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 import * as React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { Composer } from '../../features/chat/Composer'
-import { useExtensionsRuntime } from '../runtime'
-import type { ClientExtensionAPI, SlotContribution } from '../types'
-import activate, { subscribeChatCache } from './imageGen'
-import { postDraft } from './imageGenSettings'
+import { Composer } from '../../../features/chat/Composer'
+import { useExtensionsRuntime } from '../../runtime'
+import type { ClientExtensionAPI, SlotContribution } from '../../types'
+import activate, { subscribeChatCache } from './index'
+import { postDraft } from './settings'
 
 test('独立图片按钮打开菜单，连续选择发出两个请求，群聊按成员展开，+ 菜单无重复分组', async () => {
   const requests: { path: string; body: unknown }[] = []
@@ -157,8 +157,8 @@ test('编辑预览确认与取消、角色提示词保存、swipe 事件和草�
   const requests: { path: string; body: Record<string, unknown> }[] = []
   const clicks = new Map<string, () => void>()
   const fields = new Map<string, (event: { target: { value: string } }) => void>()
-  const slots = new Map<string, SlotContribution<keyof import('../types').SlotProps>>()
-  let swipe: ((event: import('../types').ClientEvent & { type: 'image:swipe-next' }) => void) | undefined
+  const slots = new Map<string, SlotContribution<keyof import('../../types').SlotProps>>()
+  let swipe: ((event: import('../../types').ClientEvent & { type: 'image:swipe-next' }) => void) | undefined
   const states: unknown[] = []
   let cursor = 0
   const qc = new QueryClient()
@@ -194,7 +194,7 @@ test('编辑预览确认与取消、角色提示词保存、swipe 事件和草�
       saves++
     },
     toast: { info: () => {}, error: (message: string) => errors.push(message) },
-    registerSlot: (name: string, value: SlotContribution<keyof import('../types').SlotProps>) => {
+    registerSlot: (name: string, value: SlotContribution<keyof import('../../types').SlotProps>) => {
       slots.set(name, value)
     },
     registerPage: () => {

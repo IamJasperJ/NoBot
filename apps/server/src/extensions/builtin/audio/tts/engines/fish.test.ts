@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from 'bun:test'
-import { createTtsEngines } from './engines'
+import { audioSettings } from '../settings'
 import { createFishClient, fishApiRoot } from './fish'
-import { audioSettings } from './settings'
+import { createTtsEngines } from './index'
 
 function fetchMock(handler: (url: string, init?: RequestInit) => Response | Promise<Response>): typeof fetch {
   return Object.assign(async (url: string | URL | Request, init?: RequestInit) => handler(String(url), init), {

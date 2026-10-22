@@ -39,7 +39,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     clearTtsCache,
     messageSegments,
   } = await import('./service')
-  const { edgeGec, xmlEscape, edgeSynthesize } = await import('./edge')
+  const { edgeGec, xmlEscape, edgeSynthesize } = await import('./engines/edge/client')
   const request = (path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST') =>
     app.request(`/api/ext/audio/tts${path}`, {
       method,
@@ -66,7 +66,7 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     expect(
       updateExtension('audio', { settings: { expressionStyle: false, deliveryMode: 'rich' } }).settings,
     ).toMatchObject({ deliveryMode: 'rich' })
-    const { fishClient, createFishClient } = await import('./fish')
+    const { fishClient, createFishClient } = await import('./engines/fish')
     const clearFish = spyOn(fishClient, 'clearCache')
     updateExtension('audio', { settings: { fishApiKey: 'saved-key' } })
     expect(clearFish).toHaveBeenCalledTimes(1)

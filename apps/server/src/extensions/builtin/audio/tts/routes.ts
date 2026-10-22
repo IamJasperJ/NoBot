@@ -14,7 +14,7 @@ import { parseSettingsDraft } from '../../../types'
 import { chatVoiceDTO, chatVoiceKey, effectiveSettings } from './chat-voice'
 import { applyDirection, directMessage, directorDeliverySchema, waitForVnDirections } from './director'
 import { ttsEngines } from './engines'
-import { fishClient } from './fish'
+import { fishClient } from './engines/fish'
 import { inferGender } from './gender'
 import {
   cacheEntries,

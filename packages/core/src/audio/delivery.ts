@@ -1,8 +1,8 @@
 import type { Cue, Delivery, DeliveryCapabilities, EngineDeliveryParams, SpokenLine } from '@nobot/shared'
+import { lineVolume, parseCues } from '../stage/delivery'
 import { expressionTone, type Tone } from './expression-tone'
-import { lineVolume, parseCues } from './stage/delivery'
 
-export { parseCues } from './stage/delivery'
+export { parseCues } from '../stage/delivery'
 
 export function sanitizeForEngine(text: string, capabilities: DeliveryCapabilities): string {
   text = parseCues(text).text

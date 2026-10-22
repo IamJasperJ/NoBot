@@ -1,7 +1,14 @@
 import { expect, test } from 'bun:test'
-import { EDGE_VERSION, EdgeHandshakeError, edgeGec, edgeHeaders, edgeSynthesize, type SocketFactory } from './edge'
-import { createTtsEngines } from './engines'
-import { audioSettings } from './settings'
+import { audioSettings } from '../settings'
+import {
+  EDGE_VERSION,
+  EdgeHandshakeError,
+  edgeGec,
+  edgeHeaders,
+  edgeSynthesize,
+  type SocketFactory,
+} from './edge/client'
+import { createTtsEngines } from './index'
 
 // 参考值由 Python edge-tts 7.3.1 的 generate_sec_ms_gec_v2 计算，包含窗口边界和当前纪元。
 test.each([

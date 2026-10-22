@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto'
 import { guessVoiceGender } from '@nobot/core'
 import type { FishVoiceItem, FishVoiceSearchResult, TtsOption } from '@nobot/shared'
 import { z } from 'zod'
-import { HttpError } from '../../../../errors'
-import { t } from '../../../../i18n'
-import type { AudioSettings } from './settings'
+import { HttpError } from '../../../../../errors'
+import { t } from '../../../../../i18n'
+import type { AudioSettings } from '../settings'
 
 const strings = z
   .array(z.string().catch(''))
@@ -145,3 +145,33 @@ export function createFishClient(network: { fetch?: typeof fetch; mock?: boolean
   }
 }
 export const fishClient = createFishClient()
+
+import { deliveryCapabilities, engineInput } from '../delivery'
+import type { EngineHttp } from './http'
+import type { TtsEngine } from './index'
+
+export function createFishEngine({ synth }: EngineHttp, fish: ReturnType<typeof createFishClient>): TtsEngine {
+  return {
+    id: 'fish',
+    deliveryCapabilities: (s, voice) => deliveryCapabilities('fish', s, voice),
+    get label() {
+      return t('Fish Audio 语音')
+    },
+    configured: (s) => !!s.fishApiKey.trim() && !!s.fishEndpoint && !!s.fishModel,
+    voices: fish.voices,
+    synthesize: (input, s, signal) => {
+      const rendered = engineInput('fish', input, s)
+      return synth(
+        s.fishEndpoint,
+        {
+          text: rendered.text,
+          reference_id: input.voice,
+          prosody: { speed: input.speed },
+          format: 'mp3',
+        },
+        { Authorization: `Bearer ${s.fishApiKey.trim()}`, model: s.fishModel },
+        signal,
+      )
+    },
+  }
+}

@@ -1,5 +1,5 @@
-import { t } from '../../../../i18n'
-import { edgeTokenHash } from './edge-gec'
+import { t } from '../../../../../../i18n'
+import { edgeTokenHash } from './gec'
 
 // 非官方接口；协议参照 edge-tts 7.3.1（https://github.com/rany2/edge-tts/tree/7.3.1）。
 // 上游仍使用 2-143.0.3650.75，但 GEC 已改为 CS64-SHA256 v2，不能只更新版本号。

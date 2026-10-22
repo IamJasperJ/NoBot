@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
-import { createTtsEngines } from './engines'
-import { audioSettings } from './settings'
+import { audioSettings } from '../settings'
+import { createTtsEngines } from './index'
 
 const input = { text: '你好', voice: 'custom', speed: 1.5, tone: 'happy' as const }
 test('MiniMax：请求格式、hex 解码与鉴权错误', async () => {

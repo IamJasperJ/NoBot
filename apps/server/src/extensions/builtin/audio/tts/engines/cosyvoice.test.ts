@@ -1,8 +1,8 @@
 import { expect, spyOn, test } from 'bun:test'
 import { parseCues, renderDelivery } from '@nobot/core'
-import { createTtsEngines, mockAudio } from './engines'
-import { cacheSettings } from './service'
-import { audioSettings, cosyvoiceHeaders, ttsFields } from './settings'
+import { cacheSettings } from '../service'
+import { audioSettings, cosyvoiceHeaders, ttsFields } from '../settings'
+import { createTtsEngines, mockAudio } from './index'
 
 const settings = () =>
   audioSettings.parse({ cosyvoiceApi: 'gateway', cosyvoiceEndpoint: 'http://gateway/api/cosyvoice3/' })

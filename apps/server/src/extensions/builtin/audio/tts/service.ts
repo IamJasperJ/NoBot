@@ -1,7 +1,14 @@
 import { createHash } from 'node:crypto'
 import { readdir, stat, unlink, utimes } from 'node:fs/promises'
 import { join } from 'node:path'
-import { deliveryFromExpression, expressionTone, guessVoiceGender, parseCues, renderDelivery } from '@nobot/core'
+import {
+  deliveryFromExpression,
+  expressionTone,
+  guessVoiceGender,
+  parseCues,
+  renderDelivery,
+  toneInstruction,
+} from '@nobot/core'
 import { castKey, deliveryTokenSource, speechSegments, toDisplayText } from '@nobot/core/stage'
 import {
   type CharacterGender,
@@ -20,7 +27,6 @@ import { getChatRow, loadMessage } from '../../../../services/chats'
 import { resolvePersona } from '../../../../services/context'
 import { matchStageMember, stageMembers } from '../../../../services/stage'
 import { currentUser } from '../../../../user-context'
-import { toneInstruction } from './additional'
 import type { EffectiveAudioSettings } from './chat-voice'
 import { openaiConnection, ttsEngines } from './engines'
 import { type GenderContext, inferGender, readGender, waitForGender } from './gender'

@@ -322,3 +322,20 @@ export const ScissorsIcon = (p: P) => (
     <path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12" />
   </Icon>
 )
+export const UserPlusIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M19 8v6M16 11h6" />
+  </Icon>
+)
+export const BellIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9M10 19a2 2 0 0 0 4 0" />
+  </Icon>
+)
+export const BanIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M6 6l12 12" />
+  </Icon>
+)

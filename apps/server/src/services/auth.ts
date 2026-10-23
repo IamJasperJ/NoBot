@@ -8,6 +8,7 @@ import { systemDatabase } from '../db/system-client'
 import { sessions, users } from '../db/system-schema'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
+import { liveHub } from './live/hub'
 
 type UserRow = typeof users.$inferSelect
 export const sessionCookie = 'nobot_session'
@@ -130,6 +131,14 @@ export async function login(handle: string, password: string, ip: string) {
 }
 export function logout(c: Context) {
   const token = getCookie(c, sessionCookie)
+  const session = token
+    ? systemDatabase()
+        .select()
+        .from(sessions)
+        .where(eq(sessions.tokenHash, hashToken(token)))
+        .get()
+    : undefined
+  if (session) liveHub.closeUser(session.userId)
   if (token)
     systemDatabase()
       .delete(sessions)
@@ -152,6 +161,7 @@ export async function changePassword(userId: string, tokenHash: string, oldPassw
       .where(and(eq(sessions.userId, userId), ne(sessions.tokenHash, tokenHash)))
       .run()
   })
+  liveHub.closeUser(userId)
 }
 export async function createUser(input: { handle: string; name: string; password: string; isAdmin: boolean }) {
   const passwordHash = await Bun.password.hash(input.password, { algorithm: 'argon2id' })

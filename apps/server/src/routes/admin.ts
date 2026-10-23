@@ -12,6 +12,7 @@ import { t } from '../i18n'
 import { validate } from '../lib/validate'
 import { createUser, userDTO } from '../services/auth'
 import { cancelUserInstallPreviews, extensionOperation } from '../services/extensions/extension-git'
+import { liveHub } from '../services/live/hub'
 import { closeUserDatabase, currentUser, runAsUser } from '../user-context'
 
 function findUser(id: string) {
@@ -56,6 +57,7 @@ export const adminRoutes = new Hono()
       if (input.disabled === true || passwordHash) tx.delete(sessions).where(eq(sessions.userId, id)).run()
       return updated
     })
+    if (input.disabled === true || passwordHash) liveHub.closeUser(id)
     return c.json(userDTO(result))
   })
   .delete('/users/:id', async (c) => {
@@ -66,6 +68,7 @@ export const adminRoutes = new Hono()
     const db = systemDatabase()
     db.update(users).set({ disabled: true }).where(eq(users.id, id)).run()
     db.delete(sessions).where(eq(sessions.userId, id)).run()
+    liveHub.closeUser(id)
     try {
       await runAsUser(user, () =>
         extensionOperation(async () => {

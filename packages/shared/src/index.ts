@@ -25,5 +25,6 @@ export interface ApiError {
 export * from './providers'
 export * from './schemas/audio'
 export * from './schemas/quickReply'
+export * from './schemas/social'
 export * from './schemas/translation'
 export * from './schemas/trpg'

@@ -1,6 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
+import { subscribeNotifications, useLiveStore } from './api/live'
 import { useCharacters, useConnections } from './api/queries'
+import { useFriends } from './api/social'
 import { Background } from './components/Background'
 import {
   BookIcon,
@@ -13,6 +15,7 @@ import {
   SettingsIcon,
   SlidersIcon,
   UserIcon,
+  UserPlusIcon,
   UsersIcon,
 } from './components/icons'
 import { Button, cx, IconButton } from './components/ui'
@@ -28,12 +31,13 @@ import { LorebooksPage } from './features/lorebooks/LorebooksPage'
 import { PersonasPage } from './features/personas/PersonasPage'
 import { PresetsPage } from './features/presets/PresetsPage'
 import { SettingsPage } from './features/settings/SettingsPage'
+import { FriendsPage, notificationText } from './features/social/FriendsPage'
 import { useMobile } from './hooks/useMobile'
 import { useQuickReplyAutomation } from './hooks/useQuickReplyAutomation'
 import { t } from './i18n'
 import { useAppearance } from './stores/appearance'
 import { useSessionStore } from './stores/session'
-import { useToasts } from './stores/toast'
+import { toast, useToasts } from './stores/toast'
 import { useUi, type View } from './stores/ui'
 
 const NAV = (): { view: View; label: string; icon: ReactNode }[] => [
@@ -43,10 +47,29 @@ const NAV = (): { view: View; label: string; icon: ReactNode }[] => [
   { view: 'presets', label: t('生成预设'), icon: <SlidersIcon /> },
   { view: 'connections', label: t('连接'), icon: <PlugIcon /> },
   { view: 'personas', label: t('人设'), icon: <UserIcon /> },
+  { view: 'friends', label: t('好友'), icon: <UserPlusIcon /> },
   { view: 'backgrounds', label: t('背景'), icon: <ImageIcon /> },
   { view: 'extensions', label: t('扩展'), icon: <PuzzleIcon /> },
   { view: 'logs', label: t('日志'), icon: <LogIcon /> },
 ]
+
+/** 好友图标上的角标：未读通知 + 待处理的好友请求 */
+function SocialBadge() {
+  const unread = useLiveStore((s) => s.unreadCount)
+  const incoming = useFriends().data?.incoming.length ?? 0
+  const n = Math.max(unread, incoming)
+  if (!n) return null
+  return (
+    <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none font-semibold text-white">
+      {n > 99 ? '99+' : n}
+    </span>
+  )
+}
+
+/** 新通知弹出提示 */
+function useNotificationToasts() {
+  useEffect(() => subscribeNotifications((n) => toast.info(notificationText(n))), [])
+}
 
 /** 最左侧的图标导航。项目多时可以滚动；「设置」固定在最下面 */
 function NavRail({
@@ -74,7 +97,10 @@ function NavRail({
           : 'text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800',
       )}
     >
-      {n.icon}
+      <span className="relative">
+        {n.icon}
+        {n.view === 'friends' && <SocialBadge />}
+      </span>
       <span className="max-w-full truncate px-0.5">{n.label}</span>
     </button>
   )
@@ -197,6 +223,8 @@ function PanelContent({ view }: { view: View }) {
       return <BackgroundsPage />
     case 'personas':
       return <PersonasPage />
+    case 'friends':
+      return <FriendsPage />
     case 'extensions':
       return <ExtensionsPage />
     case 'logs':
@@ -210,6 +238,7 @@ function PanelContent({ view }: { view: View }) {
 
 export function App() {
   useQuickReplyAutomation()
+  useNotificationToasts()
   const qc = useQueryClient()
   const sessionStatus = useSessionStore((s) => s.status)
   useEffect(() => {

@@ -2,6 +2,7 @@ import type { CurrentUserDTO, UpdateUserInput } from '@nobot/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '../stores/session'
 import { type ApiRequestError, api } from './client'
+import { stopLive } from './live'
 
 /** 界面可以直接订阅会话状态、当前用户、初始化错误和首次配置提示。 */
 export function useSession() {
@@ -20,7 +21,10 @@ export function useLogin() {
 export function useLogout() {
   return useMutation<Awaited<ReturnType<typeof api.logout>>, ApiRequestError, void>({
     mutationFn: api.logout,
-    onSuccess: () => window.location.reload(),
+    onSuccess: () => {
+      stopLive()
+      window.location.reload()
+    },
   })
 }
 

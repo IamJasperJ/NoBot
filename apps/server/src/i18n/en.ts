@@ -1,5 +1,9 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  无法完成此社交操作: 'Unable to complete this social action',
+  '好友请求过于频繁，请稍后重试': 'Too many friend requests. Please try again later',
+  通知游标无效: 'Invalid notification cursor',
+
   边生成边朗读: 'Read while generating',
   '回复还在生成时，先把已经完整的句子读出来；关闭时等整条生成完再读':
     'Read complete sentences while the reply is being generated; when disabled, wait until the whole reply is finished.',

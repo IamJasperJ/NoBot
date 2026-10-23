@@ -1,5 +1,6 @@
 import type { CurrentUserDTO } from '@nobot/shared'
 import { create } from 'zustand'
+import { startLive, stopLive } from '../api/live'
 import { useSpriteLayout } from './spriteLayout'
 import { useUi } from './ui'
 import { useVn } from './vn'
@@ -101,3 +102,11 @@ export function initSession(): Promise<void> {
   })
   return pending
 }
+
+// 会话状态是每个标签唯一的启动入口，401 和退出都会释放同一条连接。
+useSessionStore.subscribe((state, previous) => {
+  if (state.status === 'authenticated' && state.user?.id !== previous.user?.id) {
+    stopLive()
+    startLive()
+  } else if (state.status !== 'authenticated') stopLive()
+})

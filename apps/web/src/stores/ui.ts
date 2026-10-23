@@ -14,6 +14,7 @@ export type View =
   | 'connections'
   | 'backgrounds'
   | 'personas'
+  | 'friends'
   | 'extensions'
   | 'logs'
   | 'settings'

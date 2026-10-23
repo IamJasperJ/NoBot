@@ -13,6 +13,7 @@ import { chatRoutes } from './routes/chats'
 import { connectionRoutes } from './routes/connections'
 import { extensionRoutes } from './routes/extensions'
 import { groupRoutes } from './routes/groups'
+import { liveRoutes } from './routes/live'
 import { logRoutes } from './routes/logs'
 import { lorebookRoutes } from './routes/lorebooks'
 import { messageRoutes } from './routes/messages'
@@ -21,6 +22,7 @@ import { playPresetRoutes } from './routes/playPresets'
 import { presetRoutes } from './routes/presets'
 import { profileRoutes } from './routes/profiles'
 import { quickReplyRoutes } from './routes/quick-replies'
+import { socialRoutes } from './routes/social'
 import { trashRoutes } from './routes/trash'
 import { logError } from './services/logs'
 
@@ -76,3 +78,6 @@ app.route('/extensions', extensionRoutes)
 app.route('/assets', assetRoutes).route('/attachments', attachmentRoutes)
 
 app.all('/ext/:id/*', (c) => forwardExtension(c.req.param('id'), c.req.raw))
+
+app.route('/social', socialRoutes)
+app.route('/live', liveRoutes)

@@ -8,6 +8,7 @@ import {
 } from '@nobot/core'
 import {
   describeCheck,
+  normalizeDeliveryTags,
   renderDirectiveInstructions,
   renderDirectiveReminder,
   stateStageName,
@@ -264,7 +265,9 @@ export function toHistory(ctx: GenerationContext, leafId: string | null, plainHi
             ? `(Sent an image${m.meta.imageGen?.prompt ? `: ${m.meta.imageGen.prompt}` : ''})`
             : (plainHistory || (preset.directives.enabled && !keep.has(m.id))) && m.role === 'assistant'
               ? toDisplayText(m.content, { knownNames, narratorNames: [preset.trpg.gmName], speaker: 'plain' })
-              : m.content) + (m.role === 'user' && m.meta.check ? `\n${describeCheck(m.meta.check)}` : ''),
+              : m.role === 'assistant'
+                ? normalizeDeliveryTags(m.content)
+                : m.content) + (m.role === 'user' && m.meta.check ? `\n${describeCheck(m.meta.check)}` : ''),
       name:
         m.role === 'user'
           ? ctx.persona.name

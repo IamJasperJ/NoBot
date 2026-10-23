@@ -2,7 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ChatVoiceDTO, TtsLineResult, VoiceRef } from '@nobot/shared'
+import type { ChatVoiceDTO, SpokenLine, TtsLineResult, VoiceRef } from '@nobot/shared'
 
 test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥与 Range', async () => {
   // 配置和数据库都是单例，用子进程避免影响其他扩展测试。
@@ -471,6 +471,38 @@ test('AUD2：引擎协议、声音解析、分段、缓存并发、草稿密钥�
     expect(cleanTtsText('你好<laugh />！<unknown/>')).toBe('你好<laugh />！')
     const controlled = '<say who="Alice">甲<whisper>秘密</whisper><pause ms="500"/>乙[shouts]<inhale/></say>'
     expect(cleanTtsText(controlled)).toBe('甲<whisper>秘密</whisper><pause ms="500"/>乙[shouts]<inhale/>')
+    const { parseCues } = await import('@nobot/core/stage')
+    for (const [source, expected] of [
+      [
+        '红袍魔导士：「<screaming>怎么回事？！</screaming><gasp>底舱进水了！龙骨断了！！</gasp>」',
+        {
+          text: '「怎么回事？！底舱进水了！龙骨断了！！」',
+          cues: [{ at: 7, cue: 'gasp' }],
+          spans: [{ start: 1, end: 7, volume: 'shout' }],
+        },
+      ],
+      [
+        '灰绿猎装女子：「<chuckle>看来你们这只『游隼』今晚是飞不出博德之门了。</chuckle>」',
+        {
+          text: '「看来你们这只『游隼』今晚是飞不出博德之门了。」',
+          cues: [{ at: 1, cue: 'chuckle' }],
+        },
+      ],
+    ] satisfies [string, SpokenLine][]) {
+      expect(cleanTtsText(source)).toBe(source.slice(source.indexOf('「')))
+      expect(parseCues(cleanTtsText(source))).toEqual(expected)
+    }
+    const aliased = '甲<whispering>乙</whispering><gasping/>丙<giggles>丁</giggles><yell/>'
+    expect(cleanTtsText(aliased)).toBe(aliased)
+    expect(parseCues(cleanTtsText(aliased))).toEqual({
+      text: '甲乙丙丁',
+      cues: [
+        { at: 2, cue: 'gasp' },
+        { at: 3, cue: 'chuckle' },
+      ],
+      spans: [{ start: 1, end: 2, volume: 'whisper' }],
+      volume: 'shout',
+    })
     const spoken = await synthesizeVoice({ engine: 'browser', voice: 'test', speed: 1 }, controlled, settings)
     expect(spoken).toMatchObject({ kind: 'browser', text: '甲秘密乙', adjustments: { volume: 1.25 } })
     await json(`/chat/${chat.id}`, { deliveryMode: 'off', narratorVoice: override, readNarration: true }, 'PUT')

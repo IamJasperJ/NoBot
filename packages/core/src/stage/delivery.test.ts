@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { CUES, lineDeliverySchema } from '@nobot/shared'
-import { parseCues, parseLineDelivery, parseStageMessage, toDisplayText } from './index'
+import { normalizeDeliveryTags, parseCues, parseLineDelivery, parseStageMessage, toDisplayText } from './index'
 
 const opts = { knownNames: ['Alice'], vars: {}, inline: false, mvu: false }
 
@@ -104,4 +104,176 @@ test('中英文每种声音事件都消费且记录清理后的偏移', () => {
       expect(parseCues(`${prefix}<${cue}/>乙B`)).toEqual({ text: `${prefix}乙B`, cues: [{ at: 1, cue }] })
   }
   expect(parseCues('甲<pause ms="-1"/>乙<pause ms="oops"/>丙')).toEqual({ text: '甲乙丙', cues: [] })
+})
+
+test('真实台词保留正文、声音位置和尖叫范围，显示层隐藏标签', () => {
+  const mage = '红袍魔导士：「<screaming>怎么回事？！</screaming><gasp>底舱进水了！龙骨断了！！</gasp>」'
+  const hunter = '灰绿猎装女子：「<chuckle>看来你们这只『游隼』今晚是飞不出博德之门了。</chuckle>」'
+  expect(parseCues(mage)).toEqual({
+    text: '红袍魔导士：「怎么回事？！底舱进水了！龙骨断了！！」',
+    cues: [{ at: 13, cue: 'gasp' }],
+    spans: [{ start: 7, end: 13, volume: 'shout' }],
+  })
+  expect(parseCues(hunter)).toEqual({
+    text: '灰绿猎装女子：「看来你们这只『游隼』今晚是飞不出博德之门了。」',
+    cues: [{ at: 8, cue: 'chuckle' }],
+  })
+  expect(toDisplayText(mage, { ...opts, speaker: 'plain' })).toBe(parseCues(mage).text)
+  expect(toDisplayText(hunter, { ...opts, speaker: 'plain' })).toBe(parseCues(hunter).text)
+})
+
+test('每种声音的成对、未闭合和孤立结束标签都不泄漏', () => {
+  for (const cue of CUES) {
+    expect(parseCues(`甲<${cue}>乙</${cue}>丙`)).toEqual({ text: '甲乙丙', cues: [{ at: 1, cue }] })
+    expect(parseCues(`甲<${cue}>乙`)).toEqual({ text: '甲乙', cues: [{ at: 1, cue }] })
+    expect(parseCues(`甲</${cue}>乙`)).toEqual({ text: '甲乙', cues: [] })
+  }
+})
+
+test.each([
+  ['laughs laughing', 'laugh'],
+  ['chuckles chuckling giggle giggles giggling', 'chuckle'],
+  ['sighs sighing', 'sigh'],
+  ['gasps gasping', 'gasp'],
+  ['breathes breathing', 'breath'],
+  ['sobs sobbing', 'sob'],
+  ['coughs coughing', 'cough'],
+  ['inhales', 'inhale'],
+  ['exhales', 'exhale'],
+  ['pants panting', 'pant'],
+  ['groans groaning', 'groan'],
+  ['yawns yawning', 'yawn'],
+  ['sniffs sniffing sniffles', 'sniff'],
+  ['sneezes sneezing', 'sneeze'],
+] as const)('声音别名的自闭合、成对和未闭合形式：%s', (aliases, cue) => {
+  for (const alias of aliases.split(' ')) {
+    expect(parseCues(`甲<${alias}/>乙<${alias}>丙</${alias}>丁<${alias}>戊`)).toEqual({
+      text: '甲乙丙丁戊',
+      cues: [
+        { at: 1, cue },
+        { at: 2, cue },
+        { at: 4, cue },
+      ],
+    })
+    expect(parseCues(`甲</${alias}>乙`)).toEqual({ text: '甲乙', cues: [] })
+  }
+})
+
+test.each(['screaming', 'yelling', 'shouting', 'scream', 'yell', 'whispering'])(
+  '音量别名成对生成范围，自闭合覆盖整句：%s',
+  (alias) => {
+    const volume = alias === 'whispering' ? 'whisper' : 'shout'
+    expect(parseCues(`甲<${alias}>乙</${alias}>丙`)).toEqual({
+      text: '甲乙丙',
+      cues: [],
+      spans: [{ start: 1, end: 2, volume }],
+    })
+    expect(parseCues(`甲<${alias}/>乙`)).toEqual({ text: '甲乙', cues: [], volume })
+    expect(parseCues(`甲<${alias}>乙`)).toEqual({
+      text: '甲乙',
+      cues: [],
+      spans: [{ start: 1, end: 2, volume }],
+    })
+  },
+)
+
+test('未知成对标签、HTML、舞台指令和非标签正文保留，未知自闭合清理', () => {
+  expect(parseCues('甲<trembling>乙<voice-break/>丙</trembling><constructor>丁</constructor>')).toEqual({
+    text: '甲<trembling>乙丙</trembling><constructor>丁</constructor>',
+    cues: [],
+  })
+  for (const name of 'b i u s em strong small mark del ins sub sup code pre br p span div q blockquote ruby rt rp details summary font center hr a img ul ol li table tr td th thead tbody scene show hide expr say state choices cg sfx updatevariable combat bgm'.split(
+    ' ',
+  )) {
+    const source = `<${name}>甲</${name}><${name}/>`
+    expect(parseCues(source)).toEqual({ text: source, cues: [] })
+  }
+  const source =
+    'a < b <Name>甲</Name><UNKNOWN/> <unknown kind="x">乙</unknown kind="x"> <gasp kind="x"> <scene bg="night" />'
+  expect(parseCues(source)).toEqual({ text: source, cues: [] })
+})
+
+test.each([
+  [
+    '红袍魔导士：「<screaming>怎么回事？！</screaming><gasp>底舱进水了！龙骨断了！！</gasp>」',
+    '红袍魔导士：「<shout>怎么回事？！</shout><gasp/>底舱进水了！龙骨断了！！」',
+  ],
+  [
+    '灰绿猎装女子：「<chuckle>看来你们这只『游隼』今晚是飞不出博德之门了。</chuckle>」',
+    '灰绿猎装女子：「<chuckle/>看来你们这只『游隼』今晚是飞不出博德之门了。」',
+  ],
+  ['甲<laughs/>乙<laughing>丙</laughing><sighing >丁', '甲<laugh/>乙<laugh/>丙<sigh/>丁'],
+  ['<GASP>甲</GASP><LAUGHS />', '<gasp/>甲<laugh/>'],
+  ['<foobar/><word-word/><UNKNOWN/><constructor/>', '<UNKNOWN/>'],
+  ['<pause ms="-1"/><pause ms="oops"/><pause extra="x"/><pause></pause>', ''],
+])('历史标签原位规范化：%s', (source, expected) => {
+  expect(normalizeDeliveryTags(source)).toBe(expected)
+})
+
+test('所有规范声音标签保持原样，开头与结束形式规范化', () => {
+  for (const cue of CUES) {
+    expect(normalizeDeliveryTags(`<${cue}/> <${cue} />`)).toBe(`<${cue}/> <${cue} />`)
+    expect(normalizeDeliveryTags(`<${cue}>甲</${cue}><${cue} >乙`)).toBe(`<${cue}/>甲<${cue}/>乙`)
+  }
+})
+
+test('音量别名成对规范化，自闭合与括号音量删除', () => {
+  for (const name of ['whisper', 'whispering', 'shout', 'shouting', 'screaming', 'yelling', 'scream', 'yell']) {
+    const volume = name.startsWith('whisp') ? 'whisper' : 'shout'
+    expect(normalizeDeliveryTags(`甲<${name}>乙</${name}>丙`)).toBe(`甲<${volume}>乙</${volume}>丙`)
+    expect(normalizeDeliveryTags(`甲<${name}/>乙<${name} />丙`)).toBe('甲乙丙')
+  }
+  expect(normalizeDeliveryTags('甲[whispers][whispering](whispering)[shouts][shouting](shouting)乙')).toBe('甲乙')
+})
+
+test('正文、空白、未知成对标签、HTML、舞台指令、属性和有效停顿逐字保留', () => {
+  const source =
+    '  a < b <Name>甲</Name><unknown>x</unknown><b><br/> <scene bg="x"/> <say who=甲>\n' +
+    '<gasp kind="x">乙</gasp kind="x"><laughs kind="x"/><whispering kind="x"> <unknown kind="x"/>\t' +
+    '<shout >丙</shout ><whisper>丁</whisper><pause/><pause ms="0"/><pause ms="999999999" />' +
+    '[pause][short pause][long pause] （小声）(quietly) [aside] *whispers*'
+  expect(normalizeDeliveryTags(source)).toBe(source)
+})
+
+test('畸形输入组合保持解析正文、声音偏移和音量范围，且规范化幂等', () => {
+  const tokens = [
+    ...CUES.flatMap((cue) => [`<${cue}>`, `</${cue}>`, `<${cue}/>`]),
+    ...'laughs laughing chuckles chuckling giggle giggles giggling sighs sighing gasps gasping breathes breathing sobs sobbing coughs coughing inhales exhales pants panting groans groaning yawns yawning sniffs sniffing sniffles sneezes sneezing'
+      .split(' ')
+      .flatMap((alias) => [`<${alias}>甲</${alias}>`, `<${alias}/>`, `<${alias} >`]),
+    ...'whisper whispering shout shouting screaming yelling scream yell'
+      .split(' ')
+      .flatMap((alias) => [`<${alias}>甲</${alias}>`, `<${alias}/>`, `<${alias}>`, `</${alias}>`]),
+    '[whispers]',
+    '[whispering]',
+    '[shouts]',
+    '[shouting]',
+    '(whispering)',
+    '(shouting)',
+    '<foobar/>',
+    '<word-word/>',
+    '<pause ms="oops"/>',
+    '<pause ms="25"/>',
+    '[short pause]',
+    '<unknown>甲</unknown>',
+    '<scene bg="x"/>',
+    '<gasp kind="x">',
+    '<UNKNOWN/>',
+  ]
+  for (const first of tokens) {
+    for (const second of tokens) {
+      const source = `甲A${first}乙B${second}丙C`
+      const normalized = normalizeDeliveryTags(source)
+      const before = parseCues(source)
+      const after = parseCues(normalized)
+      // 禁用的整句音量形式会被删除，因此只比较应保持的正文、事件和范围。
+      expect({ text: after.text, cues: after.cues, spans: after.spans, pauses: after.pauses }).toEqual({
+        text: before.text,
+        cues: before.cues,
+        spans: before.spans,
+        pauses: before.pauses,
+      })
+      expect(normalizeDeliveryTags(normalized)).toBe(normalized)
+    }
+  }
 })

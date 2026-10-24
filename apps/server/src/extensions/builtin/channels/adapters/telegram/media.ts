@@ -6,7 +6,8 @@ import { getSetting, setSetting } from '../../../../../db/client'
 import { paths } from '../../../../../env'
 import { HttpError } from '../../../../../errors'
 import { t } from '../../../../../i18n'
-import { type TelegramClient, TelegramError } from './client'
+import type { ChannelClient } from '../types'
+import { TelegramError } from './client'
 
 let ffmpegPath: string | null | undefined
 export function detectFfmpeg() {
@@ -114,7 +115,7 @@ export async function readMediaAsset(url: string) {
 }
 
 export async function sendCachedMedia(
-  client: TelegramClient,
+  client: ChannelClient,
   accountId: string,
   chat: string,
   method: 'sendPhoto' | 'sendDocument' | 'sendVoice' | 'sendAudio',
@@ -148,7 +149,7 @@ export async function sendCachedMedia(
   return result
 }
 
-export async function downloadTelegramFile(client: TelegramClient, media: { file_id?: string; file_size?: number }) {
+export async function downloadTelegramFile(client: ChannelClient, media: { file_id?: string; file_size?: number }) {
   const limit = 20 * 1024 * 1024
   if (!media.file_id) throw new HttpError(400, 'BAD_MEDIA', t('无法下载媒体文件'))
   if ((media.file_size ?? 0) > limit)

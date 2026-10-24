@@ -11,7 +11,7 @@ import {
   useRespondChannelRequest,
 } from '../../api/channels'
 import { useCharacters } from '../../api/queries'
-import { SelectField, TextField } from '../../components/form'
+import { SelectField, Tabs, TextField } from '../../components/form'
 import {
   BanIcon,
   CheckIcon,
@@ -42,7 +42,9 @@ export function ChannelsManager() {
       <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
         <header className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
           <h3 className="text-sm font-semibold">{t('机器人')}</h3>
-          <span className="text-xs text-zinc-500">{t('每个 bot 可以固定扮演一个角色，也可以当通用 bot')}</span>
+          <span className="text-xs text-zinc-500">
+            {t('Telegram 或 QQ（NapCat）；每个 bot 可以固定扮演一个角色，也可以当通用 bot')}
+          </span>
           <Button size="sm" variant="primary" className="ml-auto" onClick={() => setCreating(true)}>
             <PlusIcon />
             {t('添加')}
@@ -53,7 +55,7 @@ export function ChannelsManager() {
         ) : (accounts.data ?? []).length === 0 ? (
           <div className="space-y-2 px-3 py-6 text-center text-[13px] text-zinc-500">
             <p>{t('还没有机器人。')}</p>
-            <p>{t('在 Telegram 里找 @BotFather 发 /newbot，把拿到的 Token 填进来。')}</p>
+            <p>{t('Telegram：找 @BotFather 发 /newbot 拿 Token；QQ：先装好 NapCat。')}</p>
           </div>
         ) : (
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -170,27 +172,46 @@ function CreateDialog({
 }) {
   const characters = useCharacters().data ?? []
   const create = useCreateChannelAccount()
-  const [form, setForm] = useState({
+  const empty = {
+    provider: 'telegram' as 'telegram' | 'onebot11',
     name: '',
     token: '',
+    mode: 'ws-forward' as 'ws-forward' | 'ws-reverse',
+    url: 'ws://127.0.0.1:3001',
     characterMode: 'fixed' as 'fixed' | 'generic',
     characterId: '',
-  })
-  const ready = form.token.trim() && (form.characterMode === 'generic' || form.characterId)
+  }
+  const [form, setForm] = useState(empty)
+  const qq = form.provider === 'onebot11'
+  const ready =
+    form.token.trim() &&
+    (form.characterMode === 'generic' || form.characterId) &&
+    (!qq || form.mode === 'ws-reverse' || /^wss?:\/\//.test(form.url.trim()))
   const submit = () => {
     const character = characters.find((c) => c.id === form.characterId)
+    const base = {
+      name: form.name.trim() || character?.name || (qq ? 'QQ' : 'Telegram'),
+      characterMode: form.characterMode,
+      characterId: form.characterMode === 'fixed' ? form.characterId : null,
+    }
     create.mutate(
-      {
-        provider: 'telegram',
-        name: form.name.trim() || character?.name || 'Telegram',
-        credentials: { token: form.token.trim() },
-        characterMode: form.characterMode,
-        characterId: form.characterMode === 'fixed' ? form.characterId : null,
-      },
+      qq
+        ? {
+            ...base,
+            provider: 'onebot11',
+            credentials: { accessToken: form.token.trim() },
+            connection: { mode: form.mode, url: form.mode === 'ws-forward' ? form.url.trim() : '' },
+            receiveMode: form.mode,
+          }
+        : { ...base, provider: 'telegram', credentials: { token: form.token.trim() } },
       {
         onSuccess: (account) => {
-          setForm({ name: '', token: '', characterMode: 'fixed', characterId: '' })
-          toast.info(t('已连接 @{name}', { name: account.botUsername ?? account.name }))
+          setForm(empty)
+          toast.info(
+            account.botUsername
+              ? t('已连接 @{name}', { name: account.botUsername })
+              : t('已添加 {name}', { name: account.name }),
+          )
           onCreated(account.id)
         },
         onError: (e) => toast.error(errorMessage(e)),
@@ -198,20 +219,68 @@ function CreateDialog({
     )
   }
   return (
-    <Dialog open={open} onClose={onClose} title={t('添加 Telegram 机器人')} className="w-[min(520px,calc(100vw-32px))]">
+    <Dialog open={open} onClose={onClose} title={t('添加机器人')} className="w-[min(560px,calc(100vw-32px))]">
       <div className="space-y-4">
-        <ol className="list-decimal space-y-1 pl-5 text-[13px] text-zinc-500">
-          <li>{t('在 Telegram 里打开 @BotFather，发 /newbot，按提示起名字')}</li>
-          <li>{t('复制它给你的 Token，粘贴到下面')}</li>
-          <li>{t('想让 bot 在群里听到所有消息，在 BotFather 里 /setprivacy 关掉隐私模式')}</li>
-        </ol>
-        <TextField
-          label={t('Bot Token')}
-          type="password"
-          placeholder="123456:ABC-DEF…"
-          value={form.token}
-          onChange={(token) => setForm({ ...form, token })}
+        <Tabs
+          value={form.provider}
+          onChange={(provider) => setForm({ ...form, provider })}
+          tabs={[
+            { id: 'telegram', label: 'Telegram' },
+            { id: 'onebot11', label: t('QQ（NapCat）') },
+          ]}
         />
+        {qq ? (
+          <>
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              {t('NapCat 是非官方的 QQ 客户端，QQ 号有被风控或封禁的风险。建议用专门的小号，不要用常用号。')}
+            </p>
+            <ol className="list-decimal space-y-1 pl-5 text-[13px] text-zinc-500">
+              <li>{t('安装并登录 NapCat，在它的网络设置里新建一个 WebSocket 连接')}</li>
+              <li>{t('选「NoBot 连 NapCat」就建 WebSocket 服务端；选「NapCat 连 NoBot」就建 WebSocket 客户端')}</li>
+              <li>{t('两边填同一个 Token')}</li>
+            </ol>
+            <SelectField
+              label={t('连接方向')}
+              value={form.mode}
+              onChange={(mode) => setForm({ ...form, mode })}
+              options={[
+                { value: 'ws-forward', label: t('NoBot 连 NapCat（正向 WebSocket）') },
+                { value: 'ws-reverse', label: t('NapCat 连 NoBot（反向 WebSocket）') },
+              ]}
+            />
+            {form.mode === 'ws-forward' ? (
+              <TextField
+                label={t('NapCat 的 WebSocket 地址')}
+                placeholder="ws://127.0.0.1:3001"
+                value={form.url}
+                onChange={(url) => setForm({ ...form, url })}
+              />
+            ) : (
+              <p className="text-xs text-zinc-500">{t('创建后会显示要填进 NapCat 的地址。')}</p>
+            )}
+            <TextField
+              label={t('Access Token')}
+              type="password"
+              value={form.token}
+              onChange={(token) => setForm({ ...form, token })}
+            />
+          </>
+        ) : (
+          <>
+            <ol className="list-decimal space-y-1 pl-5 text-[13px] text-zinc-500">
+              <li>{t('在 Telegram 里打开 @BotFather，发 /newbot，按提示起名字')}</li>
+              <li>{t('复制它给你的 Token，粘贴到下面')}</li>
+              <li>{t('想让 bot 在群里听到所有消息，在 BotFather 里 /setprivacy 关掉隐私模式')}</li>
+            </ol>
+            <TextField
+              label={t('Bot Token')}
+              type="password"
+              placeholder="123456:ABC-DEF…"
+              value={form.token}
+              onChange={(token) => setForm({ ...form, token })}
+            />
+          </>
+        )}
         <SelectField
           label={t('扮演方式')}
           value={form.characterMode}
@@ -261,9 +330,11 @@ function PendingRequests({ accounts }: { accounts: ChannelAccountDTO[] }) {
         : t('bot 被拉进了群')
       : kind === 'friend'
         ? t('{name} 想加好友', { name: actor ?? '?' })
-        : actor
-          ? t('{name} 第一次在这里说话', { name: actor })
-          : t('新的聊天位置')
+        : kind === 'join-request'
+          ? t('{name} 申请加入群', { name: actor ?? '?' })
+          : actor
+            ? t('{name} 第一次在这里说话', { name: actor })
+            : t('新的聊天位置')
   const act = (id: string, action: 'approve' | 'reject' | 'block') =>
     respond.mutate({ id, action }, { onError: (e) => toast.error(errorMessage(e)) })
   return (

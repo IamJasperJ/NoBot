@@ -64,7 +64,9 @@ export function createServer() {
       })
     }),
   )
-  server.all('/hooks/:id/:handle/*', (c) => forwardPublicExtension(c.req.param('id'), c.req.param('handle'), c.req.raw))
+  server.all('/hooks/:id/:handle/*', (c) =>
+    forwardPublicExtension(c.req.param('id'), c.req.param('handle'), c.req.raw, c.env),
+  )
   server.route('/api/miniapp', miniAppRoutes)
   server.route('/api/auth', authRoutes)
   server.route('/api/admin', adminRoutes)

@@ -19,14 +19,15 @@ import { loadTelegram } from './telegram'
 // StrictMode 的双挂载共享同一兑换请求，避免自己触发 initData 防重放。
 let boot: Promise<void> | undefined
 async function bootstrap() {
-  const telegram = await loadTelegram()
-  telegram.ready()
-  telegram.expand()
   const query = new URLSearchParams(location.search)
-  const signed = new URLSearchParams(telegram.initData)
+  const onebot = query.get('q') === '1'
+  const telegram = onebot ? undefined : await loadTelegram()
+  telegram?.ready()
+  telegram?.expand()
+  const signed = new URLSearchParams(telegram?.initData)
   const start = signed.get('start_param') ?? query.get('a')
   const handle = query.get('h')
-  if (!telegram.initData || !start || !handle) throw new Error(t('请从 Telegram 中打开舞台链接'))
+  if ((!onebot && !telegram?.initData) || !start || !handle) throw new Error(t('请从 Telegram 中打开舞台链接'))
   // 重载已有作用域时复用 HttpOnly 会话；服务端核对启动令牌仍指向同一绑定。
   const contextUrl = `/api/miniapp/context?start=${encodeURIComponent(start)}`
   let contextResponse = await fetch(contextUrl, { credentials: 'include' })
@@ -35,7 +36,7 @@ async function bootstrap() {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: telegram.initData, start }),
+      body: JSON.stringify({ initData: telegram?.initData ?? '', start }),
     })
     if (!response.ok) throw await readError(response)
     contextResponse = await fetch(contextUrl, { credentials: 'include' })
@@ -62,24 +63,25 @@ export function MiniApp() {
       boot = bootstrap().catch((e: unknown) => useMiniAppContext.setState({ status: 'error', error: errorMessage(e) }))
     let active = true
     let cleanup: (() => void) | undefined
-    void loadTelegram()
-      .then((telegram) => {
-        if (!active) return
-        const theme = () => {
-          for (const [key, value] of Object.entries(telegram.themeParams))
-            document.documentElement.style.setProperty(`--tg-${key.replaceAll('_', '-')}`, value)
-        }
-        const close = () => telegram.close()
-        theme()
-        telegram.onEvent('themeChanged', theme)
-        telegram.BackButton.show()
-        telegram.BackButton.onClick(close)
-        cleanup = () => {
-          telegram.offEvent('themeChanged', theme)
-          telegram.BackButton.offClick(close)
-        }
-      })
-      .catch(() => {})
+    if (new URLSearchParams(location.search).get('q') !== '1')
+      void loadTelegram()
+        .then((telegram) => {
+          if (!active) return
+          const theme = () => {
+            for (const [key, value] of Object.entries(telegram.themeParams))
+              document.documentElement.style.setProperty(`--tg-${key.replaceAll('_', '-')}`, value)
+          }
+          const close = () => telegram.close()
+          theme()
+          telegram.onEvent('themeChanged', theme)
+          telegram.BackButton.show()
+          telegram.BackButton.onClick(close)
+          cleanup = () => {
+            telegram.offEvent('themeChanged', theme)
+            telegram.BackButton.offClick(close)
+          }
+        })
+        .catch(() => {})
     return () => {
       active = false
       cleanup?.()

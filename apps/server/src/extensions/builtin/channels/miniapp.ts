@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import type { ChannelBindingDTO } from '@nobot/shared'
-import { and, eq, gt, lt } from 'drizzle-orm'
+import type { ChannelActorDTO, ChannelBindingDTO } from '@nobot/shared'
+import { and, eq, gt, isNull, lt } from 'drizzle-orm'
 import type { Context } from 'hono'
 import { z } from 'zod'
 import { db, getSetting } from '../../../db/client'
@@ -97,6 +97,7 @@ export function exchangeMiniApp(c: Context, input: { initData: string; start: st
   const payload = db.select().from(channelMiniAppTokens).where(eq(channelMiniAppTokens.token, input.start)).get()
   if (!payload || payload.expiresAt <= Date.now()) scopeDenied()
   const account = accountRow(payload.accountId)
+  if (account.config.provider !== 'telegram') return exchangeOneTimeStage(c, payload)
   const settings = getSetting<Record<string, unknown>>('ext:channels')
   const maxAge = z.number().int().min(1).max(600).catch(600).parse(settings?.miniAppAuthMaxAgeSeconds)
   const verified = verifyInitData(input.initData, account.config.credentials.token, Date.now(), maxAge)
@@ -137,6 +138,60 @@ export function exchangeMiniApp(c: Context, input: { initData: string; start: st
       .returning()
       .all()
     if (!inserted.length) scopeDenied()
+    mintScopedSession(c, id, scope)
+  })
+  return { scope, chatId: binding.chatId, roomId: binding.roomId }
+}
+
+/** QQ 没有签名 webview；只向请求者私聊投递十分钟单次 bearer，兑换时重新校验成员权限。 */
+export function oneTimeStageUrl(binding: ChannelBindingDTO, actor: ChannelActorDTO) {
+  const base = publicBaseUrl()
+  if (!base) return
+  asChannelActor(binding, actor, () => {})
+  const token = randomBytes(32).toString('base64url')
+  db.insert(channelMiniAppTokens)
+    .values({
+      token,
+      accountId: binding.accountId,
+      bindingId: binding.id,
+      actorId: actor.id,
+      expiresAt: Date.now() + 600000,
+    })
+    .run()
+  return `${base}/tg?q=1&h=${encodeURIComponent(currentUser().handle)}&a=${token}`
+}
+function exchangeOneTimeStage(c: Context, payload: typeof channelMiniAppTokens.$inferSelect) {
+  if (!payload.actorId || !payload.bindingId || payload.usedAt || payload.expiresAt <= Date.now()) scopeDenied()
+  const binding = bindingRow(payload.bindingId)
+  const actor = db.select().from(channelActors).where(eq(channelActors.id, payload.actorId)).get()
+  if (
+    !actor ||
+    actor.role === 'blocked' ||
+    actor.provider !== 'onebot11' ||
+    !actor.accountIds.includes(payload.accountId) ||
+    binding.accountId !== payload.accountId ||
+    binding.state !== 'active'
+  )
+    scopeDenied()
+  const id = actor.linkedUserId ?? actor.externalUserId
+  if (!id) scopeDenied()
+  const scope: SessionScope = binding.roomId
+    ? { kind: 'room', roomId: binding.roomId }
+    : { kind: 'chat', chatId: binding.chatId }
+  asChannelActor(binding, actor, () => {
+    const claimed = db
+      .update(channelMiniAppTokens)
+      .set({ usedAt: Date.now() })
+      .where(
+        and(
+          eq(channelMiniAppTokens.token, payload.token),
+          isNull(channelMiniAppTokens.usedAt),
+          gt(channelMiniAppTokens.expiresAt, Date.now()),
+        ),
+      )
+      .returning()
+      .all()
+    if (!claimed.length) scopeDenied()
     mintScopedSession(c, id, scope)
   })
   return { scope, chatId: binding.chatId, roomId: binding.roomId }

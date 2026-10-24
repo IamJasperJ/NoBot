@@ -442,6 +442,11 @@ export const roomMessageIndex = sqliteTable(
 )
 
 export const channelAccounts = sqliteTable('channel_accounts', {
+  connection: text('connection', { mode: 'json' }).$type<ChannelAccountConfig['connection']>(),
+  rateLimit: text('rate_limit', { mode: 'json' })
+    .$type<ChannelAccountConfig['rateLimit']>()
+    .notNull()
+    .default({ perMinute: 20, minIntervalMs: 1200 }),
   managedBy: text('managed_by'),
   id: text('id').primaryKey(),
   provider: text('provider', { enum: ['telegram', 'onebot11'] }).notNull(),
@@ -449,7 +454,7 @@ export const channelAccounts = sqliteTable('channel_accounts', {
   credentials: text('credentials', { mode: 'json' }).$type<string>().notNull(),
   baseUrl: text('base_url').notNull(),
   webhookUrl: text('webhook_url'),
-  receiveMode: text('receive_mode', { enum: ['polling', 'webhook'] }).notNull(),
+  receiveMode: text('receive_mode', { enum: ['polling', 'webhook', 'ws-forward', 'ws-reverse'] }).notNull(),
   characterMode: text('character_mode', { enum: ['fixed', 'generic'] }).notNull(),
   characterId: text('character_id'),
   groupId: text('group_id'),
@@ -584,16 +589,19 @@ export const channelPairings = sqliteTable('channel_pairings', {
   expiresAt: integer('expires_at').notNull(),
 })
 export const channelRequests = sqliteTable('channel_requests', {
+  flag: text('flag'),
+  subType: text('sub_type'),
+  expiresAt: integer('expires_at'),
   id: text('id').primaryKey(),
   accountId: text('account_id')
     .notNull()
     .references(() => channelAccounts.id, { onDelete: 'cascade' }),
-  kind: text('kind', { enum: ['group-invite', 'friend', 'new-location'] }).notNull(),
+  kind: text('kind', { enum: ['group-invite', 'friend', 'new-location', 'join-request'] }).notNull(),
   chat: text('chat').notNull(),
   title: text('title').notNull(),
   actorExternalId: text('actor_external_id'),
   actorName: text('actor_name'),
-  state: text('state', { enum: ['pending', 'approved', 'rejected', 'blocked'] }).notNull(),
+  state: text('state', { enum: ['pending', 'approved', 'rejected', 'blocked', 'expired'] }).notNull(),
   createdAt: integer('created_at').notNull(),
 })
 
@@ -612,8 +620,10 @@ export const channelActorLocations = sqliteTable(
   (t) => [primaryKey({ columns: [t.actorId, t.accountId, t.chat, t.thread] })],
 )
 
-// 启动令牌只定位绑定，不授予身份；身份必须来自 Telegram 验签数据。
+// Telegram 启动令牌只定位绑定；QQ 一次性令牌绑定已授权成员，兑换后原子失效。
 export const channelMiniAppTokens = sqliteTable('channel_miniapp_tokens', {
+  actorId: text('actor_id'),
+  usedAt: integer('used_at'),
   token: text('token').primaryKey(),
   accountId: text('account_id')
     .notNull()

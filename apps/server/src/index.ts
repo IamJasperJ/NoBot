@@ -1,3 +1,4 @@
+import { websocket } from 'hono/bun'
 import { bootstrap } from './bootstrap'
 import { env } from './env'
 import { createServer } from './server'
@@ -9,6 +10,7 @@ Bun.serve({
   port: env.port,
   hostname: env.host,
   fetch: server.fetch,
+  websocket,
   // 默认 10 秒无数据就断开连接，模型思考时间长会被误断，调到最大值
   idleTimeout: 255,
 })

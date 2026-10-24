@@ -7,9 +7,10 @@ import { backgroundsForChat } from '../../../services/backgrounds/backgrounds'
 import { matchStageMember, stageMembers } from '../../../services/generation/stage'
 import { listSprites } from '../../../services/sprites/sprites'
 import type { ExtensionHost } from '../../types'
-import type { TelegramClient } from './adapters/telegram/client'
+import { OneBotClient } from './adapters/onebot11/client'
 import { prepareAudio, readMediaAsset, sendCachedMedia } from './adapters/telegram/media'
 import { escapeHtml } from './adapters/telegram/render'
+import type { ChannelClient } from './adapters/types'
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 export class OutboundMedia {
@@ -20,7 +21,7 @@ export class OutboundMedia {
   async speak(
     binding: ChannelBindingDTO,
     message: MessageDTO,
-    client: TelegramClient,
+    client: ChannelClient,
     accountId: string,
     native = false,
   ) {
@@ -38,7 +39,13 @@ export class OutboundMedia {
         return
       }
       for (const file of result.files) {
-        const prepared = await prepareAudio(new Uint8Array(await Bun.file(file.path).arrayBuffer()), file.mime)
+        const bytes = new Uint8Array(await Bun.file(file.path).arrayBuffer())
+        // NapCat 自带 silk/ffmpeg 转码，不需要 NoBot 重复转换。
+        // https://napneko.github.io/develop/file
+        const prepared =
+          client instanceof OneBotClient
+            ? { bytes, mime: file.mime, method: 'sendVoice' as const, filename: 'voice.mp3' }
+            : await prepareAudio(bytes, file.mime)
         await client.serialized(binding.chat, () =>
           client.call('sendChatAction', {
             chat_id: binding.chat,
@@ -60,7 +67,7 @@ export class OutboundMedia {
     binding: ChannelBindingDTO,
     message: MessageDTO,
     settings: ChannelSettings,
-    client: TelegramClient,
+    client: ChannelClient,
     accountId: string,
     native = false,
   ) {

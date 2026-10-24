@@ -1,5 +1,6 @@
 import { channelSettingsSchema } from '@nobot/shared'
 import { useEffect, useState } from 'react'
+import { useSession } from '../../api/auth'
 import {
   type ChannelAccountDTO,
   type ChannelAccountInput,
@@ -9,7 +10,9 @@ import {
   useApplyChannelPresence,
   useChannelAccounts,
   useChannelBindings,
+  useChannelFriends,
   useChannelPresencePreview,
+  useDeleteChannelFriend,
   useManagedBotAccess,
   useManagedBotLink,
   useRotateManagedBotToken,
@@ -56,7 +59,15 @@ export function AccountDialog({ account, onClose }: { account: ChannelAccountDTO
   const save = () => {
     const { token, ...rest } = draft
     update.mutate(
-      { id: account.id, patch: { ...rest, ...(token ? { credentials: { token } } : {}) } },
+      {
+        id: account.id,
+        patch: {
+          ...rest,
+          ...(token
+            ? { credentials: account.provider === 'onebot11' ? { token: '', accessToken: token } : { token } }
+            : {}),
+        },
+      },
       {
         onSuccess: () => {
           setDraft({})
@@ -93,6 +104,7 @@ export function AccountDialog({ account, onClose }: { account: ChannelAccountDTO
         {tab === 'persona' && <PersonaTab draft={merged} patch={patch} />}
         {tab === 'behavior' && (
           <BehaviorTab
+            provider={account.provider}
             value={(merged.settings ?? {}) as ChannelSettingsOverride}
             onChange={(settings) => patch({ settings })}
           />
@@ -164,43 +176,49 @@ function BasicTab({
         </div>
         {account.lastError && <p className="text-xs text-red-600">{account.lastError}</p>}
         <TextField label={t('名称')} value={draft.name ?? ''} onChange={(name) => patch({ name })} />
-        <TextField
-          label={t('Bot Token')}
-          type="password"
-          hint={t('留空表示不修改')}
-          placeholder={account.credentials}
-          value={token ?? ''}
-          onChange={(v) => patch({ token: v })}
-        />
-        <SelectField
-          label={t('接收消息的方式')}
-          hint={t('长轮询不需要公网地址，适合家里的电脑；Webhook 需要一个 Telegram 能访问的 HTTPS 地址')}
-          value={draft.receiveMode ?? 'polling'}
-          onChange={(receiveMode) => patch({ receiveMode })}
-          options={[
-            { value: 'polling', label: t('长轮询') },
-            { value: 'webhook', label: 'Webhook' },
-          ]}
-        />
-        {draft.receiveMode === 'webhook' && (
-          <TextField
-            label={t('公网地址')}
-            placeholder="https://nobot.example.com"
-            value={draft.webhookUrl ?? ''}
-            onChange={(v) => patch({ webhookUrl: v || null })}
-          />
-        )}
-        <details className="text-[13px]">
-          <summary className="cursor-pointer text-zinc-500">{t('高级')}</summary>
-          <div className="pt-3">
+        {account.provider === 'onebot11' ? (
+          <OneBotConnection account={account} draft={draft} token={token} patch={patch} />
+        ) : (
+          <>
             <TextField
-              label={t('Bot API 地址')}
-              hint={t('用自建的 Bot API 服务时修改')}
-              value={draft.baseUrl ?? ''}
-              onChange={(baseUrl) => patch({ baseUrl })}
+              label={t('Bot Token')}
+              type="password"
+              hint={t('留空表示不修改')}
+              placeholder={account.credentials}
+              value={token ?? ''}
+              onChange={(v) => patch({ token: v })}
             />
-          </div>
-        </details>
+            <SelectField
+              label={t('接收消息的方式')}
+              hint={t('长轮询不需要公网地址，适合家里的电脑；Webhook 需要一个 Telegram 能访问的 HTTPS 地址')}
+              value={(draft.receiveMode ?? 'polling') as 'polling' | 'webhook'}
+              onChange={(receiveMode) => patch({ receiveMode })}
+              options={[
+                { value: 'polling', label: t('长轮询') },
+                { value: 'webhook', label: 'Webhook' },
+              ]}
+            />
+            {draft.receiveMode === 'webhook' && (
+              <TextField
+                label={t('公网地址')}
+                placeholder="https://nobot.example.com"
+                value={draft.webhookUrl ?? ''}
+                onChange={(v) => patch({ webhookUrl: v || null })}
+              />
+            )}
+            <details className="text-[13px]">
+              <summary className="cursor-pointer text-zinc-500">{t('高级')}</summary>
+              <div className="pt-3">
+                <TextField
+                  label={t('Bot API 地址')}
+                  hint={t('用自建的 Bot API 服务时修改')}
+                  value={draft.baseUrl ?? ''}
+                  onChange={(baseUrl) => patch({ baseUrl })}
+                />
+              </div>
+            </details>
+          </>
+        )}
       </section>
       <section className="space-y-4">
         <SelectField
@@ -228,11 +246,103 @@ function BasicTab({
             emptyLabel={t('先让对方选')}
           />
         )}
-        <MiniAppStatus account={account} />
+        {account.provider === 'telegram' && <MiniAppStatus account={account} />}
         {account.canManageBots && <CreateManagedBot account={account} />}
         {account.managedBy && <ManagedBotPanel account={account} />}
       </section>
     </div>
+  )
+}
+
+/** NapCat 连接：正向填 NapCat 的 WS 服务端地址；反向把 NoBot 的地址填进 NapCat 的 WS 客户端 */
+function OneBotConnection({
+  account,
+  draft,
+  token,
+  patch,
+}: {
+  account: ChannelAccountDTO
+  draft: ChannelAccountDTO & Draft
+  token: string | undefined
+  patch: (p: Draft) => void
+}) {
+  const handle = useSession().user?.handle ?? ''
+  const connection = draft.connection ?? { mode: 'ws-forward' as const, url: '' }
+  const reverseUrl = `${location.origin.replace(/^http/, 'ws')}/hooks/channels/${encodeURIComponent(handle)}/${account.id}/onebot`
+  const rate = draft.rateLimit ?? { perMinute: 20, minIntervalMs: 1200 }
+  return (
+    <>
+      {account.riskNotice && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          {account.riskNotice}
+        </p>
+      )}
+      {account.implementation && (
+        <p className="text-xs text-zinc-500">
+          {t('已连接：{name} {version}', account.implementation)}
+          {!/napcat/i.test(account.implementation.name) && t('（不是 NapCat，资料、群名片、戳一戳等扩展功能不可用）')}
+        </p>
+      )}
+      <SelectField
+        label={t('连接方向')}
+        value={connection.mode}
+        onChange={(mode) => patch({ connection: { ...connection, mode }, receiveMode: mode })}
+        options={[
+          { value: 'ws-forward', label: t('NoBot 连 NapCat（正向 WebSocket）') },
+          { value: 'ws-reverse', label: t('NapCat 连 NoBot（反向 WebSocket）') },
+        ]}
+      />
+      {connection.mode === 'ws-forward' ? (
+        <TextField
+          label={t('NapCat 的 WebSocket 地址')}
+          placeholder="ws://127.0.0.1:3001"
+          value={connection.url}
+          onChange={(url) => patch({ connection: { ...connection, url } })}
+        />
+      ) : (
+        <div className="space-y-1.5">
+          <span className="block text-[13px] font-medium">{t('填进 NapCat 的 WebSocket 客户端地址')}</span>
+          <div className="flex gap-2">
+            <input readOnly className={cx(controlClass, 'min-w-0 flex-1 font-mono text-xs')} value={reverseUrl} />
+            <Button onClick={() => void navigator.clipboard.writeText(reverseUrl).then(() => toast.info(t('已复制')))}>
+              {t('复制')}
+            </Button>
+          </div>
+          <span className="block text-xs text-zinc-500">
+            {t('NapCat 和 NoBot 不在同一台机器时，把地址里的主机名换成 NapCat 能访问到的地址。')}
+          </span>
+        </div>
+      )}
+      <TextField
+        label={t('Access Token')}
+        type="password"
+        hint={t('留空表示不修改')}
+        placeholder={account.credentials}
+        value={token ?? ''}
+        onChange={(v) => patch({ token: v })}
+      />
+      <details className="text-[13px]">
+        <summary className="cursor-pointer text-zinc-500">{t('发送频率（防风控）')}</summary>
+        <div className="grid gap-4 pt-3 sm:grid-cols-2">
+          <NumberField
+            label={t('每分钟最多发几条')}
+            value={rate.perMinute}
+            min={1}
+            max={120}
+            slider={false}
+            onChange={(perMinute) => patch({ rateLimit: { ...rate, perMinute } })}
+          />
+          <NumberField
+            label={t('同一个聊天两条之间至少间隔（毫秒）')}
+            value={rate.minIntervalMs}
+            min={1200}
+            max={60000}
+            slider={false}
+            onChange={(minIntervalMs) => patch({ rateLimit: { ...rate, minIntervalMs } })}
+          />
+        </div>
+      </details>
+    </>
   )
 }
 
@@ -667,8 +777,31 @@ function PoliciesTab({ account }: { account: ChannelAccountDTO }) {
               { value: 'never', label: t('从不接受') },
             ]}
           />
+          {account.provider === 'onebot11' && (
+            <>
+              <NumberField
+                label={t('最多加几个好友')}
+                value={draft.limits.maxFriends}
+                min={1}
+                max={5000}
+                slider={false}
+                onChange={(maxFriends) => setDraft({ ...draft, limits: { ...draft.limits, maxFriends } })}
+              />
+              <SelectField
+                label={t('别人申请加入 bot 管理的群')}
+                hint={t('bot 是群管理员时才会收到；不会自动同意')}
+                value={draft.joinRequests}
+                onChange={(joinRequests) => setDraft({ ...draft, joinRequests })}
+                options={[
+                  { value: 'ignore', label: t('不管，交给群里其他管理员') },
+                  { value: 'notify', label: t('通知我，由我决定') },
+                ]}
+              />
+            </>
+          )}
         </section>
       </div>
+      {account.provider === 'onebot11' && <FriendsList account={account} />}
       <section className="space-y-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
         <SwitchField
           label={t('自动退出不活跃的群')}
@@ -731,6 +864,76 @@ function PoliciesTab({ account }: { account: ChannelAccountDTO }) {
   )
 }
 
+/** QQ 好友列表：删好友要再点一次确认 */
+function FriendsList({ account }: { account: ChannelAccountDTO }) {
+  const friends = useChannelFriends(account.status === 'online' ? account.id : '')
+  const remove = useDeleteChannelFriend()
+  const [confirming, setConfirming] = useState<number | null>(null)
+  const [filter, setFilter] = useState('')
+  const list = (friends.data ?? []).filter(
+    (f) => !filter || `${f.nickname} ${f.remark} ${f.user_id}`.toLowerCase().includes(filter.toLowerCase()),
+  )
+  return (
+    <section className="space-y-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+      <div className="flex items-center gap-2">
+        <h4 className="text-[13px] font-medium">{t('好友')}</h4>
+        <span className="text-xs text-zinc-500">{friends.data ? friends.data.length : ''}</span>
+        <input
+          aria-label={t('搜索好友')}
+          placeholder={t('搜索')}
+          className={cx(controlClass, 'ml-auto h-8 w-40')}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+      {account.status !== 'online' ? (
+        <p className="text-xs text-zinc-500">{t('连接上 NapCat 后才能看到好友列表')}</p>
+      ) : friends.isLoading ? (
+        <p className="text-xs text-zinc-500">{t('加载中…')}</p>
+      ) : (
+        <ul className="max-h-64 divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800">
+          {list.map((f) => (
+            <li key={f.user_id} className="flex items-center gap-2 py-1.5">
+              <Avatar name={f.remark || f.nickname} size={24} />
+              <span className="min-w-0 flex-1 truncate text-[13px]">
+                {f.remark || f.nickname}
+                <span className="ml-1.5 font-mono text-xs text-zinc-400">{f.user_id}</span>
+              </span>
+              {confirming === f.user_id ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={remove.isPending}
+                    onClick={() =>
+                      remove.mutate(
+                        { id: account.id, userId: f.user_id, confirm: true },
+                        {
+                          onSuccess: () => setConfirming(null),
+                          onError: (e) => toast.error(errorMessage(e)),
+                        },
+                      )
+                    }
+                  >
+                    {t('确认删除')}
+                  </Button>
+                  <Button size="sm" onClick={() => setConfirming(null)}>
+                    {t('取消')}
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="ghost" onClick={() => setConfirming(f.user_id)}>
+                  {t('删除')}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 function PersonaTab({ draft, patch }: { draft: ChannelAccountDTO & Draft; patch: (p: Draft) => void }) {
   const personas = usePersonas().data ?? []
   return (
@@ -773,7 +976,9 @@ function PersonaTab({ draft, patch }: { draft: ChannelAccountDTO & Draft; patch:
 function BehaviorTab({
   value,
   onChange,
+  provider,
 }: {
+  provider: ChannelAccountDTO['provider']
   value: ChannelSettingsOverride
   onChange: (v: ChannelSettingsOverride) => void
 }) {
@@ -782,7 +987,13 @@ function BehaviorTab({
   return (
     <div className="space-y-3">
       <p className="text-[13px] text-zinc-500">{t('这里的设置覆盖扩展页的全局默认；每个群或私聊还能再单独改。')}</p>
-      <OverrideEditor value={value} effective={global} inheritedFrom={() => 'global'} onChange={onChange} />
+      <OverrideEditor
+        provider={provider}
+        value={value}
+        effective={global}
+        inheritedFrom={() => 'global'}
+        onChange={onChange}
+      />
     </div>
   )
 }

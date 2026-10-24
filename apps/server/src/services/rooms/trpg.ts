@@ -503,7 +503,8 @@ export function restoreChoices(room: Room, now = Date.now()) {
 function sendChoice(room: Room, messageId: string, index: number, counts?: number[], actor = currentUser().id) {
   const option = options(room, messageId)[index]
   if (!option) throw refused()
-  // 检定只由服务器计算；投票正文使用中立的房间署名。
+  // 单人投票保留该玩家的人设；多人共同决议才使用中立的房间署名。
+  const collective = counts && counts.reduce((sum, count) => sum + count, 0) > 1
   const member = membership(room.id, actor).member
   const check = option.check
     ? {
@@ -513,7 +514,7 @@ function sendChoice(room: Room, messageId: string, index: number, counts?: numbe
           sheet: getSetting<CharacterSheet | null>(`room-sheet:${room.id}:${actor}`) ?? null,
           characterId: null,
         }),
-        who: counts ? room.name : member.personaName,
+        who: collective ? room.name : member.personaName,
       }
     : undefined
   return sendRoomMessage(
@@ -522,7 +523,7 @@ function sendChoice(room: Room, messageId: string, index: number, counts?: numbe
     {
       ...(check ? { check } : {}),
       choice: { messageId, index, counts },
-      ...(counts ? { author: { userId: room.id, name: room.name }, name: room.name } : {}),
+      ...(collective ? { author: { userId: room.id, name: room.name }, name: room.name } : {}),
     },
     actor,
   )
@@ -614,7 +615,8 @@ export function closeChoice(id: string, messageId: string, winner?: number) {
       throw new HttpError(409, 'GENERATING', t('房间正在生成回复'))
     checkQuota(room, room.hostUserId)
     db.transaction(() => {
-      sendChoice(room, messageId, selected, state.counts, room.hostUserId)
+      const voters = Object.keys(state.votes)
+      sendChoice(room, messageId, selected, state.counts, voters.length === 1 ? voters[0]! : room.hostUserId)
       state.closed = true
       state.winner = selected
       save(room, 'room.choice', state)

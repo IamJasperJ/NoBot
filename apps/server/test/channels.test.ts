@@ -375,6 +375,29 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
         .run()
       const { parseStageMessage } = await import('@nobot/core/stage')
       const choiceText = 'Choose a path.\n<choices>\n- Left\n- Right\n</choices>'
+      const rawChoice = host.appendMessage(binding.chatId, { role: 'assistant', content: choiceText })
+      await service.deliver(binding, rawChoice)
+      expect(
+        db
+          .select()
+          .from(channelActions)
+          .all()
+          .filter((a) => a.messageId === rawChoice.id && a.action === 'choice'),
+      ).toHaveLength(0)
+      rawChoice.meta.stage = parseStageMessage(choiceText, {
+        knownNames: [],
+        vars: {},
+        inline: false,
+        mvu: false,
+      }).stage
+      await service.deliver(binding, rawChoice)
+      expect(
+        db
+          .select()
+          .from(channelActions)
+          .all()
+          .filter((a) => a.messageId === rawChoice.id && a.action === 'choice'),
+      ).toHaveLength(2)
       const choice = host.appendMessage(binding.chatId, {
         role: 'assistant',
         content: choiceText,

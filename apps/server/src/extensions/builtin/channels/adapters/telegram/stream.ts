@@ -1,4 +1,5 @@
-import type { TelegramClient, TelegramMessage } from './client'
+import type { ChannelClient } from '../types'
+import type { TelegramMessage } from './client'
 import { TelegramError } from './client'
 import { renderTelegram, type TelegramSegment } from './render'
 
@@ -13,7 +14,7 @@ export class TelegramTextStream {
   private closed = false
   private typing: ReturnType<typeof setInterval>
   constructor(
-    private client: TelegramClient,
+    private client: ChannelClient,
     private ref: { chat: string; private: boolean; thread?: string },
     private options: {
       signal?: AbortSignal

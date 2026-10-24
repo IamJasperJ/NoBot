@@ -7,7 +7,9 @@ import { t } from '../../../i18n'
 import { liveHub } from '../../../services/live/hub'
 import { notify } from '../../../services/social'
 import { currentUser } from '../../../user-context'
-import type { TelegramClient } from './adapters/telegram/client'
+import { OneBotClient } from './adapters/onebot11/client'
+import { decideOneBotRequest } from './adapters/onebot11/social'
+import type { ChannelClient } from './adapters/types'
 import { accountRow, listBindings, recordActorSeen } from './store'
 
 export function requestLocation(
@@ -49,7 +51,7 @@ export function requestLocation(
   liveHub.publishToUser(currentUser().id, { type: 'channel.request', topic: `user:${currentUser().id}`, data: request })
   return { request, created: true }
 }
-export async function leaveGroup(accountId: string, chat: string, client: TelegramClient) {
+export async function leaveGroup(accountId: string, chat: string, client: ChannelClient) {
   await client.call('leaveChat', { chat_id: chat })
   markLeft(accountId, chat)
 }
@@ -87,7 +89,7 @@ export async function groupAdded(
   chat: string,
   title: string,
   adder: string,
-  client: TelegramClient,
+  client: ChannelClient,
   actorName: string | null = null,
 ) {
   const row = accountRow(accountId)
@@ -174,8 +176,13 @@ export async function groupAdded(
   if (result.created) await client.call('sendMessage', { chat_id: chat, text: t('正在等待主人的批准') })
   return false
 }
-export async function respondRequest(id: string, action: 'approve' | 'reject' | 'block', client: TelegramClient) {
+export async function respondRequest(id: string, action: 'approve' | 'reject' | 'block', client: ChannelClient) {
   const row = db.select().from(channelRequests).where(eq(channelRequests.id, id)).get()
+  if (client instanceof OneBotClient && row?.flag) {
+    await decideOneBotRequest(id, action === 'approve', client)
+    if (action === 'block') db.update(channelRequests).set({ state: 'blocked' }).where(eq(channelRequests.id, id)).run()
+    return
+  }
   if (row?.state !== 'pending') throw new HttpError(404, 'NOT_FOUND', t('渠道请求不存在'))
   if (action === 'approve' && row.kind === 'group-invite') {
     const limit = accountRow(row.accountId).config.policies.limits.maxGroups
@@ -236,7 +243,7 @@ export async function respondRequest(id: string, action: 'approve' | 'reject' | 
   liveHub.publishToUser(currentUser().id, { type: 'channel.request', topic: `user:${currentUser().id}`, data: { id } })
 }
 /** 活跃时间仅代表隐私模式下 bot 能收到的消息；提醒时间持久化，重启不延长宽限期。 */
-export async function checkIdle(accountId: string, client: TelegramClient, now = Date.now()) {
+export async function checkIdle(accountId: string, client: ChannelClient, now = Date.now()) {
   const policy = accountRow(accountId).config.policies.idleLeave
   if (!policy.enabled) return
   const groups = new Map<string, ReturnType<typeof listBindings>>()

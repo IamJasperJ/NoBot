@@ -240,6 +240,8 @@ export interface Extension {
   /**
    * 无登录入口 /hooks/<扩展 id>/<用户 handle>/...。宿主拒绝未知、外部、禁用用户和未启用扩展，
    * 并在所属用户的 runAsUser 中调用；扩展必须自行验签，不能把 URL 或 handle 当作授权。
+   * 可使用 hono/bun 的 upgradeWebSocket：宿主转交原始 Request 与 Bun Server，index 注册通用 websocket。
+   * 升级前自行验证凭据；WS 回调必须捕获 currentUser 并显式 runAsUser，停止时关闭连接。
    */
   publicRoutes?: (app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) => void
   /** 内置扩展每用户后台生命周期；signal 在关闭用户库、禁用或卸载时先中止。 */

@@ -685,7 +685,7 @@ export async function resumeBuiltinBackgrounds() {
   }
 }
 /** webhook 不经过登录中间件；查找和验签失败都不暴露其他用户的数据。 */
-export async function forwardPublicExtension(id: string, handle: string, request: Request) {
+export async function forwardPublicExtension(id: string, handle: string, request: Request, env?: unknown) {
   const user = systemDatabase()
     .select()
     .from(users)
@@ -705,8 +705,8 @@ export async function forwardPublicExtension(id: string, handle: string, request
         error instanceof HttpError ? error.status : 500,
       ),
     )
-    const url = new URL(request.url)
-    url.pathname = url.pathname.slice(`/hooks/${id}/${handle}`.length) || '/'
-    return app.fetch(new Request(url.toString(), request))
+    // 保留 Bun 原始 Request 和 fetch 第二参数，扩展的 Hono upgradeWebSocket 才能升级同一个连接。
+    const router = new Hono().route(`/hooks/${id}/${handle}`, app)
+    return router.fetch(request, env)
   })
 }

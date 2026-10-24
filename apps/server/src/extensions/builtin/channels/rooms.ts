@@ -14,9 +14,7 @@ export function addChannelMember(roomId: string, actor: ChannelActorDTO, accepte
   const { room } = requireRole(roomId, ['owner', 'gm'])
   const db = systemDatabase()
   const id =
-    actor.linkedUserId ??
-    actor.externalUserId ??
-    ensureExternalUser(actor.provider, currentUser().id, actor.externalId, actor.displayName).id
+    actor.linkedUserId ?? ensureExternalUser(actor.provider, currentUser().id, actor.externalId, actor.displayName).id
   const user = db.select().from(users).where(eq(users.id, id)).get()
   if (
     !user ||

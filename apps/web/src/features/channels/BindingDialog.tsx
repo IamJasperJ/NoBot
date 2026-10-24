@@ -80,7 +80,12 @@ export function BindingDialog({
         {tab === 'session' && <SessionTab binding={merged} patch={patch} onClose={onClose} />}
         {tab === 'members' && <MembersTab binding={binding} account={account} />}
         {tab === 'behavior' && (
-          <BehaviorTab binding={binding} value={merged.settings ?? {}} onChange={(settings) => patch({ settings })} />
+          <BehaviorTab
+            provider={account.provider}
+            binding={binding}
+            value={merged.settings ?? {}}
+            onChange={(settings) => patch({ settings })}
+          />
         )}
         {tab === 'speakers' && (
           <SpeakersTab account={account} value={merged.speakers ?? {}} onChange={(speakers) => patch({ speakers })} />
@@ -310,10 +315,12 @@ function MembersTab({ binding, account }: { binding: ChannelBindingDTO; account:
 }
 
 function BehaviorTab({
+  provider,
   binding,
   value,
   onChange,
 }: {
+  provider: ChannelAccountDTO['provider']
   binding: ChannelBindingDTO
   value: ChannelBindingDTO['settings']
   onChange: (v: ChannelBindingDTO['settings']) => void
@@ -322,6 +329,7 @@ function BehaviorTab({
   if (!resolved) return null
   return (
     <OverrideEditor
+      provider={provider}
       value={value}
       effective={resolved.values}
       // 本层没覆盖时，来源一定在上层；服务端的 provenance 可能还是保存前的「binding」，退回到机器人

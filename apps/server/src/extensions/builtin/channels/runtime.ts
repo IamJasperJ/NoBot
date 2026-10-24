@@ -7,10 +7,14 @@ import { channelRegistry } from '../../../db/system-schema'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { liveHub } from '../../../services/live/hub'
-import { currentUser } from '../../../user-context'
+import { notify } from '../../../services/social'
+import { currentUser, runAsUser } from '../../../user-context'
 import type { ExtensionHost } from '../../types'
+import { OneBotClient } from './adapters/onebot11/client'
+import { type OneBotDial, type OneBotSendQueue, OneBotTransport } from './adapters/onebot11/transport'
 import { allowedUpdates, TelegramClient, TelegramError, type TelegramFetch } from './adapters/telegram/client'
 import { syncCommands } from './adapters/telegram/commands'
+import type { ChannelClient } from './adapters/types'
 import { miniAppUrl, publicBaseUrl } from './miniapp'
 import { PresenceSync } from './presence'
 import { sealCredentials } from './secrets'
@@ -18,7 +22,7 @@ import { resolveChannelSettings } from './settings'
 import { accountDTO, accountRow, channelLog } from './store'
 
 export interface AccountRuntime {
-  client: TelegramClient
+  client: ChannelClient
   controller: AbortController
   presence: PresenceSync
   task?: Promise<void>
@@ -29,12 +33,71 @@ export class ChannelRuntime {
   readonly accounts = new Map<string, AccountRuntime>()
   readonly logs: ChannelLogEntry[] = []
   fetch?: TelegramFetch
+  dial?: OneBotDial
+  oneBotQueue?: (config: ChannelAccountConfig) => OneBotSendQueue
   constructor(
     readonly host: ExtensionHost,
     readonly receive: (id: string, update: unknown) => Promise<void>,
   ) {}
   client(config: ChannelAccountConfig) {
+    if (config.provider === 'onebot11') {
+      const owner = currentUser()
+      let client!: OneBotClient
+      const transport = new OneBotTransport({
+        token: config.credentials.accessToken ?? config.credentials.token,
+        dial: this.dial,
+        onEvent: (event) =>
+          runAsUser(owner, () => {
+            const id = this.oneBotId(client)
+            if (id) void this.receive(id, event).catch(() => this.log(id, 'onebot.event.failed'))
+          }),
+        onConnect: () =>
+          runAsUser(owner, async () => {
+            await client.connected()
+            const id = this.oneBotId(client)
+            if (!id) return
+            const row = accountRow(id)
+            if (row.botId && row.botId !== client.selfId) {
+              transport.stop()
+              throw new Error('IDENTITY_CHANGED')
+            }
+            db.update(channelAccounts)
+              .set({
+                botId: client.selfId,
+                botUsername: client.nickname,
+                botSnapshot: { ...row.botSnapshot, implementation: client.implementation },
+              })
+              .where(eq(channelAccounts.id, id))
+              .run()
+            if (row.config.presence.confirmed)
+              void this.accounts
+                .get(id)
+                ?.presence.sync()
+                .catch(() => {})
+          }),
+        onStatus: (status) =>
+          runAsUser(owner, () => {
+            const id = this.oneBotId(client)
+            if (id) this.status(id, status)
+          }),
+        onBreaker: () =>
+          runAsUser(owner, () => {
+            const id = this.oneBotId(client)
+            if (!id) return
+            this.status(id, 'error')
+            this.index(id, false)
+            db.update(channelAccounts).set({ lastError: 'CHANNEL_RISK_PAUSED' }).where(eq(channelAccounts.id, id)).run()
+            notify(currentUser().id, 'channel.risk.paused', null, { accountId: id })
+            client.stop()
+          }),
+      })
+      client = new OneBotClient(transport, config, this.fetch, undefined, this.oneBotQueue?.(config))
+      return client
+    }
     return new TelegramClient({ token: config.credentials.token, baseUrl: config.baseUrl, fetch: this.fetch })
+  }
+  private oneBotId(client: OneBotClient) {
+    for (const [id, entry] of this.accounts) if (entry.client === client) return id
   }
   presence(id: string) {
     const running = this.accounts.get(id)
@@ -46,11 +109,26 @@ export class ChannelRuntime {
     }
     return new PresenceSync(this.host, this.client(accountRow(id).config), id, controller.signal)
   }
+  private async startOneBot(id: string, client: OneBotClient, controller: AbortController) {
+    const row = accountRow(id)
+    const entry: AccountRuntime = {
+      client,
+      controller,
+      presence: new PresenceSync(this.host, client, id, controller.signal),
+    }
+    this.accounts.set(id, entry)
+    this.status(id, 'connecting')
+    this.index(id, true)
+    if (row.config.connection?.mode === 'ws-forward')
+      entry.task = client.transport.forward(row.config.connection.url, controller.signal)
+    return accountDTO(accountRow(id))
+  }
   async start(id: string) {
     await this.stop(id, false)
     const row = accountRow(id)
     const controller = new AbortController()
     const client = this.client(row.config)
+    if (client instanceof OneBotClient) return this.startOneBot(id, client, controller)
     client.draftSupported = row.botSnapshot.channelDraftSupported !== false
     client.onDraftUnsupported = () => {
       if (controller.signal.aborted) return
@@ -156,6 +234,15 @@ export class ChannelRuntime {
     this.manualPresence.delete(id)
     const entry = this.accounts.get(id)
     if (entry?.menuTimer) clearInterval(entry.menuTimer)
+    if (entry?.client instanceof OneBotClient) {
+      await entry.client
+        .prepareStop(
+          resolveChannelSettings(accountRow(id).config, undefined, getSetting('ext:channels')).values.onlineStatus ===
+            'follow',
+        )
+        .catch(() => {})
+      entry.client.stop()
+    }
     entry?.controller.abort()
     if (entry) this.accounts.delete(id)
     await entry?.task
@@ -169,11 +256,13 @@ export class ChannelRuntime {
     this.manualPresence.clear()
     for (const entry of this.accounts.values()) {
       if (entry.menuTimer) clearInterval(entry.menuTimer)
+      if (entry.client instanceof OneBotClient) entry.client.stop()
       entry.controller.abort()
     }
     this.accounts.clear()
   }
   status(id: string, status: 'stopped' | 'connecting' | 'online' | 'error') {
+    if (accountRow(id).status === status) return
     channelLog({ at: Date.now(), accountId: id, code: `status.${status}`, message: t('渠道状态已更新') })
     db.update(channelAccounts)
       .set({ status, lastError: status === 'error' ? 'CHANNEL_UNAVAILABLE' : null })
@@ -197,6 +286,25 @@ export class ChannelRuntime {
     channelLog({ at: Date.now(), accountId: id, code, message: code })
   }
   async create(config: ChannelAccountConfig, expectedBotId?: number) {
+    if (config.provider === 'onebot11') {
+      const connection = config.connection
+      if (!connection || !(config.credentials.accessToken ?? config.credentials.token))
+        throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
+      if (connection.mode === 'ws-forward') {
+        const url = new URL(connection.url)
+        if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash)
+          throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
+      }
+      config.receiveMode = connection.mode
+      const id = newId()
+      const row = db
+        .insert(channelAccounts)
+        .values({ id, ...config, credentials: sealCredentials(config.credentials) })
+        .returning()
+        .get()
+      this.index(id, false)
+      return accountDTO(row)
+    }
     const client = this.client(config)
     const bot = await client.call<Record<string, unknown>>('getMe').catch((error: unknown) => {
       if (error instanceof TelegramError && [401, 404].includes(error.code))

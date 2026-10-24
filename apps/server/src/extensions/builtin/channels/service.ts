@@ -44,12 +44,16 @@ import { abortTurn, editRoomMessage, sendRoomMessage, triggerTurn } from '../../
 import { subscribeSocialNotifications } from '../../../services/social'
 import { currentUser, runAsUser } from '../../../user-context'
 import type { ExtensionHost, ServerEvent } from '../../types'
+import { OneBotClient, splitOneBot } from './adapters/onebot11/client'
+import { signBudget, socialBudget } from './adapters/onebot11/interactions'
+import { decodeOneBot } from './adapters/onebot11/receive'
+import { receiveOneBotSocial } from './adapters/onebot11/social'
 import { downloadTelegramFile } from './adapters/telegram/media'
 import { decodeTelegram, type TelegramEvent } from './adapters/telegram/receive'
 import { escapeHtml, inlineTelegramSegments, renderTelegram, type TelegramSegment } from './adapters/telegram/render'
 import { DeferredTelegramStream, type TelegramStream, TelegramTextStream } from './adapters/telegram/stream'
 import { receiveManagedBot } from './managed-bots'
-import { type MiniAppButton, miniAppButton } from './miniapp'
+import { type MiniAppButton, miniAppButton, oneTimeStageUrl } from './miniapp'
 import { OutboundMedia } from './outbound-media'
 import { chooseActorPersona, syncActorPersona } from './personas'
 import { checkIdle, groupAdded, markLeft, requestLocation } from './policies'
@@ -64,6 +68,9 @@ type MessageEvent = Extract<TelegramEvent, { type: 'message' | 'edit' }>
 export class ChannelService {
   readonly runtime: ChannelRuntime
   readonly media: OutboundMedia
+  private oneBotTurns = new Map<string, MessageDTO[]>()
+  private privateDeliveryTails = new Map<string, Promise<unknown>>()
+  private triggers = new Map<string, number>()
   private albums = new Map<
     string,
     { event: MessageEvent; images: string[]; texts: string[]; timer: ReturnType<typeof setTimeout> }
@@ -160,6 +167,7 @@ export class ChannelService {
   dispose() {
     for (const album of this.albums.values()) clearTimeout(album.timer)
     this.albums.clear()
+    this.oneBotTurns.clear()
     this.runtime.dispose()
     this.unlisten()
     this.unlistenNotifications()
@@ -207,9 +215,44 @@ export class ChannelService {
     const row = accountRow(id)
     const entry = this.runtime.accounts.get(id)
     if (!entry) return
-    const event = decodeTelegram(input, { id: row.botId, username: row.botUsername })
+    if (entry.client instanceof OneBotClient) {
+      const raw = input as Record<string, unknown>
+      if (raw?.post_type === 'notice' && raw.sub_type === 'poke' && String(raw.target_id) === entry.client.selfId) {
+        await this.oneBotPoke(id, raw, entry.client)
+        return
+      }
+      if (await receiveOneBotSocial(id, input, entry.client)) return
+    }
+    const event =
+      entry.client instanceof OneBotClient
+        ? decodeOneBot(input, entry.client)
+        : decodeTelegram(input, { id: row.botId, username: row.botUsername })
     if (!event) return
     if (!markReceived(id, event.dedupeKey, Date.now())) return
+    if (entry.client instanceof OneBotClient && event.type === 'message' && event.reply_to_message) {
+      const quoted = event.reply_to_message
+      const delivery = db
+        .select()
+        .from(channelDeliveries)
+        .all()
+        .find((item) =>
+          item.parts.some(
+            (part) =>
+              part.accountId === id &&
+              part.externalChat === String(event.chat.id) &&
+              part.externalId === String(quoted.message_id),
+          ),
+        )
+      event.repliesToBot = !!delivery
+      if (!quoted.from && event.command && ['invite', 'kick'].includes(event.command.name)) {
+        const original = await entry.client.action<{
+          sender?: { user_id: number; nickname?: string }
+          user_id?: number
+        }>('get_msg', { message_id: quoted.message_id })
+        const user = original.sender?.user_id ?? original.user_id
+        if (user) quoted.from = { id: user, first_name: original.sender?.nickname ?? String(user) }
+      }
+    }
     try {
       if (event.type === 'managed_bot') {
         await receiveManagedBot(this.runtime, id, event)
@@ -366,6 +409,41 @@ export class ChannelService {
       if (event.forum_topic_created || event.forum_topic_edited || event.new_chat_title) return
       if (binding?.state !== 'active') return
       syncActorPersona(binding, actor)
+      if (entry.client instanceof OneBotClient) {
+        this.triggers.set(binding.id, event.message_id)
+        await this.syncOneBotCard(binding)
+        const settings = this.settings(binding).values
+        if (
+          binding.scope === 'group' &&
+          entry.client.napcat &&
+          settings.dailySign &&
+          signBudget(id, binding.chat) &&
+          socialBudget(id, `sign:${binding.chat}`, settings)
+        )
+          void entry.client
+            .action('set_group_sign', { group_id: Number(binding.chat.replace(/^-/, '')) })
+            .catch(() => this.runtime.log(id, 'onebot.sign.failed'))
+        if (event.document) {
+          await this.send(id, binding.chat, t('暂不支持文件消息，请发送文字或图片'))
+          return
+        }
+        const number = /^(?:\/choose\s+)?([1-9]\d*)$/.exec(event.text)
+        const leaf = this.numberedChoiceMessage(binding)
+        const hasChoices = !!leaf?.meta.stage?.choices?.length
+        const hasMenu = db
+          .select()
+          .from(channelActions)
+          .where(eq(channelActions.bindingId, binding.id))
+          .all()
+          .some(
+            (action) =>
+              action.action === 'chat' && action.allowedActor === actor.externalId && action.expiresAt > Date.now(),
+          )
+        if (number && (hasChoices || hasMenu)) {
+          await this.chooseNumber(binding, actor, Number(number[1]))
+          return
+        }
+      }
       void reactToMessage(this, binding, actor.externalId, event.message_id, entry.client).catch(() => {})
       const { id: bindingId, accountId: _, ...data } = binding
       db.update(channelBindings)
@@ -378,7 +456,8 @@ export class ChannelService {
           .getChatInfo(binding.chatId, 1000)
           .messages.find(
             (m) =>
-              m.meta.clientMessageId === `telegram:${event.chat.id}:${event.message_id}` &&
+              m.meta.clientMessageId ===
+                `${accountRow(binding.accountId).config.provider}:${event.chat.id}:${event.message_id}` &&
               m.meta.author?.userId === (actor.linkedUserId ?? actor.externalUserId),
           )
         if (original && binding.roomId)
@@ -441,7 +520,12 @@ export class ChannelService {
         (event.document?.mime_type?.startsWith('image/') ? event.document : undefined)
       if (event.photo?.length && !photo)
         throw new HttpError(413, 'TOO_LARGE', t('文件太大（上限 {limit}MB）', { limit: 20 }))
-      if (photo) {
+      for (const photoItem of entry.client instanceof OneBotClient
+        ? (event.photo ?? (photo ? [photo] : []))
+        : photo
+          ? [photo]
+          : []) {
+        const photo = photoItem
         const bytes = await downloadTelegramFile(entry.client, photo)
         if (binding.roomId) {
           // 房间上传同时登记 room.asset，让后续发送沿用网页端的附件归属校验。
@@ -483,7 +567,11 @@ export class ChannelService {
       await this.acceptInput(binding, actor, event, images)
     } catch (error) {
       if (error instanceof HttpError && error.status < 500) {
-        if ('chat' in event && event.chat && 'id' in event.chat)
+        if (entry.client instanceof OneBotClient && 'from' in event && event.from) {
+          if (await entry.client.privateAllowed(String(event.from.id)).catch(() => false))
+            await this.send(id, String(event.from.id), error.message)
+          else if ('chat' in event) await this.send(id, String(event.chat.id), t('请先私聊我一次'))
+        } else if ('chat' in event && event.chat && 'id' in event.chat)
           await this.send(id, String(event.chat.id), error.message)
       } else {
         // 网络异常必须抛给轮询器，撤销去重标记后才允许重放。
@@ -515,7 +603,11 @@ export class ChannelService {
           : undefined
         replyTo =
           delivery?.messageId ??
-          history.find((message) => message.meta.clientMessageId === `telegram:${event.chat.id}:${externalReply}`)?.id
+          history.find(
+            (message) =>
+              message.meta.clientMessageId ===
+              `${accountRow(binding.accountId).config.provider}:${event.chat.id}:${externalReply}`,
+          )?.id
         if (!replyTo && event.mentionsBot)
           replyTo = history
             .filter(
@@ -532,7 +624,7 @@ export class ChannelService {
             text: event.text,
             images,
             channel: isOoc ? 'ooc' : 'ic',
-            clientMessageId: `telegram:${event.chat.id}:${event.message_id}`,
+            clientMessageId: `${accountRow(binding.accountId).config.provider}:${event.chat.id}:${event.message_id}`,
             replyTo,
           },
           {},
@@ -734,6 +826,7 @@ export class ChannelService {
         set: { ...data, ...metadata, locationKey: locationKey(binding, binding.isolation) },
       })
       .run()
+    void this.syncOneBotCard(bindingRow(id)).catch(() => {})
     db.insert(channelBindingChats)
       .values({ bindingId: id, chatId: binding.chatId, lastUsedAt: Date.now() })
       .onConflictDoUpdate({
@@ -781,6 +874,30 @@ export class ChannelService {
     const command = event.command!
     const roomId = binding.roomId
     const reply = (text: string) => this.send(binding.accountId, binding.chat, text, binding.thread)
+    if (command.name === 'vn' && accountRow(binding.accountId).config.provider === 'onebot11') {
+      asChannelActor(binding, actor, () => {})
+      const client = this.runtime.accounts.get(binding.accountId)?.client
+      if (!(client instanceof OneBotClient)) return
+      if (
+        !(await client.privateAllowed(
+          actor.externalId,
+          binding.scope === 'group' ? binding.chat : undefined,
+          this.settings(binding).values.tempSessionDm,
+        ))
+      )
+        return reply(t('请先私聊我一次'))
+      const url = oneTimeStageUrl(binding, actor)
+      if (!url) return reply(t('VN 舞台暂不可用'))
+      return client.send(
+        actor.externalId,
+        [{ type: 'text', data: { text: `${t('打开 VN')} ${url}` } }],
+        'private',
+        this.settings(binding).values.tempSessionDm && binding.scope === 'group'
+          ? { group_id: Number(binding.chat.slice(1)) }
+          : {},
+      )
+    }
+    if (command.name === 'choose') return this.chooseNumber(binding, actor, Number(command.args))
     if (command.name === 'vn') {
       const button = miniAppButton(binding)
       return this.runtime.accounts.get(binding.accountId)?.client.call('sendMessage', {
@@ -842,7 +959,7 @@ export class ChannelService {
             .select()
             .from(channelActors)
             .all()
-            .find((a) => a.username === target[1] || a.displayName === target[1])
+            .find((a) => a.username === target[1] || a.displayName === target[1] || a.externalId === target[1])
         : null
       return asChannelActor(binding, actor, () =>
         whisperRoom(roomId, {
@@ -853,6 +970,8 @@ export class ChannelService {
       )
     }
     if (command.name === 'chats') {
+      if (accountRow(binding.accountId).config.provider === 'onebot11')
+        this.clearNumberedMenu(binding.id, actor.externalId)
       const history = db.select().from(channelBindingChats).where(eq(channelBindingChats.bindingId, binding.id)).all()
       const rows = history.map((item) => {
         const token = randomBytes(18).toString('base64url')
@@ -917,7 +1036,12 @@ export class ChannelService {
       let member = db
         .select()
         .from(channelActors)
-        .where(and(eq(channelActors.provider, 'telegram'), eq(channelActors.externalId, String(target.id))))
+        .where(
+          and(
+            eq(channelActors.provider, accountRow(binding.accountId).config.provider),
+            eq(channelActors.externalId, String(target.id)),
+          ),
+        )
         .get()
       if (command.name === 'invite') {
         asChannelActor(binding, actor, () => {
@@ -928,7 +1052,7 @@ export class ChannelService {
             .insert(channelActors)
             .values({
               id: newId(),
-              provider: 'telegram',
+              provider: accountRow(binding.accountId).config.provider,
               externalId: String(target.id),
               displayName: target.first_name,
               username: target.username,
@@ -936,6 +1060,7 @@ export class ChannelService {
             })
             .returning()
             .get()
+        member = recordActorSeen(binding.accountId, member, binding.chat, binding.thread)
         const userId = addChannelMember(roomId, member)
         db.update(channelActors)
           .set({ externalUserId: member.linkedUserId ? null : userId })
@@ -965,6 +1090,16 @@ export class ChannelService {
   }
   private watchJobs() {
     if (!this.runtime.accounts.size) return
+    for (const [id, entry] of this.runtime.accounts)
+      if (
+        entry.client instanceof OneBotClient &&
+        resolveChannelSettings(accountRow(id).config, undefined, this.globalSettings()).values.onlineStatus === 'follow'
+      ) {
+        const bindings = listBindings(id).filter((binding) => binding.state === 'active')
+        const busy = bindings.some((binding) => this.host.isGenerating(binding.chatId))
+        const paused = bindings.some((binding) => binding.roomId && roomRow(binding.roomId).status === 'paused')
+        entry.client.onlineStatus(busy ? 50 : paused ? 30 : 10)
+      }
     for (const binding of listBindings().filter(
       (b) => b.state === 'active' && this.runtime.accounts.has(b.accountId),
     )) {
@@ -973,7 +1108,7 @@ export class ChannelService {
       if (!job || this.generationSubscriptions.has(key)) continue
       const dispose = this.host.subscribe(job, (event) => {
         const streamKey = `${binding.id}:stream`
-        if (event.type === 'start') {
+        if (event.type === 'start' && !(this.runtime.accounts.get(binding.accountId)?.client instanceof OneBotClient)) {
           const entry = this.runtime.accounts.get(binding.accountId)!
           const routed = event.assistantMessage.speakerId
             ? binding.speakers[event.assistantMessage.speakerId]
@@ -1045,9 +1180,24 @@ export class ChannelService {
         if (event.type === 'done') {
           const state = this.streams.get(streamKey)
           this.streams.delete(streamKey)
-          void this.deliver(binding, event.message, state?.stream).catch(() => {})
+          if (
+            this.runtime.accounts.get(binding.accountId)?.client instanceof OneBotClient &&
+            binding.scope === 'group' &&
+            this.settings(binding).values.multiSpeaker === 'forward' &&
+            !event.message.meta.hidden &&
+            event.message.meta.channel !== 'whisper' &&
+            (!event.message.meta.visibility || event.message.meta.visibility.level === 'public')
+          ) {
+            this.oneBotTurns.set(binding.id, [...(this.oneBotTurns.get(binding.id) ?? []), event.message])
+          } else void this.deliver(binding, event.message, state?.stream).catch(() => {})
         }
         if (event.type === 'complete' || event.type === 'error') {
+          const turn = this.oneBotTurns.get(binding.id)
+          this.oneBotTurns.delete(binding.id)
+          if (turn?.length)
+            void this.deliverOneBotTurn(binding, turn).catch(() =>
+              this.runtime.log(binding.accountId, 'onebot.turn.failed'),
+            )
           this.streams.get(streamKey)?.stream.abort()
           this.streams.delete(streamKey)
           this.generationSubscriptions.get(key)?.()
@@ -1078,7 +1228,12 @@ export class ChannelService {
     const actor = db
       .select()
       .from(channelActors)
-      .where(and(eq(channelActors.provider, 'telegram'), eq(channelActors.externalId, String(event.from.id))))
+      .where(
+        and(
+          eq(channelActors.provider, accountRow(accountId).config.provider),
+          eq(channelActors.externalId, String(event.from.id)),
+        ),
+      )
       .get()
     if (!actor || actor.role === 'blocked') throw refused()
     if (action.action === 'chat') {
@@ -1128,8 +1283,7 @@ export class ChannelService {
     if (!message || getChatRow(binding.chatId).activeLeafId !== message.id) throw refused()
     if (action.action === 'choice') {
       asChannelActor(binding, actor, () => {})
-      const option = parseStageMessage(message.content, { knownNames: [], vars: {}, inline: false, mvu: false }).stage
-        .choices?.[Number(action.args.index)]
+      const option = message.meta.stage?.choices?.[Number(action.args.index)]
       if (!option) throw refused()
       const check = option.check ? this.host.performCheck(binding.chatId, option.check) : undefined
       return this.generate(binding, { mode: 'send', text: option.text, images: [], ...(check ? { check } : {}) })
@@ -1196,7 +1350,8 @@ export class ChannelService {
   private async deliverNow(binding: ChannelBindingDTO, message: MessageDTO, stream?: TelegramStream) {
     binding = bindingRow(binding.id)
     let entry = this.runtime.accounts.get(binding.accountId)
-    if (!entry || binding.state !== 'active') {
+    if (!entry || binding.state !== 'active' || message.chatId !== binding.chatId) {
+      // 绑定切换会话后，旧生成订阅的迟到结果不能进入新位置。
       stream?.abort()
       return
     }
@@ -1207,31 +1362,117 @@ export class ChannelService {
     if (privateContent) {
       stream?.abort()
       if (!binding.roomId) return
-      const actors = db
-        .select()
-        .from(channelActors)
-        .all()
-        .filter((a) => a.role !== 'blocked' && (a.linkedUserId || a.externalUserId))
-      let hint = false
-      for (const actor of actors) {
-        const viewer = actor.linkedUserId ?? actor.externalUserId!
-        const projected = roomMessage(message, viewer, currentUser().id)
-        if (!projected.content || (projected.meta.hidden && projected.meta.hidden.reason !== 'blind')) continue
-        // 必须先确认收件人仍是该房间成员；隐藏占位也绝不能进入群聊。
-        try {
-          asChannelActor(binding, actor, () => {})
-        } catch {
-          continue
-        }
-        if (actor.dmChatId) await this.send(binding.accountId, actor.dmChatId, projected.content)
-        else hint = true
+      const client = entry.client
+      const key = `${binding.accountId}:${message.id}`
+      const pending = (this.privateDeliveryTails.get(key) ?? Promise.resolve())
+        .catch(() => {})
+        .then(async () => {
+          const actors = db
+            .select()
+            .from(channelActors)
+            .all()
+            .filter(
+              (a) =>
+                a.provider === accountRow(binding.accountId).config.provider &&
+                a.role !== 'blocked' &&
+                (a.linkedUserId || a.externalUserId),
+            )
+          const hash = createHash('sha256').update(JSON.stringify(message)).digest('hex')
+          const previous = db.select().from(channelDeliveries).where(eq(channelDeliveries.messageId, message.id)).all()
+          const parts =
+            previous.find((delivery) => delivery.bindingId === binding.id && delivery.contentHash === hash)?.parts ?? []
+          let hint = false
+          for (const actor of actors) {
+            const viewer = actor.linkedUserId ?? actor.externalUserId!
+            const projected = roomMessage(message, viewer, currentUser().id)
+            if (!projected.content || (projected.meta.hidden && projected.meta.hidden.reason !== 'blind')) continue
+            // 必须先确认收件人仍是该房间成员；隐藏占位也绝不能进入群聊。
+            try {
+              asChannelActor(binding, actor, () => {})
+            } catch {
+              continue
+            }
+            const recipient = client instanceof OneBotClient ? actor.externalId : actor.dmChatId
+            if (
+              previous.some(
+                (delivery) =>
+                  delivery.contentHash === hash &&
+                  delivery.parts.some(
+                    (part) => part.accountId === binding.accountId && part.externalChat === recipient,
+                  ),
+              )
+            )
+              continue
+            let externalId: string | undefined
+            if (client instanceof OneBotClient) {
+              if (
+                await client
+                  .privateAllowed(actor.externalId, binding.chat, this.settings(binding).values.tempSessionDm)
+                  .catch(() => false)
+              ) {
+                const sent = await client
+                  .send(
+                    actor.externalId,
+                    [{ type: 'text', data: { text: projected.content } }],
+                    'private',
+                    this.settings(binding).values.tempSessionDm ? { group_id: Number(binding.chat.slice(1)) } : {},
+                  )
+                  .catch(() => {
+                    hint = true
+                  })
+                if (sent) externalId = String(sent.message_id)
+              } else hint = true
+            } else if (actor.dmChatId) {
+              const sent = await client.serialized(actor.dmChatId, () =>
+                client.call<{ message_id: number }>('sendMessage', {
+                  chat_id: actor.dmChatId!,
+                  text: projected.content,
+                }),
+              )
+              externalId = String(sent.message_id)
+            } else hint = true
+            if (externalId && recipient) {
+              parts.push({ accountId: binding.accountId, externalChat: recipient, externalId })
+              const old = previous.find((delivery) => delivery.bindingId === binding.id)
+              const delivery = {
+                id: old?.id ?? newId(),
+                bindingId: binding.id,
+                messageId: message.id,
+                contentHash: hash,
+                parts,
+                status: 'committed' as const,
+              }
+              // 成功收件人即时落库；重放、多个房间绑定和部分失败重试都不能重复私发。
+              db.insert(channelDeliveries)
+                .values(delivery)
+                .onConflictDoUpdate({
+                  target: channelDeliveries.id,
+                  set: { parts, contentHash: hash, status: 'committed' },
+                })
+                .run()
+              if (!old) previous.push({ ...delivery, revision: 0 })
+            }
+          }
+          if (hint && binding.scope === 'group')
+            await this.send(
+              binding.accountId,
+              binding.chat,
+              client instanceof OneBotClient
+                ? t('请先私聊我一次')
+                : `${t('请先私聊我一次')} https://t.me/${accountRow(binding.accountId).botUsername}?start=private`,
+            )
+        })
+      this.privateDeliveryTails.set(key, pending)
+      try {
+        await pending
+      } finally {
+        if (this.privateDeliveryTails.get(key) === pending) this.privateDeliveryTails.delete(key)
       }
-      if (hint && binding.scope === 'group')
-        await this.send(
-          binding.accountId,
-          binding.chat,
-          `${t('请先私聊我一次')} https://t.me/${accountRow(binding.accountId).botUsername}?start=private`,
-        )
+      return
+    }
+    if (entry.client instanceof OneBotClient) {
+      stream?.abort()
+      await this.deliverOneBot(binding, message, entry.client)
       return
     }
     await stream?.waitReady()
@@ -1268,7 +1509,8 @@ export class ChannelService {
     const settings = this.settings(binding).values
     if (
       message.role === 'user' &&
-      (!settings.mirrorWebMessages || String(message.meta.clientMessageId ?? '').startsWith('telegram:'))
+      (!settings.mirrorWebMessages ||
+        String(message.meta.clientMessageId ?? '').startsWith(`${accountRow(binding.accountId).config.provider}:`))
     )
       return
     if (message.role !== 'assistant' && message.role !== 'user' && message.role !== 'system') return
@@ -1291,7 +1533,14 @@ export class ChannelService {
       return
     }
     const contentHash = createHash('sha256')
-      .update(JSON.stringify([text, settings.thinking === 'fold' ? message.meta.reasoning : '', sendingAccountId]))
+      .update(
+        JSON.stringify([
+          text,
+          settings.thinking === 'fold' ? message.meta.reasoning : '',
+          sendingAccountId,
+          message.meta.stage?.choices ?? [],
+        ]),
+      )
       .digest('hex')
     if (previous?.messageId === message.id && previous.contentHash === contentHash) {
       stream?.abort()
@@ -1301,11 +1550,7 @@ export class ChannelService {
       return
     }
     const revision = (previous?.revision ?? -1) + 1
-    const choices =
-      message.role === 'assistant'
-        ? (parseStageMessage(message.content, { knownNames: [], vars: {}, inline: false, mvu: false }).stage.choices ??
-          [])
-        : []
+    const choices = message.role === 'assistant' ? (message.meta.stage?.choices ?? []) : []
     const rows: ({ text: string; callback_data: string } | MiniAppButton)[][] = []
     for (const [index, choice] of choices.entries())
       rows.push([{ text: choice.text, callback_data: this.token(binding, message, revision, 'choice', { index }) }])
@@ -1433,6 +1678,268 @@ export class ChannelService {
     await this.media
       .deliver(binding, message, settings, entry.client, sendingAccountId, nativeIdentity)
       .catch(() => this.runtime.log(sendingAccountId, 'media.failed'))
+  }
+  async syncOneBotCard(binding: ChannelBindingDTO) {
+    const client = this.runtime.accounts.get(binding.accountId)?.client
+    if (
+      !(client instanceof OneBotClient) ||
+      !client.selfId ||
+      binding.scope !== 'group' ||
+      !this.settings(binding).values.groupCard
+    )
+      return
+    const chat = this.host.getChatInfo(binding.chatId).chat
+    if (!chat.characterId) return
+    try {
+      await client.groupCard(binding.chat.replace(/^-/, ''), this.host.getCharacter(chat.characterId).name)
+    } catch {
+      this.runtime.log(binding.accountId, 'onebot.card.failed')
+    }
+  }
+  private numberedChoiceMessage(binding: ChannelBindingDTO) {
+    // 场外文字或骰子不应遮住仍可投票的最新公开助手消息。
+    return this.host
+      .getChatInfo(binding.chatId, 1000)
+      .messages.filter(
+        (message) =>
+          message.role === 'assistant' &&
+          !message.meta.hidden &&
+          message.meta.channel !== 'whisper' &&
+          (!message.meta.visibility || message.meta.visibility.level === 'public'),
+      )
+      .at(-1)
+  }
+  private clearNumberedMenu(bindingId: string, actor: string) {
+    db.delete(channelActions)
+      .where(
+        and(
+          eq(channelActions.bindingId, bindingId),
+          eq(channelActions.allowedActor, actor),
+          eq(channelActions.action, 'chat'),
+        ),
+      )
+      .run()
+  }
+  private async chooseNumber(binding: ChannelBindingDTO, actor: ChannelActorDTO, number: number) {
+    asChannelActor(binding, actor, () => {})
+    if (!Number.isSafeInteger(number) || number < 1) throw refused()
+    const menu = db
+      .select()
+      .from(channelActions)
+      .where(
+        and(
+          eq(channelActions.bindingId, binding.id),
+          eq(channelActions.action, 'chat'),
+          eq(channelActions.allowedActor, actor.externalId),
+        ),
+      )
+      .all()
+      .filter((item) => item.expiresAt > Date.now())
+    if (menu.length) {
+      const action = menu[number - 1]
+      if (!action) throw refused()
+      await this.callback(binding.accountId, {
+        type: 'callback',
+        id: '',
+        dedupeKey: '',
+        data: action.token,
+        from: { id: Number(actor.externalId), first_name: actor.displayName },
+        message: { message_id: 0, chat: { id: Number(binding.chat), type: binding.scope }, entities: [] },
+      })
+      this.clearNumberedMenu(binding.id, actor.externalId)
+      return
+    }
+    const last = this.numberedChoiceMessage(binding)
+    if (!last) throw refused()
+    const choices = last.meta.stage?.choices
+    const choice = choices?.[number - 1]
+    if (!choice) throw refused()
+    if (binding.roomId)
+      return asChannelActor(binding, actor, () => pickRoomChoice(binding.roomId!, last.id, number - 1))
+    const check = choice.check ? this.host.performCheck(binding.chatId, choice.check) : undefined
+    return this.generate(binding, { mode: 'send', text: choice.text, images: [], ...(check ? { check } : {}) })
+  }
+  private async oneBotPoke(id: string, raw: Record<string, unknown>, client: OneBotClient) {
+    const group = raw.group_id ? `-${raw.group_id}` : ''
+    const actorId = String(raw.user_id)
+    const actor = db
+      .select()
+      .from(channelActors)
+      .where(and(eq(channelActors.provider, 'onebot11'), eq(channelActors.externalId, actorId)))
+      .get()
+    if (!actor || actor.role === 'blocked' || !actor.accountIds.includes(id)) return
+    const binding = matchChannelBinding(listBindings(id), {
+      scope: group ? 'group' : 'private',
+      chat: group || actorId,
+      actor: actorId,
+    })
+    if (binding?.state !== 'active') return
+    asChannelActor(binding, actor, () => {})
+    const settings = this.settings(binding).values
+    if ((!settings.pokeBack && !settings.pokeToStory) || !socialBudget(id, `poke:${group}:${actorId}`, settings)) return
+    if (settings.pokeBack && client.napcat)
+      await client
+        .action(group ? 'group_poke' : 'friend_poke', {
+          user_id: Number(actorId),
+          ...(group ? { group_id: Number(raw.group_id) } : {}),
+        })
+        .catch(() => this.runtime.log(id, 'onebot.poke.failed'))
+    if (settings.pokeToStory) {
+      const event = decodeOneBot(
+        {
+          post_type: 'message',
+          message_type: group ? 'group' : 'private',
+          group_id: raw.group_id,
+          message_id: -(Number(raw.time) || Date.now()),
+          user_id: Number(actorId),
+          sender: { nickname: actor.displayName },
+          message: [{ type: 'text', data: { text: `*${actor.displayName} pokes you*` } }],
+        },
+        client,
+      )
+      if (event) await this.acceptInput(binding, actor, event, [])
+    }
+  }
+  private async deliverOneBotTurn(binding: ChannelBindingDTO, turn: MessageDTO[]) {
+    const client = this.runtime.accounts.get(binding.accountId)?.client
+    if (!(client instanceof OneBotClient) || bindingRow(binding.id).state !== 'active') return
+    if (turn.length < 2 || new Set(turn.map((message) => message.speakerId ?? message.meta.name)).size < 2) {
+      for (const message of turn) await this.deliver(binding, message)
+      return
+    }
+    const settings = this.settings(binding).values
+    try {
+      const nodes = turn.map((message) => {
+        const name =
+          message.meta.name ?? (message.speakerId ? this.host.getCharacter(message.speakerId).name : client.nickname)
+        const choices = message.meta.stage?.choices?.map((choice, index) => `${index + 1}. ${choice.text}`).join('\n')
+        const text = toDisplayText(message.content, { knownNames: [], speaker: 'plain', streaming: false })
+        return { name, text: `${text}${choices ? `\n${choices}` : ''}` }
+      })
+      const sent = await client.forward(binding.chat.replace(/^-/, ''), nodes)
+      for (const message of turn) {
+        db.insert(channelDeliveries)
+          .values({
+            id: newId(),
+            bindingId: binding.id,
+            messageId: message.id,
+            revision: 0,
+            status: 'committed',
+            contentHash: createHash('sha256').update(message.content).digest('hex'),
+            parts: [{ accountId: binding.accountId, externalChat: binding.chat, externalId: String(sent.message_id) }],
+          })
+          .run()
+        await this.media.deliver(
+          binding,
+          message,
+          { ...settings, statusCard: settings.statusCard === 'pinned' ? 'every' : settings.statusCard },
+          client,
+          binding.accountId,
+        )
+      }
+    } catch {
+      this.runtime.log(binding.accountId, 'onebot.forward.fallback')
+      for (const message of turn) await this.deliver(binding, message)
+    }
+  }
+  private async deliverOneBot(binding: ChannelBindingDTO, message: MessageDTO, client: OneBotClient) {
+    const settings = this.settings(binding).values
+    if (
+      message.role === 'user' &&
+      (!settings.mirrorWebMessages || String(message.meta.clientMessageId ?? '').startsWith('onebot11:'))
+    )
+      return
+    if (!['assistant', 'user', 'system'].includes(message.role)) return
+    const stage = parseStageMessage(message.content, { knownNames: [], vars: {}, inline: false, mvu: false }).stage
+    const identity = accountRow(binding.accountId).config
+    const ownName =
+      identity.characterMode === 'fixed' && identity.characterId
+        ? this.host.getCharacter(identity.characterId).name
+        : undefined
+    const native =
+      !!identity.characterId && message.speakerId === identity.characterId && identity.characterMode === 'fixed'
+    const visible = toDisplayText(message.content, { knownNames: [], speaker: 'plain', streaming: false })
+    let text = visible
+    const nodes: { name: string; text: string }[] = []
+    if (stage.beats.some((beat) => beat.kind === 'line')) {
+      text = stage.beats
+        .map((beat) => {
+          if (beat.kind === 'line') {
+            nodes.push({ name: beat.speaker, text: beat.text })
+            return `${settings.personaPrefix && beat.speaker !== ownName ? `${beat.speaker}: ` : ''}${beat.text}`
+          }
+          return beat.kind === 'narration' ? beat.text : ''
+        })
+        .filter(Boolean)
+        .join('\n')
+    } else if (!native && settings.personaPrefix && message.meta.name) text = `${message.meta.name}: ${text}`
+    const choices = message.role === 'assistant' ? message.meta.stage?.choices : undefined
+    if (choices?.length) text += `\n${choices.map((choice, index) => `${index + 1}. ${choice.text}`).join('\n')}`
+    if (message.role === 'assistant' && settings.controlsFooter) text += `\n${t('回复 /regen 重来，/swipe 换一个')}`
+    const hash = createHash('sha256').update(text).digest('hex')
+    const previous = db
+      .select()
+      .from(channelDeliveries)
+      .where(and(eq(channelDeliveries.bindingId, binding.id), eq(channelDeliveries.messageId, message.id)))
+      .get()
+    if (previous?.contentHash === hash) return
+    const parts: { accountId: string; externalChat: string; externalId: string }[] = []
+    let forwarded = false
+    if (
+      binding.scope === 'group' &&
+      settings.multiSpeaker === 'forward' &&
+      new Set(nodes.map((node) => node.name)).size > 1
+    ) {
+      try {
+        const sent = await client.forward(binding.chat.replace(/^-/, ''), nodes)
+        parts.push({ accountId: binding.accountId, externalChat: binding.chat, externalId: String(sent.message_id) })
+        forwarded = true
+        if (choices?.length)
+          await this.send(
+            binding.accountId,
+            binding.chat,
+            choices.map((choice, index) => `${index + 1}. ${choice.text}`).join('\n'),
+          )
+      } catch {
+        this.runtime.log(binding.accountId, 'onebot.forward.fallback')
+      }
+    }
+    if (!forwarded)
+      for (const page of splitOneBot(text, settings.maxMessageLength)) {
+        const trigger = this.triggers.get(binding.id)
+        const sent = await client.send(
+          binding.chat.replace(/^-/, ''),
+          [
+            ...(binding.scope === 'group' && trigger ? [{ type: 'reply', data: { id: String(trigger) } }] : []),
+            { type: 'text', data: { text: page } },
+          ],
+          binding.scope,
+        )
+        parts.push({ accountId: binding.accountId, externalChat: binding.chat, externalId: String(sent.message_id) })
+      }
+    db.insert(channelDeliveries)
+      .values({
+        id: previous?.id ?? newId(),
+        bindingId: binding.id,
+        messageId: message.id,
+        revision: (previous?.revision ?? -1) + 1,
+        parts,
+        status: 'committed',
+        contentHash: hash,
+      })
+      .onConflictDoUpdate({
+        target: channelDeliveries.id,
+        set: { parts, contentHash: hash, revision: (previous?.revision ?? -1) + 1 },
+      })
+      .run()
+    await this.media.deliver(
+      binding,
+      message,
+      { ...settings, statusCard: settings.statusCard === 'pinned' ? 'every' : settings.statusCard },
+      client,
+      binding.accountId,
+      native,
+    )
   }
   private token(
     binding: ChannelBindingDTO,

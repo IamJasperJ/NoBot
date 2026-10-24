@@ -4,6 +4,7 @@ import type {
   ChannelActorDTO,
   ChannelBindingDTO,
   ChannelBindingInput,
+  ChannelFriendDTO,
   ChannelLogEntry,
   ChannelPolicies,
   ChannelPresencePreview,
@@ -23,6 +24,7 @@ export type {
   ChannelBindingInput,
   ChannelCapabilities,
   ChannelCapabilityState,
+  ChannelFriendDTO,
   ChannelLogEntry,
   ChannelPolicies,
   ChannelPresence,
@@ -45,6 +47,7 @@ export const channelKeys = {
   requests: (accountId?: string) => ['channels', 'requests', accountId ?? 'all'] as const,
   presence: (id: string) => ['channels', 'presence', id] as const,
   log: ['channels', 'log'] as const,
+  friends: (id: string) => ['channels', 'friends', id] as const,
   managedAccess: (id: string) => ['channels', 'managed-access', id] as const,
 }
 const encode = encodeURIComponent
@@ -72,7 +75,17 @@ export interface ManagedBotAccessSettings {
   is_access_restricted: boolean
   added_user_ids?: number[]
 }
+export type ChannelOneBotAction =
+  | { action: 'essence' | 'read'; messageId: number; confirm: true }
+  | { action: 'notice'; content: string; confirm: true }
 export const channelsApi = {
+  friends: (id: string) => request<ChannelFriendDTO[]>(`/accounts/${encode(id)}/friends`),
+  deleteFriend: ({ id, userId, confirm }: { id: string; userId: number; confirm: true }) =>
+    request<{ ok: true }>(`/accounts/${encode(id)}/friends/delete`, 'POST', { userId, confirm }),
+  onebot: ({ id, input }: { id: string; input: ChannelOneBotAction }) =>
+    request<{ ok: true }>(`/bindings/${encode(id)}/onebot`, 'POST', input),
+  stageLink: ({ id, actorId }: { id: string; actorId: string }) =>
+    request<{ url: string; expiresIn: number }>(`/bindings/${encode(id)}/stage-link`, 'POST', { actorId }),
   managedBotLink: ({ id, ...input }: ManagedBotLinkInput) =>
     request<{ url: string }>(`/accounts/${encode(id)}/managed-bots/link`, 'POST', input),
   rotateManagedBotToken: (id: string) =>
@@ -185,3 +198,9 @@ export const useRotateManagedBotToken = () => useChannelMutation(channelsApi.rot
 export const useUpdateManagedBotAccess = () => useChannelMutation(channelsApi.updateManagedBotAccess)
 export const useManagedBotAccess = (id: string) =>
   useQuery({ queryKey: channelKeys.managedAccess(id), queryFn: () => channelsApi.managedBotAccess(id), enabled: !!id })
+
+export const useChannelFriends = (id: string) =>
+  useQuery({ queryKey: channelKeys.friends(id), queryFn: () => channelsApi.friends(id), enabled: !!id })
+export const useDeleteChannelFriend = () => useChannelMutation(channelsApi.deleteFriend)
+export const useChannelOneBotAction = () => useChannelMutation(channelsApi.onebot)
+export const useChannelStageLink = () => useChannelMutation(channelsApi.stageLink)

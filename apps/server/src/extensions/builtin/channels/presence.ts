@@ -9,8 +9,9 @@ import { t } from '../../../i18n'
 import { readAvatar } from '../../../lib/files'
 import { currentContext } from '../../../user-context'
 import type { ExtensionHost } from '../../types'
-import type { TelegramClient } from './adapters/telegram/client'
+import { OneBotClient } from './adapters/onebot11/client'
 import { TelegramError } from './adapters/telegram/client'
+import type { ChannelClient } from './adapters/types'
 import { type AccountRow, accountRow } from './store'
 
 const fields = {
@@ -44,6 +45,9 @@ export function desiredPresence(account: AccountRow, character?: CharacterDTO): 
   const desired: Record<string, string> = {}
   for (const [field, [, , limit]] of Object.entries(fields)) {
     const key = field as keyof typeof fields
+    const onebot = account.config.provider === 'onebot11'
+    if (onebot && key === 'shortDescription') continue
+    const effectiveLimit = onebot ? (key === 'name' ? 24 : 80) : limit
     const config = account.config.presence[key]
     if (config.mode === 'unmanaged') continue
     const fallback =
@@ -52,10 +56,11 @@ export function desiredPresence(account: AccountRow, character?: CharacterDTO): 
         : character
           ? key === 'name'
             ? character.name
-            : publicIntro(character, key === 'shortDescription', limit)
+            : publicIntro(character, key === 'shortDescription', effectiveLimit)
           : undefined
     if (fallback === undefined) continue
-    desired[`${key}:`] = truncate(fallback, limit)
+    desired[`${key}:`] = truncate(fallback, effectiveLimit)
+    if (onebot) continue
     for (const language of ['zh', 'en'] as const) {
       const override = config.languages[language]
       if (override !== undefined) desired[`${key}:${language}`] = truncate(override, limit)
@@ -67,7 +72,7 @@ const syncQueues = new WeakMap<object, Map<string, Promise<unknown>>>()
 export class PresenceSync {
   constructor(
     private host: ExtensionHost,
-    private client: TelegramClient,
+    private client: ChannelClient,
     private id: string,
     private signal: AbortSignal,
     private now = Date.now,
@@ -89,14 +94,18 @@ export class PresenceSync {
       avatar: '',
     }
     for (const [field, [method, parameter]] of Object.entries(fields)) {
+      if (this.client instanceof OneBotClient) continue
       const value = await this.client.call<Record<string, string>>(`get${method}`, {}, this.signal)
       current[field] = value[parameter] ?? current[field] ?? ''
     }
-    const photos = await this.client.call<{ photos: { file_id: string }[][] }>(
-      'getUserProfilePhotos',
-      { user_id: bot.id, limit: 1 },
-      this.signal,
-    )
+    const photos =
+      this.client instanceof OneBotClient
+        ? { photos: [] }
+        : await this.client.call<{ photos: { file_id: string }[][] }>(
+            'getUserProfilePhotos',
+            { user_id: bot.id, limit: 1 },
+            this.signal,
+          )
     const photo = photos.photos?.[0]?.at(-1)
     if (photo) {
       // 代理获取图片，不能把含 bot token 的 Telegram 文件 URL 暴露给浏览器。
@@ -185,14 +194,32 @@ export class PresenceSync {
       }
       try {
         if (key === 'avatar' && avatar) {
-          const form = new FormData()
-          form.set('photo', JSON.stringify({ type: 'static', photo: 'attach://avatar' }))
-          form.set('avatar', new Blob([new Uint8Array(avatar)], { type: 'image/jpeg' }), 'avatar.jpg')
-          await this.client.call('setMyProfilePhoto', form, this.signal)
+          if (this.client instanceof OneBotClient) {
+            if (!this.client.napcat) throw new Error('UNKNOWN_CAPABILITY')
+            await this.client.action(
+              'set_qq_avatar',
+              { file: `base64://${Buffer.from(avatar).toString('base64')}` },
+              this.signal,
+            )
+          } else {
+            const form = new FormData()
+            form.set('photo', JSON.stringify({ type: 'static', photo: 'attach://avatar' }))
+            form.set('avatar', new Blob([new Uint8Array(avatar)], { type: 'image/jpeg' }), 'avatar.jpg')
+            await this.client.call('setMyProfilePhoto', form, this.signal)
+          }
         } else {
           const [field, language] = key.split(':')
           const [method, parameter] = fields[field as keyof typeof fields]
-          await this.client.call(`set${method}`, { [parameter]: value, language_code: language }, this.signal)
+          if (this.client instanceof OneBotClient) {
+            if (!this.client.napcat) throw new Error('UNKNOWN_CAPABILITY')
+            // longNick 与 personal_note 不混用；80 字是保守的本地截断，QQ 实际约束未公开。
+            // https://napneko.github.io/onebot/api
+            await this.client.action(
+              field === 'name' ? 'set_qq_profile' : 'set_self_longnick',
+              field === 'name' ? { nickname: value } : { longNick: value },
+              this.signal,
+            )
+          } else await this.client.call(`set${method}`, { [parameter]: value, language_code: language }, this.signal)
         }
         state.appliedHash = desiredHash
       } catch (error) {

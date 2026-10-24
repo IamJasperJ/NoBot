@@ -4,6 +4,37 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '渠道设置无效':
+      return t('渠道设置无效')
+    case 'QQ 多角色消息':
+      return t('QQ 多角色消息')
+    case '名字前缀':
+      return t('名字前缀')
+    case '合并转发':
+      return t('合并转发')
+    case 'QQ 文字控制提示':
+      return t('QQ 文字控制提示')
+    case 'QQ 群名片跟随角色':
+      return t('QQ 群名片跟随角色')
+    case 'QQ 在线状态':
+      return t('QQ 在线状态')
+    case '跟随生成与房间状态':
+      return t('跟随生成与房间状态')
+    case 'QQ 临时会话私信':
+      return t('QQ 临时会话私信')
+    case 'QQ 戳一戳回应':
+      return t('QQ 戳一戳回应')
+    case 'QQ 戳一戳进入剧情':
+      return t('QQ 戳一戳进入剧情')
+    case 'QQ 每日群签到':
+      return t('QQ 每日群签到')
+    case 'QQ 单条消息字符上限':
+      return t('QQ 单条消息字符上限')
+    case 'QQ 轻互动冷却毫秒':
+      return t('QQ 轻互动冷却毫秒')
+    case 'QQ 轻互动每日预算':
+      return t('QQ 轻互动每日预算')
+
     case 'HTTPS 公网地址':
       return t('HTTPS 公网地址')
     case 'Mini App 和 webhook 共用的 HTTPS 公网源地址':

@@ -18,8 +18,8 @@ import {
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { SECRET_MASK } from '../../types'
-import { providerCapabilities } from './capabilities'
-import { miniAppUrl } from './miniapp'
+import { implementationCapabilities, providerCapabilities } from './capabilities'
+import { miniAppUrl, publicBaseUrl } from './miniapp'
 import { asChannelActor } from './rooms'
 import { openCredentials } from './secrets'
 
@@ -36,11 +36,19 @@ export function accountDTO(row: typeof channelAccounts.$inferSelect): ChannelAcc
   const config = channelAccountInput.parse({ ...row, credentials: openCredentials(row.credentials) })
   return {
     ...config,
+    riskNotice: config.provider === 'onebot11' ? t('QQ 非官方协议存在风控和封号风险，限速不能保证账号安全') : null,
+    implementation:
+      config.provider === 'onebot11'
+        ? ((row.botSnapshot.implementation as { name: string; version: string } | undefined) ?? null)
+        : null,
     canManageBots: row.botSnapshot.can_manage_bots === true,
     managedBy: row.managedBy,
-    miniApp: miniAppUrl(row.id)
-      ? { available: true, url: miniAppUrl(row.id) }
-      : { available: false, reason: t('请先设置 HTTPS 公网地址') },
+    miniApp:
+      config.provider === 'onebot11'
+        ? { available: !!publicBaseUrl(), reason: publicBaseUrl() ? undefined : t('请先设置 HTTPS 公网地址') }
+        : miniAppUrl(row.id)
+          ? { available: true, url: miniAppUrl(row.id) }
+          : { available: false, reason: t('请先设置 HTTPS 公网地址') },
     bindingCount: db.select().from(channelBindings).where(eq(channelBindings.accountId, row.id)).all().length,
     pendingRequestCount: db
       .select()
@@ -56,7 +64,12 @@ export function accountDTO(row: typeof channelAccounts.$inferSelect): ChannelAcc
     botSnapshot: row.botSnapshot,
     presenceSync: row.presenceSync,
     credentials: SECRET_MASK,
-    capabilities: providerCapabilities[config.provider],
+    capabilities:
+      config.provider === 'onebot11'
+        ? implementationCapabilities(
+            String((row.botSnapshot.implementation as { name?: string } | undefined)?.name ?? ''),
+          )
+        : providerCapabilities[config.provider],
   }
 }
 export function bindingRow(id: string): ChannelBindingDTO {

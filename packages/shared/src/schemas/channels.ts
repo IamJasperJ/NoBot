@@ -3,6 +3,17 @@ import { z } from 'zod'
 export const channelProvider = z.enum(['telegram', 'onebot11'])
 export type ChannelProvider = z.infer<typeof channelProvider>
 export const channelSettingsSchema = z.object({
+  multiSpeaker: z.enum(['prefix', 'forward']).default('prefix'),
+  controlsFooter: z.boolean().default(false),
+  groupCard: z.boolean().default(true),
+  onlineStatus: z.enum(['off', 'follow']).default('off'),
+  tempSessionDm: z.boolean().default(false),
+  pokeBack: z.boolean().default(false),
+  pokeToStory: z.boolean().default(false),
+  dailySign: z.boolean().default(false),
+  maxMessageLength: z.number().int().min(100).max(4500).default(4500),
+  socialCooldownMs: z.number().int().min(1000).default(60000),
+  socialDailyBudget: z.number().int().min(0).max(1000).default(20),
   miniAppButton: z.boolean().default(true),
   miniAppMenuButton: z.boolean().default(true),
   voice: z.enum(['off', 'auto', 'button']).default('button'),
@@ -56,6 +67,7 @@ export const channelPoliciesSchema = z.object({
       group: z.enum(['auto', 'approve', 'existing-only']).default('approve'),
     })
     .prefault({}),
+  joinRequests: z.enum(['ignore', 'notify']).default('ignore'),
   friendRequest: z.enum(['never', 'paired', 'all']).default('paired'),
   idleLeave: z
     .object({
@@ -65,7 +77,12 @@ export const channelPoliciesSchema = z.object({
       excluded: z.array(z.string()).default([]),
     })
     .prefault({}),
-  limits: z.object({ maxGroups: z.number().int().min(1).max(1000).default(20) }).prefault({}),
+  limits: z
+    .object({
+      maxGroups: z.number().int().min(1).max(1000).default(20),
+      maxFriends: z.number().int().min(1).max(10000).default(100),
+    })
+    .prefault({}),
 })
 export type ChannelPolicies = z.infer<typeof channelPoliciesSchema>
 const presenceField = z.object({
@@ -96,27 +113,64 @@ export type ChannelPresenceSync = Record<
   }
 >
 export const channelPersonaMode = z.enum(['platform-name', 'global', 'per-actor', 'owner-assigned'])
-export const channelAccountInput = z.object({
-  provider: channelProvider.default('telegram'),
-  name: z.string().trim().min(1).max(120),
-  credentials: z.object({ token: z.string().min(1), webhookSecret: z.string().optional() }),
-  baseUrl: z.url().default('https://api.telegram.org'),
-  webhookUrl: z.url().nullable().default(null),
-  receiveMode: z.enum(['polling', 'webhook']).default('polling'),
-  characterMode: z.enum(['fixed', 'generic']).default('generic'),
-  characterId: z.string().nullable().default(null),
-  groupId: z.string().nullable().default(null),
-  defaultCharacterId: z.string().nullable().default(null),
-  personaMode: channelPersonaMode.default('platform-name'),
-  globalPersonaId: z.string().nullable().default(null),
-  personaLocked: z.boolean().default(false),
-  presence: channelPresenceSchema.prefault({}),
-  policies: channelPoliciesSchema.prefault({}),
-  settings: channelSettingsOverrideSchema.default({}),
-})
+export const channelAccountInput = z
+  .object({
+    provider: channelProvider.default('telegram'),
+    name: z.string().trim().min(1).max(120),
+    credentials: z
+      .object({
+        token: z.string().default(''),
+        accessToken: z.string().optional(),
+        webhookSecret: z.string().optional(),
+      })
+      .default({ token: '' }),
+    connection: z
+      .object({ mode: z.enum(['ws-forward', 'ws-reverse']), url: z.string().default('') })
+      .nullable()
+      .default(null),
+    rateLimit: z
+      .object({
+        perMinute: z.number().int().min(1).max(120).default(20),
+        minIntervalMs: z.number().int().min(1200).max(60000).default(1200),
+      })
+      .prefault({}),
+    baseUrl: z.url().default('https://api.telegram.org'),
+    webhookUrl: z.url().nullable().default(null),
+    receiveMode: z.enum(['polling', 'webhook', 'ws-forward', 'ws-reverse']).default('polling'),
+    characterMode: z.enum(['fixed', 'generic']).default('generic'),
+    characterId: z.string().nullable().default(null),
+    groupId: z.string().nullable().default(null),
+    defaultCharacterId: z.string().nullable().default(null),
+    personaMode: channelPersonaMode.default('platform-name'),
+    globalPersonaId: z.string().nullable().default(null),
+    personaLocked: z.boolean().default(false),
+    presence: channelPresenceSchema.prefault({}),
+    policies: channelPoliciesSchema.prefault({}),
+    settings: channelSettingsOverrideSchema.default({}),
+  })
+  .superRefine((input, context) => {
+    if (input.provider === 'telegram' && !input.credentials.token)
+      context.addIssue({ code: 'custom', path: ['credentials', 'token'], message: '渠道设置无效' })
+    if (input.provider === 'onebot11') {
+      if (!(input.credentials.accessToken ?? input.credentials.token))
+        context.addIssue({ code: 'custom', path: ['credentials', 'accessToken'], message: '渠道设置无效' })
+      if (!input.connection) context.addIssue({ code: 'custom', path: ['connection'], message: '渠道设置无效' })
+      else if (input.connection.mode === 'ws-forward') {
+        try {
+          const url = new URL(input.connection.url)
+          if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash)
+            throw new Error('URL')
+        } catch {
+          context.addIssue({ code: 'custom', path: ['connection', 'url'], message: '渠道设置无效' })
+        }
+      }
+    }
+  })
 export type ChannelAccountInput = z.input<typeof channelAccountInput>
 export type ChannelAccountConfig = z.infer<typeof channelAccountInput>
 export interface ChannelAccountDTO extends Omit<ChannelAccountConfig, 'credentials'> {
+  riskNotice: string | null
+  implementation: { name: string; version: string } | null
   id: string
   credentials: string
   status: 'stopped' | 'connecting' | 'online' | 'error'
@@ -175,15 +229,21 @@ export interface ChannelActorDTO {
   personaId: string | null
   dmChatId: string | null
 }
+export interface ChannelFriendDTO {
+  user_id: number
+  nickname: string
+  remark: string
+}
 export interface ChannelRequestDTO {
+  expiresAt: number | null
   id: string
   accountId: string
-  kind: 'group-invite' | 'friend' | 'new-location'
+  kind: 'group-invite' | 'friend' | 'new-location' | 'join-request'
   chat: string
   title: string
   actorExternalId: string | null
   actorName: string | null
-  state: 'pending' | 'approved' | 'rejected' | 'blocked'
+  state: 'pending' | 'approved' | 'rejected' | 'blocked' | 'expired'
   createdAt: number
 }
 export interface ChannelLogEntry {

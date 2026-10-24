@@ -8,6 +8,7 @@ import {
 } from '@nobot/shared'
 import { and, eq } from 'drizzle-orm'
 import type { Hono } from 'hono'
+import { upgradeWebSocket } from 'hono/bun'
 import { z } from 'zod'
 import { db, getSetting, newId } from '../../../db/client'
 import {
@@ -27,10 +28,14 @@ import { cleanupExternalUsers } from '../../../services/external-users'
 import { createRoom } from '../../../services/rooms'
 import { currentContext, currentUser, runAsUser } from '../../../user-context'
 import { defineExtension, type ExtensionContext, SECRET_MASK } from '../../types'
+import { OneBotClient } from './adapters/onebot11/client'
+import { expireOneBotRequests } from './adapters/onebot11/social'
 import { verifyWebhookSecret } from './adapters/telegram/receive'
 import { managedBotRoutes } from './managed-bots'
 import { mediaFields } from './media-settings'
 import { exchangeMiniApp } from './miniapp'
+import { oneBotRoutes } from './onebot-routes'
+import { oneBotFields } from './onebot-settings'
 import { leaveGroup, respondRequest } from './policies'
 import { sealCredentials } from './secrets'
 import { ChannelService } from './service'
@@ -62,6 +67,7 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
   const client = (id: string) =>
     getService().runtime.accounts.get(id)?.client ?? getService().runtime.client(accountRow(id).config)
   managedBotRoutes(app, () => getService().runtime)
+  oneBotRoutes(app, () => getService().runtime)
   const presence = (id: string) => getService().runtime.presence(id)
   app.onError((error, c) =>
     c.json(
@@ -77,7 +83,7 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
   app.get('/accounts', (c) => c.json(db.select().from(channelAccounts).all().map(accountDTO)))
   app.post('/accounts', validate('json', channelAccountInput), async (c) => {
     const config = c.req.valid('json')
-    if (config.provider !== 'telegram') throw new HttpError(400, 'UNSUPPORTED', t('此平台适配器尚未实现'))
+
     if (config.characterMode === 'fixed' && !!config.characterId === !!config.groupId)
       throw new HttpError(400, 'CHARACTER_REQUIRED', t('请先在网页选择角色'))
     if (config.characterId) ctx.host.getCharacter(config.characterId)
@@ -113,7 +119,10 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
       config.presence.characterId !== row.config.presence.characterId ||
       config.characterMode !== row.config.characterMode
     config.presence.confirmed = row.config.presence.confirmed && !sourceChanged
-    if (config.credentials.token !== row.config.credentials.token || config.baseUrl !== row.config.baseUrl) {
+    if (
+      config.provider === 'telegram' &&
+      (config.credentials.token !== row.config.credentials.token || config.baseUrl !== row.config.baseUrl)
+    ) {
       const bot = await getService().runtime.client(config).call<{ id: number }>('getMe')
       // 允许同一只 bot 轮换凭据；更换身份必须新建账号，避免把旧成员和投递授权给另一只 bot。
       if (String(bot.id) !== row.botId) throw new HttpError(409, 'NEW_ACCOUNT_REQUIRED', t('更换机器人请新建渠道账号'))
@@ -123,6 +132,16 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
       (config.policies.friendRequest === 'all' && row.config.policies.friendRequest !== 'all')
     )
       throw new HttpError(409, 'CONFIRM_REQUIRED', t('此操作需要主人确认'))
+    if (config.provider === 'onebot11') {
+      if (!config.connection || !(config.credentials.accessToken ?? config.credentials.token))
+        throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
+      if (config.connection.mode === 'ws-forward') {
+        const url = new URL(config.connection.url)
+        if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash)
+          throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
+      }
+      config.receiveMode = config.connection.mode
+    }
     const running = getService().runtime.accounts.has(id)
     await getService().runtime.stop(id, false)
     db.update(channelAccounts)
@@ -173,15 +192,17 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
       return c.json(accountDTO(accountRow(id)))
     },
   )
-  app.get('/requests', (c) =>
-    c.json(
+  app.get('/requests', (c) => {
+    expireOneBotRequests()
+    return c.json(
       db
         .select()
         .from(channelRequests)
         .where(c.req.query('accountId') ? eq(channelRequests.accountId, c.req.query('accountId')!) : undefined)
-        .all(),
-    ),
-  )
+        .all()
+        .map(({ flag: _, subType: __, ...request }) => request),
+    )
+  })
   for (const action of ['approve', 'reject', 'block'] as const)
     app.post(`/requests/:id/${action}`, async (c) => {
       const request = db
@@ -461,6 +482,7 @@ export default defineExtension({
   },
   settingsSchema: [
     ...mediaFields,
+    ...oneBotFields,
     {
       type: 'string',
       key: 'publicBaseUrl',
@@ -506,9 +528,44 @@ export default defineExtension({
   ],
   routes,
   publicRoutes(app, ctx) {
+    app.get('/:id/onebot', async (c, next) => {
+      const row = accountRow(c.req.param('id'))
+      const entry = channelService(ctx).runtime.accounts.get(row.id)
+      if (
+        row.config.provider !== 'onebot11' ||
+        row.config.connection?.mode !== 'ws-reverse' ||
+        !(entry?.client instanceof OneBotClient) ||
+        entry.client.transport.paused
+      )
+        return c.json({ ok: false }, 404)
+      if (
+        !verifyWebhookSecret(
+          c.req.header('Authorization'),
+          `Bearer ${row.config.credentials.accessToken ?? row.config.credentials.token}`,
+        )
+      )
+        return c.json({ ok: false }, 403)
+      const owner = currentUser()
+      const transport = entry.client.transport
+      let socket: import('./adapters/onebot11/transport').OneBotSocket | undefined
+      return upgradeWebSocket(() => ({
+        onOpen: (_event, ws) =>
+          runAsUser(owner, () => {
+            socket = ws
+            transport.attach(ws)
+          }),
+        onMessage: (event) =>
+          runAsUser(owner, () =>
+            transport.receive(
+              typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer),
+            ),
+          ),
+        onClose: () => runAsUser(owner, () => transport.detach(socket)),
+      }))(c, next)
+    })
     app.post(
       '/miniapp/session',
-      validate('json', z.object({ initData: z.string().min(1).max(16384), start: z.string().min(1).max(64) })),
+      validate('json', z.object({ initData: z.string().max(16384).default(''), start: z.string().min(1).max(64) })),
       (c) => c.json(exchangeMiniApp(c, c.req.valid('json'))),
     )
     app.post('/:id', async (c) => {

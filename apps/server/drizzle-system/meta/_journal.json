@@ -43,6 +43,13 @@
       "when": 1792818611388,
       "tag": "0005_tan_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792840418063,
+      "tag": "0006_cheerful_eternity",
+      "breakpoints": true
     }
   ]
 }

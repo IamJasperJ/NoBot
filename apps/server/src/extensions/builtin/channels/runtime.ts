@@ -1,6 +1,6 @@
 import type { ChannelAccountConfig, ChannelLogEntry } from '@nobot/shared'
 import { and, eq } from 'drizzle-orm'
-import { db, newId } from '../../../db/client'
+import { db, getSetting, newId } from '../../../db/client'
 import { channelAccounts } from '../../../db/schema'
 import { systemDatabase } from '../../../db/system-client'
 import { channelRegistry } from '../../../db/system-schema'
@@ -11,8 +11,10 @@ import { currentUser } from '../../../user-context'
 import type { ExtensionHost } from '../../types'
 import { allowedUpdates, TelegramClient, TelegramError, type TelegramFetch } from './adapters/telegram/client'
 import { syncCommands } from './adapters/telegram/commands'
+import { miniAppUrl, publicBaseUrl } from './miniapp'
 import { PresenceSync } from './presence'
 import { sealCredentials } from './secrets'
+import { resolveChannelSettings } from './settings'
 import { accountDTO, accountRow, channelLog } from './store'
 
 export interface AccountRuntime {
@@ -20,6 +22,7 @@ export interface AccountRuntime {
   controller: AbortController
   presence: PresenceSync
   task?: Promise<void>
+  menuTimer?: ReturnType<typeof setInterval>
 }
 export class ChannelRuntime {
   private manualPresence = new Map<string, AbortController>()
@@ -63,13 +66,26 @@ export class ChannelRuntime {
     this.status(id, 'connecting')
     this.index(id, true)
     try {
+      const bot = await client.call<Record<string, unknown>>('getMe', {}, controller.signal)
+      if (String(bot.id) !== row.botId || bot.is_bot !== true) throw new Error('getMe')
+      db.update(channelAccounts)
+        .set({
+          botSnapshot: { ...row.botSnapshot, ...bot },
+          botUsername: typeof bot.username === 'string' ? bot.username : row.botUsername,
+        })
+        .where(eq(channelAccounts.id, id))
+        .run()
       await client.call('deleteWebhook', {}, controller.signal)
       if (row.config.receiveMode === 'webhook') {
-        if (!row.config.webhookUrl || !row.config.credentials.webhookSecret) throw new Error('webhook')
+        const base = publicBaseUrl()
+        const webhookUrl = base
+          ? `${base}/hooks/channels/${encodeURIComponent(currentUser().handle)}/${id}`
+          : row.config.webhookUrl
+        if (!webhookUrl || !row.config.credentials.webhookSecret) throw new Error('webhook')
         await client.call(
           'setWebhook',
           {
-            url: row.config.webhookUrl,
+            url: webhookUrl,
             secret_token: row.config.credentials.webhookSecret,
             allowed_updates: allowedUpdates,
           },
@@ -90,6 +106,24 @@ export class ChannelRuntime {
             if (!controller.signal.aborted) this.status(id, 'error')
           })
       }
+      const syncMenu = async () => {
+        const url = miniAppUrl(id)
+        const enabled = resolveChannelSettings(accountRow(id).config, undefined, getSetting('ext:channels')).values
+          .miniAppMenuButton
+        await client.call(
+          'setChatMenuButton',
+          {
+            menu_button:
+              url && enabled ? { type: 'web_app', text: t('打开 VN'), web_app: { url } } : { type: 'default' },
+          },
+          controller.signal,
+        )
+      }
+      await syncMenu()
+      // 菜单令牌也只有 24 小时有效，常驻长轮询必须定期更新菜单。
+      entry.menuTimer = setInterval(() => {
+        void syncMenu().catch(() => this.log(id, 'miniapp.menu.failed'))
+      }, 12 * 3600000)
       await syncCommands(client, controller.signal)
       this.status(id, 'online')
       if (row.config.presence.confirmed) void presence.sync().catch(() => {})
@@ -121,6 +155,7 @@ export class ChannelRuntime {
     this.manualPresence.get(id)?.abort()
     this.manualPresence.delete(id)
     const entry = this.accounts.get(id)
+    if (entry?.menuTimer) clearInterval(entry.menuTimer)
     entry?.controller.abort()
     if (entry) this.accounts.delete(id)
     await entry?.task
@@ -132,7 +167,10 @@ export class ChannelRuntime {
   dispose() {
     for (const controller of this.manualPresence.values()) controller.abort()
     this.manualPresence.clear()
-    for (const entry of this.accounts.values()) entry.controller.abort()
+    for (const entry of this.accounts.values()) {
+      if (entry.menuTimer) clearInterval(entry.menuTimer)
+      entry.controller.abort()
+    }
     this.accounts.clear()
   }
   status(id: string, status: 'stopped' | 'connecting' | 'online' | 'error') {
@@ -158,13 +196,15 @@ export class ChannelRuntime {
   log(id: string, code: string) {
     channelLog({ at: Date.now(), accountId: id, code, message: code })
   }
-  async create(config: ChannelAccountConfig) {
+  async create(config: ChannelAccountConfig, expectedBotId?: number) {
     const client = this.client(config)
     const bot = await client.call<Record<string, unknown>>('getMe').catch((error: unknown) => {
       if (error instanceof TelegramError && [401, 404].includes(error.code))
         throw new HttpError(400, 'INVALID_BOT_TOKEN', t('Bot Token 无效，请检查后重试'))
       throw new HttpError(502, 'CHANNEL_UNAVAILABLE', t('无法连接机器人平台，请检查网络后重试'))
     })
+    if (expectedBotId !== undefined && bot.id !== expectedBotId)
+      throw new HttpError(400, 'INVALID_BOT_TOKEN', t('Bot Token 无效，请检查后重试'))
     if (!bot.is_bot || typeof bot.id !== 'number') throw new Error('getMe')
     const id = newId()
     const row = db

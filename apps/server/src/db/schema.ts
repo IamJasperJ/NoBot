@@ -442,6 +442,7 @@ export const roomMessageIndex = sqliteTable(
 )
 
 export const channelAccounts = sqliteTable('channel_accounts', {
+  managedBy: text('managed_by'),
   id: text('id').primaryKey(),
   provider: text('provider', { enum: ['telegram', 'onebot11'] }).notNull(),
   name: text('name').notNull(),
@@ -610,3 +611,27 @@ export const channelActorLocations = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.actorId, t.accountId, t.chat, t.thread] })],
 )
+
+// 启动令牌只定位绑定，不授予身份；身份必须来自 Telegram 验签数据。
+export const channelMiniAppTokens = sqliteTable('channel_miniapp_tokens', {
+  token: text('token').primaryKey(),
+  accountId: text('account_id')
+    .notNull()
+    .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+  bindingId: text('binding_id').references(() => channelBindings.id, { onDelete: 'cascade' }),
+  expiresAt: integer('expires_at').notNull(),
+})
+export const channelMiniAppReplays = sqliteTable('channel_miniapp_replays', {
+  hash: text('hash').primaryKey(),
+  expiresAt: integer('expires_at').notNull(),
+})
+export const channelManagedIntents = sqliteTable('channel_managed_intents', {
+  id: text('id').primaryKey(),
+  managerAccountId: text('manager_account_id')
+    .notNull()
+    .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+  characterId: text('character_id').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdAt: integer('created_at').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+})

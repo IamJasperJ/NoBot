@@ -45,6 +45,7 @@ export const channelKeys = {
   requests: (accountId?: string) => ['channels', 'requests', accountId ?? 'all'] as const,
   presence: (id: string) => ['channels', 'presence', id] as const,
   log: ['channels', 'log'] as const,
+  managedAccess: (id: string) => ['channels', 'managed-access', id] as const,
 }
 const encode = encodeURIComponent
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
@@ -61,7 +62,24 @@ export type ChannelNativeAction =
   | { action: 'topic'; name: string; confirm: true }
   | { action: 'title'; title: string; confirm: true }
   | { action: 'description'; description: string; confirm: true }
+export interface ManagedBotLinkInput {
+  id: string
+  characterId: string
+  suggestedUsername?: string
+  suggestedName?: string
+}
+export interface ManagedBotAccessSettings {
+  is_access_restricted: boolean
+  added_user_ids?: number[]
+}
 export const channelsApi = {
+  managedBotLink: ({ id, ...input }: ManagedBotLinkInput) =>
+    request<{ url: string }>(`/accounts/${encode(id)}/managed-bots/link`, 'POST', input),
+  rotateManagedBotToken: (id: string) =>
+    request<ChannelAccountDTO>(`/accounts/${encode(id)}/managed-bots/rotate-token`, 'POST'),
+  managedBotAccess: (id: string) => request<ManagedBotAccessSettings>(`/accounts/${encode(id)}/managed-bots/access`),
+  updateManagedBotAccess: ({ id, ...input }: { id: string; restricted: boolean; addedUserIds?: number[] }) =>
+    request<{ ok: true }>(`/accounts/${encode(id)}/managed-bots/access`, 'PUT', input),
   accounts: () => request<ChannelAccountDTO[]>('/accounts'),
   account: (id: string) => request<ChannelAccountDTO>(`/accounts/${encode(id)}`),
   createAccount: (input: ChannelAccountInput) => request<ChannelAccountDTO>('/accounts', 'POST', input),
@@ -161,3 +179,9 @@ export const useChannelTestSend = () => useChannelMutation(channelsApi.testSend)
 export const useChannelNativeAction = () => useChannelMutation(channelsApi.native)
 
 export const useCreateChannelBinding = () => useChannelMutation(channelsApi.createBinding)
+
+export const useManagedBotLink = () => useChannelMutation(channelsApi.managedBotLink)
+export const useRotateManagedBotToken = () => useChannelMutation(channelsApi.rotateManagedBotToken)
+export const useUpdateManagedBotAccess = () => useChannelMutation(channelsApi.updateManagedBotAccess)
+export const useManagedBotAccess = (id: string) =>
+  useQuery({ queryKey: channelKeys.managedAccess(id), queryFn: () => channelsApi.managedBotAccess(id), enabled: !!id })

@@ -9,6 +9,7 @@ import { sessions, users } from '../db/system-schema'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
 import { liveHub } from './live/hub'
+import { miniAppCookie, miniAppLifetime, writeMiniAppCookie } from './scoped-session'
 
 type UserRow = typeof users.$inferSelect
 export const sessionCookie = 'nobot_session'
@@ -43,8 +44,9 @@ export function writeSessionCookie(c: Context, token: string, maxAge = lifetime 
   })
 }
 let lastCleanup = 0
-export function authenticatedSession(c: Context) {
-  const token = getCookie(c, sessionCookie)
+export function authenticatedSession(c: Context, renew = true) {
+  const scopedToken = getCookie(c, miniAppCookie)
+  const token = scopedToken ?? getCookie(c, sessionCookie)
   if (!token || !/^[a-f0-9]{64}$/.test(token)) throw unauthorized()
   const db = systemDatabase()
   const now = Date.now()
@@ -66,7 +68,18 @@ export function authenticatedSession(c: Context) {
       .run()
     throw unauthorized()
   }
-  if (row.user.disabled || row.user.kind !== 'normal') throw unauthorized()
+  if (row.user.disabled || (!row.session.scope && row.user.kind !== 'normal')) throw unauthorized()
+  if (!!scopedToken !== !!row.session.scope) throw unauthorized()
+  if (row.session.scope) {
+    if (renew && now - row.session.renewedAt > 5 * 60 * 1000) {
+      db.update(sessions)
+        .set({ renewedAt: now, expiresAt: now + miniAppLifetime })
+        .where(eq(sessions.tokenHash, row.session.tokenHash))
+        .run()
+      writeMiniAppCookie(c, token)
+    }
+    return row
+  }
   if (now - row.session.renewedAt > day) {
     db.update(sessions)
       .set({ renewedAt: now, expiresAt: now + lifetime })

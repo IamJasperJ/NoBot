@@ -1,6 +1,7 @@
 import { t } from '../../../../../i18n'
 
 export const allowedUpdates = [
+  'managed_bot',
   'message',
   'edited_message',
   'callback_query',

@@ -28,7 +28,9 @@ import { createRoom } from '../../../services/rooms'
 import { currentContext, currentUser, runAsUser } from '../../../user-context'
 import { defineExtension, type ExtensionContext, SECRET_MASK } from '../../types'
 import { verifyWebhookSecret } from './adapters/telegram/receive'
+import { managedBotRoutes } from './managed-bots'
 import { mediaFields } from './media-settings'
+import { exchangeMiniApp } from './miniapp'
 import { leaveGroup, respondRequest } from './policies'
 import { sealCredentials } from './secrets'
 import { ChannelService } from './service'
@@ -59,6 +61,7 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
   const getService = () => channelService(ctx)
   const client = (id: string) =>
     getService().runtime.accounts.get(id)?.client ?? getService().runtime.client(accountRow(id).config)
+  managedBotRoutes(app, () => getService().runtime)
   const presence = (id: string) => getService().runtime.presence(id)
   app.onError((error, c) =>
     c.json(
@@ -451,11 +454,22 @@ export default defineExtension({
   description: '把聊天平台接到 NoBot 会话和房间',
   version: '0.1.0',
   enabledByDefault: false,
-  defaultSettings: Object.fromEntries(
-    Object.entries(channelSettingsSchema.parse({})).filter(([key]) => key !== 'echoTranscript'),
-  ),
+  defaultSettings: {
+    publicBaseUrl: '',
+    miniAppAuthMaxAgeSeconds: 600,
+    ...Object.fromEntries(Object.entries(channelSettingsSchema.parse({})).filter(([key]) => key !== 'echoTranscript')),
+  },
   settingsSchema: [
     ...mediaFields,
+    {
+      type: 'string',
+      key: 'publicBaseUrl',
+      label: 'HTTPS 公网地址',
+      hint: 'Mini App 和 webhook 共用的 HTTPS 公网源地址',
+    },
+    { type: 'number', key: 'miniAppAuthMaxAgeSeconds', label: 'Mini App 验签有效秒数', min: 1, max: 600 },
+    { type: 'boolean', key: 'miniAppButton', label: 'VN 舞台按钮' },
+    { type: 'boolean', key: 'miniAppMenuButton', label: 'VN 菜单按钮' },
     { type: 'boolean', key: 'stream', label: '流式输出' },
     { type: 'number', key: 'streamIntervalMs', label: '流式更新间隔', min: 250, max: 60000 },
     {
@@ -492,6 +506,11 @@ export default defineExtension({
   ],
   routes,
   publicRoutes(app, ctx) {
+    app.post(
+      '/miniapp/session',
+      validate('json', z.object({ initData: z.string().min(1).max(16384), start: z.string().min(1).max(64) })),
+      (c) => c.json(exchangeMiniApp(c, c.req.valid('json'))),
+    )
     app.post('/:id', async (c) => {
       const id = c.req.param('id'),
         row = accountRow(id)

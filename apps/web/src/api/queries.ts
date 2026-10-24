@@ -9,6 +9,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { useEffect } from 'react'
+import { isMiniApp } from '../miniapp/context'
 import { api } from './client'
 import { isRoomGuest } from './room-scope'
 import { useRooms } from './rooms'
@@ -61,6 +62,7 @@ export const useBackgrounds = (folderId?: string) =>
   useQuery({
     queryKey: folderId === undefined ? keys.backgrounds : [...keys.backgrounds, { folderId }],
     queryFn: () => api.listBackgrounds(folderId),
+    enabled: !isMiniApp(),
   })
 /** 房间背景来自裁剪后的聊天快照，个人背景库缓存保持独立。 */
 export function useChatBackgrounds(chatId: string | null) {
@@ -86,7 +88,7 @@ export function useResolvedBackgroundId(chatId: string | null) {
   })
 }
 export const useBackgroundSettings = () =>
-  useQuery({ queryKey: keys.backgroundSettings, queryFn: api.getBackgroundSettings })
+  useQuery({ queryKey: keys.backgroundSettings, queryFn: api.getBackgroundSettings, enabled: !isMiniApp() })
 
 export const useProfiles = () => useQuery({ queryKey: keys.profiles, queryFn: api.listProfiles })
 export const useChatProfile = (chatId: string | null) =>

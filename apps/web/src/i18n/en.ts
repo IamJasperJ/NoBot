@@ -1,5 +1,8 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  在浏览器中打开: 'Open in browser',
+  '请从 Telegram 中打开舞台链接': 'Open the stage link from Telegram',
+  'VN 舞台暂不可用': 'The VN stage is currently unavailable',
   有新的房间角色提案: 'A new room character proposal is waiting',
   你的房间角色提案已批准: 'Your room character proposal was approved',
   你的房间角色提案已拒绝: 'Your room character proposal was rejected',
@@ -2938,4 +2941,26 @@ export const en: Record<string, string> = {
   '掷骰时加 🎲 动画': 'Add a 🎲 animation to rolls',
   停止录音并识别: 'Stop recording and transcribe',
   语音输入: 'Voice input',
+  'VN 舞台（Mini App）': 'VN stage (Mini App)',
+  可用: 'Available',
+  不可用: 'Unavailable',
+  '私聊里点菜单按钮或 📖 就能打开。想在群里用，还要在 BotFather 的 /newapp 里把主 Mini App 设为：':
+    'Open it from the menu button or 📖 in a DM. To use it in groups, set the main Mini App in BotFather (/newapp) to:',
+  '需要在扩展页的全局设置里填写公网地址（HTTPS）':
+    'Set a public HTTPS address in the global settings on the extension page',
+  '为角色新建一个 bot': 'Create a bot for a character',
+  '在 Telegram 里点一下确认，新 bot 就会出现在列表里，头像、名字和简介自动跟随角色。':
+    'Confirm once in Telegram and the new bot appears in the list, with its avatar, name and bio following the character.',
+  '已打开 Telegram，确认创建后回到这里': 'Telegram opened. Come back here after confirming',
+  '去 Telegram 创建': 'Create in Telegram',
+  '托管 bot': 'Managed bot',
+  '由 {name} 创建和管理': 'Created and managed by {name}',
+  只允许指定的人使用: 'Only allow specific people',
+  '你自己始终可以用；最多再加 10 个 Telegram 用户 ID': 'You can always use it; add up to 10 more Telegram user IDs',
+  '允许的用户 ID': 'Allowed user IDs',
+  '已更换 Token，旧的立即失效': 'Token replaced. The old one stopped working',
+  '更换 Token': 'Replace token',
+  私聊菜单按钮打开舞台: 'Menu button in DMs opens the stage',
+  '消息下方加 📖 按钮': 'Add a 📖 button under messages',
+  '正在打开舞台…': 'Opening the stage…',
 }

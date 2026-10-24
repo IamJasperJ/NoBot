@@ -35,6 +35,7 @@ export const sessions = sqliteTable(
   'sessions',
   {
     tokenHash: text('token_hash').primaryKey(),
+    scope: text('scope', { mode: 'json' }).$type<{ kind: 'room'; roomId: string } | { kind: 'chat'; chatId: string }>(),
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),

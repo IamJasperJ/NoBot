@@ -48,6 +48,8 @@ import { downloadTelegramFile } from './adapters/telegram/media'
 import { decodeTelegram, type TelegramEvent } from './adapters/telegram/receive'
 import { escapeHtml, inlineTelegramSegments, renderTelegram, type TelegramSegment } from './adapters/telegram/render'
 import { DeferredTelegramStream, type TelegramStream, TelegramTextStream } from './adapters/telegram/stream'
+import { receiveManagedBot } from './managed-bots'
+import { type MiniAppButton, miniAppButton } from './miniapp'
 import { OutboundMedia } from './outbound-media'
 import { chooseActorPersona, syncActorPersona } from './personas'
 import { checkIdle, groupAdded, markLeft, requestLocation } from './policies'
@@ -209,6 +211,10 @@ export class ChannelService {
     if (!event) return
     if (!markReceived(id, event.dedupeKey, Date.now())) return
     try {
+      if (event.type === 'managed_bot') {
+        await receiveManagedBot(this.runtime, id, event)
+        return
+      }
       if ('chat' in event) {
         const topic =
           event.type === 'message' || event.type === 'edit'
@@ -775,6 +781,15 @@ export class ChannelService {
     const command = event.command!
     const roomId = binding.roomId
     const reply = (text: string) => this.send(binding.accountId, binding.chat, text, binding.thread)
+    if (command.name === 'vn') {
+      const button = miniAppButton(binding)
+      return this.runtime.accounts.get(binding.accountId)?.client.call('sendMessage', {
+        chat_id: binding.chat,
+        message_thread_id: binding.thread ? Number(binding.thread) : undefined,
+        text: button ? t('打开 VN') : t('VN 舞台暂不可用'),
+        ...(button ? { reply_markup: { inline_keyboard: [[button]] } } : {}),
+      })
+    }
     if (command.name === 'help') return reply(t('渠道命令帮助'))
     if (command.name === 'agree') {
       if (!roomId) throw refused()
@@ -1291,7 +1306,7 @@ export class ChannelService {
         ? (parseStageMessage(message.content, { knownNames: [], vars: {}, inline: false, mvu: false }).stage.choices ??
           [])
         : []
-    const rows: { text: string; callback_data: string }[][] = []
+    const rows: ({ text: string; callback_data: string } | MiniAppButton)[][] = []
     for (const [index, choice] of choices.entries())
       rows.push([{ text: choice.text, callback_data: this.token(binding, message, revision, 'choice', { index }) }])
     if (message.role === 'assistant') {
@@ -1311,6 +1326,8 @@ export class ChannelService {
           })),
         )
     }
+    const vnButton = settings.miniAppButton && miniAppButton(binding)
+    if (vnButton && message.role === 'assistant') rows.push([vnButton])
     const segments: TelegramSegment[] = []
     if (settings.thinking === 'fold' && message.meta.reasoning)
       segments.push({ kind: 'thinking', text: message.meta.reasoning })

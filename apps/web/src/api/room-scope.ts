@@ -1,4 +1,5 @@
 import type { RoomDTO } from '@nobot/shared'
+import { isMiniApp } from '../miniapp/context'
 
 const scopes = new Map<string, { roomId: string; role?: RoomDTO['myRole']; entities: Set<string> }>()
 /** 打开房间前登记，关闭最后一个视图时撤销；成员权限仍由服务器逐次校验。 */
@@ -28,18 +29,22 @@ export function scopedApiPath(path: string) {
   const chat = /^\/api\/chats\/([^/?]+)/.exec(path)
   if (chat) {
     const scope = scopes.get(chat[1]!)
-    if (scope?.role === 'owner' && !/\/(generate|abort|roll|check)(?:\?|$)/.test(path)) return path
+    if (scope?.role === 'owner' && !isMiniApp() && !/\/(generate|abort|roll|check)(?:\?|$)/.test(path)) return path
     return scope ? `/api/rooms/${encodeURIComponent(scope.roomId)}/scope${path.slice(4)}` : path
   }
   const voiceChat = /^\/api\/ext\/audio\/tts\/chat\/([^/?]+)$/.exec(path)
   if (voiceChat) {
     const scope = scopes.get(voiceChat[1]!)
-    if (scope && scope.role !== 'owner') return `/api/rooms/${encodeURIComponent(scope.roomId)}/scope${path.slice(4)}`
+    if (scope && (scope.role !== 'owner' || isMiniApp()))
+      return `/api/rooms/${encodeURIComponent(scope.roomId)}/scope${path.slice(4)}`
   }
   const entity = /^\/api\/(?:messages|characters|groups)\/([^/?]+)/.exec(path)
   if (entity)
     for (const scope of scopes.values())
-      if ((scope.role !== 'owner' || path.startsWith('/api/messages/')) && scope.entities.has(entity[1]!))
+      if (
+        (scope.role !== 'owner' || isMiniApp() || path.startsWith('/api/messages/')) &&
+        scope.entities.has(entity[1]!)
+      )
         return `/api/rooms/${encodeURIComponent(scope.roomId)}/scope${path.slice(4)}`
   return path
 }
@@ -65,5 +70,5 @@ export function scopeRoomData<T>(value: T, roomId: string): T {
 /** 访客只能使用房间快照，不能查询房主的个人设置。 */
 export function isRoomGuest(chatId: string | null | undefined) {
   const scope = chatId ? scopes.get(chatId) : undefined
-  return !!scope && scope.role !== 'owner'
+  return isMiniApp() || (!!scope && scope.role !== 'owner')
 }

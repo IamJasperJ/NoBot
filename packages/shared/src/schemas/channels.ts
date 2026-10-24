@@ -3,6 +3,8 @@ import { z } from 'zod'
 export const channelProvider = z.enum(['telegram', 'onebot11'])
 export type ChannelProvider = z.infer<typeof channelProvider>
 export const channelSettingsSchema = z.object({
+  miniAppButton: z.boolean().default(true),
+  miniAppMenuButton: z.boolean().default(true),
   voice: z.enum(['off', 'auto', 'button']).default('button'),
   voiceInput: z.boolean().default(true),
   echoTranscript: z.boolean().default(true),
@@ -125,6 +127,9 @@ export interface ChannelAccountDTO extends Omit<ChannelAccountConfig, 'credentia
   botSnapshot: Record<string, unknown>
   capabilities: ChannelCapabilities
   presenceSync: ChannelPresenceSync
+  canManageBots: boolean
+  managedBy: string | null
+  miniApp: { available: boolean; reason?: string; url?: string }
   bindingCount: number
   pendingRequestCount: number
 }

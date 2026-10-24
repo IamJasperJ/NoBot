@@ -4,6 +4,17 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case 'HTTPS 公网地址':
+      return t('HTTPS 公网地址')
+    case 'Mini App 和 webhook 共用的 HTTPS 公网源地址':
+      return t('Mini App 和 webhook 共用的 HTTPS 公网源地址')
+    case 'Mini App 验签有效秒数':
+      return t('Mini App 验签有效秒数')
+    case 'VN 舞台按钮':
+      return t('VN 舞台按钮')
+    case 'VN 菜单按钮':
+      return t('VN 菜单按钮')
+
     case '语音识别':
       return t('语音识别')
     case '识别引擎':

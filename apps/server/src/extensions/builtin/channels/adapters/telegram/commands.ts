@@ -4,6 +4,7 @@ import type { TelegramClient } from './client'
 
 /** 中文键集中存放，菜单和 /help 共用命令集合；仅用平台 scope 限制可见性，执行仍走房间权限。 */
 const commandKeys = {
+  vn: '打开 VN',
   new: '新开会话',
   chats: '切换历史会话',
   char: '切换角色',
@@ -42,6 +43,8 @@ export async function syncCommands(client: TelegramClient, signal: AbortSignal) 
 /** 静态键用显式调用，让双语检查覆盖每项菜单。 */
 export function translatedCommandDescription(command: keyof typeof commandKeys) {
   switch (command) {
+    case 'vn':
+      return t('打开 VN')
     case 'new':
       return t('新开会话')
     case 'chats':

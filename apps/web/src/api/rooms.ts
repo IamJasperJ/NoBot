@@ -32,6 +32,7 @@ import type {
 import { type InfiniteData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { t } from '../i18n'
+import { isMiniApp } from '../miniapp/context'
 import { useRoomLive } from '../stores/room'
 import { useStreaming } from '../stores/streaming'
 import { useUi } from '../stores/ui'
@@ -206,7 +207,7 @@ export const roomsApi = {
     request<RoomChoiceState>(`/${enc(id)}/choices/${enc(messageId)}/close`, 'POST', { winner }),
 }
 export function useRooms() {
-  const query = useQuery({ queryKey: roomKeys.list, queryFn: roomsApi.list })
+  const query = useQuery({ queryKey: roomKeys.list, queryFn: roomsApi.list, enabled: !isMiniApp() })
   for (const room of query.data ?? []) setRoomScope(room)
   return query
 }

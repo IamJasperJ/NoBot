@@ -61,6 +61,7 @@ test('资料配置默认不接管、各语言覆盖不携带凭据或完整卡�
     botUsername: null,
     botSnapshot: {},
     presenceSync: {},
+    managedBy: null,
   }
   expect(desiredPresence(row)).toEqual({ 'name:': 'Bot', 'name:zh': '机器人', 'name:en': 'Bot EN' })
   expect(config.presence.confirmed).toBe(false)

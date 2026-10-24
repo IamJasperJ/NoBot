@@ -183,6 +183,13 @@ export const settingGroups = (): { title: string; rows: Row[] }[] => [
     ],
   },
   {
+    title: t('VN 舞台（Mini App）'),
+    rows: [
+      { key: 'miniAppMenuButton', label: t('私聊菜单按钮打开舞台'), kind: { type: 'bool' } },
+      { key: 'miniAppButton', label: t('消息下方加 📖 按钮'), kind: { type: 'bool' } },
+    ],
+  },
+  {
     title: t('同步与提醒'),
     rows: [
       { key: 'mirrorWebMessages', label: t('网页上发的消息同步到平台'), kind: { type: 'bool' } },

@@ -1,5 +1,17 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  这不是受管机器人: 'This is not a managed bot',
+  '在 BotFather 里为这个 bot 打开 Bot Management Mode': 'Enable Bot Management Mode for this bot in BotFather',
+  'VN 菜单按钮': 'VN menu button',
+  'VN 舞台按钮': 'VN stage button',
+  'Mini App 验签有效秒数': 'Mini App authentication lifetime in seconds',
+  'Mini App 和 webhook 共用的 HTTPS 公网源地址': 'HTTPS origin shared by the Mini App and webhooks',
+  'HTTPS 公网地址': 'HTTPS public base URL',
+  'VN 舞台暂不可用': 'The VN stage is currently unavailable',
+  '打开 VN': 'Open VN',
+  '群 VN 链接需要先在 BotFather 配置主 Mini App': 'Configure a main Mini App in BotFather to enable group VN links',
+  '请先设置 HTTPS 公网地址': 'Set an HTTPS public base URL first',
+  此会话只能访问绑定的舞台: 'This session can only access its bound stage',
   '无法确认音频时长，请使用支持时长信息的识别服务':
     'Unable to determine audio duration. Use a recognition service that returns duration information',
   关闭: 'Off',

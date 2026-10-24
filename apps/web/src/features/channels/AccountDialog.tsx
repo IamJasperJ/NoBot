@@ -7,15 +7,20 @@ import {
   type ChannelPresence,
   type ChannelSettingsOverride,
   useApplyChannelPresence,
+  useChannelAccounts,
   useChannelBindings,
   useChannelPresencePreview,
+  useManagedBotAccess,
+  useManagedBotLink,
+  useRotateManagedBotToken,
   useSyncChannelPresence,
   useUpdateChannelAccount,
   useUpdateChannelPolicies,
+  useUpdateManagedBotAccess,
 } from '../../api/channels'
 import { useCharacters, useExtensions, usePersonas } from '../../api/queries'
 import { NumberField, SelectField, SwitchField, Tabs, TextAreaField, TextField } from '../../components/form'
-import { Avatar, Button, badgeClass, cx, Dialog } from '../../components/ui'
+import { Avatar, Button, badgeClass, controlClass, cx, Dialog, selectClass } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { BindingDialog } from './BindingDialog'
@@ -223,7 +228,152 @@ function BasicTab({
             emptyLabel={t('先让对方选')}
           />
         )}
+        <MiniAppStatus account={account} />
+        {account.canManageBots && <CreateManagedBot account={account} />}
+        {account.managedBy && <ManagedBotPanel account={account} />}
       </section>
+    </div>
+  )
+}
+
+function MiniAppStatus({ account }: { account: ChannelAccountDTO }) {
+  const { miniApp } = account
+  return (
+    <div className="space-y-1 rounded-lg border border-zinc-200 px-3 py-2 text-[13px] dark:border-zinc-800">
+      <div className="flex items-center gap-2">
+        <span className={cx('size-2 rounded-full', miniApp.available ? 'bg-emerald-500' : 'bg-zinc-400')} />
+        <span className="font-medium">{t('VN 舞台（Mini App）')}</span>
+        <span className="text-zinc-500">{miniApp.available ? t('可用') : t('不可用')}</span>
+      </div>
+      {miniApp.available ? (
+        <p className="text-xs leading-relaxed text-zinc-500">
+          {t('私聊里点菜单按钮或 📖 就能打开。想在群里用，还要在 BotFather 的 /newapp 里把主 Mini App 设为：')}
+          <span className="block break-all font-mono text-zinc-700 dark:text-zinc-300">{miniApp.url}</span>
+        </p>
+      ) : (
+        <p className="text-xs text-zinc-500">{miniApp.reason ?? t('需要在扩展页的全局设置里填写公网地址（HTTPS）')}</p>
+      )}
+    </div>
+  )
+}
+
+/** 管理 bot 能替主人在 Telegram 里新建 bot：点链接确认后，新 bot 自动接入并固定扮演选中的角色 */
+function CreateManagedBot({ account }: { account: ChannelAccountDTO }) {
+  const characters = useCharacters().data ?? []
+  const link = useManagedBotLink()
+  const [characterId, setCharacterId] = useState('')
+  return (
+    <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-3 dark:border-violet-900 dark:bg-violet-950/30">
+      <div>
+        <h4 className="text-[13px] font-medium">{t('为角色新建一个 bot')}</h4>
+        <p className="text-xs leading-relaxed text-zinc-500">
+          {t('在 Telegram 里点一下确认，新 bot 就会出现在列表里，头像、名字和简介自动跟随角色。')}
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <select
+          aria-label={t('角色')}
+          className={cx(selectClass, 'min-w-0 flex-1')}
+          value={characterId}
+          onChange={(e) => setCharacterId(e.target.value)}
+        >
+          <option value="">{t('选择角色')}</option>
+          {characters.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <Button
+          variant="primary"
+          disabled={!characterId || link.isPending}
+          onClick={() =>
+            link.mutate(
+              { id: account.id, characterId },
+              {
+                onSuccess: ({ url }) => {
+                  window.open(url, '_blank', 'noopener')
+                  toast.info(t('已打开 Telegram，确认创建后回到这里'))
+                },
+                onError: (e) => toast.error(errorMessage(e)),
+              },
+            )
+          }
+        >
+          {t('去 Telegram 创建')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function ManagedBotPanel({ account }: { account: ChannelAccountDTO }) {
+  const accounts = useChannelAccounts().data ?? []
+  const manager = accounts.find((a) => a.id === account.managedBy)
+  const rotate = useRotateManagedBotToken()
+  const access = useManagedBotAccess(account.id)
+  const update = useUpdateManagedBotAccess()
+  const [ids, setIds] = useState<string | null>(null)
+  const restricted = access.data?.is_access_restricted ?? false
+  const idText = ids ?? (access.data?.added_user_ids ?? []).join(', ')
+  const parsed = idText
+    .split(/[\s,，]+/)
+    .filter(Boolean)
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0)
+  const save = (next: boolean) =>
+    update.mutate(
+      { id: account.id, restricted: next, addedUserIds: parsed },
+      {
+        onSuccess: () => {
+          setIds(null)
+          toast.info(t('已保存'))
+        },
+        onError: (e) => toast.error(errorMessage(e)),
+      },
+    )
+  return (
+    <div className="space-y-3 rounded-lg border border-zinc-200 px-3 py-3 dark:border-zinc-800">
+      <div className="flex items-center gap-2 text-[13px]">
+        <span className="font-medium">{t('托管 bot')}</span>
+        <span className="text-zinc-500">
+          {t('由 {name} 创建和管理', {
+            name: manager?.botUsername ? `@${manager.botUsername}` : (manager?.name ?? '?'),
+          })}
+        </span>
+      </div>
+      <SwitchField
+        label={t('只允许指定的人使用')}
+        hint={t('你自己始终可以用；最多再加 10 个 Telegram 用户 ID')}
+        checked={restricted}
+        disabled={access.isLoading || update.isPending}
+        onChange={save}
+      />
+      {restricted && (
+        <div className="flex gap-2">
+          <input
+            aria-label={t('允许的用户 ID')}
+            className={cx(controlClass, 'min-w-0 flex-1 font-mono')}
+            placeholder="12345678, 87654321"
+            value={idText}
+            onChange={(e) => setIds(e.target.value)}
+          />
+          <Button disabled={ids === null || update.isPending} onClick={() => save(true)}>
+            {t('保存')}
+          </Button>
+        </div>
+      )}
+      <Button
+        disabled={rotate.isPending}
+        onClick={() =>
+          rotate.mutate(account.id, {
+            onSuccess: () => toast.info(t('已更换 Token，旧的立即失效')),
+            onError: (e) => toast.error(errorMessage(e)),
+          })
+        }
+      >
+        {t('更换 Token')}
+      </Button>
     </div>
   )
 }

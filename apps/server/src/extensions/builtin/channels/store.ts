@@ -19,6 +19,7 @@ import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { SECRET_MASK } from '../../types'
 import { providerCapabilities } from './capabilities'
+import { miniAppUrl } from './miniapp'
 import { asChannelActor } from './rooms'
 import { openCredentials } from './secrets'
 
@@ -35,6 +36,11 @@ export function accountDTO(row: typeof channelAccounts.$inferSelect): ChannelAcc
   const config = channelAccountInput.parse({ ...row, credentials: openCredentials(row.credentials) })
   return {
     ...config,
+    canManageBots: row.botSnapshot.can_manage_bots === true,
+    managedBy: row.managedBy,
+    miniApp: miniAppUrl(row.id)
+      ? { available: true, url: miniAppUrl(row.id) }
+      : { available: false, reason: t('请先设置 HTTPS 公网地址') },
     bindingCount: db.select().from(channelBindings).where(eq(channelBindings.accountId, row.id)).all().length,
     pendingRequestCount: db
       .select()

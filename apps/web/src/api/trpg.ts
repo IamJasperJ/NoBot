@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { emitClientEvent } from '../extensions/runtime'
 import { runGeneration } from '../features/chat/generate'
 import { t } from '../i18n'
+import { useMiniAppHaptic } from '../miniapp/telegram'
 import { useFreshMessage } from '../stores/freshMessages'
 import { api } from './client'
 import { flattenPages, useChatPages, usePlayPresets } from './queries'
@@ -41,12 +42,14 @@ export function usePickChoice(chatId: string): {
   const [pending, setPending] = useState<CheckResult | null>(null)
   const [busy, setBusy] = useState(false)
   const locked = useRef(false)
+  const haptic = useMiniAppHaptic()
   return {
     pending,
     busy,
     pick: async (option) => {
       if (locked.current) return
       locked.current = true
+      haptic()
       setBusy(true)
       try {
         const roomId = scopeForChat(chatId)

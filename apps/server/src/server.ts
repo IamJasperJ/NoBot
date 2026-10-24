@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
+import { getCookie } from 'hono/cookie'
 import { app as api } from './app'
 import { env } from './env'
 import { HttpError } from './errors'
@@ -9,9 +10,11 @@ import { t } from './i18n'
 import { requestLanguage } from './i18n/request-language'
 import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
+import { miniAppRoutes } from './routes/miniapp'
 import { authenticatedSession, requireAdmin } from './services/auth'
 import { logError } from './services/logs'
 import { resumeRoomStates } from './services/rooms'
+import { enforceScope, miniAppCookie } from './services/scoped-session'
 import { runAsUser } from './user-context'
 
 export function createServer() {
@@ -44,9 +47,10 @@ export function createServer() {
       const publicRoute =
         (c.req.method === 'GET' && c.req.path === '/api/health') ||
         (c.req.method === 'POST' && ['/api/auth/login', '/api/auth/logout'].includes(c.req.path))
-      if (publicRoute) return next()
-      const { user } = authenticatedSession(c)
+      if (publicRoute && !getCookie(c, miniAppCookie)) return next()
+      const { user, session } = authenticatedSession(c)
       return runAsUser(user, async () => {
+        if (session.scope) await enforceScope(c, session.scope)
         if (c.req.path === '/api/admin' || c.req.path.startsWith('/api/admin/')) requireAdmin(user)
         await ensureUserExtensions()
         await next()
@@ -61,6 +65,7 @@ export function createServer() {
     }),
   )
   server.all('/hooks/:id/:handle/*', (c) => forwardPublicExtension(c.req.param('id'), c.req.param('handle'), c.req.raw))
+  server.route('/api/miniapp', miniAppRoutes)
   server.route('/api/auth', authRoutes)
   server.route('/api/admin', adminRoutes)
   server.route('/', api)

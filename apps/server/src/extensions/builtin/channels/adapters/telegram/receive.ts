@@ -52,6 +52,7 @@ const membership = z.object({
 })
 const updateSchema = z.object({
   update_id: z.number().int(),
+  managed_bot: z.object({ user, bot: user }).optional(),
   message: message.optional(),
   edited_message: message.optional(),
   callback_query: z
@@ -67,6 +68,8 @@ export function decodeTelegram(input: unknown, bot: { id?: string | null; userna
   const result = updateSchema.safeParse(input)
   if (!result.success) return null
   const update = result.data
+  if (update.managed_bot)
+    return { type: 'managed_bot' as const, dedupeKey: String(update.update_id), ...update.managed_bot }
   const member = update.my_chat_member ?? update.chat_member
   if (member)
     return {

@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { systemDatabase } from '../../db/system-client'
 import { userPresencePrefs } from '../../db/system-schema'
 import { liveHub } from '../live/hub'
+import { visibleRoomFor } from '../rooms'
 import { friendIds } from './index'
 
 interface State {
@@ -12,7 +13,7 @@ interface State {
 }
 export class PresenceService {
   private states = new Map<string, State>()
-  private published = new Map<string, PresenceStatus>()
+  private published = new Map<string, string>()
   constructor(
     private clock = Date.now,
     private friends = friendIds,
@@ -56,7 +57,7 @@ export class PresenceService {
   getPresence(
     viewer: string,
     ids: string[],
-    visibleRoom?: (viewer: string, userId: string) => PresenceDTO['currentRoom'],
+    visibleRoom: (viewer: string, userId: string) => PresenceDTO['currentRoom'] = visibleRoomFor,
   ) {
     const allowed = new Set(this.friends(viewer))
     const result: Record<string, PresenceDTO> = {}
@@ -79,13 +80,23 @@ export class PresenceService {
   tick() {
     for (const id of this.states.keys()) {
       const status = this.status(id)
-      if (this.published.get(id) !== status) {
-        this.published.set(id, status)
-        liveHub.publishToUsers(this.friends(id), {
-          type: 'presence',
-          topic: `user:${id}`,
-          data: { userId: id, presence: { status } },
-        })
+      const recipients = this.friends(id)
+      const values = recipients.map((viewer) => ({
+        viewer,
+        presence: {
+          status,
+          ...(status !== 'offline' && visibleRoomFor(viewer, id) ? { currentRoom: visibleRoomFor(viewer, id) } : {}),
+        },
+      }))
+      const signature = JSON.stringify(values)
+      if (this.published.get(id) !== signature) {
+        this.published.set(id, signature)
+        for (const value of values)
+          liveHub.publishToUser(value.viewer, {
+            type: 'presence',
+            topic: `user:${id}`,
+            data: { userId: id, presence: value.presence },
+          })
       }
       const state = this.states.get(id)!
       if (status === 'offline' && !state.connections.size && this.clock() - (state.disconnectedAt ?? 0) >= 60000) {

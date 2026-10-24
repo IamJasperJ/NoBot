@@ -1,8 +1,9 @@
 import { z } from 'zod'
+import type { BackgroundDTO } from './background'
 import { autoBackgroundSettingsSchema } from './background'
 import type { GroupDTO } from './group'
 import type { MessageDTO } from './message'
-import type { StageState, StateSchema } from './stage'
+import type { PlayPresetData, StageState, StateSchema } from './stage'
 import { checkResultSchema } from './trpg'
 
 export interface ChatSummary {
@@ -41,6 +42,8 @@ export interface ChatDTO extends ChatSummary {
 
 /** 打开会话时返回的数据：会话信息 + 激活路径上的一页消息 */
 export interface ChatPage {
+  /** 房间成员只读取渲染选项，不能读取房主的完整玩法预设。 */
+  roomView?: { play: PlayPresetData; globalBackgroundId: string | null; backgrounds: BackgroundDTO[] }
   chat: ChatDTO
   /** 群聊时附带群组信息 */
   group: GroupDTO | null

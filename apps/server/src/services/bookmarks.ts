@@ -10,6 +10,7 @@ import { backgroundsForChat, listBackgrounds } from './backgrounds/backgrounds'
 import { computeVars, getChatRow, loadMessage, loadPath } from './chats'
 import { resolvePersona } from './generation/context'
 import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema, stageMembers } from './generation/stage'
+import { readableMessage } from './rooms/dto'
 import { listSprites } from './sprites/sprites'
 
 /** 摘要和默认名用的纯文字：角色回复先去掉舞台指令（<scene>、<state> 等标签和台词速记），再把换行压成空格 */
@@ -23,7 +24,7 @@ const plainText = (message: MessageDTO) =>
 
 function toDTO(row: typeof bookmarks.$inferSelect): BookmarkDTO {
   const chat = getChatRow(row.chatId)
-  const message = loadMessage(row.messageId)
+  const message = readableMessage(loadMessage(row.messageId))
   const persona = resolvePersona(chat)
   const character = message.speakerId
     ? db.select().from(characters).where(eq(characters.id, message.speakerId)).get()
@@ -46,6 +47,7 @@ function toDTO(row: typeof bookmarks.$inferSelect): BookmarkDTO {
       : ''
   return {
     ...row,
+    ...(message.meta.hidden ? { name: '', snapshot: null } : {}),
     preview: { role: message.role, name, text },
     onPath: loadPath(chat.activeLeafId).some((m) => m.id === message.id),
   }
@@ -64,7 +66,8 @@ export function listBookmarks(chatId: string): BookmarkDTO[] {
 
 export function createBookmark(chatId: string, input: CreateBookmarkInput): BookmarkDTO {
   getChatRow(chatId)
-  const message = loadMessage(input.messageId)
+  const message = readableMessage(loadMessage(input.messageId))
+  if (message.meta.hidden) throw notFound(t('消息'))
   if (message.chatId !== chatId) throw notFound(t('消息'))
   const content = plainText(message)
   const name =
@@ -89,7 +92,8 @@ export function createSave(chatId: string, input: CreateSaveInput): BookmarkDTO 
   const chat = getChatRow(chatId)
   const messageId = input.messageId ?? chat.activeLeafId
   if (!messageId) throw new HttpError(400, 'NO_MESSAGES', t('还没有消息，没法存档'))
-  const message = loadMessage(messageId)
+  const message = readableMessage(loadMessage(messageId))
+  if (message.meta.hidden) throw notFound(t('消息'))
   if (message.chatId !== chatId) throw notFound(t('消息'))
   const path = loadPath(messageId)
   const stage = computeStage(chatId, path)

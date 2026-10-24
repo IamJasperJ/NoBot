@@ -1,5 +1,15 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  旁观者只能查看加入后的公共历史: 'Spectators can only view public history from the time they join',
+  请先为新房主配置可用的模型连接: 'Configure an available model connection for the new owner first',
+  '导出过于频繁，请稍后重试': 'Exports are too frequent. Please try again later',
+
+  '已掷骰，结果隐藏': 'Rolled; result hidden',
+  还没有轮到你行动: 'It is not your turn yet',
+  选项投票已结束: 'Choice voting has ended',
+  你已经选择过此选项组: 'You have already picked from this choice block',
+
+  多人场景: 'Multiplayer scene',
   无法完成此社交操作: 'Unable to complete this social action',
   '好友请求过于频繁，请稍后重试': 'Too many friend requests. Please try again later',
   通知游标无效: 'Invalid notification cursor',
@@ -821,4 +831,15 @@ export const en: Record<string, string> = {
   '翻译文本；留空翻译最后一条助手消息': 'Translate text; leave empty to translate the last assistant message',
   目标语言代码: 'Target language code',
   当前会话未启用受支持的跑团规则: 'This chat has no enabled, supported RPG rule system',
+  '消息发送过于频繁，请稍后重试': 'Messages are being sent too frequently. Please try again later.',
+  房间正在生成回复: 'The room is generating a reply.',
+  房间不存在或无法访问: 'Room not found or inaccessible.',
+  没有权限执行此房间操作: 'You do not have permission to perform this room action.',
+  '模型由 {name} 提供': 'Models provided by {name}',
+  加入后可以查看全部公共历史: 'All public history is visible after joining.',
+  请先同意最新房间规则: 'Please accept the latest room rules first.',
+  房间人数已满: 'The room is full.',
+  房间已暂停或归档: 'The room is paused or archived.',
+  '房间生成额度已用尽，请稍后重试': 'The room generation quota has been reached. Please try again later.',
+  'AI 回复失败': 'The AI reply failed',
 }

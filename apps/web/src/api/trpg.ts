@@ -3,13 +3,16 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { emitClientEvent } from '../extensions/runtime'
 import { runGeneration } from '../features/chat/generate'
+import { t } from '../i18n'
 import { useFreshMessage } from '../stores/freshMessages'
 import { api } from './client'
-import { useChatPages, usePlayPresets } from './queries'
+import { flattenPages, useChatPages, usePlayPresets } from './queries'
+import { roomsApi, scopeForChat } from './rooms'
 
 function usePlay(chatId: string | null) {
   const page = useChatPages(chatId).data?.pages[0]
-  return usePlayPresets().data?.find((preset) => preset.id === page?.playPresetId)?.data
+  const presets = usePlayPresets(chatId)
+  return page?.roomView?.play ?? presets.data?.find((preset) => preset.id === page?.playPresetId)?.data
 }
 
 function isEnabled(play: ReturnType<typeof usePlay>) {
@@ -46,6 +49,16 @@ export function usePickChoice(chatId: string): {
       locked.current = true
       setBusy(true)
       try {
+        const roomId = scopeForChat(chatId)
+        if (roomId) {
+          const messages = flattenPages(qc.getQueryData(['chat', chatId]))
+          const source = messages.findLast((m) => m.meta.stage?.choices?.some((choice) => choice.text === option.text))
+          const index = source?.meta.stage?.choices?.findIndex((choice) => choice.text === option.text)
+          if (!source || index === undefined || index < 0) throw new Error(t('选项已不可用'))
+          await roomsApi.vote({ id: roomId, messageId: source.id, index })
+          await qc.invalidateQueries({ queryKey: ['chat', chatId] })
+          return
+        }
         let check: CheckResult | undefined
         if (option.check && isEnabled(play) && play?.trpg?.choiceRollClient) {
           check = await api.checkChoice(chatId, option.check)

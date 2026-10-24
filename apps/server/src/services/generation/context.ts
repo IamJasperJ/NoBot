@@ -50,6 +50,7 @@ import { replaceImageAttachments } from '../caption'
 import { computeVars, getChatRow, loadGroupDTO, loadPath } from '../chats'
 import { matchLoreVectors } from '../lore-vectors'
 import { resolveProfile } from '../profiles'
+import { multiplayerPrompt } from '../rooms/prompt'
 import { getWorldInfoSettings, SETTING_KEYS } from '../settings'
 import { listSprites } from '../sprites/sprites'
 import { chatRules, describeParty } from '../trpg/trpg'
@@ -267,10 +268,16 @@ export function toHistory(ctx: GenerationContext, leafId: string | null, plainHi
               ? toDisplayText(m.content, { knownNames, narratorNames: [preset.trpg.gmName], speaker: 'plain' })
               : m.role === 'assistant'
                 ? normalizeDeliveryTags(m.content)
-                : m.content) + (m.role === 'user' && m.meta.check ? `\n${describeCheck(m.meta.check)}` : ''),
+                : m.content) +
+        (m.role === 'user' && m.meta.check ? `\n${describeCheck(m.meta.check)}` : '') +
+        (m.meta.choice?.counts
+          ? `\n[Room vote counts by option: ${m.meta.choice.counts.map((count, index) => `${index + 1}=${count}`).join(', ')}.]`
+          : ''),
       name:
         m.role === 'user'
-          ? ctx.persona.name
+          ? m.meta.author
+            ? (m.meta.name ?? m.meta.author.name)
+            : ctx.persona.name
           : m.role === 'tool'
             ? (m.meta.toolName ?? 'tool')
             : ((m.speakerId && names.get(m.speakerId)) ?? m.meta.name ?? ctx.members[0]?.name ?? ''),
@@ -302,6 +309,7 @@ export interface AssembleOptions {
 export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptPreview & { input: BuildInput } {
   const speaker = ctx.members.find((m) => m.id === opts.speakerId) ?? ctx.members[0]
   if (!speaker) throw new HttpError(400, 'NO_SPEAKER', t('找不到发言的角色'))
+  const multiplayer = multiplayerPrompt(ctx.chat.id, opts.leafId)
   const history = replaceImageAttachments(toHistory(ctx, opts.leafId, opts.plainHistory), ctx.connection)
   if (opts.pending) {
     history.push({
@@ -317,7 +325,10 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
 
   let input: BuildInput = {
     type: opts.type,
-    preset: ctx.preset,
+    // 单角色房间也必须保留每个真人的名字；completion 模式会丢失中文姓名。
+    preset: multiplayer
+      ? { ...ctx.preset, behavior: { ...ctx.preset.behavior, namesBehavior: 'content' } }
+      : ctx.preset,
     speaker,
     group: ctx.group
       ? {
@@ -327,7 +338,10 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
           scenarioOverride: ctx.group.scenarioOverride,
         }
       : null,
-    persona: { name: ctx.persona.name, description: ctx.persona.description },
+    persona: {
+      name: multiplayer?.user ?? ctx.persona.name,
+      description: multiplayer?.description ?? ctx.persona.description,
+    },
     history,
     lore: {
       entries: ctx.loreEntries,
@@ -351,7 +365,7 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
         ? []
         : enabledToolNames(ctx.chat.id, ctx.preset.samplers)),
     now: new Date(),
-    macros: collectMacros(ctx.chat.id),
+    macros: { ...collectMacros(ctx.chat.id), ...(multiplayer ? { players: () => multiplayer.players } : {}) },
   }
   const play = resolvePlayPreset(ctx.chat.id).data
   const path = loadPath(opts.leafId)
@@ -436,6 +450,18 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
         role: play.directives.reminderRole,
         content: renderDirectiveReminder({ ...instructionInput, reminderTemplate: play.directives.reminderTemplate }),
       })
+  }
+  // 多人约束属于固定上下文，不能随最早的历史消息一起被预算淘汰。
+  if (multiplayer) {
+    input.injections ??= []
+    input.injections.push({
+      id: 'multiplayer',
+      label: t('多人场景'),
+      labelCode: 'multiplayer',
+      position: 'after_char',
+      role: 'system',
+      content: multiplayer.note,
+    })
   }
   input = runBeforePrompt(input)
 

@@ -1,3 +1,4 @@
+import { roomsApi, scopeForChat } from '../api/rooms'
 import { t } from '../i18n'
 import { runQuickReply } from '../quick-replies/logic'
 import { notifyUserSent } from './context'
@@ -96,7 +97,13 @@ export function registerBuiltins() {
     'roll',
     () => t('掷骰并插入旁白'),
     async (ctx, _args, text) => {
-      const { result } = await ctx.api.roll(requireChat(ctx), text)
+      const chatId = requireChat(ctx)
+      const roomId = scopeForChat(chatId)
+      const match = /\s+(public|gm|blind|self)$/.exec(text)
+      const visibility = match?.[1] as 'public' | 'gm' | 'blind' | 'self' | undefined
+      const { result } = roomId
+        ? await roomsApi.roll(roomId, { expression: match ? text.slice(0, match.index).trim() : text, visibility })
+        : await ctx.api.roll(chatId, text)
       await ctx.refresh()
       return result
     },

@@ -47,8 +47,8 @@ export interface PlayerOptions {
 
 export function useVnPlayer({ chatId, messages, play, knownNames, members }: PlayerOptions) {
   // 分开订阅两个基本值：选择器返回新对象会让 zustand 以为状态一直在变，无限重渲染
-  const liveId = useStreaming((s) => (s.chatId === chatId ? s.messageId : null))
-  const liveText = useStreaming((s) => (s.chatId === chatId ? s.text : ''))
+  const liveId = useStreaming((s) => s.streams[chatId]?.messageId ?? (s.chatId === chatId ? s.messageId : null))
+  const liveText = useStreaming((s) => s.streams[chatId]?.text ?? (s.chatId === chatId ? s.text : ''))
   const live = liveId ? { id: liveId, text: liveText } : null
   // 纯图片消息（图片生成插进来的）没有文字可演，跳过；正在流式生成的消息内容还是空的，也算
   const replies = useMemo(

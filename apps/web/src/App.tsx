@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
 import { subscribeNotifications, useLiveStore } from './api/live'
 import { useCharacters, useConnections } from './api/queries'
+import { useRooms } from './api/rooms'
 import { useFriends } from './api/social'
 import { Background } from './components/Background'
 import {
@@ -30,6 +31,7 @@ import { LogsPage } from './features/logs/LogsPage'
 import { LorebooksPage } from './features/lorebooks/LorebooksPage'
 import { PersonasPage } from './features/personas/PersonasPage'
 import { PresetsPage } from './features/presets/PresetsPage'
+import { RoomDialogs } from './features/rooms/RoomDialogs'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { FriendsPage, notificationText } from './features/social/FriendsPage'
 import { useMobile } from './hooks/useMobile'
@@ -53,11 +55,12 @@ const NAV = (): { view: View; label: string; icon: ReactNode }[] => [
   { view: 'logs', label: t('日志'), icon: <LogIcon /> },
 ]
 
-/** 好友图标上的角标：未读通知 + 待处理的好友请求 */
+/** 好友图标上的角标：未读通知、待处理的好友请求和房间未读 */
 function SocialBadge() {
   const unread = useLiveStore((s) => s.unreadCount)
   const incoming = useFriends().data?.incoming.length ?? 0
-  const n = Math.max(unread, incoming)
+  const rooms = (useRooms().data ?? []).reduce((sum, r) => sum + r.unreadCount, 0)
+  const n = Math.max(unread, incoming) + rooms
   if (!n) return null
   return (
     <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] leading-none font-semibold text-white">
@@ -314,6 +317,7 @@ export function App() {
         id="overlay-root"
         className="fixed inset-0 z-40 bg-white md:left-[calc(var(--nav-width)+var(--panel-offset))] md:z-30 md:border-l md:border-zinc-200 dark:bg-zinc-950 dark:md:border-zinc-800"
       />
+      <RoomDialogs />
       <Toasts />
     </div>
   )

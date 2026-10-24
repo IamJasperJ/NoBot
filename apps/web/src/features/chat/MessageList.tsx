@@ -43,7 +43,9 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
   })
 
   // 流式输出时文本在变长：订阅长度，用来判断要不要跟着滚到底
-  const streamingLength = useStreaming((s) => (s.chatId === chatId ? s.text.length + s.reasoning.length : 0))
+  const streamingLength = useStreaming((s) =>
+    s.streams[chatId] ? s.streams[chatId].text.length + s.streams[chatId].reasoning.length : 0,
+  )
 
   const scrollToBottom = () => {
     const el = scrollRef.current

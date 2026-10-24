@@ -1,6 +1,7 @@
 import type { FriendDTO, NotificationDTO, PresenceStatus, PublicUserDTO } from '@nobot/shared'
 import { type FormEvent, useState } from 'react'
 import { useLiveStore } from '../../api/live'
+import { roomNotificationText, useRooms } from '../../api/rooms'
 import {
   useBlocks,
   useBlockUser,
@@ -16,12 +17,13 @@ import {
 } from '../../api/social'
 import { BanIcon, CheckIcon, TrashIcon, UserPlusIcon, XIcon } from '../../components/icons'
 import { Menu, MenuDivider, MenuEntry } from '../../components/menu'
-import { Avatar, Button, cx, IconButton, inputClass } from '../../components/ui'
+import { Avatar, Button, badgeClass, cx, IconButton, inputClass } from '../../components/ui'
 import { getLanguage, t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { modeLabel, ratingClass, ratingLabel, roleLabel, useRoomDialogs } from '../rooms/shared'
 
-type Tab = 'friends' | 'requests' | 'notifications' | 'blocks'
+type Tab = 'rooms' | 'friends' | 'requests' | 'notifications' | 'blocks'
 
 const presenceLabel = (): Record<PresenceStatus, string> => ({
   online: t('在线'),
@@ -237,8 +239,12 @@ export function notificationText(n: NotificationDTO) {
       return t('{name} 想加你为好友', { name })
     case 'friend.accepted':
       return t('{name} 接受了你的好友请求', { name })
+    case 'room.invite':
+      return t('{name} 邀请你加入「{room}」', { name, room: String(n.payload.name ?? '') })
+    case 'room.turn.request':
+      return t('{name} 在「{room}」里请你让 AI 回应', { name, room: String(n.payload.name ?? '') })
     default:
-      return t('新通知')
+      return roomNotificationText(n) ?? t('新通知')
   }
 }
 
@@ -248,6 +254,7 @@ function Notifications() {
   const dismiss = useDismissNotification()
   const respond = useRespondFriend()
   const friends = useFriends()
+  const rooms = useRooms()
   const items = query.data?.pages.flatMap((p) => p.items) ?? []
   const pending = new Set(friends.data?.incoming.map((r) => r.user.id))
   if (query.isPending) return <Empty text={t('加载中…')} />
@@ -279,6 +286,28 @@ function Notifications() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm">{notificationText(n)}</p>
                 <p className="text-xs text-zinc-500">{time(n.createdAt)}</p>
+                {n.type === 'room.invite' && typeof n.payload.inviteId === 'string' && (
+                  <div className="mt-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() => useRoomDialogs.getState().openLobby(n.payload.inviteId as string)}
+                    >
+                      {t('查看邀请')}
+                    </Button>
+                  </div>
+                )}
+                {n.type === 'room.turn.request' &&
+                  (() => {
+                    const room = rooms.data?.find((r) => r.id === n.payload.roomId)
+                    return room ? (
+                      <div className="mt-2">
+                        <Button size="sm" onClick={() => useUi.getState().openChat({}, room.chatId)}>
+                          {t('去房间')}
+                        </Button>
+                      </div>
+                    ) : null
+                  })()}
                 {canRespond && (
                   <div className="mt-2 flex gap-2">
                     <Button
@@ -415,9 +444,61 @@ function PanelTabs({
   )
 }
 
-/** 侧栏「好友」面板：好友、请求、通知、黑名单 */
+/** 我所在的联机房间（我开的和我加入的） */
+function RoomList() {
+  const rooms = useRooms()
+  const openChat = useUi((s) => s.openChat)
+  const list = [...(rooms.data ?? [])].sort((a, b) => b.unreadCount - a.unreadCount || b.updatedAt - a.updatedAt)
+  if (rooms.isPending) return <Empty text={t('加载中…')} />
+  if (!list.length)
+    return <Empty text={t('还没有房间。在会话输入框左边的「+」菜单里选「开启联机」，或者等好友邀请你')} />
+  return (
+    <ul>
+      {list.map((room) => {
+        const active = room.members.filter((m) => m.state === 'active')
+        const online = active.filter((m) => m.inRoom).length
+        return (
+          <li key={room.id}>
+            <button
+              type="button"
+              onClick={() => openChat({}, room.chatId)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800/60"
+            >
+              <Avatar name={room.name} size={36} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-medium">{room.name}</span>
+                  {room.contentRating !== 'general' && (
+                    <span className={cx(badgeClass, ratingClass[room.contentRating])}>
+                      {ratingLabel()[room.contentRating]}
+                    </span>
+                  )}
+                </span>
+                <span className="block truncate text-xs text-zinc-500">
+                  {roleLabel()[room.myRole]} · {modeLabel()[room.mode]} ·{' '}
+                  {online
+                    ? t('{online} / {count} 人在线', { online, count: active.length })
+                    : t('{count} 人', { count: active.length })}
+                </span>
+              </span>
+              {room.unreadCount > 0 && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
+                  {room.unreadCount > 99 ? '99+' : room.unreadCount}
+                </span>
+              )}
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/** 侧栏「好友」面板：房间、好友、请求、通知；黑名单在右上角菜单里 */
 export function FriendsPage() {
-  const [tab, setTab] = useState<Tab>('friends')
+  const [tab, setTab] = useState<Tab>('rooms')
+  const rooms = useRooms()
+  const roomUnread = (rooms.data ?? []).reduce((sum, r) => sum + r.unreadCount, 0)
   const friends = useFriends()
   const unread = useLiveStore((s) => s.unreadCount)
   const setSidebarOpen = useUi((s) => s.setSidebarOpen)
@@ -427,6 +508,11 @@ export function FriendsPage() {
       <header className="flex h-14 shrink-0 items-center gap-2 px-3">
         <h1 className="flex-1 truncate font-semibold">{t('好友')}</h1>
         <MyStatus />
+        <Menu>
+          <MenuEntry icon={<BanIcon />} onClick={() => setTab('blocks')}>
+            {t('黑名单')}
+          </MenuEntry>
+        </Menu>
         <IconButton label={t('关闭侧栏')} className="md:hidden" onClick={() => setSidebarOpen(false)}>
           <XIcon />
         </IconButton>
@@ -437,10 +523,10 @@ export function FriendsPage() {
           value={tab}
           onChange={setTab}
           tabs={[
+            { id: 'rooms', label: t('房间'), badge: roomUnread },
             { id: 'friends', label: t('好友') },
             { id: 'requests', label: t('请求'), badge: incoming },
             { id: 'notifications', label: t('通知'), badge: unread },
-            { id: 'blocks', label: t('黑名单') },
           ]}
         />
       </div>
@@ -449,15 +535,25 @@ export function FriendsPage() {
           <p role="alert" className="px-2 text-sm text-red-600">
             {errorMessage(friends.error)}
           </p>
+        ) : tab === 'rooms' ? (
+          <RoomList />
+        ) : tab === 'blocks' ? (
+          <>
+            <div className="flex items-center justify-between px-2 pb-1">
+              <h3 className="text-xs font-medium text-zinc-500">{t('黑名单')}</h3>
+              <Button size="sm" onClick={() => setTab('friends')}>
+                {t('返回')}
+              </Button>
+            </div>
+            <Blocks />
+          </>
         ) : tab === 'friends' ? (
           <FriendList friends={friends.data?.friends ?? []} />
         ) : tab === 'requests' ? (
           <Requests />
         ) : tab === 'notifications' ? (
           <Notifications />
-        ) : (
-          <Blocks />
-        )}
+        ) : null}
       </div>
     </div>
   )

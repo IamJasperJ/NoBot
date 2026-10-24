@@ -3,6 +3,8 @@ import type { QueryClient } from '@tanstack/react-query'
 import { readError } from '../../api/client'
 import { apiFetch } from '../../api/fetch'
 import { applyNewMessage, markIdle, refreshChatState, replaceMessage, resetChat } from '../../api/queries'
+import { scopeForChat } from '../../api/room-scope'
+import { clientMessageId, mergeMessage, roomsApi } from '../../api/rooms'
 import { emitCommandEvent } from '../../commands/events'
 import { emitClientEvent } from '../../extensions/runtime'
 import { t } from '../../i18n'
@@ -41,6 +43,25 @@ export async function runGeneration(
   input: GenerateInput | 'reconnect',
   automationDepth = 0,
 ) {
+  const roomId = scopeForChat(chatId)
+  if (roomId) {
+    if (input === 'reconnect') return
+    if (input.mode === 'send') {
+      const message = await roomsApi.send({
+        id: roomId,
+        input: { text: input.text, channel: 'ic', clientMessageId: clientMessageId(), images: input.images },
+      })
+      mergeMessage(message)
+    } else {
+      const response = await apiFetch(`/api/chats/${chatId}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+      if (!response.ok) throw await readError(response)
+    }
+    return
+  }
   if (activeStreams.has(chatId)) {
     if (input === 'reconnect') return
     throw new Error(t('这个会话正在生成中'))
@@ -100,7 +121,7 @@ async function readStream(
   const flush = () => {
     frame = 0
     if (!pendingText && !pendingReasoning) return
-    useStreaming.getState().append(pendingText, pendingReasoning)
+    useStreaming.getState().append(pendingText, pendingReasoning, chatId)
     pendingText = ''
     pendingReasoning = ''
   }
@@ -136,7 +157,7 @@ async function readStream(
           flush()
           // 先把最终内容写进缓存，再清空流式状态，避免画面闪一下空白
           replaceMessage(qc, chatId, e.message)
-          useStreaming.getState().end()
+          useStreaming.getState().end(chatId)
           break
         case 'message':
           registerFreshMessage(e.message.id)
@@ -155,7 +176,7 @@ async function readStream(
     }
   } finally {
     cancelAnimationFrame(frame)
-    useStreaming.getState().end()
+    useStreaming.getState().end(chatId)
     if (!completed) {
       // 连接中途断了：后端的任务可能还在跑，重新拉一次会话，状态以后端为准
       void resetChat(qc, chatId)

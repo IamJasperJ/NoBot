@@ -10,6 +10,8 @@ import {
 } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { api } from './client'
+import { isRoomGuest } from './room-scope'
+import { useRooms } from './rooms'
 
 /** 所有缓存的 key 集中在这里，避免拼错。改了数据后用 invalidateQueries 刷新对应的 key */
 export const keys = {
@@ -60,6 +62,12 @@ export const useBackgrounds = (folderId?: string) =>
     queryKey: folderId === undefined ? keys.backgrounds : [...keys.backgrounds, { folderId }],
     queryFn: () => api.listBackgrounds(folderId),
   })
+/** 房间背景来自裁剪后的聊天快照，个人背景库缓存保持独立。 */
+export function useChatBackgrounds(chatId: string | null) {
+  const own = useBackgrounds()
+  const pages = useChatPages(chatId)
+  return { ...own, data: pages.data?.pages[0]?.roomView?.backgrounds ?? own.data }
+}
 export const useBackgroundFolders = () =>
   useQuery({ queryKey: keys.backgroundFolders, queryFn: api.listBackgroundFolders })
 
@@ -74,7 +82,7 @@ export function useResolvedBackgroundId(chatId: string | null) {
     backgroundPinned: page?.chat.backgroundPinned,
     stageBackgroundId: page?.stage?.scene.backgroundId,
     defaultBackgroundId: page?.chat.groupId ? page.group?.defaultBackgroundId : character.data?.defaultBackgroundId,
-    globalId: settings.data?.globalId,
+    globalId: page?.roomView ? page.roomView.globalBackgroundId : settings.data?.globalId,
   })
 }
 export const useBackgroundSettings = () =>
@@ -85,7 +93,7 @@ export const useChatProfile = (chatId: string | null) =>
   useQuery({
     queryKey: keys.chatProfile(chatId ?? ''),
     queryFn: () => api.getChatProfile(chatId!),
-    enabled: !!chatId,
+    enabled: !!chatId && !isRoomGuest(chatId),
   })
 
 /** 配置组影响连接、角色绑定和会话摘要，保存后统一使相关缓存失效。 */
@@ -113,10 +121,22 @@ export function useRegenerateCaption() {
 
 export const useConnections = () => useQuery({ queryKey: keys.connections, queryFn: api.listConnections })
 export const usePresets = () => useQuery({ queryKey: keys.presets, queryFn: api.listPresets })
-export const usePlayPresets = () => useQuery({ queryKey: keys.playPresets, queryFn: api.listPlayPresets })
+export function usePlayPresets(chatId?: string | null) {
+  const rooms = useRooms()
+  return useQuery({
+    queryKey: keys.playPresets,
+    queryFn: api.listPlayPresets,
+    enabled: !chatId || (rooms.isSuccess && !isRoomGuest(chatId)),
+  })
+}
 /** 会话的书签（消息上的小旗子、会话设置里的书签列表共用） */
 export const useBookmarks = (chatId: string) =>
-  useQuery({ queryKey: keys.bookmarks(chatId), queryFn: () => api.listBookmarks(chatId), staleTime: 30_000 })
+  useQuery({
+    queryKey: keys.bookmarks(chatId),
+    queryFn: () => api.listBookmarks(chatId),
+    enabled: !isRoomGuest(chatId),
+    staleTime: 30_000,
+  })
 
 export const useSprites = (characterId: string | null | undefined) =>
   useQuery({
@@ -124,7 +144,14 @@ export const useSprites = (characterId: string | null | undefined) =>
     queryFn: () => api.listSprites(characterId as string),
     enabled: !!characterId,
   })
-export const usePersonas = () => useQuery({ queryKey: keys.personas, queryFn: api.listPersonas })
+export function usePersonas(chatId?: string | null) {
+  const rooms = useRooms()
+  return useQuery({
+    queryKey: keys.personas,
+    queryFn: api.listPersonas,
+    enabled: !chatId || (rooms.isSuccess && !isRoomGuest(chatId)),
+  })
+}
 export const useCharacters = () => useQuery({ queryKey: keys.characters, queryFn: api.listCharacters })
 export const useCharacter = (id: string | null) =>
   useQuery({ queryKey: keys.character(id ?? ''), queryFn: () => api.getCharacter(id as string), enabled: !!id })
@@ -154,13 +181,15 @@ export const useChats = (owner: { characterId?: string; groupId?: string } | nul
  * 消息只会被我们自己的操作改变，所以不自动重新拉取（staleTime: Infinity）。
  */
 export function useChatPages(chatId: string | null) {
+  // 刷新页面时先登记房间 scope，再允许任何组件读取会话。
+  const rooms = useRooms()
   const qc = useQueryClient()
   const query = useInfiniteQuery({
     queryKey: keys.chat(chatId ?? ''),
     queryFn: ({ pageParam }) => api.getChatPage(chatId as string, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.hasMore ? last.messages[0]?.id : undefined),
-    enabled: !!chatId,
+    enabled: !!chatId && rooms.isSuccess,
     staleTime: Number.POSITIVE_INFINITY,
     refetchInterval: (query) =>
       query.state.data?.pages.some((page) =>

@@ -388,3 +388,42 @@ export const audioTracks = sqliteTable('audio_tracks', {
   durationMs: integer('duration_ms'),
   createdAt: integer('created_at').notNull(),
 })
+
+export const roomEvents = sqliteTable(
+  'room_events',
+  {
+    roomId: text('room_id').notNull(),
+    seq: integer('seq').notNull(),
+    type: text('type').notNull(),
+    actorId: text('actor_id').notNull(),
+    entityId: text('entity_id'),
+    payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.roomId, t.seq] })],
+)
+export const roomUsage = sqliteTable(
+  'room_usage',
+  {
+    id: text('id').primaryKey(),
+    roomId: text('room_id').notNull(),
+    userId: text('user_id').notNull(),
+    kind: text('kind', { enum: ['text', 'image', 'tts'] }).notNull(),
+    tokens: integer('tokens'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('room_usage_room_time_idx').on(t.roomId, t.createdAt)],
+)
+
+/** 独立于可裁剪的重放日志，保证长期异步房间仍能定位未读与旁观加入边界。 */
+export const roomMessageIndex = sqliteTable(
+  'room_message_index',
+  {
+    roomId: text('room_id').notNull(),
+    messageId: text('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.roomId, t.messageId] }), index('room_message_index_seq_idx').on(t.roomId, t.seq)],
+)

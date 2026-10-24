@@ -155,6 +155,20 @@
       "when": 1792511666985,
       "tag": "0021_real_the_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1792767543046,
+      "tag": "0022_free_randall",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1792786600914,
+      "tag": "0023_freezing_mac_gargan",
+      "breakpoints": true
     }
   ]
 }

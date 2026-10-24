@@ -54,20 +54,38 @@ export function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: st
 }
 
 /** 旁白消息：居中、无头像，悬停时右侧出现删除按钮 */
-export function NarrationMessage({ msg, chatId }: { msg: MessageDTO; chatId: string }) {
+export function NarrationMessage({
+  msg,
+  chatId,
+  badge,
+  canDelete = true,
+}: {
+  msg: MessageDTO
+  chatId: string
+  /** 联机房间里非公开骰子的标记（主持可见 / 暗骰 / 仅自己可见） */
+  badge?: string | null
+  canDelete?: boolean
+}) {
   const qc = useQueryClient()
   return (
     <div className="group/narration chat-column flex items-center justify-center gap-1 px-4 py-2">
       <p className="max-w-[85%] rounded-xl bg-zinc-100/80 px-3.5 py-1.5 text-center text-[13px] leading-relaxed whitespace-pre-wrap text-zinc-600 backdrop-blur dark:bg-zinc-800/70 dark:text-zinc-300">
+        {badge && (
+          <span className="mr-1.5 inline-flex rounded-md bg-violet-100 px-1.5 py-0.5 align-[1px] text-[11px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+            {badge}
+          </span>
+        )}
         {msg.content}
       </p>
-      <IconButton
-        label={t('删除')}
-        className="opacity-0 group-hover/narration:opacity-100 focus-visible:opacity-100"
-        onClick={() => void deleteMessage(qc, chatId, msg.id)}
-      >
-        <TrashIcon />
-      </IconButton>
+      {canDelete && (
+        <IconButton
+          label={t('删除')}
+          className="opacity-0 group-hover/narration:opacity-100 focus-visible:opacity-100"
+          onClick={() => void deleteMessage(qc, chatId, msg.id)}
+        >
+          <TrashIcon />
+        </IconButton>
+      )}
     </div>
   )
 }

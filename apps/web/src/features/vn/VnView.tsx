@@ -14,6 +14,7 @@ import { useCinema } from '../../stores/vn'
 import { Composer } from '../chat/Composer'
 import { displayMacros } from '../chat/format'
 import type { ChatCast } from '../chat/MessageItem'
+import { RoomChoiceStatus, useChoiceGate } from '../rooms/RoomChoiceStatus'
 import { CheckCard, DiceCard } from '../trpg/DiceCard'
 import { InitiativeBar } from '../trpg/InitiativeBar'
 import { useCgRefresh } from './useCgRefresh'
@@ -120,6 +121,7 @@ export function VnView({
   // 跑团：选项检定、刚掷出的骰子演出、战斗先攻条
   const trpg = useTrpgSettings(chatId)
   const pickChoice = usePickChoice(chatId)
+  const choiceGate = useChoiceGate(chatId)
   const lastRoll = messages.findLast((m) => m.role === 'tool' && (m.meta.dice || m.meta.check))
   const rollFresh = useFreshDice(lastRoll?.id ?? '', trpg.diceMs + 1500)
   const combat = player.stage.combat
@@ -312,10 +314,17 @@ export function VnView({
         <VnChoices
           options={choices}
           row={choiceRow}
-          disabled={busy || pickChoice.busy}
+          disabled={busy || pickChoice.busy || choiceGate.locked}
           showDc={trpg.showDc}
           onPick={(option) => void pickChoice.pick(option).catch((e: unknown) => toast.error(errorMessage(e)))}
         />
+      )}
+      {/* 联机房间：投票进度 / 由主持选择的提示，贴在选项下方 */}
+      {!hidden && !adjusting && choices && choices.length > 0 && player.complete && current && (
+        <div className="relative z-20 mx-auto w-[min(640px,calc(100%-32px))]">
+          {choiceGate.hint && <p className="mt-1 text-center text-xs text-white/80 drop-shadow">{choiceGate.hint}</p>}
+          <RoomChoiceStatus chatId={chatId} messageId={current.id} count={choices.length} />
+        </div>
       )}
 
       {/* 选项检定的掷骰演出：盖在画面中央，演完自动发送 */}

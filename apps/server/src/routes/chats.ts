@@ -29,6 +29,7 @@ import { assembleWithVectors, loadGenerationContext } from '../services/generati
 import * as generation from '../services/generation/generation'
 import { computeStage, initialVars } from '../services/generation/stage'
 import { resolvedProfileDTO } from '../services/profiles'
+import { readableMessage } from '../services/rooms/dto'
 import { readTemporaryActors } from '../services/sprites/temporary-actors'
 import { performCheck } from '../services/trpg/trpg'
 
@@ -87,7 +88,9 @@ export const chatRoutes = new Hono()
     validate('query', z.object({ before: z.string().optional(), limit: z.coerce.number().int().optional() })),
     (c) => {
       const id = c.req.param('id')
-      return c.json(chats.getChatPage(id, c.req.valid('query'), generation.isGenerating(id)))
+      const page = chats.getChatPage(id, c.req.valid('query'), generation.isGenerating(id))
+      page.messages = page.messages.map(readableMessage)
+      return c.json(page)
     },
   )
   /** VN 视图从某条消息开头开始演时，需要这条消息之前的舞台（沿激活路径累加到它的父节点） */

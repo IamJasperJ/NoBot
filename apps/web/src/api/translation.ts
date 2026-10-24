@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react'
 import { useFreshMessage } from '../stores/freshMessages'
 import { api } from './client'
 import { keys, replaceMessage, useExtensions } from './queries'
+import { isRoomGuest } from './room-scope'
 
 const temporaryViews = new Map<string, boolean>()
 const viewListeners = new Set<() => void>()
@@ -30,8 +31,10 @@ function subscribeView(listener: () => void) {
  */
 
 /** 翻译扩展是否启用（看扩展列表里 translate 的 enabled） */
-export function useTranslateEnabled(): boolean {
-  return useExtensions().data?.find((extension) => extension.id === 'translate')?.enabled ?? false
+export function useTranslateEnabled(chatId?: string): boolean {
+  const extensions = useExtensions()
+  if (isRoomGuest(chatId)) return false
+  return extensions.data?.find((extension) => extension.id === 'translate')?.enabled ?? false
 }
 
 /**
@@ -135,6 +138,7 @@ export function useTranslationPending(message: MessageDTO): boolean {
   const extension = useExtensions().data?.find((item) => item.id === 'translate')
   const fresh = useFreshMessage(message.id, 60000)
   const pending =
+    !isRoomGuest(message.chatId) &&
     !!extension?.enabled &&
     ['responses', 'both'].includes(String(extension.settings.autoMode)) &&
     fresh &&

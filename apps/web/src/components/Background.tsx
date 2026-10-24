@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useBackgrounds, useResolvedBackgroundId } from '../api/queries'
+import { useChatBackgrounds, useResolvedBackgroundId } from '../api/queries'
 import { useAppearance } from '../stores/appearance'
 import { useStageTransition } from '../stores/vn'
 
@@ -7,7 +7,7 @@ type Layer = { url: string; video: boolean }
 
 /** 保留上一层，图片或视频首帧加载后再淡入。 */
 export function Background({ chatId }: { chatId: string | null }) {
-  const backgrounds = useBackgrounds()
+  const backgrounds = useChatBackgrounds(chatId)
   const id = useResolvedBackgroundId(chatId)
   const background = backgrounds.data?.find((b) => b.id === id)
   const { bgDim, bgBlur, bgFit, bgAnimate } = useAppearance()

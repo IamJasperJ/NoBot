@@ -18,6 +18,9 @@ import { Slot } from '../../extensions/Slot'
 import { t } from '../../i18n'
 import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
+import { RoomChoiceStatus, useChoiceGate } from '../rooms/RoomChoiceStatus'
+import { RoomMessageActions, SuggestionCount } from '../rooms/RoomMessageActions'
+import { privacyLabel, useRoomInfo } from '../rooms/shared'
 import { CheckCard } from '../trpg/DiceCard'
 import { displayMacros, FormattedText } from './format'
 import { runGeneration } from './generate'
@@ -59,30 +62,42 @@ interface Props {
 export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, showChoices, busy, cast }: Props) {
   const transforms = useExtensionsRuntime((s) => s.transforms)
   const qc = useQueryClient()
-  const liveText = useStreaming((s) => (s.messageId === msg.id ? s.text : null))
-  const liveReasoning = useStreaming((s) => (s.messageId === msg.id ? s.reasoning : null))
+  const liveText = useStreaming((s) =>
+    s.streams[msg.chatId]?.messageId === msg.id ? (s.streams[msg.chatId]?.text ?? null) : null,
+  )
+  const liveReasoning = useStreaming((s) =>
+    s.streams[msg.chatId]?.messageId === msg.id ? (s.streams[msg.chatId]?.reasoning ?? null) : null,
+  )
   const [editing, setEditing] = useState(false)
   const bookmarks = useBookmarks(chatId)
   const bookmark = bookmarks.data?.find((b) => b.messageId === msg.id && b.kind === 'bookmark')
   // 跑团：选项检定先掷骰再发送；翻译：正文可以在原文 / 译文间切换
   const trpg = useTrpgSettings(chatId)
   const pickChoice = usePickChoice(chatId)
+  const choiceGate = useChoiceGate(chatId)
   const freshCheck = useFreshDice(msg.id, trpg.diceMs)
-  const translateEnabled = useTranslateEnabled()
+  const translateEnabled = useTranslateEnabled(chatId)
   const translation = useMessageTranslation(chatId, msg)
   const view = useTranslationView(msg)
   const translating = useTranslationPending(msg)
+  const room = useRoomInfo(chatId)
+
+  // 联机房间里别人的私信、看不到的骰子：服务端只给了空占位，不显示也不占位置
+  if (msg.meta.hidden && !msg.content) return null
+  const privacy = privacyLabel(msg.meta, room)
 
   if (msg.role === 'tool')
     return <ToolMessage msg={msg} chatId={chatId} text={transformMessage(msg.content, msg, transforms)} />
   // 旁白 / 系统消息（/sys、/roll 等命令插入的）：居中的一行，不显示角色头像和名字
   // 带图片的系统消息（图片生成等插入的）照常按普通消息显示
   if (msg.role === 'system' && !msg.meta.images?.length && !msg.meta.imageGen)
-    return <NarrationMessage msg={msg} chatId={chatId} />
+    return <NarrationMessage msg={msg} chatId={chatId} badge={privacy} canDelete={!room || room.myRole === 'owner'} />
 
   const isUser = msg.role === 'user'
   const speaker = msg.speakerId ? cast.speakers[msg.speakerId] : undefined
-  const who = isUser ? cast.user : (speaker ?? { ...cast.fallback, name: msg.meta.name ?? cast.fallback.name })
+  const who = isUser
+    ? { ...cast.user, name: msg.meta.author?.name ?? msg.meta.name ?? cast.user.name }
+    : (speaker ?? { ...cast.fallback, name: msg.meta.name ?? cast.fallback.name })
   const isStreaming = liveText !== null || msg.status === 'streaming'
   // {{char}} 用这条消息的角色（用户消息里用会话的角色），{{user}} 用当前人设
   const charName = isUser ? (speaker?.name ?? cast.fallback.name) : who.name
@@ -104,7 +119,11 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
   // 最后一条角色回复可以向右滑出新的回复、可以续写；其他消息只能在已有的 swipe 间切换
   const isReply = msg.role === 'assistant' && msg.parentId !== null
   // 图片生成插入的纯图片消息，「重新生成」交给图片下方的按钮（再生成一张备选图），不当作文字回复重新生成
-  const canRegenerate = isLast && isReply && !(msg.meta.imageGen && !msg.content.trim())
+  // 联机房间：重新生成、切换候选只有房主和主持能用
+  const canRegenerate =
+    isLast && isReply && !(msg.meta.imageGen && !msg.content.trim()) && (!room || room.permissions.canRegenerate)
+  const canSwipe = !room || room.permissions.canSwipe
+  const ooc = msg.meta.channel === 'ooc'
 
   const run = (input: Parameters<typeof runGeneration>[2]) =>
     runGeneration(qc, chatId, input).catch((e) => toast.error(errorMessage(e)))
@@ -124,10 +143,10 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
 
   // 纯图片消息（图片生成扩展插入的）不显示文字回复的切换，图片自己有备选切换
   const imageOnly = !!msg.meta.imageGen && !msg.content.trim()
-  const showSwipes = !imageOnly && (msg.swipeCount > 1 || canRegenerate)
+  const showSwipes = !imageOnly && canSwipe && (msg.swipeCount > 1 || canRegenerate)
 
   return (
-    <div className={cx('group flex gap-3 px-4 py-3', msg.meta.excluded && 'opacity-55')}>
+    <div className={cx('group flex gap-3 px-4 py-3', msg.meta.excluded && !privacy && 'opacity-55')}>
       <div className="message-avatar">
         <Avatar name={who.name} url={who.avatarUrl} />
       </div>
@@ -135,14 +154,28 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
         <div className="mb-1 flex items-center gap-2 text-sm">
           <span className="font-semibold">{who.name}</span>
           {msg.status === 'aborted' && <span className="text-xs text-zinc-400">{t('已中止')}</span>}
-          {msg.meta.excluded && (
-            <span
-              title={t('这条消息不会发给模型（也不进总结）')}
-              className="inline-flex items-center gap-1 rounded-md bg-zinc-200/80 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-            >
+          {privacy ? (
+            <span className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[11px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">
               <EyeOffIcon className="size-3" />
-              {t('不发送')}
+              {privacy}
             </span>
+          ) : ooc ? (
+            <span
+              title={t('场外闲聊，AI 看不到')}
+              className="rounded-md bg-zinc-200/80 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+            >
+              {t('场外')}
+            </span>
+          ) : (
+            msg.meta.excluded && (
+              <span
+                title={t('这条消息不会发给模型（也不进总结）')}
+                className="inline-flex items-center gap-1 rounded-md bg-zinc-200/80 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+              >
+                <EyeOffIcon className="size-3" />
+                {t('不发送')}
+              </span>
+            )
           )}
           {bookmark && (
             <span
@@ -187,7 +220,17 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
               {t('调用了 {toolNames}', { toolNames: msg.meta.toolCalls.map((c) => c.name).join('、') })}
             </span>
           )}
-          {!isStreaming && !editing && (
+          {room && isReply && isLast && <SuggestionCount room={room} messageId={msg.id} />}
+          {!isStreaming && !editing && room && room.myRole !== 'owner' && (
+            <RoomMessageActions
+              room={room}
+              msg={msg}
+              isLast={isLast}
+              consumed={!isLast}
+              onEdit={() => setEditing(true)}
+            />
+          )}
+          {!isStreaming && !editing && (!room || room.myRole === 'owner') && (
             <MessageActions
               msg={msg}
               chatId={chatId}
@@ -236,12 +279,16 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
         ) : null}
 
         {choices && choices.length > 0 && (
-          <Choices
-            options={choices}
-            disabled={busy || pickChoice.busy}
-            showDc={trpg.showDc}
-            onPick={(option) => void pickChoice.pick(option).catch((e: unknown) => toast.error(errorMessage(e)))}
-          />
+          <>
+            <Choices
+              options={choices}
+              disabled={busy || pickChoice.busy || choiceGate.locked}
+              showDc={trpg.showDc}
+              onPick={(option) => void pickChoice.pick(option).catch((e: unknown) => toast.error(errorMessage(e)))}
+            />
+            {choiceGate.hint && <p className="mt-1 text-xs text-zinc-500">{choiceGate.hint}</p>}
+            <RoomChoiceStatus chatId={chatId} messageId={msg.id} count={choices.length} />
+          </>
         )}
         {/* 选项检定：发送前先在屏幕中间演出这次掷骰 */}
         {pickChoice.pending && (

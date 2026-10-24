@@ -25,7 +25,7 @@ import {
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, newId } from '../db/client'
-import { type CharacterRow, characterLorebooks, characters, lorebooks, personas } from '../db/schema'
+import { type CharacterRow, characterLorebooks, characters, chats, lorebooks, personas } from '../db/schema'
 import { paths } from '../env'
 import { cardParseMessage, HttpError, notFound } from '../errors'
 import { t } from '../i18n'
@@ -33,6 +33,7 @@ import { readCharx } from '../lib/charx'
 import { avatarUrl, deleteAvatar, readAvatar, saveAvatar } from '../lib/files'
 import { importCharacterAudio } from './audio/character-audio'
 import { requireBackground } from './backgrounds/backgrounds'
+import { deleteChat } from './chats'
 import { createEntry, createLorebook, getLorebookWithEntries } from './lorebooks'
 import { getProfile } from './profiles'
 import { quickReplyScope, setQuickReplyScope } from './quick-replies'
@@ -334,6 +335,8 @@ export async function deleteCharacter(id: string) {
 }
 export async function hardDeleteCharacter(row: CharacterRow) {
   const id = row.id
+  // 走会话生命周期清理房间目录和订阅，不能只靠角色外键级联删除正文。
+  for (const chat of db.select().from(chats).where(eq(chats.characterId, id)).all()) await deleteChat(chat.id)
   db.delete(characters).where(eq(characters.id, id)).run()
   await deleteAvatar(row.avatarFile)
   await rm(join(paths.sprites, id), { recursive: true, force: true })

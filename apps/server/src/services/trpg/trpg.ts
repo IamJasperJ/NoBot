@@ -30,10 +30,11 @@ export function performCheck(
   input: Omit<CheckInput, 'who'> & { who?: string },
   vars?: Record<string, unknown>,
   random: () => number = Math.random,
+  actorOverride?: ReturnType<typeof resolveWho>,
 ) {
   const rules = chatRules(chatId)
   if (!rules) throw new HttpError(400, 'TRPG_DISABLED', t('当前会话未启用受支持的跑团规则'))
-  const actor = resolveWho(chatId, input.who)
+  const actor = actorOverride ?? resolveWho(chatId, input.who)
   const current = vars ?? computeVars(loadPath(getChatRow(chatId).activeLeafId), initialVars(chatId).vars)
   const result = rules.check(
     { ...input, who: actor.prefix },

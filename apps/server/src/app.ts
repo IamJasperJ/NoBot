@@ -22,6 +22,7 @@ import { playPresetRoutes } from './routes/playPresets'
 import { presetRoutes } from './routes/presets'
 import { profileRoutes } from './routes/profiles'
 import { quickReplyRoutes } from './routes/quick-replies'
+import { roomRoutes } from './routes/rooms'
 import { socialRoutes } from './routes/social'
 import { trashRoutes } from './routes/trash'
 import { logError } from './services/logs'
@@ -81,3 +82,5 @@ app.all('/ext/:id/*', (c) => forwardExtension(c.req.param('id'), c.req.raw))
 
 app.route('/social', socialRoutes)
 app.route('/live', liveRoutes)
+
+app.route('/rooms', roomRoutes)

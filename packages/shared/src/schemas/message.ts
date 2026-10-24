@@ -25,6 +25,18 @@ export interface ToolCall {
 
 /** 消息的附加信息，存成 json */
 export interface MessageMeta {
+  /** 房间消息保存发送时的人设快照与真实作者，改名不影响旧消息。 */
+  author?: { userId: string; name: string }
+  channel?: 'ic' | 'ooc' | 'whisper'
+  visibility?: { level: 'public' | 'gm' | 'blind' | 'self' | 'whisper'; userIds: string[] }
+  hidden?: { reason: 'blind' | 'whisper' }
+  choice?: { messageId: string; index: number; counts?: number[] }
+  /** 房间共享语音缓存的资源归属，不依赖会被清理的事件日志。 */
+  ttsCache?: { key: string; url: string }[]
+  clientMessageId?: string
+  replyTo?: string
+  version?: number
+  edits?: { content: string; actorId: string; createdAt: number }[]
   /** 当前回复实际插入的世界书；沿消息树重放定时效果。 */
   lore?: { activated: string[]; automationIds: string[] }
   model?: string

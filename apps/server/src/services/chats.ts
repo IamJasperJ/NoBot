@@ -25,13 +25,18 @@ import {
   groupMembers,
   groups,
   messages,
+  roomEvents,
+  roomUsage,
 } from '../db/schema'
+import { systemDatabase } from '../db/system-client'
+import { rooms } from '../db/system-schema'
 import { HttpError, notFound } from '../errors'
 import { emitServerEvent } from '../extensions/registry'
 import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
+import { currentUser } from '../user-context'
 import { deleteBackground, getBackgroundSettings, requireBackground } from './backgrounds/backgrounds'
-import { isGenerating } from './generation/generation'
+import { abortGeneration, isGenerating } from './generation/generation'
 import {
   applyStageParse,
   backfillStage,
@@ -40,6 +45,7 @@ import {
   resolvePlayPreset,
   resolveStateSchema,
 } from './generation/stage'
+import { liveHub } from './live/hub'
 import { getPlayPreset } from './playPresets'
 import { getProfile } from './profiles'
 import { quickReplyScope, setQuickReplyScope } from './quick-replies'
@@ -424,6 +430,24 @@ export function updateChat(chatId: string, input: UpdateChatInput): ChatDTO {
 }
 
 export async function deleteChat(chatId: string) {
+  // 正文删除后目录也删除；房主账号删除由系统库外键级联删除目录和 ACL。
+  const room = systemDatabase()
+    .select()
+    .from(rooms)
+    .where(and(eq(rooms.chatId, chatId), eq(rooms.hostUserId, currentUser().id)))
+    .get()
+  if (room) {
+    abortGeneration(chatId)
+    systemDatabase().delete(rooms).where(eq(rooms.id, room.id)).run()
+    for (const id of liveHub.topicUsers(`room:${room.id}`)) {
+      liveHub.publishToUser(id, { type: 'room.removed', topic: `user:${id}`, data: { roomId: room.id } })
+      liveHub.disconnectUserFromTopic(id, `room:${room.id}`)
+    }
+    db.transaction(() => {
+      db.delete(roomEvents).where(eq(roomEvents.roomId, room.id)).run()
+      db.delete(roomUsage).where(eq(roomUsage.roomId, room.id)).run()
+    })
+  }
   const disposable: string[] = []
   db.transaction(() => {
     const owned = db.select().from(backgrounds).where(eq(backgrounds.chatId, chatId)).all()

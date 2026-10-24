@@ -3,9 +3,10 @@ import { useQueryClient } from '@tanstack/react-query'
 import { type KeyboardEvent, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, api } from '../../api/client'
 import { useChatPages, usePlayPresets } from '../../api/queries'
+import { clientMessageId, reportRoomTyping, useSendRoomMessage, useSendWhisper } from '../../api/rooms'
 import { useTranslateEnabled, useTranslateText } from '../../api/translation'
 import { PlusIcon, SendIcon, StopIcon, TranslateIcon } from '../../components/icons'
-import { IconButton } from '../../components/ui'
+import { cx, IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
 import { useCommandInput } from '../../hooks/useCommandInput'
@@ -16,6 +17,7 @@ import { useCommandDrafts } from '../../stores/commandInput'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { useVn, useVnMode } from '../../stores/vn'
+import { useRoomDialogs, useRoomInfo } from '../rooms/shared'
 import { CommandHints } from './CommandHints'
 import { runGeneration, runImpersonate } from './generate'
 import { QuickReplyBar } from './QuickReplyBar'
@@ -36,12 +38,29 @@ export function Composer({
   lastMessage: MessageDTO | null
 }) {
   const mobile = useMobile()
-  const translateEnabled = useTranslateEnabled()
+  const translateEnabled = useTranslateEnabled(chatId)
   const translator = useTranslateText()
   const qc = useQueryClient()
   // VN 视图切换：玩法预设开了舞台指令时才显示这一项
   const page = useChatPages(chatId).data?.pages[0]
-  const play = usePlayPresets().data?.find((p) => p.id === page?.playPresetId)?.data
+  // 联机房间：访客看不到房主的玩法预设，用房间视图里带的那份
+  const room = useRoomInfo(chatId)
+  const owner = !room || room.myRole === 'owner'
+  const perms = room?.permissions
+  // 发言频道：剧情 / 场外 / 私信（w:gm 发给房主和主持，w:<userId> 主持私信某个玩家）
+  const [channel, setChannel] = useState<'ic' | 'ooc' | `w:${string}`>('ic')
+  const sendRoom = useSendRoomMessage()
+  const sendWhisper = useSendWhisper()
+  const whisperTo = channel.startsWith('w:') ? channel.slice(2) : null
+  // 先攻模式下没轮到自己时，剧情发言会被拒绝，提前在输入框里提示
+  const turnEntry = room?.turnMode === 'initiative' ? room.initiative.order[room.initiative.current] : undefined
+  const notMyTurn =
+    channel === 'ic' &&
+    !!room &&
+    room.turnMode === 'initiative' &&
+    !(turnEntry?.kind === 'member' && turnEntry.id === room.myUserId)
+  const playPresets = usePlayPresets(chatId)
+  const play = page?.roomView?.play ?? playPresets.data?.find((p) => p.id === page?.playPresetId)?.data
   const inVn = useVnMode(chatId, !!play?.basic.openInVn)
   const setVnMode = useVn((s) => s.setMode)
   const text = useCommandDrafts((s) => s.drafts[chatId] ?? '')
@@ -79,7 +98,10 @@ export function Composer({
   const [stopImpersonate, setStopImpersonate] = useState<(() => void) | null>(null)
   const ref = useRef<HTMLTextAreaElement>(null)
   const menuRef = useRef<HTMLDetailsElement>(null)
-  const busy = generating || stopImpersonate !== null
+  // 房间里 AI 回复时大家照样可以发言（归到下一轮），只有代写时锁住输入
+  const busy = room ? stopImpersonate !== null : generating || stopImpersonate !== null
+  const aiBusy = generating || stopImpersonate !== null
+  const canTrigger = !room || !!perms?.canTrigger
 
   // 高度随内容自动增长，最多 8 行左右
   useLayoutEffect(() => {
@@ -115,7 +137,37 @@ export function Composer({
     }
     const content = text
     // 输入框为空：不发用户消息，直接让角色接着说
-    if (!content.trim() && !images.length) return trigger()
+    if (!content.trim() && !images.length) return canTrigger && !aiBusy ? trigger() : undefined
+    if (room) {
+      const sentImages = images
+      setSending(true)
+      setText('')
+      try {
+        if (whisperTo)
+          await sendWhisper.mutateAsync({
+            id: room.id,
+            input: { text: content, to: whisperTo, clientMessageId: clientMessageId() },
+          })
+        else
+          await sendRoom.mutateAsync({
+            id: room.id,
+            input: {
+              text: content,
+              channel: channel === 'ooc' ? 'ooc' : 'ic',
+              clientMessageId: clientMessageId(),
+              images: sentImages.flatMap((item) => (item.attachment ? [item.attachment.id] : [])),
+            },
+          })
+        updateImages([])
+      } catch (e) {
+        setText(content)
+        updateImages(sentImages)
+        fail(e)
+      } finally {
+        setSending(false)
+      }
+      return
+    }
     emitClientEvent({ type: 'message:sent', chatId, text: content })
     const sentImages = images
     setSending(true)
@@ -244,12 +296,14 @@ export function Composer({
               disabled={sending || images.length >= 10}
             />
             <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
-            <MenuButton
-              onClick={() => trigger()}
-              label={group ? t('按发言顺序让角色接着说') : t('让角色接着说')}
-              disabled={busy}
-            />
-            {group && (
+            {canTrigger && (
+              <MenuButton
+                onClick={() => trigger()}
+                label={group ? t('按发言顺序让角色接着说') : t('让角色接着说')}
+                disabled={aiBusy}
+              />
+            )}
+            {group && canTrigger && (
               <>
                 <div className="px-3 pt-2 pb-1 text-xs text-zinc-400">{t('点名发言')}</div>
                 {group.members.map((m) => (
@@ -257,22 +311,26 @@ export function Composer({
                     key={m.characterId}
                     onClick={() => trigger(m.characterId)}
                     label={t('让 {name} 说', { name: m.name })}
-                    disabled={busy}
+                    disabled={aiBusy}
                   />
                 ))}
                 <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
               </>
             )}
-            <MenuButton onClick={continueLast} label={t('续写最后一条回复')} disabled={busy || !canContinue} />
-            <MenuButton onClick={impersonate} label={t('代写（AI 替我写一条）')} disabled={busy} />
-            <MenuButton
-              onClick={() => {
-                closeMenu()
-                useChatOps.getState().startSelect(chatId)
-              }}
-              label={t('选择消息（批量不发给模型）')}
-            />
-            {play?.directives.enabled && (
+            {(!room || perms?.canContinue) && (
+              <MenuButton onClick={continueLast} label={t('续写最后一条回复')} disabled={aiBusy || !canContinue} />
+            )}
+            {owner && <MenuButton onClick={impersonate} label={t('代写（AI 替我写一条）')} disabled={aiBusy} />}
+            {owner && (
+              <MenuButton
+                onClick={() => {
+                  closeMenu()
+                  useChatOps.getState().startSelect(chatId)
+                }}
+                label={t('选择消息（批量不发给模型）')}
+              />
+            )}
+            {owner && play?.directives.enabled && (
               <MenuButton
                 onClick={() => {
                   closeMenu()
@@ -282,16 +340,20 @@ export function Composer({
               />
             )}
             {/* VN 视图里有自己的「调整立绘」按钮；这里是聊天视图的侧边立绘 */}
-            {play?.directives.enabled && !inVn && play.sprites.sideSprite !== 'off' && play.stage.draggable && (
-              <MenuButton
-                onClick={() => {
-                  closeMenu()
-                  useChatOps.getState().setSideAdjusting(chatId)
-                }}
-                label={t('调整侧边立绘（拖动、缩放）')}
-              />
-            )}
-            <Slot name="chat.composer.menu" props={{ chatId, setText, close: closeMenu }} />
+            {owner &&
+              play?.directives.enabled &&
+              !inVn &&
+              play.sprites.sideSprite !== 'off' &&
+              play.stage.draggable && (
+                <MenuButton
+                  onClick={() => {
+                    closeMenu()
+                    useChatOps.getState().setSideAdjusting(chatId)
+                  }}
+                  label={t('调整侧边立绘（拖动、缩放）')}
+                />
+              )}
+            {owner && <Slot name="chat.composer.menu" props={{ chatId, setText, close: closeMenu }} />}
             {/* 原来顶部标题栏里的按钮：会话设置、Prompt 预览、扩展加的按钮 */}
             <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
             {play?.directives.enabled && (
@@ -306,23 +368,66 @@ export function Composer({
             <MenuButton
               onClick={() => {
                 closeMenu()
-                togglePanel('settings')
+                if (room) useRoomDialogs.getState().openManage(room.id)
+                else useRoomDialogs.getState().openCreate(chatId)
               }}
-              label={t('会话设置')}
+              label={room ? t('房间成员与邀请') : t('开启联机…')}
             />
-            <MenuButton
-              onClick={() => {
-                closeMenu()
-                togglePanel('preview')
-              }}
-              label={t('Prompt 预览')}
-            />
-            <div className="flex flex-wrap gap-1 px-2 empty:hidden">
-              <Slot name="chat.header.actions" props={{ chatId }} />
-            </div>
+            {owner && (
+              <>
+                <MenuButton
+                  onClick={() => {
+                    closeMenu()
+                    togglePanel('settings')
+                  }}
+                  label={t('会话设置')}
+                />
+                <MenuButton
+                  onClick={() => {
+                    closeMenu()
+                    togglePanel('preview')
+                  }}
+                  label={t('Prompt 预览')}
+                />
+                <div className="flex flex-wrap gap-1 px-2 empty:hidden">
+                  <Slot name="chat.header.actions" props={{ chatId }} />
+                </div>
+              </>
+            )}
           </div>
         </details>
-        <Slot name="chat.composer.buttons" props={{ chatId }} />
+        {owner && <Slot name="chat.composer.buttons" props={{ chatId }} />}
+        {room && (
+          // 剧情：AI 会看到；场外：闲聊，不发给 AI；私信：只有对方看得到，也不发给 AI
+          <select
+            aria-label={t('发言频道')}
+            value={channel}
+            onChange={(e) => setChannel(e.target.value as typeof channel)}
+            className={cx(
+              'mb-0.5 h-7 max-w-28 shrink-0 cursor-pointer appearance-none truncate rounded-md px-2 text-xs font-semibold',
+              channel === 'ic'
+                ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
+                : whisperTo
+                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                  : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-200',
+            )}
+          >
+            <option value="ic">{t('剧情')}</option>
+            <option value="ooc">{t('场外')}</option>
+            {room.permissions.canWhisper &&
+              (room.myRole === 'player' ? (
+                <option value="w:gm">{t('私信主持')}</option>
+              ) : (
+                room.members
+                  .filter((m) => m.state === 'active' && m.userId !== room.myUserId)
+                  .map((m) => (
+                    <option key={m.userId} value={`w:${m.userId}`}>
+                      {t('私信 {name}', { name: m.personaName })}
+                    </option>
+                  ))
+              ))}
+          </select>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -338,7 +443,10 @@ export function Composer({
           ref={ref}
           rows={1}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value)
+            if (room && e.target.value) reportRoomTyping(room.id)
+          }}
           onKeyDown={onKeyDown}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.items)
@@ -352,7 +460,19 @@ export function Composer({
               addImages(files)
             }
           }}
-          placeholder={stopImpersonate ? t('代写中…') : mobile ? t('说点什么…') : t('说点什么…（Shift+Enter 换行）')}
+          placeholder={
+            stopImpersonate
+              ? t('代写中…')
+              : room && channel === 'ooc'
+                ? t('场外闲聊，AI 看不到…')
+                : whisperTo
+                  ? t('私信，只有对方看得到…')
+                  : notMyTurn
+                    ? t('还没轮到你，可以发场外或私信')
+                    : mobile
+                      ? t('说点什么…')
+                      : t('说点什么…（Shift+Enter 换行）')
+          }
           className="max-h-[200px] min-w-0 flex-1 resize-none bg-transparent py-1 text-[15px] outline-none placeholder:text-zinc-400"
         />
         {/* 翻译扩展开着时：把输入框里的文字翻成模型语言再发（命令不翻） */}

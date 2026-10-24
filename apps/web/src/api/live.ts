@@ -2,6 +2,7 @@ import { type FriendsDTO, type LiveEvent, type NotificationDTO, type PresenceDTO
 import { create } from 'zustand'
 import { apiFetch } from './fetch'
 import { queryClient } from './queryClient'
+import { applyRoomLive, clearRoomSession, roomKeys, roomLiveConnected } from './rooms'
 import { socialKeys } from './social'
 
 export const useLiveStore = create<{
@@ -81,6 +82,7 @@ export function startLive() {
     }
   })
   stop = () => {
+    clearRoomSession()
     unsubscribeCache()
     controller.abort()
     connection?.abort()
@@ -94,8 +96,13 @@ export function startLive() {
     queryClient.removeQueries({ queryKey: socialKeys.all })
   }
   const dispatch = (event: LiveEvent) => {
+    if (event.type.startsWith('room.')) {
+      applyRoomLive(event.type, event.data)
+      return
+    }
     switch (event.type) {
       case 'hello':
+        if (event.data.connectionId) roomLiveConnected(event.data.connectionId)
         snapshotCursor = event.data.cursor
         if (cursor === null) cursor = event.data.cursor
         useLiveStore.setState({
@@ -121,6 +128,7 @@ export function startLive() {
         )
         break
       case 'notification':
+        if (event.data.type.startsWith('room.')) void queryClient.invalidateQueries({ queryKey: roomKeys.all })
         if (cursor && Number(event.id) <= Number(cursor)) break
         cursor = event.id
         if (event.data.dismissedAt === null && event.data.readAt === null) {

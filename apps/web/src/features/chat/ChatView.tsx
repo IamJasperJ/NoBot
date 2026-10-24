@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef } from 'react'
 import { ApiRequestError } from '../../api/client'
 import { flattenPages, keys, useCharacter, useChatPages, usePersonas, usePlayPresets } from '../../api/queries'
+import { useRoomForChat } from '../../api/rooms'
 import { MenuIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
@@ -12,6 +13,7 @@ import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { useSyncStageTransition, useVnMode } from '../../stores/vn'
+import { RoomBar } from '../rooms/RoomBar'
 import { VnView } from '../vn/VnView'
 import { Composer } from './Composer'
 import { runGeneration } from './generate'
@@ -25,14 +27,15 @@ export function ChatView({ chatId }: { chatId: string }) {
   useEffect(() => {
     emitClientEvent({ type: 'chat:open', chatId })
   }, [chatId])
+  const roomScope = useRoomForChat(chatId)
   const qc = useQueryClient()
   const pages = useChatPages(chatId)
   const firstPage = pages.data?.pages[0]
   const chat = firstPage?.chat
   const group = firstPage?.group ?? null
   const character = useCharacter(chat?.characterId ?? null)
-  const personas = usePersonas()
-  const playPresets = usePlayPresets()
+  const personas = usePersonas(chatId)
+  const playPresets = usePlayPresets(chatId)
   const messages = useMemo(() => flattenPages(pages.data), [pages.data])
   // 图片生成、兜底情绪判断都是后台异步完成的，进行中时轮询刷新
   const pendingImage = messages.some(
@@ -45,13 +48,13 @@ export function ChatView({ chatId }: { chatId: string }) {
     }, 2000)
     return () => clearInterval(timer)
   }, [pendingImage, chatId, qc])
-  const streamingHere = useStreaming((s) => s.chatId === chatId)
+  const streamingHere = useStreaming((s) => !!s.streams[chatId])
   const setSidebarOpen = useUi((s) => s.setSidebarOpen)
   const root = useRef<HTMLDivElement>(null)
 
   // 会话里出场的人：群聊是全部成员，单人会话是那个角色；用户是会话绑定的人设（没有就用默认人设）
   const persona = personas.data?.find((p) => p.id === chat?.personaId) ?? personas.data?.find((p) => p.isDefault)
-  const play = playPresets.data?.find((p) => p.id === firstPage?.playPresetId)?.data
+  const play = firstPage?.roomView?.play ?? playPresets.data?.find((p) => p.id === firstPage?.playPresetId)?.data
   // 背景转场跟着这个会话的玩法预设走
   useSyncStageTransition(play)
   const stageCast = firstPage?.stage?.cast
@@ -81,7 +84,7 @@ export function ChatView({ chatId }: { chatId: string }) {
   // 打开会话时后端还在生成（比如刚刷新了页面）：重新接上这次生成
   const backendGenerating = firstPage?.generating ?? false
   useEffect(() => {
-    if (backendGenerating && useStreaming.getState().chatId !== chatId) {
+    if (backendGenerating && !useStreaming.getState().streams[chatId]) {
       runGeneration(qc, chatId, 'reconnect').catch((e) => toast.error(errorMessage(e)))
     }
   }, [backendGenerating, chatId, qc])
@@ -133,6 +136,7 @@ export function ChatView({ chatId }: { chatId: string }) {
         <MenuIcon />
       </IconButton>
 
+      {roomScope && <RoomBar room={roomScope.room} />}
       <OutfitPicker chatId={chatId} cast={cast} stage={firstPage?.stage ?? null} />
       {vn && play ? (
         <VnView
@@ -162,6 +166,10 @@ export function ChatView({ chatId }: { chatId: string }) {
           )}
           {selecting ? (
             <SelectionBar chatId={chatId} messages={messages} />
+          ) : roomScope?.permissions.isSpectator ? (
+            <div className="composer-bar border-t border-zinc-200 bg-white/80 px-4 py-3 text-center text-sm text-zinc-500 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/80">
+              {t('你在旁观这个房间，只能看，不能发言')}
+            </div>
           ) : (
             <Composer chatId={chatId} generating={busy} group={group} lastMessage={messages.at(-1) ?? null} />
           )}

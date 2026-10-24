@@ -11,9 +11,11 @@ import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
 import { authenticatedSession, requireAdmin } from './services/auth'
 import { logError } from './services/logs'
+import { resumeRoomStates } from './services/rooms'
 import { runAsUser } from './user-context'
 
 export function createServer() {
+  resumeRoomStates()
   const server = new Hono()
   server.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: { code: err.code, message: err.message } }, err.status)

@@ -1,5 +1,6 @@
 import type { ImageGenMeta } from '@nobot/shared'
 import { t } from '../../../../i18n'
+import { reserveChatAsset } from '../../../../services/rooms/usage'
 import { currentUser } from '../../../../user-context'
 import { getBackend } from '../backends'
 import { dimensions } from '../composition'
@@ -30,8 +31,10 @@ export async function renderImage(
     height,
     ...(referenceImage ? { referenceImage: true } : {}),
   }
+  let roomUsage: ReturnType<typeof reserveChatAsset>
   try {
     validate(settings)
+    roomUsage = reserveChatAsset(chatId, 'image')
     const handle = currentUser().handle
     let imageQueue = imageQueues.get(handle)
     if (!imageQueue) {
@@ -53,6 +56,7 @@ export async function renderImage(
       (position) => stage?.('queued', position),
     )
     signal?.throwIfAborted()
+    roomUsage?.saved()
     ctx.host.log({
       chatId,
       kind: 'image',
@@ -77,6 +81,8 @@ export async function renderImage(
       },
     })
     throw error
+  } finally {
+    roomUsage?.release()
   }
 }
 export async function testImage(ctx: Context) {

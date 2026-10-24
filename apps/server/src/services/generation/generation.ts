@@ -22,6 +22,7 @@ import { applyAutomaticBackground, loreBackgroundId } from '../backgrounds/auto-
 import { replaceImageAttachments } from '../caption'
 import { computeVars, loadMessage, loadPath } from '../chats'
 import { insertLog, logError } from '../logs'
+import { multiplayerPrompt } from '../rooms/prompt'
 import { classifyMessage } from './classify'
 import { assemble, assembleWithVectors, type GenerationContext, loadGenerationContext } from './context'
 import { applyStageParse, backfillStage, initialVars } from './stage'
@@ -38,7 +39,13 @@ import { applyStageParse, backfillStage, initialVars } from './stage'
 const MAX_TOOL_ROUNDS = 5
 const FLUSH_INTERVAL_MS = 1000
 
+interface GenerationHooks {
+  beforeMessage?: () => void
+  /** 在消息提交事务内写房间事件与账本，返回提交后才执行的广播。 */
+  saved?: (message: MessageDTO) => () => void
+}
 interface Job {
+  hooks?: GenerationHooks
   chatId: string
   controller: AbortController
   /** 正在生成的那条消息；两条消息之间为 null */
@@ -136,7 +143,7 @@ function pickSpeakers(
  * 发起生成。同步完成：校验、组装一遍 Prompt（失败就直接报错，什么都不写入）、插入用户消息、登记任务；
  * 真正调用模型在后台异步进行。
  */
-export function startGeneration(chatId: string, input: GenerateInput): Job {
+export function startGeneration(chatId: string, input: GenerateInput, hooks?: GenerationHooks): Job {
   if (jobs.has(chatId)) throw new HttpError(409, 'BUSY', t('这个会话正在生成中，请先等它结束或点停止'))
   backfillStage(chatId)
   const ctx = loadGenerationContext(chatId, { requireConnection: true })
@@ -195,6 +202,9 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
     }
   }
 
+  const multiplayer = multiplayerPrompt(chatId, leafId)
+  if (multiplayer) plan.speakers = plan.speakers.slice(0, 3)
+
   // 先组装一遍第一位发言者的 Prompt：超长、缺连接等问题在这里就报错，不写入任何东西
   const preflight = assemble(ctx, {
     type: plan.type,
@@ -238,7 +248,14 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
     }
   }
 
-  const job: Job = { chatId, controller: new AbortController(), current: null, finished: null, listeners: new Set() }
+  const job: Job = {
+    hooks,
+    chatId,
+    controller: new AbortController(),
+    current: null,
+    finished: null,
+    listeners: new Set(),
+  }
   jobs.set(chatId, job)
   void runJob(job, ctx, plan)
   return job
@@ -250,6 +267,8 @@ export function startGeneration(chatId: string, input: GenerateInput): Job {
 
 async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
   const finished: GenerateEvent[] = []
+  let roomMessageCount = 0
+  const room = multiplayerPrompt(job.chatId, plan.parentId)
   try {
     if (plan.pendingUser) {
       const input = await prepareUserTranslation(plan.pendingUser, job.chatId)
@@ -285,7 +304,9 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
       let userMessage = index === 0 ? plan.userMessage : undefined
 
       for (let round = 0; ; round++) {
-        if (job.controller.signal.aborted) break speakers
+        if (job.controller.signal.aborted || (room && roomMessageCount >= 3)) break speakers
+        job.hooks?.beforeMessage?.()
+        roomMessageCount++
         const step = await generateOne(job, ctx, { speakerId, parentId, type, continueTarget, userMessage })
         if (step.error) finished.push(step.error)
         parentId = step.message.id
@@ -513,14 +534,18 @@ async function generateOne(
   // 生成期间允许切换排除标记，落库前读取最新值，避免内存快照把用户操作覆盖。
   if (loadMessage(messageId).meta.excluded === true) meta.excluded = true
   else delete meta.excluded
-  db.update(messages)
-    .set({
-      content,
-      status,
-      meta: applyStageParse(job.chatId, { role: 'assistant', status, parentId: step.parentId, meta }, content),
-    })
-    .where(eq(messages.id, messageId))
-    .run()
+  const afterCommit = db.transaction(() => {
+    db.update(messages)
+      .set({
+        content,
+        status,
+        meta: applyStageParse(job.chatId, { role: 'assistant', status, parentId: step.parentId, meta }, content),
+      })
+      .where(eq(messages.id, messageId))
+      .run()
+    return job.hooks?.saved?.(loadMessage(messageId))
+  })
+  afterCommit?.()
   if (status === 'done' && !errorEvent) {
     classifyMessage(messageId)
     if (!toolCalls.length) await applyAutomaticBackground(job.chatId, loreId, !step.continueTarget)

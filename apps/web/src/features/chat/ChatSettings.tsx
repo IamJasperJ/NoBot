@@ -424,7 +424,7 @@ function GroupMembers({ page, onEdit }: { page: ChatPage; onEdit: () => void }) 
   const qc = useQueryClient()
   const group = page.group as NonNullable<ChatPage['group']>
   const chatId = page.chat.id
-  const generating = useStreaming((s) => s.chatId === chatId) || page.generating
+  const generating = useStreaming((s) => !!s.streams[chatId]) || page.generating
 
   const setMuted = async (characterId: string, muted: boolean) => {
     try {

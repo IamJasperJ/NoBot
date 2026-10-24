@@ -6,6 +6,7 @@ import { notFound } from '../errors'
 import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
 import { getCharacterRow, hardDeleteCharacter } from './characters'
+import { deleteChat } from './chats'
 import { getGroup } from './groups'
 
 type TrashKind = 'character' | 'group'
@@ -107,6 +108,7 @@ export async function purgeTrash(kind: TrashKind, id: string) {
     await hardDeleteCharacter(requireDeletedCharacter(id))
   } else {
     requireDeletedGroup(id)
+    for (const chat of db.select().from(chats).where(eq(chats.groupId, id)).all()) await deleteChat(chat.id)
     db.delete(groups).where(eq(groups.id, id)).run()
   }
 }

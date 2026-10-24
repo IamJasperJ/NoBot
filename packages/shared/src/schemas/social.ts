@@ -60,7 +60,13 @@ export type LiveEvent =
   | {
       type: 'hello'
       topic: string
-      data: { serverTime: number; cursor: string | null; unreadCount: number; presence: Record<string, PresenceDTO> }
+      data: {
+        connectionId?: string
+        serverTime: number
+        cursor: string | null
+        unreadCount: number
+        presence: Record<string, PresenceDTO>
+      }
     }
   | { type: 'presence'; topic: string; data: { userId: string; presence: PresenceDTO } }
   | { type: 'notification'; topic: string; id: string; data: NotificationDTO }

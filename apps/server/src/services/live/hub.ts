@@ -2,13 +2,14 @@ import type { LiveEnvelope } from '@nobot/shared'
 
 export class LiveHub {
   private connections = new Set<{
+    id: string
     userId: string
     topics: Set<string>
     send: (event: LiveEnvelope) => void
     close: () => void
   }>()
-  register(userId: string, send: (event: LiveEnvelope) => void, close: () => void) {
-    const connection = { userId, topics: new Set([`user:${userId}`]), send, close }
+  register(userId: string, send: (event: LiveEnvelope) => void, close: () => void, id = crypto.randomUUID()) {
+    const connection = { id, userId, topics: new Set([`user:${userId}`]), send, close }
     this.connections.add(connection)
     return {
       // 每次加入都重新鉴权；MP2 应在踢人后同步撤销已有订阅。
@@ -20,6 +21,12 @@ export class LiveHub {
       },
       dispose: () => this.connections.delete(connection),
     }
+  }
+  connection(userId: string, id: string) {
+    return [...this.connections].find((c) => c.id === id && c.userId === userId)
+  }
+  topicUsers(topic: string) {
+    return [...new Set([...this.connections].filter((c) => c.topics.has(topic)).map((c) => c.userId))]
   }
   publishToUser(userId: string, event: LiveEnvelope) {
     this.publishToUsers([userId], event)

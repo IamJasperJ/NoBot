@@ -6,7 +6,9 @@ import { t } from '../../../../i18n'
 import { validate } from '../../../../lib/validate'
 import { listAudioTracks } from '../../../../services/audio/audio-library'
 import { getCharacterRow, updateCharacter } from '../../../../services/characters'
+import { loadMessage } from '../../../../services/chats'
 import { listApiPresets } from '../../../../services/connections'
+import { readableMessage } from '../../../../services/rooms/dto'
 import { getLanguage } from '../../../../services/settings'
 import { currentUser } from '../../../../user-context'
 import type { ExtensionHost, ExtensionStorage } from '../../../types'
@@ -168,6 +170,8 @@ export function registerTtsRoutes(
     ),
     async (c) => {
       const input = c.req.valid('json')
+      if (input.messageId && readableMessage(loadMessage(input.messageId)).meta.hidden)
+        throw new HttpError(404, 'NOT_FOUND', t('消息不在这个会话里'))
       const settings = effectiveSettings(input.chatId, audioSettings.parse(ctx.settings), ctx.storage)
       if (!settings.ttsEnabled) throw new HttpError(400, 'TTS_DISABLED', t('还没有开启朗读'))
       if (
@@ -223,6 +227,8 @@ export function registerTtsRoutes(
   )
   app.post('/tts/message', validate('json', z.object({ messageId: z.string().min(1) })), async (c) => {
     const messageId = c.req.valid('json').messageId
+    if (readableMessage(loadMessage(messageId)).meta.hidden)
+      throw new HttpError(404, 'NOT_FOUND', t('消息不在这个会话里'))
     const result = messageSegments(messageId)
     const settings = effectiveSettings(result.chatId, audioSettings.parse(ctx.settings), ctx.storage)
     if (!settings.ttsEnabled) throw new HttpError(400, 'TTS_DISABLED', t('还没有开启朗读'))

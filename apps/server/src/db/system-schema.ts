@@ -66,3 +66,152 @@ export const userPresencePrefs = sqliteTable('user_presence_prefs', {
   userId: userRef('user_id').primaryKey(),
   status: text('status', { enum: ['auto', 'dnd', 'invisible'] }).notNull(),
 })
+
+export const rooms = sqliteTable(
+  'rooms',
+  {
+    id: text('id').primaryKey(),
+    hostUserId: userRef('host_user_id'),
+    chatId: text('chat_id').notNull().unique(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    coverAsset: text('cover_asset'),
+    mode: text('mode', { enum: ['chat', 'trpg', 'custom'] })
+      .notNull()
+      .default('chat'),
+    turnMode: text('turn_mode', { enum: ['smart', 'auto', 'mention', 'host', 'initiative'] })
+      .notNull()
+      .default('smart'),
+    contentRating: text('content_rating', { enum: ['general', 'mature', 'explicit'] })
+      .notNull()
+      .default('general'),
+    contentNotes: text('content_notes').notNull().default(''),
+    rules: text('rules').notNull().default(''),
+    rulesVersion: integer('rules_version').notNull().default(1),
+    gmApprovesCharacters: integer('gm_approves_characters', { mode: 'boolean' }).notNull().default(false),
+    allowSpectators: integer('allow_spectators', { mode: 'boolean' }).notNull().default(false),
+    spectatorHistory: text('spectator_history', { enum: ['all', 'since-join'] })
+      .notNull()
+      .default('since-join'),
+    maxSpectators: integer('max_spectators').notNull().default(20),
+    asyncMode: integer('async_mode', { mode: 'boolean' }).notNull().default(false),
+    roundDeadlineHours: integer('round_deadline_hours'),
+    maxMembers: integer('max_members').notNull().default(8),
+    guestQuota: text('guest_quota', { mode: 'json' })
+      .$type<{ perHour: number; perDay: number }>()
+      .notNull()
+      .default({ perHour: 30, perDay: 300 }),
+    allowMemberInvites: integer('allow_member_invites', { mode: 'boolean' }).notNull().default(false),
+    allowGmKick: integer('allow_gm_kick', { mode: 'boolean' }).notNull().default(false),
+    autoResolveWhenReady: integer('auto_resolve_when_ready', { mode: 'boolean' }).notNull().default(true),
+    choiceMode: text('choice_mode', { enum: ['gm', 'vote', 'each'] })
+      .notNull()
+      .default('gm'),
+    voteTimeoutSeconds: integer('vote_timeout_seconds').notNull().default(60),
+    status: text('status', { enum: ['active', 'paused', 'archived'] })
+      .notNull()
+      .default('active'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => [index('rooms_host_idx').on(t.hostUserId)],
+)
+const roomRef = () =>
+  text('room_id')
+    .notNull()
+    .references(() => rooms.id, { onDelete: 'cascade' })
+export const roomMembers = sqliteTable(
+  'room_members',
+  {
+    roomId: roomRef(),
+    userId: userRef('user_id'),
+    role: text('role', { enum: ['owner', 'gm', 'player', 'spectator'] }).notNull(),
+    state: text('state', { enum: ['active', 'left', 'kicked'] })
+      .notNull()
+      .default('active'),
+    personaName: text('persona_name').notNull(),
+    personaDescription: text('persona_description').notNull(),
+    personaAvatarFile: text('persona_avatar_file'),
+    acceptedRulesVersion: integer('accepted_rules_version').notNull(),
+    joinedAt: integer('joined_at').notNull(),
+    joinedSeq: integer('joined_seq').notNull().default(0),
+    notifyPreference: text('notify_preference', { enum: ['all', 'mentions', 'none'] })
+      .notNull()
+      .default('all'),
+    lastReadSeq: integer('last_read_seq').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.roomId, t.userId] }), index('room_members_user_idx').on(t.userId, t.state)],
+)
+export const roomInvites = sqliteTable('room_invites', {
+  id: text('id').primaryKey(),
+  roomId: roomRef(),
+  createdBy: userRef('created_by'),
+  role: text('role', { enum: ['player', 'spectator'] })
+    .notNull()
+    .default('player'),
+  kind: text('kind', { enum: ['direct', 'link'] }).notNull(),
+  targetUserId: text('target_user_id').references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').unique(),
+  expiresAt: integer('expires_at').notNull(),
+  maxUses: integer('max_uses'),
+  uses: integer('uses').notNull().default(0),
+  revokedAt: integer('revoked_at'),
+})
+export const roomBans = sqliteTable(
+  'room_bans',
+  {
+    roomId: roomRef(),
+    userId: userRef('user_id'),
+    by: userRef('by'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.roomId, t.userId] })],
+)
+
+/** 提案快照仅存明确共享字段，不持有来源用户的上下文或私人卡片。 */
+export const roomCharacterProposals = sqliteTable('room_character_proposals', {
+  id: text('id').primaryKey(),
+  roomId: roomRef(),
+  userId: userRef('user_id'),
+  sourceCharacterId: text('source_character_id').notNull(),
+  preview: text('preview', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  note: text('note').notNull(),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] })
+    .notNull()
+    .default('pending'),
+  copyId: text('copy_id'),
+  createdAt: integer('created_at').notNull(),
+})
+export const roomSessions = sqliteTable('room_sessions', {
+  id: text('id').primaryKey(),
+  roomId: roomRef(),
+  title: text('title').notNull(),
+  startsAt: integer('starts_at').notNull(),
+  durationMinutes: integer('duration_minutes').notNull(),
+  note: text('note').notNull(),
+  createdBy: userRef('created_by'),
+  cancelledAt: integer('cancelled_at'),
+  remindedAt: integer('reminded_at'),
+})
+export const roomSessionRsvps = sqliteTable(
+  'room_session_rsvps',
+  {
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => roomSessions.id, { onDelete: 'cascade' }),
+    userId: userRef('user_id'),
+    response: text('response', { enum: ['yes', 'maybe', 'no'] }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.sessionId, t.userId] })],
+)
+export const roomTransfers = sqliteTable('room_transfers', {
+  roomId: roomRef().primaryKey(),
+  fromUserId: userRef('from_user_id'),
+  toUserId: userRef('to_user_id'),
+  createdAt: integer('created_at').notNull(),
+})
+export const roomNotificationDeliveries = sqliteTable('room_notification_deliveries', {
+  key: text('key').primaryKey(),
+  roomId: roomRef(),
+  createdAt: integer('created_at').notNull(),
+})

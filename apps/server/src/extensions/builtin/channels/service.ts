@@ -44,9 +44,11 @@ import { abortTurn, editRoomMessage, sendRoomMessage, triggerTurn } from '../../
 import { subscribeSocialNotifications } from '../../../services/social'
 import { currentUser, runAsUser } from '../../../user-context'
 import type { ExtensionHost, ServerEvent } from '../../types'
+import { downloadTelegramFile } from './adapters/telegram/media'
 import { decodeTelegram, type TelegramEvent } from './adapters/telegram/receive'
 import { escapeHtml, inlineTelegramSegments, renderTelegram, type TelegramSegment } from './adapters/telegram/render'
 import { DeferredTelegramStream, type TelegramStream, TelegramTextStream } from './adapters/telegram/stream'
+import { OutboundMedia } from './outbound-media'
 import { chooseActorPersona, syncActorPersona } from './personas'
 import { checkIdle, groupAdded, markLeft, requestLocation } from './policies'
 import { reactToMessage } from './reactions'
@@ -59,7 +61,12 @@ const refused = () => new HttpError(403, 'CHANNEL_REFUSED', t('没有渠道操�
 type MessageEvent = Extract<TelegramEvent, { type: 'message' | 'edit' }>
 export class ChannelService {
   readonly runtime: ChannelRuntime
-  private queued = new Map<string, string[]>()
+  readonly media: OutboundMedia
+  private albums = new Map<
+    string,
+    { event: MessageEvent; images: string[]; texts: string[]; timer: ReturnType<typeof setTimeout> }
+  >()
+  private queued = new Map<string, { texts: string[]; images: string[] }>()
   private deliveryTails = new Map<string, Promise<unknown>>()
   private inputTails = new Map<string, Promise<unknown>>()
   private generationSubscriptions = new Map<string, () => void>()
@@ -76,6 +83,7 @@ export class ChannelService {
     readonly globalSettings: () => Record<string, unknown>,
   ) {
     this.runtime = new ChannelRuntime(host, (id, update) => this.receive(id, update))
+    this.media = new OutboundMedia(host, (id, code) => this.runtime.log(id, code))
     const owner = currentUser()
     const ownerId = owner.id
     this.unlistenNotifications = subscribeSocialNotifications((userId, type, payload) => {
@@ -148,6 +156,8 @@ export class ChannelService {
     this.idleTimer.unref()
   }
   dispose() {
+    for (const album of this.albums.values()) clearTimeout(album.timer)
+    this.albums.clear()
     this.runtime.dispose()
     this.unlisten()
     this.unlistenNotifications()
@@ -338,10 +348,6 @@ export class ChannelService {
       const rateLimit = resolveChannelSettings(row.config, rateBinding, this.globalSettings()).values.actorRateLimit
       if (recent.length >= rateLimit) throw refused()
       this.rates.set(rateKey, [...recent, Date.now()])
-      if (event.unsupportedMedia) {
-        await this.send(id, String(event.chat.id), t('暂不支持图片或语音，请发送文字'))
-        return
-      }
       const binding = await this.resolveBinding(id, event, actor)
       if (binding && (event.forum_topic_created || event.forum_topic_edited)) {
         const topicTitle = event.forum_topic_created?.name ?? event.forum_topic_edited?.name
@@ -377,59 +383,98 @@ export class ChannelService {
         await this.command(binding, actor, event)
         return
       }
-      const isOoc = event.text.startsWith('((')
-      if (binding.roomId) {
-        const memberId = actor.linkedUserId ?? actor.externalUserId
-        if (!memberId) throw refused()
-        let replyTo: string | undefined
-        if (event.reply_to_message || event.mentionsBot) {
-          const history = this.host.getChatInfo(binding.chatId, 1000).messages
-          const externalReply = event.reply_to_message ? String(event.reply_to_message.message_id) : undefined
-          const delivery = externalReply
-            ? db
-                .select()
-                .from(channelDeliveries)
-                .where(eq(channelDeliveries.bindingId, binding.id))
-                .all()
-                .find((d) =>
-                  d.parts.some((part) => part.externalChat === binding.chat && part.externalId === externalReply),
-                )
-            : undefined
-          replyTo =
-            delivery?.messageId ??
-            history.find((message) => message.meta.clientMessageId === `telegram:${event.chat.id}:${externalReply}`)?.id
-          if (!replyTo && event.mentionsBot)
-            replyTo = history
-              .filter(
-                (message) =>
-                  message.role === 'assistant' &&
-                  (!message.meta.visibility || message.meta.visibility.level === 'public'),
-              )
-              .at(-1)?.id
+      const images: string[] = []
+      const audio = event.voice ?? event.audio ?? event.video_note
+      if (audio) {
+        if (!this.settings(binding).values.voiceInput) {
+          await this.send(id, binding.chat, t('语音识别尚未启用，请发送文字'), binding.thread)
+          return
         }
-        const send = () =>
-          sendRoomMessage(
-            binding.roomId!,
+        await entry.client.serialized(binding.chat, () =>
+          entry.client.call('sendChatAction', {
+            chat_id: binding.chat,
+            message_thread_id: binding.thread || undefined,
+            action: 'typing',
+          }),
+        )
+        const bytes = await downloadTelegramFile(entry.client, audio)
+        let result: Awaited<ReturnType<ExtensionHost['transcribe']>>
+        try {
+          result = await this.host.transcribe(
+            bytes,
+            audio.mime_type ?? (event.video_note ? 'video/mp4' : 'audio/ogg'),
             {
-              text: event.text,
-              channel: isOoc ? 'ooc' : 'ic',
-              clientMessageId: `telegram:${event.chat.id}:${event.message_id}`,
-              replyTo,
+              durationMs: audio.duration === undefined ? undefined : audio.duration * 1000,
             },
-            {},
-            memberId,
-            binding.trigger === 'follow-room' || this.triggered(binding, event),
           )
-        asChannelActor(binding, actor, send)
-      } else if (this.triggered(binding, event)) {
-        if (isOoc)
-          this.host.appendMessage(binding.chatId, {
-            role: 'user',
-            content: event.text,
-            meta: { excluded: true, channel: 'ooc' },
-          })
-        else await this.generate(binding, { mode: 'send', text: event.text, images: [] })
+        } catch (error) {
+          if (!(error instanceof HttpError)) throw error
+          await this.send(id, binding.chat, error.message, binding.thread)
+          return
+        }
+        if (result.kind === 'unavailable') {
+          await this.send(id, binding.chat, t('语音识别尚未启用，请发送文字'), binding.thread)
+          return
+        }
+        // 附件服务只支持图片；原始音频不伪装成图片，历史只保存识别文本。
+        event.text = result.text
+        if (this.settings(binding).values.echoTranscript)
+          await entry.client.serialized(binding.chat, () =>
+            entry.client.call('sendMessage', {
+              chat_id: binding.chat,
+              message_thread_id: binding.thread || undefined,
+              text: `🎤 ${result.text}`.slice(0, 4096),
+              reply_parameters: { message_id: event.message_id },
+            }),
+          )
       }
+      const photo =
+        event.photo
+          ?.filter((p) => (p.file_size ?? 0) <= 20 * 1024 * 1024)
+          .sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))[0] ??
+        (event.document?.mime_type?.startsWith('image/') ? event.document : undefined)
+      if (event.photo?.length && !photo)
+        throw new HttpError(413, 'TOO_LARGE', t('文件太大（上限 {limit}MB）', { limit: 20 }))
+      if (photo) {
+        const bytes = await downloadTelegramFile(entry.client, photo)
+        if (binding.roomId) {
+          // 房间上传同时登记 room.asset，让后续发送沿用网页端的附件归属校验。
+          const form = new FormData()
+          form.set('chatId', binding.chatId)
+          form.set('file', new Blob([new Uint8Array(bytes)], { type: photo.mime_type ?? 'image/jpeg' }), 'photo')
+          const response = await asChannelActor(binding, actor, () =>
+            dispatchScope(
+              binding.roomId!,
+              new Request('http://room/attachments', { method: 'POST', body: form }),
+              '/attachments',
+            ),
+          )
+          const attachment = (await response.json()) as { id: string }
+          images.push(attachment.id)
+        } else images.push((await this.host.saveImage(bytes)).id)
+      }
+      if (event.media_group_id && images.length) {
+        const albumKey = JSON.stringify([id, binding.id, actor.id, event.media_group_id])
+        const old = this.albums.get(albumKey)
+        if (old) {
+          clearTimeout(old.timer)
+          old.images.push(...images)
+          if (event.text) old.texts.push(event.text)
+        }
+        const album = old ?? { event, images, texts: event.text ? [event.text] : [], timer: setTimeout(() => {}, 0) }
+        clearTimeout(album.timer)
+        album.timer = setTimeout(() => {
+          this.albums.delete(albumKey)
+          const latest = bindingRow(binding.id)
+          if (latest.state !== 'active') return
+          void this.acceptInput(latest, actor, { ...album.event, text: album.texts.join('\n') }, album.images).catch(
+            () => this.runtime.log(id, 'media.album.failed'),
+          )
+        }, 1500)
+        this.albums.set(albumKey, album)
+        return
+      }
+      await this.acceptInput(binding, actor, event, images)
     } catch (error) {
       if (error instanceof HttpError && error.status < 500) {
         if ('chat' in event && event.chat && 'id' in event.chat)
@@ -441,6 +486,62 @@ export class ChannelService {
           .run()
         throw error
       }
+    }
+  }
+  private async acceptInput(binding: ChannelBindingDTO, actor: ChannelActorDTO, event: MessageEvent, images: string[]) {
+    const isOoc = event.text.startsWith('((')
+    if (binding.roomId) {
+      const memberId = actor.linkedUserId ?? actor.externalUserId
+      if (!memberId) throw refused()
+      let replyTo: string | undefined
+      if (event.reply_to_message || event.mentionsBot) {
+        const history = this.host.getChatInfo(binding.chatId, 1000).messages
+        const externalReply = event.reply_to_message ? String(event.reply_to_message.message_id) : undefined
+        const delivery = externalReply
+          ? db
+              .select()
+              .from(channelDeliveries)
+              .where(eq(channelDeliveries.bindingId, binding.id))
+              .all()
+              .find((d) =>
+                d.parts.some((part) => part.externalChat === binding.chat && part.externalId === externalReply),
+              )
+          : undefined
+        replyTo =
+          delivery?.messageId ??
+          history.find((message) => message.meta.clientMessageId === `telegram:${event.chat.id}:${externalReply}`)?.id
+        if (!replyTo && event.mentionsBot)
+          replyTo = history
+            .filter(
+              (message) =>
+                message.role === 'assistant' &&
+                (!message.meta.visibility || message.meta.visibility.level === 'public'),
+            )
+            .at(-1)?.id
+      }
+      const send = () =>
+        sendRoomMessage(
+          binding.roomId!,
+          {
+            text: event.text,
+            images,
+            channel: isOoc ? 'ooc' : 'ic',
+            clientMessageId: `telegram:${event.chat.id}:${event.message_id}`,
+            replyTo,
+          },
+          {},
+          memberId,
+          binding.trigger === 'follow-room' || this.triggered(binding, event),
+        )
+      asChannelActor(binding, actor, send)
+    } else if (this.triggered(binding, event)) {
+      if (isOoc)
+        this.host.appendMessage(binding.chatId, {
+          role: 'user',
+          content: event.text,
+          meta: { excluded: true, channel: 'ooc' },
+        })
+      else await this.generate(binding, { mode: 'send', text: event.text, images })
     }
   }
   private triggered(binding: ChannelBindingDTO, event: MessageEvent) {
@@ -643,17 +744,19 @@ export class ChannelService {
     ) {
       const queued = this.queued.get(binding.id)
       if (queued) {
-        queued.push(input.text)
+        queued.texts.push(input.text)
+        queued.images.push(...(input.images ?? []))
         return
       }
       const texts = [input.text]
-      this.queued.set(binding.id, texts)
+      const images = [...(input.images ?? [])]
+      this.queued.set(binding.id, { texts, images })
       void this.host
         .waitIdle(binding.chatId, 120000)
         .then(() => {
           this.queued.delete(binding.id)
           if (bindingRow(binding.id).state !== 'active' || !this.runtime.accounts.has(binding.accountId)) return
-          this.host.generate(binding.chatId, { ...input, text: texts.join('\n') })
+          this.host.generate(binding.chatId, { ...input, text: texts.join('\n'), images })
           this.watchJobs()
         })
         .catch(() => {
@@ -699,7 +802,22 @@ export class ChannelService {
       const match = /\s+(public|gm|blind|self)$/.exec(command.args)
       const visibility = (match?.[1] as 'public' | 'gm' | 'blind' | 'self' | undefined) ?? 'public'
       const expression = match ? command.args.slice(0, match.index).trim() : command.args
-      return asChannelActor(binding, actor, () => rollRoom(roomId, { expression, visibility }))
+      const result = asChannelActor(binding, actor, () => rollRoom(roomId, { expression, visibility }))
+      await this.deliveryTails.get(binding.id)
+      if (visibility === 'public' && binding.scope === 'group' && this.settings(binding).values.diceAnimation) {
+        const client = this.runtime.accounts.get(binding.accountId)?.client
+        // NoBot 的检定结果始终有效；平台随机骰子只作装饰，必须排在结果之后。
+        await client
+          ?.serialized(binding.chat, () =>
+            client.call('sendDice', {
+              chat_id: binding.chat,
+              message_thread_id: binding.thread || undefined,
+              emoji: '🎲',
+            }),
+          )
+          .catch(() => this.runtime.log(binding.accountId, 'media.dice.failed'))
+      }
+      return result
     }
     if (command.name === 'whisper') {
       if (!roomId) throw refused()
@@ -970,6 +1088,23 @@ export class ChannelService {
       .where(and(eq(channelDeliveries.bindingId, binding.id), eq(channelDeliveries.messageId, action.messageId ?? '')))
       .get()
     if (!last || last.revision !== action.revision) throw refused()
+    if (action.action === 'speak') {
+      asChannelActor(binding, actor, () => {})
+      const message = action.messageId ? loadMessage(action.messageId) : null
+      if (!message || this.settings(binding).values.voice !== 'button') throw refused()
+      if (
+        message.meta.hidden ||
+        message.meta.channel === 'whisper' ||
+        (message.meta.visibility && message.meta.visibility.level !== 'public')
+      )
+        throw refused()
+      const sendingId = last.parts[0]?.accountId ?? accountId
+      const client = this.runtime.accounts.get(sendingId)?.client
+      const identity = accountRow(sendingId).config
+      const native = identity.characterMode === 'fixed' && identity.characterId === message.speakerId
+      if (client) await this.media.speak(binding, message, client, sendingId, native)
+      return
+    }
     if (action.action === 'choice' && binding.roomId)
       return asChannelActor(binding, actor, () =>
         pickRoomChoice(binding.roomId!, action.messageId!, Number(action.args.index)),
@@ -1135,6 +1270,9 @@ export class ChannelService {
     const text = `${!nativeIdentity && settings.personaPrefix && message.meta.name ? `${message.meta.name}: ` : ''}${visible}`
     if (!text) {
       stream?.abort()
+      await this.media
+        .deliver(binding, message, settings, entry.client, sendingAccountId, nativeIdentity)
+        .catch(() => this.runtime.log(sendingAccountId, 'media.failed'))
       return
     }
     const contentHash = createHash('sha256')
@@ -1142,6 +1280,9 @@ export class ChannelService {
       .digest('hex')
     if (previous?.messageId === message.id && previous.contentHash === contentHash) {
       stream?.abort()
+      await this.media
+        .deliver(binding, message, settings, entry.client, sendingAccountId, nativeIdentity)
+        .catch(() => this.runtime.log(sendingAccountId, 'media.failed'))
       return
     }
     const revision = (previous?.revision ?? -1) + 1
@@ -1160,6 +1301,7 @@ export class ChannelService {
         settings.nextButton && ['▶', 'swipe-next'],
         settings.continueButton && ['➕', 'continue'],
         settings.deleteButton && ['🗑', 'delete'],
+        settings.voice === 'button' && ['🔊', 'speak'],
       ].filter((x): x is string[] => !!x)
       if (controls.length)
         rows.push(
@@ -1271,6 +1413,9 @@ export class ChannelService {
         },
       })
       .run()
+    await this.media
+      .deliver(binding, message, settings, entry.client, sendingAccountId, nativeIdentity)
+      .catch(() => this.runtime.log(sendingAccountId, 'media.failed'))
   }
   private token(
     binding: ChannelBindingDTO,
@@ -1333,15 +1478,28 @@ export class ChannelService {
         }
       }
     }
+    if (event.type === 'message:saved' && (event.message.meta.imageGen || event.message.meta.images?.length)) {
+      for (const binding of listBindings().filter((b) => b.chatId === event.message.chatId && b.state === 'active'))
+        void this.deliver(binding, event.message).catch(() => {})
+    }
     if (event.type === 'message:updated') {
       for (const binding of listBindings().filter((b) => b.chatId === event.message.chatId && b.state === 'active')) {
-        if (getChatRow(binding.chatId).activeLeafId !== event.message.id) continue
-        clearTimeout(this.editTimers.get(binding.id))
+        if (
+          getChatRow(binding.chatId).activeLeafId !== event.message.id &&
+          !event.message.meta.imageGen &&
+          !event.message.meta.cg
+        )
+          continue
+        clearTimeout(this.editTimers.get(`${binding.id}:${event.message.id}`))
         this.editTimers.set(
-          binding.id,
+          `${binding.id}:${event.message.id}`,
           setTimeout(() => {
-            this.editTimers.delete(binding.id)
-            if (getChatRow(binding.chatId).activeLeafId === event.message.id)
+            this.editTimers.delete(`${binding.id}:${event.message.id}`)
+            if (
+              getChatRow(binding.chatId).activeLeafId === event.message.id ||
+              event.message.meta.imageGen ||
+              event.message.meta.cg
+            )
               void this.deliver(binding, event.message).catch(() => {})
           }, this.settings(binding).values.streamIntervalMs),
         )

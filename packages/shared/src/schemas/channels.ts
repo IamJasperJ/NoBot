@@ -3,6 +3,15 @@ import { z } from 'zod'
 export const channelProvider = z.enum(['telegram', 'onebot11'])
 export type ChannelProvider = z.infer<typeof channelProvider>
 export const channelSettingsSchema = z.object({
+  voice: z.enum(['off', 'auto', 'button']).default('button'),
+  voiceInput: z.boolean().default(true),
+  echoTranscript: z.boolean().default(true),
+  sprites: z.enum(['off', 'changes', 'every']).default('off'),
+  cg: z.enum(['send', 'spoiler', 'off']).default('send'),
+  generatedImages: z.enum(['send', 'spoiler', 'off']).default('send'),
+  background: z.boolean().default(false),
+  statusCard: z.enum(['off', 'every', 'pinned']).default('off'),
+  diceAnimation: z.boolean().default(false),
   stream: z.boolean().default(true),
   streamIntervalMs: z.number().int().min(250).max(60000).default(1500),
   thinking: z.enum(['fold', 'omit']).default('omit'),

@@ -3,10 +3,11 @@ import { type ChannelSettingsOverride, type ChannelSettingsResolution, channelSe
 /** 显式 false、0 不视为空值；按每个键提供来源，便于界面展示继承关系。 */
 export function resolveChannelSettings(
   account: { settings?: ChannelSettingsOverride },
-  binding?: { settings?: ChannelSettingsOverride },
+  binding?: { settings?: ChannelSettingsOverride; scope?: 'private' | 'group' },
   global: ChannelSettingsOverride = {},
 ): ChannelSettingsResolution {
   const values = channelSettingsSchema.parse(global)
+  if (global.echoTranscript === undefined && binding?.scope === 'private') values.echoTranscript = false
   const provenance = {} as ChannelSettingsResolution['provenance']
   for (const key of Object.keys(values) as (keyof typeof values)[]) {
     provenance[key] =

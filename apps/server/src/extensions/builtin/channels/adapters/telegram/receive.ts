@@ -14,6 +14,14 @@ const chat = z.object({
   first_name: z.string().optional(),
   last_name: z.string().optional(),
 })
+const media = z.object({
+  file_id: z.string().optional(),
+  file_size: z.number().optional(),
+  mime_type: z.string().optional(),
+  duration: z.number().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+})
 const message = z.object({
   message_id: z.number().int(),
   chat,
@@ -27,9 +35,14 @@ const message = z.object({
   forum_topic_created: z.object({ name: z.string() }).optional(),
   forum_topic_edited: z.object({ name: z.string().optional() }).optional(),
   new_chat_title: z.string().optional(),
-  photo: z.array(z.unknown()).optional(),
-  voice: z.unknown().optional(),
-  audio: z.unknown().optional(),
+  caption: z.string().optional(),
+  media_group_id: z.string().optional(),
+  photo: z.array(media).optional(),
+  voice: media.optional(),
+  audio: media.optional(),
+  video_note: media.optional(),
+  document: media.optional(),
+  sticker: z.object({ emoji: z.string().optional() }).optional(),
 })
 const membership = z.object({
   chat,
@@ -72,7 +85,7 @@ export function decodeTelegram(input: unknown, bot: { id?: string | null; userna
     !(msg.forum_topic_created || msg.forum_topic_edited || msg.new_chat_title)
   )
     return null
-  const text = msg.text ?? ''
+  const text = msg.text ?? msg.caption ?? (msg.sticker ? `[sticker: ${msg.sticker.emoji ?? ''}]` : '')
   const match = /^\/([a-z_]+)(?:@([a-z0-9_]+))?(?:\s+([\s\S]*))?$/i.exec(text)
   if (match?.[2] && match[2].toLowerCase() !== bot.username?.toLowerCase()) return null
   return {

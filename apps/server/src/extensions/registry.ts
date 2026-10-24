@@ -58,7 +58,10 @@ interface Loaded {
   fileRevision?: string
 }
 
-const host = createExtensionHost(emitServerEvent)
+const host = createExtensionHost(emitServerEvent, () => {
+  const entry = visibleExtensions().find((entry) => entry.extension.id === 'audio' && isEnabled(entry))
+  return entry ? { settings: settingsOf(entry.extension), storage: storageOf('audio') } : undefined
+})
 const builtins: Loaded[] = []
 const userExtensions = new Map<string, Loaded[]>()
 const loading = new Map<string, Promise<unknown>>()

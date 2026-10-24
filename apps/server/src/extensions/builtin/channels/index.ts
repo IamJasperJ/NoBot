@@ -28,6 +28,7 @@ import { createRoom } from '../../../services/rooms'
 import { currentContext, currentUser, runAsUser } from '../../../user-context'
 import { defineExtension, type ExtensionContext, SECRET_MASK } from '../../types'
 import { verifyWebhookSecret } from './adapters/telegram/receive'
+import { mediaFields } from './media-settings'
 import { leaveGroup, respondRequest } from './policies'
 import { sealCredentials } from './secrets'
 import { ChannelService } from './service'
@@ -40,7 +41,6 @@ export function channelService(ctx: Omit<ExtensionContext, 'chatId'>) {
   let value = services.get(key)
   if (!value) {
     value = new ChannelService(ctx.host, () => ({
-      ...channelSettingsSchema.parse({}),
       ...getSetting<Record<string, unknown>>('ext:channels'),
     }))
     services.set(key, value)
@@ -451,8 +451,11 @@ export default defineExtension({
   description: '把聊天平台接到 NoBot 会话和房间',
   version: '0.1.0',
   enabledByDefault: false,
-  defaultSettings: channelSettingsSchema.parse({}),
+  defaultSettings: Object.fromEntries(
+    Object.entries(channelSettingsSchema.parse({})).filter(([key]) => key !== 'echoTranscript'),
+  ),
   settingsSchema: [
+    ...mediaFields,
     { type: 'boolean', key: 'stream', label: '流式输出' },
     { type: 'number', key: 'streamIntervalMs', label: '流式更新间隔', min: 250, max: 60000 },
     {

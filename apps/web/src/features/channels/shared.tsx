@@ -109,6 +109,80 @@ export const settingGroups = (): { title: string; rows: Row[] }[] => [
     ],
   },
   {
+    title: t('语音'),
+    rows: [
+      {
+        key: 'voice',
+        label: t('角色语音'),
+        kind: {
+          type: 'select',
+          options: [
+            { value: 'button', label: t('点 🔊 才读') },
+            { value: 'auto', label: t('自动读') },
+            { value: 'off', label: t('不读') },
+          ],
+        },
+      },
+      { key: 'voiceInput', label: t('把用户的语音转成文字'), kind: { type: 'bool' } },
+      { key: 'echoTranscript', label: t('把识别出的文字发回来'), kind: { type: 'bool' } },
+    ],
+  },
+  {
+    title: t('图片'),
+    rows: [
+      {
+        key: 'cg',
+        label: t('CG'),
+        kind: {
+          type: 'select',
+          options: [
+            { value: 'send', label: t('发送') },
+            { value: 'spoiler', label: t('打码发送') },
+            { value: 'off', label: t('不发') },
+          ],
+        },
+      },
+      {
+        key: 'generatedImages',
+        label: t('生成的图片'),
+        kind: {
+          type: 'select',
+          options: [
+            { value: 'send', label: t('发送') },
+            { value: 'spoiler', label: t('打码发送') },
+            { value: 'off', label: t('不发') },
+          ],
+        },
+      },
+      {
+        key: 'sprites',
+        label: t('立绘'),
+        kind: {
+          type: 'select',
+          options: [
+            { value: 'off', label: t('不发') },
+            { value: 'changes', label: t('出场和换表情时') },
+            { value: 'every', label: t('每条都发') },
+          ],
+        },
+      },
+      { key: 'background', label: t('换场景时发背景图'), kind: { type: 'bool' } },
+      {
+        key: 'statusCard',
+        label: t('状态卡'),
+        kind: {
+          type: 'select',
+          options: [
+            { value: 'off', label: t('不发') },
+            { value: 'every', label: t('变化时发') },
+            { value: 'pinned', label: t('置顶并原地更新') },
+          ],
+        },
+      },
+      { key: 'diceAnimation', label: t('掷骰时加 🎲 动画'), kind: { type: 'bool' } },
+    ],
+  },
+  {
     title: t('同步与提醒'),
     rows: [
       { key: 'mirrorWebMessages', label: t('网页上发的消息同步到平台'), kind: { type: 'bool' } },

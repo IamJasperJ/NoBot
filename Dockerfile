@@ -39,7 +39,7 @@ RUN --mount=type=cache,id=nobot-apt,target=/var/cache/apt,sharing=locked \
     && sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
     && apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 update \
     && apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
-        git openssh-client ca-certificates
+        git openssh-client ca-certificates ffmpeg
 
 # 生产依赖：整个目录拷过来（含各 workspace 自己的 node_modules 和 @nobot/* 链接）
 COPY --from=production-dependencies /app ./

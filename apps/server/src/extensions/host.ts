@@ -27,11 +27,26 @@ import { abortGeneration, isGenerating, startGeneration, subscribe } from '../se
 import { complete, quietPrompt } from '../services/generation/quiet-prompt'
 import { insertLog } from '../services/logs'
 import { performCheck } from '../services/trpg/trpg'
+import { transcribe } from './builtin/audio/asr/service'
+import { type AudioContext, synthesizeSpeech } from './builtin/audio/tts/host'
 import type { ExtensionHost, ServerEvent } from './types'
 
 /** 由注册表注入事件出口，宿主不反向导入注册表。 */
-export function createExtensionHost(emit: (event: ServerEvent) => void): ExtensionHost {
-  return {
+export function createExtensionHost(
+  emit: (event: ServerEvent) => void,
+  audioContext: () => AudioContext | undefined = () => undefined,
+): ExtensionHost {
+  const host: ExtensionHost = {
+    async synthesizeSpeech(chatId, messageId, opts) {
+      const ctx = audioContext()
+      return ctx
+        ? synthesizeSpeech(host, ctx, chatId, messageId, opts)
+        : { kind: 'unavailable', reason: 'audio-disabled' }
+    },
+    async transcribe(bytes, mime, opts) {
+      const ctx = audioContext()
+      return ctx ? transcribe(bytes, mime, ctx.settings, opts) : { kind: 'unavailable', reason: 'audio-disabled' }
+    },
     generate: startGeneration,
     subscribe,
     abort: abortGeneration,
@@ -174,4 +189,5 @@ export function createExtensionHost(emit: (event: ServerEvent) => void): Extensi
       insertLog(entry)
     },
   }
+  return host
 }

@@ -1,16 +1,18 @@
 import type { AttachmentDTO, GroupDTO, MessageDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { type KeyboardEvent, useLayoutEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, api } from '../../api/client'
-import { useChatPages, usePlayPresets } from '../../api/queries'
+import { useChatPages, useExtensions, usePlayPresets } from '../../api/queries'
+import { isRoomGuest } from '../../api/room-scope'
 import { clientMessageId, reportRoomTyping, useSendRoomMessage, useSendWhisper } from '../../api/rooms'
 import { useTranslateEnabled, useTranslateText } from '../../api/translation'
-import { PlusIcon, SendIcon, StopIcon, TranslateIcon } from '../../components/icons'
+import { MicIcon, PlusIcon, SendIcon, StopIcon, TranslateIcon } from '../../components/icons'
 import { cx, IconButton } from '../../components/ui'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
 import { useCommandInput } from '../../hooks/useCommandInput'
 import { useMobile } from '../../hooks/useMobile'
+import { useVoiceRecorder } from '../../hooks/useVoiceRecorder'
 import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
 import { useCommandDrafts } from '../../stores/commandInput'
@@ -490,6 +492,7 @@ export function Composer({
             <TranslateIcon className={translator.busy ? 'animate-pulse' : ''} />
           </IconButton>
         )}
+        {!busy && <VoiceInputButton chatId={chatId} onText={(v) => setText((s) => (s.trim() ? `${s} ${v}` : v))} />}
         {busy ? (
           <IconButton
             label={t('停止')}
@@ -512,6 +515,44 @@ export function Composer({
         )}
       </div>
     </div>
+  )
+}
+
+/** 语音输入：音频扩展开了语音识别才显示；点一下开始录，再点一下停止并把识别结果接到输入框里 */
+function VoiceInputButton({ chatId, onText }: { chatId: string; onText: (text: string) => void }) {
+  const extensions = useExtensions()
+  const audio = extensions.data?.find((e) => e.id === 'audio')
+  const enabled = !isRoomGuest(chatId) && !!audio?.enabled && (audio.settings.asrEngine ?? 'off') !== 'off'
+  const recorder = useVoiceRecorder()
+  const handled = useRef('')
+  useEffect(() => {
+    if (recorder.text && recorder.text !== handled.current) {
+      handled.current = recorder.text
+      onText(recorder.text)
+    }
+  }, [recorder.text, onText])
+  useEffect(() => {
+    if (recorder.error) toast.error(errorMessage(recorder.error))
+  }, [recorder.error])
+  if (!enabled || typeof MediaRecorder === 'undefined') return null
+  if (recorder.state === 'recording')
+    return (
+      <IconButton
+        label={t('停止录音并识别')}
+        onClick={recorder.stop}
+        className="bg-red-500 text-white hover:bg-red-400 hover:text-white dark:text-white"
+      >
+        <span className="size-3 animate-pulse rounded-sm bg-white" />
+      </IconButton>
+    )
+  return (
+    <IconButton
+      label={recorder.state === 'transcribing' ? t('识别中…') : t('语音输入')}
+      disabled={recorder.state === 'transcribing'}
+      onClick={() => void recorder.start()}
+    >
+      <MicIcon className={recorder.state === 'transcribing' ? 'animate-pulse' : ''} />
+    </IconButton>
   )
 }
 

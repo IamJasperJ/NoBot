@@ -14,6 +14,8 @@ import {
   updateAudioTrack,
 } from '../../../services/audio/audio-library'
 import { defineExtension } from '../../types'
+import { registerAsrRoutes } from './asr/routes'
+import { asrFields } from './asr/settings'
 import { onBgmEvent, registerChatBgmRoutes } from './chat-bgm'
 import { registerTtsRoutes } from './tts/routes'
 import { audioSettings, chatBgmFields, ttsFields } from './tts/settings'
@@ -33,6 +35,7 @@ export default defineExtension({
     { key: 'listInPrompt', type: 'boolean', label: '在指令说明里列出曲目', hint: '让模型知道有哪些 BGM 和音效可用' },
     ...chatBgmFields,
     ...ttsFields,
+    ...asrFields,
   ],
   hooks: { onEvent: onBgmEvent },
   routes(app, ctx) {
@@ -56,6 +59,7 @@ export default defineExtension({
     })
     registerChatBgmRoutes(app, ctx)
     registerTtsRoutes(app, ctx)
+    registerAsrRoutes(app, ctx)
     app.get('/tracks', validate('query', z.object({ kind: z.enum(AUDIO_KINDS).optional() })), (c) =>
       c.json(listAudioTracks(c.req.valid('query').kind)),
     )

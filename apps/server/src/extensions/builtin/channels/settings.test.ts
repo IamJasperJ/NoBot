@@ -87,3 +87,26 @@ test('账号和绑定只解析显式设置，空对象不注入默认值', () =>
   expect(resolveChannelSettings(account, binding, {}).provenance.thinking).toBe('global')
   expect(channelSettingsOverrideSchema.safeParse({ streamIntervalMs: 1 }).success).toBe(false)
 })
+
+test('CH2a 媒体默认值、三层覆盖和按群聊范围默认回显', () => {
+  const dm = resolveChannelSettings({}, { scope: 'private' })
+  const group = resolveChannelSettings({}, { scope: 'group', settings: { cg: 'spoiler' } })
+  expect(dm.values).toMatchObject({
+    voice: 'button',
+    voiceInput: true,
+    echoTranscript: false,
+    sprites: 'off',
+    cg: 'send',
+    generatedImages: 'send',
+    background: false,
+    statusCard: 'off',
+    diceAnimation: false,
+  })
+  expect(group.values.echoTranscript).toBe(true)
+  expect(group.values.cg).toBe('spoiler')
+  expect(group.provenance.cg).toBe('binding')
+  expect(
+    resolveChannelSettings({ settings: { echoTranscript: true } }, { scope: 'private' }).values.echoTranscript,
+  ).toBe(true)
+  expect(resolveChannelSettings({}, { scope: 'group' }, { echoTranscript: false }).values.echoTranscript).toBe(false)
+})

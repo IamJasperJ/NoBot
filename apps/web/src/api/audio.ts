@@ -105,3 +105,19 @@ export const useClearChatBgm = () =>
   useBgmMutation((chatId: string) => request<{ ok: true }>('DELETE', `/chat-bgm?chatId=${encodeURIComponent(chatId)}`))
 export const useAutoChatBgm = () =>
   useBgmMutation((input: { chatId: string }) => request<ChatBgm | null>('POST', '/chat-bgm/auto', input))
+
+export interface Transcript {
+  text: string
+  language?: string
+  durationMs?: number
+}
+export function useTranscribe() {
+  return useMutation({
+    mutationFn: async (input: { file: Blob; durationMs?: number }) => {
+      const form = new FormData()
+      form.set('file', input.file, 'recording')
+      if (input.durationMs !== undefined) form.set('durationMs', String(input.durationMs))
+      return request<Transcript>('POST', '/transcribe', form)
+    },
+  })
+}

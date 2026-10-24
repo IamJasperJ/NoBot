@@ -302,6 +302,12 @@ export const VolumeIcon = (p: P) => (
     <path d="M15.5 9a4 4 0 010 6M18 6.5a7.5 7.5 0 010 11" />
   </Icon>
 )
+export const MicIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="9" y="3.5" width="6" height="11" rx="3" />
+    <path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21" />
+  </Icon>
+)
 export const VolumeOffIcon = (p: P) => (
   <Icon {...p}>
     <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" />

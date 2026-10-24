@@ -52,8 +52,40 @@ export interface ExtensionStorage {
   delete(key: string): void
 }
 
+export type SpeechResult =
+  | { kind: 'unavailable'; reason: 'audio-disabled' | 'tts-disabled' | 'no-voice' }
+  | {
+      kind: 'audio'
+      files: {
+        path: string
+        mime: string
+        durationMs?: number
+        speakerId?: string
+        text: string
+        speakerName?: string
+      }[]
+    }
+export type TranscriptionResult =
+  | { kind: 'unavailable'; reason: 'audio-disabled' | 'asr-disabled' }
+  | {
+      kind: 'transcript'
+      text: string
+      language?: string
+      durationMs?: number
+    }
+
 /** 扩展通过宿主复用当前会话的生成、附件和消息能力。 */
 export interface ExtensionHost {
+  synthesizeSpeech(chatId: string, messageId: string, opts?: { signal?: AbortSignal }): Promise<SpeechResult>
+  transcribe(
+    bytes: Uint8Array,
+    mime: string,
+    opts?: {
+      language?: 'auto' | 'zh' | 'en'
+      durationMs?: number
+      signal?: AbortSignal
+    },
+  ): Promise<TranscriptionResult>
   /** 房间操作直接调用房间服务，保留真实成员参数，避免以宿主权限绕过房间校验。 */
   generate: typeof import('../services/generation/generation').startGeneration
   subscribe: typeof import('../services/generation/generation').subscribe

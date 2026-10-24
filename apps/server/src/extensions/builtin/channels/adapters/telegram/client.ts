@@ -76,6 +76,33 @@ export class TelegramClient {
     this.tail = pending
     await pending
   }
+  async downloadFile(path: string, limit: number): Promise<Uint8Array> {
+    if (path.split('/').some((part) => part === '..') || !/^[a-zA-Z0-9_./-]+$/.test(path)) throw new TelegramError(400)
+    const response = await this.fetcher(`${this.fileEndpoint}/${path}`, { signal: AbortSignal.timeout(30000) })
+    if (!response.ok || Number(response.headers.get('content-length') ?? 0) > limit) throw new TelegramError(413)
+    const reader = response.body?.getReader()
+    if (!reader) throw new TelegramError(400)
+    const chunks: Uint8Array[] = []
+    let length = 0
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        length += value.length
+        if (length > limit) throw new TelegramError(413)
+        chunks.push(value)
+      }
+    } finally {
+      await reader.cancel().catch(() => {})
+    }
+    const bytes = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset)
+      offset += chunk.length
+    }
+    return bytes
+  }
   async fileDataHint(path: string, signal?: AbortSignal): Promise<string> {
     const response = await this.fetcher(`${this.fileEndpoint}/${path}`, { signal })
     if (!response.ok) throw new TelegramError(response.status)

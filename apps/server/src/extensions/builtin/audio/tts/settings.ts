@@ -3,6 +3,7 @@ import { TONES } from '@nobot/core'
 import { deliveryModeSchema, type ExtensionSettingField, GENDERS, voiceRefSchema } from '@nobot/shared'
 import { z } from 'zod'
 import { t } from '../../../../i18n'
+import { asrSettings } from '../asr/settings'
 
 // 设置页里刚选了引擎、还没选声音的条目（voice 为空）先存着，解析时当作没设置
 const voiceSetting = voiceRefSchema.nullable().catch(null)
@@ -34,6 +35,7 @@ const voiceListSetting = lenientArray(voiceRefSchema)
 const voiceGender = z.enum(GENDERS).optional().catch(undefined)
 
 const audioSettingsSchema = z.object({
+  ...asrSettings.shape,
   chatBgm: z.boolean().catch(true),
   autoBgm: z.boolean().catch(false),
   autoBgmEvery: z.number().int().min(1).catch(5),

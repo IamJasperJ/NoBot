@@ -4,6 +4,71 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '语音识别':
+      return t('语音识别')
+    case '识别引擎':
+      return t('识别引擎')
+    case '关闭':
+      return t('关闭')
+    case 'OpenAI 兼容':
+      return t('OpenAI 兼容')
+    case '识别接口地址':
+      return t('识别接口地址')
+    case '识别 API 密钥':
+      return t('识别 API 密钥')
+    case '识别模型':
+      return t('识别模型')
+    case '识别语言':
+      return t('识别语言')
+    case '自动检测':
+      return t('自动检测')
+    case '中文':
+      return t('中文')
+    case '英文':
+      return t('英文')
+    case '识别提示词':
+      return t('识别提示词')
+    case '用于识别的英文词汇或上下文提示':
+      return t('用于识别的英文词汇或上下文提示')
+    case '识别时长上限（秒）':
+      return t('识别时长上限（秒）')
+    case '识别文件上限（MB）':
+      return t('识别文件上限（MB）')
+    case '渠道语音输出':
+      return t('渠道语音输出')
+    case '自动朗读':
+      return t('自动朗读')
+    case '朗读按钮':
+      return t('朗读按钮')
+    case '渠道语音输入':
+      return t('渠道语音输入')
+    case '回显识别文本':
+      return t('回显识别文本')
+    case '未覆盖时群聊开启，私聊关闭':
+      return t('未覆盖时群聊开启，私聊关闭')
+    case '渠道立绘':
+      return t('渠道立绘')
+    case '首次出场和表情变化':
+      return t('首次出场和表情变化')
+    case '每条消息':
+      return t('每条消息')
+    case '发送图片':
+      return t('发送图片')
+    case '剧透图片':
+      return t('剧透图片')
+    case '渠道背景图片':
+      return t('渠道背景图片')
+    case '渠道状态卡':
+      return t('渠道状态卡')
+    case '置顶并更新':
+      return t('置顶并更新')
+    case '平台骰子装饰动画':
+      return t('平台骰子装饰动画')
+    case '渠道 CG':
+      return t('渠道 CG')
+    case '渠道生图':
+      return t('渠道生图')
+
     case '表情回应每日预算':
       return t('表情回应每日预算')
     case '表情回应冷却毫秒':

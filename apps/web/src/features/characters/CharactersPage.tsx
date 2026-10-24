@@ -436,6 +436,33 @@ export function CharacterEditor({
           )}
           {area('creator_notes', t('作者说明'), t('只给人看，不发给模型'))}
         </Section>
+        <Section
+          title={t('公开介绍')}
+          description={t('接到聊天平台时用作 bot 的简介，陌生人也能看到；不填就取描述的第一段。')}
+        >
+          {(['publicIntro', 'publicShortIntro'] as const).map((key) => {
+            const nobot = (draft.extensions.nobot ?? {}) as Record<string, unknown>
+            const value = typeof nobot[key] === 'string' ? (nobot[key] as string) : ''
+            const short = key === 'publicShortIntro'
+            return (
+              <CountedArea
+                key={key}
+                label={short ? t('一句话介绍') : t('介绍')}
+                hint={short ? t('最多 120 字，显示在资料页和分享链接里') : t('最多 512 字，显示在和 bot 的空白聊天里')}
+                rows={short ? 2 : 4}
+                value={value}
+                onChange={(v) => {
+                  const next = { ...nobot, [key]: v.slice(0, short ? 120 : 512) }
+                  if (!next[key]) delete next[key]
+                  const extensions = { ...draft.extensions }
+                  if (Object.keys(next).length > 0) extensions.nobot = next
+                  else delete extensions.nobot
+                  patch('extensions', extensions)
+                }}
+              />
+            )
+          })}
+        </Section>
         <Section title={t('角色备注')} description={t("对应酒馆的 Character's Note，按深度插入聊天记录。")}>
           {area('characterNote', t('备注内容'), t('把需要持续提醒模型的设定插入聊天记录。'))}
           <NumberField

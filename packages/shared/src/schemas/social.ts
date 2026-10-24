@@ -56,6 +56,8 @@ export interface LiveEnvelope {
   data: unknown
 }
 export type LiveEvent =
+  | { type: 'channel.account'; topic: string; data: import('./channels').ChannelAccountDTO }
+  | { type: 'channel.request'; topic: string; data: import('./channels').ChannelRequestDTO | { id: string } }
   | { type: 'ping'; topic: string; data: { serverTime: number } }
   | {
       type: 'hello'

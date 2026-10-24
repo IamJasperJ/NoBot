@@ -137,7 +137,20 @@ export function projectRoomEvent(data: ReturnType<typeof event>, viewerId: strin
     return { ...data, payload: roomPayload(data.payload, viewerId, room.hostUserId) }
   })
 }
+const channelListeners = new Set<(data: ReturnType<typeof event>) => void>()
+/** 渠道订阅收到原事件后必须逐成员调用 projectRoomEvent；不能直接公开 payload。 */
+export function subscribeRoomEvents(listener: (data: ReturnType<typeof event>) => void) {
+  channelListeners.add(listener)
+  return () => channelListeners.delete(listener)
+}
 export function publish(data: ReturnType<typeof event>) {
+  for (const listener of channelListeners) {
+    try {
+      listener(data)
+    } catch {
+      /* 渠道故障不能阻断网页房间广播。 */
+    }
+  }
   const room = roomRow(data.roomId)
   const topic = `room:${data.roomId}`
   for (const member of members(data.roomId))

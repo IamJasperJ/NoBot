@@ -1,5 +1,8 @@
 import type {
   AudioKind,
+  ChannelAccountConfig,
+  ChannelBindingDTO,
+  ChannelPresenceSync,
   CharacterSheet,
   GenerationLogSummary,
   GroupActivation,
@@ -16,7 +19,16 @@ import type {
   SaveSnapshot,
 } from '@nobot/shared'
 import { sql } from 'drizzle-orm'
-import { type AnySQLiteColumn, index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import {
+  type AnySQLiteColumn,
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core'
 
 /**
  * 数据库表结构，和设计文档「数据模型」「第二阶段架构」两节对应。
@@ -228,6 +240,7 @@ export const backgroundFolderItems = sqliteTable(
 export const chats = sqliteTable(
   'chats',
   {
+    sourceProvider: text('source_provider').$type<'telegram' | 'onebot11'>(),
     id: text('id').primaryKey(),
     /** 单人会话的角色；群聊为空 */
     characterId: text('character_id').references(() => characters.id, { onDelete: 'cascade' }),
@@ -426,4 +439,174 @@ export const roomMessageIndex = sqliteTable(
     seq: integer('seq').notNull(),
   },
   (t) => [primaryKey({ columns: [t.roomId, t.messageId] }), index('room_message_index_seq_idx').on(t.roomId, t.seq)],
+)
+
+export const channelAccounts = sqliteTable('channel_accounts', {
+  id: text('id').primaryKey(),
+  provider: text('provider', { enum: ['telegram', 'onebot11'] }).notNull(),
+  name: text('name').notNull(),
+  credentials: text('credentials', { mode: 'json' }).$type<string>().notNull(),
+  baseUrl: text('base_url').notNull(),
+  webhookUrl: text('webhook_url'),
+  receiveMode: text('receive_mode', { enum: ['polling', 'webhook'] }).notNull(),
+  characterMode: text('character_mode', { enum: ['fixed', 'generic'] }).notNull(),
+  characterId: text('character_id'),
+  groupId: text('group_id'),
+  defaultCharacterId: text('default_character_id'),
+  personaMode: text('persona_mode').$type<ChannelAccountConfig['personaMode']>().notNull(),
+  globalPersonaId: text('global_persona_id'),
+  personaLocked: integer('persona_locked', { mode: 'boolean' }).notNull().default(false),
+  presence: text('presence', { mode: 'json' }).$type<ChannelAccountConfig['presence']>().notNull(),
+  policies: text('policies', { mode: 'json' }).$type<ChannelAccountConfig['policies']>().notNull(),
+  settings: text('settings', { mode: 'json' }).$type<ChannelAccountConfig['settings']>().notNull(),
+  status: text('status', { enum: ['stopped', 'connecting', 'online', 'error'] })
+    .notNull()
+    .default('stopped'),
+  lastError: text('last_error'),
+  cursor: integer('cursor'),
+  botId: text('bot_id'),
+  botUsername: text('bot_username'),
+  botSnapshot: text('bot_snapshot', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+  presenceSync: text('presence_sync', { mode: 'json' }).$type<ChannelPresenceSync>().notNull().default({}),
+})
+export const channelBindings = sqliteTable(
+  'channel_bindings',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+    locationKey: text('location_key').notNull(),
+    title: text('title').notNull().default(''),
+    topicTitle: text('topic_title'),
+    scope: text('scope', { enum: ['private', 'group'] }).notNull(),
+    chat: text('chat').notNull(),
+    thread: text('thread').notNull().default(''),
+    actor: text('actor').notNull().default(''),
+    isolation: text('isolation').$type<ChannelBindingDTO['isolation']>().notNull(),
+    source: text('source').$type<ChannelBindingDTO['source']>().notNull(),
+    chatId: text('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    roomId: text('room_id'),
+    state: text('state').$type<ChannelBindingDTO['state']>().notNull(),
+    speakers: text('speakers', { mode: 'json' }).$type<ChannelBindingDTO['speakers']>().notNull().default({}),
+    trigger: text('trigger').$type<ChannelBindingDTO['trigger']>().notNull(),
+    personaMode: text('persona_mode').$type<ChannelBindingDTO['personaMode']>(),
+    settings: text('settings', { mode: 'json' }).$type<ChannelBindingDTO['settings']>().notNull().default({}),
+    lastActivityAt: integer('last_activity_at').notNull(),
+    idleWarnedAt: integer('idle_warned_at'),
+    createdBy: text('created_by').notNull(),
+  },
+  (t) => [uniqueIndex('channel_bindings_location_idx').on(t.accountId, t.locationKey)],
+)
+export const channelBindingChats = sqliteTable(
+  'channel_binding_chats',
+  {
+    bindingId: text('binding_id')
+      .notNull()
+      .references(() => channelBindings.id, { onDelete: 'cascade' }),
+    chatId: text('chat_id')
+      .notNull()
+      .references(() => chats.id, { onDelete: 'cascade' }),
+    lastUsedAt: integer('last_used_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.bindingId, t.chatId] })],
+)
+export const channelActors = sqliteTable(
+  'channel_actors',
+  {
+    id: text('id').primaryKey(),
+    provider: text('provider', { enum: ['telegram', 'onebot11'] }).notNull(),
+    externalId: text('external_id').notNull(),
+    displayName: text('display_name').notNull(),
+    accountIds: text('account_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    lastSeenAt: integer('last_seen_at'),
+    username: text('username'),
+    linkedUserId: text('linked_user_id'),
+    externalUserId: text('external_user_id'),
+    role: text('role', { enum: ['owner', 'player', 'blocked'] }).notNull(),
+    personaId: text('persona_id'),
+    dmChatId: text('dm_chat_id'),
+    personaName: text('persona_name'),
+    personaDescription: text('persona_description'),
+  },
+  (t) => [uniqueIndex('channel_actors_identity_idx').on(t.provider, t.externalId)],
+)
+export const channelDeliveries = sqliteTable('channel_deliveries', {
+  id: text('id').primaryKey(),
+  bindingId: text('binding_id')
+    .notNull()
+    .references(() => channelBindings.id, { onDelete: 'cascade' }),
+  messageId: text('message_id').notNull(),
+  revision: integer('revision').notNull().default(0),
+  parts: text('parts', { mode: 'json' })
+    .$type<{ accountId: string; externalChat: string; externalId: string }[]>()
+    .notNull(),
+  status: text('status', { enum: ['streaming', 'committed', 'failed', 'superseded'] }).notNull(),
+  contentHash: text('content_hash').notNull(),
+})
+export const channelActions = sqliteTable('channel_actions', {
+  token: text('token').primaryKey(),
+  bindingId: text('binding_id')
+    .notNull()
+    .references(() => channelBindings.id, { onDelete: 'cascade' }),
+  action: text('action').notNull(),
+  args: text('args', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  messageId: text('message_id'),
+  revision: integer('revision').notNull(),
+  allowedActor: text('allowed_actor'),
+  expiresAt: integer('expires_at').notNull(),
+  usedAt: integer('used_at'),
+})
+export const channelInbox = sqliteTable(
+  'channel_inbox',
+  {
+    accountId: text('account_id')
+      .notNull()
+      .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+    externalEventId: text('external_event_id').notNull(),
+    receivedAt: integer('received_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.accountId, t.externalEventId] }),
+    index('channel_inbox_retention_idx').on(t.receivedAt),
+  ],
+)
+export const channelPairings = sqliteTable('channel_pairings', {
+  code: text('code').primaryKey(),
+  accountId: text('account_id')
+    .notNull()
+    .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+  externalId: text('external_id').notNull(),
+  displayName: text('display_name').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+})
+export const channelRequests = sqliteTable('channel_requests', {
+  id: text('id').primaryKey(),
+  accountId: text('account_id')
+    .notNull()
+    .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['group-invite', 'friend', 'new-location'] }).notNull(),
+  chat: text('chat').notNull(),
+  title: text('title').notNull(),
+  actorExternalId: text('actor_external_id'),
+  actorName: text('actor_name'),
+  state: text('state', { enum: ['pending', 'approved', 'rejected', 'blocked'] }).notNull(),
+  createdAt: integer('created_at').notNull(),
+})
+
+export const channelActorLocations = sqliteTable(
+  'channel_actor_locations',
+  {
+    actorId: text('actor_id')
+      .notNull()
+      .references(() => channelActors.id, { onDelete: 'cascade' }),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+    chat: text('chat').notNull(),
+    thread: text('thread').notNull().default(''),
+  },
+  (t) => [primaryKey({ columns: [t.actorId, t.accountId, t.chat, t.thread] })],
 )

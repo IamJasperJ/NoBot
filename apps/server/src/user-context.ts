@@ -96,7 +96,14 @@ export const currentUser = () => currentContext().user
 export function runAsUser<T>(user: CurrentUserDTO, fn: () => T): T {
   return scope.run(openUser(user, env.dataDir), fn)
 }
+const closeListeners = new Set<(handle: string) => void>()
+/** 先同步中止后台任务，避免关闭连接后继续写库。 */
+export function onUserDatabaseClose(listener: (handle: string) => void) {
+  closeListeners.add(listener)
+  return () => closeListeners.delete(listener)
+}
 export function closeUserDatabase(handle: string) {
+  for (const listener of closeListeners) listener(handle)
   const key = join(env.dataDir, handle)
   const ctx = connections.get(key)
   if (ctx) {
@@ -105,4 +112,9 @@ export function closeUserDatabase(handle: string) {
     closedConnections.add(ctx.sqlite)
     connections.delete(key)
   }
+}
+
+/** 渠道成员只借用房主连接执行已有房间服务，不打开外部成员的私人库。 */
+export function runAsRoomActor<T>(user: CurrentUserDTO, fn: () => T): T {
+  return scope.run({ ...currentContext(), user }, fn)
 }

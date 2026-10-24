@@ -1,5 +1,6 @@
 import { type FriendsDTO, type LiveEvent, type NotificationDTO, type PresenceDTO, parseSSE } from '@nobot/shared'
 import { create } from 'zustand'
+import { channelKeys } from './channels'
 import { apiFetch } from './fetch'
 import { queryClient } from './queryClient'
 import { applyRoomLive, clearRoomSession, roomKeys, roomLiveConnected } from './rooms'
@@ -94,6 +95,7 @@ export function startLive() {
     for (const event of events) window.removeEventListener(event, activity)
     useLiveStore.setState({ state: 'disconnected', presence: {}, unreadCount: 0 })
     queryClient.removeQueries({ queryKey: socialKeys.all })
+    queryClient.removeQueries({ queryKey: channelKeys.all })
   }
   const dispatch = (event: LiveEvent) => {
     if (event.type.startsWith('room.')) {
@@ -101,7 +103,12 @@ export function startLive() {
       return
     }
     switch (event.type) {
+      case 'channel.account':
+      case 'channel.request':
+        void queryClient.invalidateQueries({ queryKey: channelKeys.all })
+        break
       case 'hello':
+        void queryClient.invalidateQueries({ queryKey: channelKeys.all })
         if (event.data.connectionId) roomLiveConnected(event.data.connectionId)
         snapshotCursor = event.data.cursor
         if (cursor === null) cursor = event.data.cursor

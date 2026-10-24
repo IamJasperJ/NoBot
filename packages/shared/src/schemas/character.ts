@@ -93,3 +93,10 @@ export interface CharacterImportPreview {
  */
 export const characterImportLorebookSchema = z.enum(['link', 'import', 'skip'])
 export type CharacterImportLorebook = z.infer<typeof characterImportLorebookSchema>
+
+/** 渠道公开资料只读取这两个显式公开字段，不读取系统提示和世界书。 */
+export const characterPublicIntroSchema = z.object({
+  publicIntro: z.string().default(''),
+  publicShortIntro: z.string().default(''),
+})
+export type CharacterPublicIntro = z.infer<typeof characterPublicIntroSchema>

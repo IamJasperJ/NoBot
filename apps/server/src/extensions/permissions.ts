@@ -8,7 +8,7 @@ export function detectPermissions(extension: Extension, manifest?: ExtensionMani
   return {
     server,
     client: !!(manifest?.client || manifest?.style),
-    routes: !!extension.routes || !!extension.commands?.length,
+    routes: !!extension.routes || !!extension.publicRoutes || !!extension.commands?.length,
     tools: typeof extension.tools === 'function' || !!extension.tools?.length,
     hooks: Object.values(extension.hooks ?? {}).some((hook) => typeof hook === 'function'),
   }

@@ -28,6 +28,7 @@ import { db, newId } from '../db/client'
 import { type CharacterRow, characterLorebooks, characters, chats, lorebooks, personas } from '../db/schema'
 import { paths } from '../env'
 import { cardParseMessage, HttpError, notFound } from '../errors'
+import { emitServerEvent } from '../extensions/registry'
 import { t } from '../i18n'
 import { readCharx } from '../lib/charx'
 import { avatarUrl, deleteAvatar, readAvatar, saveAvatar } from '../lib/files'
@@ -228,6 +229,7 @@ export function updateCharacter(id: string, input: CharacterUpdateInput): Charac
       .where(eq(characters.id, id))
       .run()
     if (input.lorebookIds !== undefined) replaceBooks(id, lorebookIds)
+    emitServerEvent({ type: 'character:updated', characterId: id })
     return getCharacter(id)
   })
 }
@@ -348,6 +350,7 @@ export async function setCharacterAvatar(id: string, bytes: Uint8Array): Promise
     .set({ avatarFile, updatedAt: Math.max(Date.now(), row.updatedAt + 1) })
     .where(eq(characters.id, id))
     .run()
+  emitServerEvent({ type: 'character:updated', characterId: id })
   return getCharacter(id)
 }
 export async function duplicateCharacter(id: string): Promise<CharacterDTO> {

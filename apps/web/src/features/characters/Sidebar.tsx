@@ -65,6 +65,11 @@ function ChatList({ owner }: { owner: Owner }) {
             className="min-w-0 flex-1 truncate px-2 py-1.5 text-left"
             onClick={() => openChat(owner, c.id)}
           >
+            {c.sourceProvider && (
+              <span className="mr-1.5 rounded bg-sky-100 px-1 align-[1px] text-[10px] font-medium text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                {c.sourceProvider === 'telegram' ? 'TG' : 'QQ'}
+              </span>
+            )}
             {c.title}
           </button>
           <IconButton

@@ -22,6 +22,7 @@ export function blocked(a: string, c: string) {
     .get()
 }
 export function friendIds(id: string) {
+  if (db().select().from(users).where(eq(users.id, id)).get()?.kind === 'external') return []
   return db()
     .select()
     .from(f)
@@ -34,7 +35,7 @@ export function friendIds(id: string) {
         !!db()
           .select()
           .from(users)
-          .where(and(eq(users.id, other), eq(users.disabled, false)))
+          .where(and(eq(users.id, other), eq(users.disabled, false), eq(users.kind, 'normal')))
           .get(),
     )
 }
@@ -42,7 +43,9 @@ export function findUserByHandle(handle: string, viewer: string) {
   const row = db()
     .select()
     .from(users)
-    .where(and(sql`lower(${users.handle}) = ${handle.toLowerCase()}`, eq(users.disabled, false)))
+    .where(
+      and(sql`lower(${users.handle}) = ${handle.toLowerCase()}`, eq(users.disabled, false), eq(users.kind, 'normal')),
+    )
     .get()
   return !row ||
     db()
@@ -61,6 +64,14 @@ export function unreadCount(id: string) {
     .where(and(eq(n.userId, id), isNull(n.readAt), isNull(n.dismissedAt)))
     .get()!.count
 }
+const notificationListeners = new Set<(userId: string, type: string, payload: Record<string, unknown>) => void>()
+/** 外部成员没有网页收件箱，渠道可订阅相同的已去重房间通知。 */
+export function subscribeSocialNotifications(
+  listener: (userId: string, type: string, payload: Record<string, unknown>) => void,
+) {
+  notificationListeners.add(listener)
+  return () => notificationListeners.delete(listener)
+}
 export function notify(
   userId: string,
   type: string,
@@ -68,6 +79,14 @@ export function notify(
   payload: Record<string, unknown> = {},
   now = Date.now(),
 ) {
+  for (const listener of notificationListeners) {
+    try {
+      listener(userId, type, payload)
+    } catch {
+      /* 渠道不能阻断持久通知。 */
+    }
+  }
+  if (db().select().from(users).where(eq(users.id, userId)).get()?.kind === 'external') return undefined
   // 附上发起人的公开资料，界面不用再逐条查询；只放 id、handle、名字
   const actor = actorId ? db().select().from(users).where(eq(users.id, actorId)).get() : undefined
   if (actor && payload.actor === undefined) payload = { ...payload, actor: publicUser(actor) }
@@ -136,6 +155,7 @@ export function requestFriend(id: string, handle: string, now = Date.now()) {
   if (recent.length >= 20) throw new HttpError(429, 'RATE_LIMITED', t('好友请求过于频繁，请稍后重试'))
   recent.push(now)
   attempts.set(id, recent)
+  if (db().select().from(users).where(eq(users.id, id)).get()?.kind !== 'normal') throw denied()
   const target = findUserByHandle(handle, id)
   if (!target || target.id === id || blocked(id, target.id)) throw denied()
   const row = db().select().from(f).where(wherePair(id, target.id)).get()
@@ -157,6 +177,7 @@ export function requestFriend(id: string, handle: string, now = Date.now()) {
   changed(id, target.id)
 }
 export function respondFriend(id: string, other: string, action: 'accept' | 'reject' | 'cancel', now = Date.now()) {
+  if (db().select().from(users).where(eq(users.id, id)).get()?.kind === 'external') throw denied()
   const row = db().select().from(f).where(wherePair(id, other)).get()
   if (
     row?.status !== 'pending' ||
@@ -166,7 +187,7 @@ export function respondFriend(id: string, other: string, action: 'accept' | 'rej
     !db()
       .select()
       .from(users)
-      .where(and(eq(users.id, other), eq(users.disabled, false)))
+      .where(and(eq(users.id, other), eq(users.disabled, false), eq(users.kind, 'normal')))
       .get()
   )
     throw denied()
@@ -199,7 +220,7 @@ export function listFriends(id: string): FriendsDTO {
     const other = db()
       .select()
       .from(users)
-      .where(and(eq(users.id, otherId), eq(users.disabled, false)))
+      .where(and(eq(users.id, otherId), eq(users.disabled, false), eq(users.kind, 'normal')))
       .get()
     if (!other || blocked(id, otherId)) continue
     if (row.status === 'accepted')

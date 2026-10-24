@@ -8,16 +8,41 @@ import { readAvatar as avatarFile, avatarUrl } from '../lib/files'
 import { saveAttachment } from '../services/attachments'
 import { saveBackground } from '../services/backgrounds/backgrounds'
 import { getCharacter, updateCharacter } from '../services/characters'
-import { getChatPage, getChatRow, loadMessage, loadPath, updateChat } from '../services/chats'
+import {
+  activateMessage,
+  branchChat,
+  createChat,
+  deleteMessage,
+  editMessage,
+  getChatPage,
+  getChatRow,
+  listChats,
+  loadMessage,
+  loadPath,
+  swipe,
+  updateChat,
+} from '../services/chats'
 import { loadGenerationContext } from '../services/generation/context'
-import { isGenerating } from '../services/generation/generation'
+import { abortGeneration, isGenerating, startGeneration, subscribe } from '../services/generation/generation'
 import { complete, quietPrompt } from '../services/generation/quiet-prompt'
 import { insertLog } from '../services/logs'
+import { performCheck } from '../services/trpg/trpg'
 import type { ExtensionHost, ServerEvent } from './types'
 
 /** 由注册表注入事件出口，宿主不反向导入注册表。 */
 export function createExtensionHost(emit: (event: ServerEvent) => void): ExtensionHost {
   return {
+    generate: startGeneration,
+    subscribe,
+    abort: abortGeneration,
+    swipe,
+    editMessage,
+    deleteMessage,
+    activateMessage,
+    branchChat,
+    createChat,
+    listChats,
+    performCheck,
     quietPrompt,
     complete,
     listGeneratedImages(characterId) {

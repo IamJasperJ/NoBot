@@ -13,6 +13,7 @@ import { ExtensionPage, Slot } from '../../extensions/Slot'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
+import { ChannelsManager } from '../channels/ChannelsManager'
 import { ApprovalDialog, CatalogList, GitPanel, InstallDialog, PermissionList } from './ExtensionManagerUi'
 import { SettingsEditor } from './SettingsEditor'
 
@@ -241,6 +242,12 @@ export function ExtensionDetail({
               <span className="size-1.5 rounded-full bg-amber-500" />
               {t('有未保存的修改，点右上角「保存」生效')}
             </div>
+          )}
+          {extension.id === 'channels' && extension.enabled && !extension.loadError && (
+            <>
+              <ChannelsManager />
+              <h3 className="px-1 pt-2 text-sm font-semibold">{t('全局默认')}</h3>
+            </>
           )}
           {extension.settingsSchema.length > 0 ? (
             <SettingsEditor

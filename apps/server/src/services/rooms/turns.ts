@@ -129,6 +129,7 @@ export function sendRoomMessage(
   input: z.infer<typeof roomSendInput>,
   extraMeta: MessageMeta = {},
   actorId = currentUser().id,
+  followTurnMode = true,
 ) {
   const { room } = membership(id, actorId)
   const member = checkWritable(room, actorId)
@@ -207,7 +208,7 @@ export function sendRoomMessage(
     })
     publish(result.event)
     notifyMentions(room, result.message)
-    if (input.channel === 'ic' && !extraMeta.choice?.counts) {
+    if (followTurnMode && input.channel === 'ic' && !extraMeta.choice?.counts) {
       if (room.turnMode === 'initiative') advanceInitiative(room)
       else if (!(extraMeta.choice && room.choiceMode === 'each')) schedule(room)
     }

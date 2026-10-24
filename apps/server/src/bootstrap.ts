@@ -39,7 +39,7 @@ async function moveLegacyData(handle: string) {
 export async function bootstrap() {
   const db = systemDatabase()
   const password = process.env.NOBOT_ADMIN_PASSWORD
-  const existing = db.select().from(users).get()
+  const existing = db.select().from(users).where(eq(users.kind, 'normal')).get()
   if (!existing) {
     if (!password) {
       console.error(
@@ -63,7 +63,7 @@ export async function bootstrap() {
     const handle = userHandleSchema.parse(process.env.NOBOT_ADMIN_USERNAME ?? 'admin')
     passwordSchema.parse(password)
     const user = db.select().from(users).where(eq(users.handle, handle)).get()
-    if (!user) throw new Error('恢复账号不存在 / Recovery account does not exist')
+    if (user?.kind !== 'normal') throw new Error('恢复账号不存在 / Recovery account does not exist')
     const passwordHash = await Bun.password.hash(password, { algorithm: 'argon2id' })
     db.transaction((tx) => {
       tx.update(users).set({ passwordHash, disabled: false, isAdmin: true }).where(eq(users.id, user.id)).run()

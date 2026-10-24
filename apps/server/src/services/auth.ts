@@ -66,7 +66,7 @@ export function authenticatedSession(c: Context) {
       .run()
     throw unauthorized()
   }
-  if (row.user.disabled) throw unauthorized()
+  if (row.user.disabled || row.user.kind !== 'normal') throw unauthorized()
   if (now - row.session.renewedAt > day) {
     db.update(sessions)
       .set({ renewedAt: now, expiresAt: now + lifetime })
@@ -104,16 +104,19 @@ function fail(map: Map<string, Failures>, key: string, threshold: number) {
 let dummyHash: Promise<string> | undefined
 export async function login(handle: string, password: string, ip: string) {
   const db = systemDatabase()
-  if (!db.select({ id: users.id }).from(users).get())
+  if (!db.select({ id: users.id }).from(users).where(eq(users.kind, 'normal')).get())
     throw new HttpError(503, 'SETUP_REQUIRED', t('请设置 NOBOT_ADMIN_PASSWORD 并重启服务以创建管理员'))
   checkLimit(handles, handle)
   checkLimit(ips, ip)
   const user = db.select().from(users).where(eq(users.handle, handle)).get()
   dummyHash ??= Bun.password.hash(randomBytes(32).toString('hex'), { algorithm: 'argon2id' })
-  const valid = await Bun.password.verify(password, user?.passwordHash ?? (await dummyHash))
+  const valid = await Bun.password.verify(
+    password,
+    (user?.kind === 'normal' ? user.passwordHash : null) ?? (await dummyHash),
+  )
   // 验证密码期间可能被管理员禁用或重置密码，写会话前重新读取。
   const fresh = user && db.select().from(users).where(eq(users.id, user.id)).get()
-  if (!valid || !fresh || fresh.disabled || fresh.passwordHash !== user?.passwordHash) {
+  if (!valid || !fresh || fresh.kind !== 'normal' || fresh.disabled || fresh.passwordHash !== user?.passwordHash) {
     fail(handles, handle, 5)
     fail(ips, ip, 20)
     throw new HttpError(401, 'INVALID_CREDENTIALS', t('用户名或密码错误'))
@@ -149,13 +152,14 @@ export function logout(c: Context) {
 export async function changePassword(userId: string, tokenHash: string, oldPassword: string, newPassword: string) {
   const db = systemDatabase()
   const user = db.select().from(users).where(eq(users.id, userId)).get()
-  if (!user || !(await Bun.password.verify(oldPassword, user.passwordHash)))
+  if (user?.kind !== 'normal' || !user.passwordHash || !(await Bun.password.verify(oldPassword, user.passwordHash)))
     throw new HttpError(400, 'INVALID_PASSWORD', t('旧密码错误'))
   const passwordHash = await Bun.password.hash(newPassword, { algorithm: 'argon2id' })
   db.transaction((tx) => {
     const fresh = tx.select().from(users).where(eq(users.id, userId)).get()
     const session = tx.select().from(sessions).where(eq(sessions.tokenHash, tokenHash)).get()
-    if (!fresh || fresh.disabled || fresh.passwordHash !== user.passwordHash || !session) throw unauthorized()
+    if (fresh?.kind !== 'normal' || fresh.disabled || fresh.passwordHash !== user.passwordHash || !session)
+      throw unauthorized()
     tx.update(users).set({ passwordHash }).where(eq(users.id, userId)).run()
     tx.delete(sessions)
       .where(and(eq(sessions.userId, userId), ne(sessions.tokenHash, tokenHash)))

@@ -4,6 +4,53 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '表情回应每日预算':
+      return t('表情回应每日预算')
+    case '表情回应冷却毫秒':
+      return t('表情回应冷却毫秒')
+    case '同步平台删除':
+      return t('同步平台删除')
+    case '同步时显示人设名字':
+      return t('同步时显示人设名字')
+    case '每位成员每分钟消息上限':
+      return t('每位成员每分钟消息上限')
+    case '打断重来':
+      return t('打断重来')
+    case '排队合并':
+      return t('排队合并')
+    case '渠道连发处理':
+      return t('渠道连发处理')
+    case '删除消息按钮':
+      return t('删除消息按钮')
+    case '续写按钮':
+      return t('续写按钮')
+    case '下一候选按钮':
+      return t('下一候选按钮')
+    case '上一候选按钮':
+      return t('上一候选按钮')
+    case '重新生成按钮':
+      return t('重新生成按钮')
+    case '折叠思考过程':
+      return t('折叠思考过程')
+    case '隐藏思考过程':
+      return t('隐藏思考过程')
+    case '渠道思考过程':
+      return t('渠道思考过程')
+    case '聊天平台渠道':
+      return t('聊天平台渠道')
+    case '把聊天平台接到 NoBot 会话和房间':
+      return t('把聊天平台接到 NoBot 会话和房间')
+    case '流式输出':
+      return t('流式输出')
+    case '流式更新间隔':
+      return t('流式更新间隔')
+    case '同步网页消息':
+      return t('同步网页消息')
+    case '回合提示时提及成员':
+      return t('回合提示时提及成员')
+    case '表情回应':
+      return t('表情回应')
+
     case '按性别分配声音':
       return t('按性别分配声音')
     case '用模型判断角色性别':

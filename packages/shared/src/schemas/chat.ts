@@ -7,6 +7,8 @@ import type { PlayPresetData, StageState, StateSchema } from './stage'
 import { checkResultSchema } from './trpg'
 
 export interface ChatSummary {
+  /** 渠道来源供会话列表显示平台徽标。 */
+  sourceProvider?: 'telegram' | 'onebot11' | null
   id: string
   /** 单人会话的角色；群聊为 null */
   characterId: string | null

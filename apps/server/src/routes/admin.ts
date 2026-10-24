@@ -17,7 +17,7 @@ import { closeUserDatabase, currentUser, runAsUser } from '../user-context'
 
 function findUser(id: string) {
   const user = systemDatabase().select().from(users).where(eq(users.id, id)).get()
-  if (!user) throw notFound(t('用户'))
+  if (user?.kind !== 'normal') throw notFound(t('用户'))
   return user
 }
 function protectSelf(id: string, forbidden: boolean) {
@@ -25,7 +25,9 @@ function protectSelf(id: string, forbidden: boolean) {
     throw new HttpError(400, 'SELF_PROTECTED', t('不能删除或禁用自己，也不能取消自己的管理员权限'))
 }
 export const adminRoutes = new Hono()
-  .get('/users', (c) => c.json(systemDatabase().select().from(users).all().map(userDTO)))
+  .get('/users', (c) =>
+    c.json(systemDatabase().select().from(users).where(eq(users.kind, 'normal')).all().map(userDTO)),
+  )
   .post('/users', validate('json', createUserInput), async (c) => c.json(await createUser(c.req.valid('json'))))
   .patch('/users/:id', validate('json', updateUserInput), async (c) => {
     const id = c.req.param('id')
@@ -58,6 +60,7 @@ export const adminRoutes = new Hono()
       return updated
     })
     if (input.disabled === true || passwordHash) liveHub.closeUser(id)
+    if (input.disabled === true) await runAsUser(result, unloadUserExtensions)
     return c.json(userDTO(result))
   })
   .delete('/users/:id', async (c) => {

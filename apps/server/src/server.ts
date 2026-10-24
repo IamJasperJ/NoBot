@@ -4,7 +4,7 @@ import { serveStatic } from 'hono/bun'
 import { app as api } from './app'
 import { env } from './env'
 import { HttpError } from './errors'
-import { ensureUserExtensions } from './extensions/registry'
+import { ensureUserExtensions, forwardPublicExtension, resumeBuiltinBackgrounds } from './extensions/registry'
 import { t } from './i18n'
 import { requestLanguage } from './i18n/request-language'
 import { adminRoutes } from './routes/admin'
@@ -16,6 +16,7 @@ import { runAsUser } from './user-context'
 
 export function createServer() {
   resumeRoomStates()
+  void resumeBuiltinBackgrounds()
   const server = new Hono()
   server.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: { code: err.code, message: err.message } }, err.status)
@@ -59,6 +60,7 @@ export function createServer() {
       })
     }),
   )
+  server.all('/hooks/:id/:handle/*', (c) => forwardPublicExtension(c.req.param('id'), c.req.param('handle'), c.req.raw))
   server.route('/api/auth', authRoutes)
   server.route('/api/admin', adminRoutes)
   server.route('/', api)

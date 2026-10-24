@@ -1,7 +1,7 @@
 import type { PresenceDTO, PresenceStatus } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { systemDatabase } from '../../db/system-client'
-import { userPresencePrefs } from '../../db/system-schema'
+import { userPresencePrefs, users } from '../../db/system-schema'
 import { liveHub } from '../live/hub'
 import { visibleRoomFor } from '../rooms'
 import { friendIds } from './index'
@@ -19,6 +19,7 @@ export class PresenceService {
     private friends = friendIds,
   ) {}
   connect(userId: string, connectionId: string) {
+    if (systemDatabase().select().from(users).where(eq(users.id, userId)).get()?.kind === 'external') return
     const now = this.clock()
     const state: State = this.states.get(userId) ?? { connections: new Map(), lastActive: now }
     state.connections.set(connectionId, now)

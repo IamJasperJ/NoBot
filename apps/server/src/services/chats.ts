@@ -152,6 +152,7 @@ export function setVars(chatId: string, input: SetVarsInput) {
 
 function toSummary(row: ChatRow): ChatSummary {
   return {
+    sourceProvider: row.sourceProvider,
     id: row.id,
     characterId: row.characterId,
     groupId: row.groupId,
@@ -501,6 +502,7 @@ export function swipe(chatId: string, messageId: string, direction: -1 | 1): str
 
   const leaf = findLatestLeaf(children, target.id)
   db.update(chats).set({ activeLeafId: leaf, updatedAt: Date.now() }).where(eq(chats.id, chatId)).run()
+  emitServerEvent({ type: 'message:updated', message: loadMessage(leaf) })
   return leaf
 }
 
@@ -575,6 +577,7 @@ export function deleteMessage(messageId: string) {
       tx.update(chats).set({ activeLeafId: leaf, updatedAt: Date.now() }).where(eq(chats.id, row.chatId)).run()
     }
   })
+  emitServerEvent({ type: 'message:deleted', chatId: row.chatId, messageIds: [...removed] })
 }
 
 /** 图片任务未完成时多留一格，通用接口仍只能修改图片序号。 */
@@ -629,6 +632,7 @@ export function activateMessage(chatId: string, messageId: string, exact = false
   if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', t('正在生成，稍后再切换'))
   const leafId = exact ? messageId : findLatestLeaf(buildChildrenMap(nodes), messageId)
   db.update(chats).set({ activeLeafId: leafId, updatedAt: Date.now() }).where(eq(chats.id, chatId)).run()
+  emitServerEvent({ type: 'message:updated', message: loadMessage(leafId) })
   return leafId
 }
 

@@ -1,15 +1,36 @@
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import {
+  type AnySQLiteColumn,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core'
 
-export const users = sqliteTable('users', {
-  id: text('id').primaryKey(),
-  handle: text('handle').notNull().unique(),
-  name: text('name').notNull(),
-  passwordHash: text('password_hash').notNull(),
-  isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
-  disabled: integer('disabled', { mode: 'boolean' }).notNull().default(false),
-  createdAt: integer('created_at').notNull(),
-  lastLoginAt: integer('last_login_at'),
-})
+export const users = sqliteTable(
+  'users',
+  {
+    id: text('id').primaryKey(),
+    handle: text('handle').notNull().unique(),
+    name: text('name').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    kind: text('kind', { enum: ['normal', 'external'] })
+      .notNull()
+      .default('normal'),
+    externalProvider: text('external_provider'),
+    externalId: text('external_id'),
+    externalOwnerUserId: text('external_owner_user_id').references((): AnySQLiteColumn => users.id, {
+      onDelete: 'cascade',
+    }),
+    avatarFile: text('avatar_file'),
+    isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
+    disabled: integer('disabled', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at').notNull(),
+    lastLoginAt: integer('last_login_at'),
+  },
+  (t) => [uniqueIndex('external_user_identity_idx').on(t.externalProvider, t.externalOwnerUserId, t.externalId)],
+)
 export const sessions = sqliteTable(
   'sessions',
   {
@@ -215,3 +236,18 @@ export const roomNotificationDeliveries = sqliteTable('room_notification_deliver
   roomId: roomRef(),
   createdAt: integer('created_at').notNull(),
 })
+
+/** 启动索引只含路由信息，凭据始终留在所属用户库。 */
+export const channelRegistry = sqliteTable(
+  'channel_registry',
+  {
+    userHandle: text('user_handle')
+      .notNull()
+      .references(() => users.handle, { onDelete: 'cascade' }),
+    accountId: text('account_id').notNull(),
+    provider: text('provider').notNull(),
+    receiveMode: text('receive_mode').notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.userHandle, t.accountId] })],
+)

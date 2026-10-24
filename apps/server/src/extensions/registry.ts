@@ -4,11 +4,13 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { BuildInput } from '@nobot/core'
 import type { ChatMessage, ExtensionDTO, ExtensionGitInfo, ExtensionSettingField } from '@nobot/shared'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { db, getSetting, setSetting } from '../db/client'
 import { chats, messages, settings } from '../db/schema'
+import { systemDatabase } from '../db/system-client'
+import { channelRegistry, users } from '../db/system-schema'
 import { paths } from '../env'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
@@ -18,11 +20,12 @@ import { cleanupExtensionStaging, readGitInfo } from '../services/extensions/ext
 import { profileChatScope, selectProfile } from '../services/profiles'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
-import { currentUser } from '../user-context'
+import { currentUser, onUserDatabaseClose, runAsUser } from '../user-context'
 import audio from './builtin/audio'
 import { fishClient } from './builtin/audio/tts/engines/fish'
 import { migrateAudioSettings } from './builtin/audio/tts/settings'
 import caption, { generateCaption } from './builtin/caption'
+import channels from './builtin/channels'
 import imageGen from './builtin/image-gen'
 import { applyProfileImage } from './builtin/image-gen/profile'
 import { parseSettings as parseImageSettings } from './builtin/image-gen/settings'
@@ -82,9 +85,11 @@ export async function ensureUserExtensions() {
     loading.set(handle, pending)
   }
   await pending
+  startBuiltinBackgrounds()
 }
 export async function unloadUserExtensions() {
   const handle = currentUser().handle
+  stopBuiltinBackgrounds(handle)
   await loading.get(handle)
   for (const entry of [...localExtensions()]) await unloadExtension(entry.extension.id)
   userExtensions.delete(handle)
@@ -180,6 +185,7 @@ export function registerBuiltinExtension(extension: Extension) {
   builtins.push({ extension, source: 'builtin', app: createApp(extension) })
 }
 
+registerBuiltinExtension(channels)
 registerBuiltinExtension(regex)
 registerBuiltinExtension(imageGen)
 registerBuiltinExtension(summary)
@@ -376,7 +382,7 @@ export function forwardExtension(id: string, request: Request) {
 
 /** 异步隔离事件处理；同步异常和异步拒绝都不能影响主流程。 */
 export function emitServerEvent(event: ServerEvent) {
-  const chatId = 'chatId' in event ? event.chatId : event.message.chatId
+  const chatId = 'chatId' in event ? event.chatId : 'message' in event ? event.message.chatId : ''
   for (const { ext, ctx } of active(chatId)) {
     if (ext.hooks?.onEvent)
       void Promise.resolve()
@@ -489,12 +495,14 @@ export function updateExtension(
     })
     l.app ??= createApp(l.extension)
   }
+  if (patch.enabled === false) stopBuiltinBackgrounds(currentUser().handle, id)
   if (patch.enabled !== undefined) setSetting(SETTING_KEYS.extensionsEnabled, { ...enabledMap(), [id]: patch.enabled })
   // 前端传回的密钥如果还是占位串，表示没改，保留原值
   if (patch.settings) {
     setSetting(SETTING_KEYS.extensionSettings(id), restoreSecrets(patch.settings, settingsOf(l.extension)))
     if (id === 'audio') fishClient.clearCache()
   }
+  startBuiltinBackgrounds()
   return toDTO(l)
 }
 
@@ -614,4 +622,88 @@ export function imageGenerationContext(chatId = '', characterId?: string): Exten
     context.settings = applyProfileImage(parseImageSettings(settingsOf(entry.extension)), profile)
   }
   return context
+}
+
+const backgroundControllers = new Map<string, Map<string, AbortController>>()
+function stopBuiltinBackgrounds(handle: string, id?: string) {
+  const entries = backgroundControllers.get(handle)
+  if (!entries) return
+  for (const [key, controller] of entries) {
+    if (id && id !== key) continue
+    controller.abort()
+    entries.delete(key)
+  }
+  if (!entries.size) backgroundControllers.delete(handle)
+}
+onUserDatabaseClose(stopBuiltinBackgrounds)
+function startBuiltinBackgrounds() {
+  const handle = currentUser().handle
+  let entries = backgroundControllers.get(handle)
+  if (!entries) {
+    entries = new Map()
+    backgroundControllers.set(handle, entries)
+  }
+  for (const entry of builtins) {
+    const extension = entry.extension
+    if (!isEnabled(entry) || !extension.startBackground || entries.has(extension.id)) continue
+    const controller = new AbortController()
+    entries.set(extension.id, controller)
+    const { chatId: _, ...ctx } = contextOf(extension, '')
+    try {
+      Promise.resolve(extension.startBackground(ctx, controller.signal)).catch(() => {
+        // 不打印第三方异常，避免后台连接 URL 中的凭据进入日志。
+        if (entries?.get(extension.id) === controller) entries.delete(extension.id)
+        controller.abort()
+      })
+    } catch {
+      entries.delete(extension.id)
+      controller.abort()
+    }
+  }
+}
+/** 启动仅枚举无凭据索引；停用用户及扩展均不恢复连接。 */
+export async function resumeBuiltinBackgrounds() {
+  const db = systemDatabase()
+  const handles = new Set(
+    db
+      .select()
+      .from(channelRegistry)
+      .where(eq(channelRegistry.enabled, true))
+      .all()
+      .map((r) => r.userHandle),
+  )
+  for (const handle of handles) {
+    const user = db
+      .select()
+      .from(users)
+      .where(and(eq(users.handle, handle), eq(users.kind, 'normal'), eq(users.disabled, false)))
+      .get()
+    if (user) await runAsUser(user, ensureUserExtensions)
+  }
+}
+/** webhook 不经过登录中间件；查找和验签失败都不暴露其他用户的数据。 */
+export async function forwardPublicExtension(id: string, handle: string, request: Request) {
+  const user = systemDatabase()
+    .select()
+    .from(users)
+    .where(and(eq(users.handle, handle), eq(users.kind, 'normal'), eq(users.disabled, false)))
+    .get()
+  if (!user) return new Response(null, { status: 404 })
+  return runAsUser(user, async () => {
+    await ensureUserExtensions()
+    const entry = visibleExtensions().find((l) => l.extension.id === id && isEnabled(l))
+    if (!entry?.extension.publicRoutes) return new Response(null, { status: 404 })
+    const app = new Hono()
+    const { chatId: _, ...ctx } = contextOf(entry.extension, '')
+    entry.extension.publicRoutes(app, ctx)
+    app.onError((error, c) =>
+      c.json(
+        { error: { code: 'HOOK_FAILED', message: t('渠道请求失败') } },
+        error instanceof HttpError ? error.status : 500,
+      ),
+    )
+    const url = new URL(request.url)
+    url.pathname = url.pathname.slice(`/hooks/${id}/${handle}`.length) || '/'
+    return app.fetch(new Request(url.toString(), request))
+  })
 }

@@ -54,6 +54,18 @@ export interface ExtensionStorage {
 
 /** 扩展通过宿主复用当前会话的生成、附件和消息能力。 */
 export interface ExtensionHost {
+  /** 房间操作直接调用房间服务，保留真实成员参数，避免以宿主权限绕过房间校验。 */
+  generate: typeof import('../services/generation/generation').startGeneration
+  subscribe: typeof import('../services/generation/generation').subscribe
+  abort: typeof import('../services/generation/generation').abortGeneration
+  swipe: typeof import('../services/chats').swipe
+  editMessage: typeof import('../services/chats').editMessage
+  deleteMessage: typeof import('../services/chats').deleteMessage
+  activateMessage: typeof import('../services/chats').activateMessage
+  branchChat: typeof import('../services/chats').branchChat
+  createChat: typeof import('../services/chats').createChat
+  listChats: typeof import('../services/chats').listChats
+  performCheck: typeof import('../services/trpg/trpg').performCheck
   listGeneratedImages(
     characterId: string,
   ): { chatId: string; messageId: string; image: AttachmentDTO; prompt: string; createdAt: number }[]
@@ -147,8 +159,10 @@ export interface ExtensionContext {
 export type ServerEvent =
   | { type: 'message:saved'; message: MessageDTO }
   | { type: 'message:updated'; message: MessageDTO }
+  | { type: 'message:deleted'; chatId: string; messageIds: string[] }
   | { type: 'generation:complete'; chatId: string }
   | { type: 'chat:created'; chatId: string }
+  | { type: 'character:updated'; characterId: string }
 
 export interface ExtensionHooks {
   /** 组装 Prompt 之前：可以修改组装输入（比如给角色描述追加内容），返回新的输入 */
@@ -191,6 +205,13 @@ export interface Extension {
    * settings 是当前未保存的表单草稿，可用 await parseSettingsDraft(c, ctx.settings) 和保存值合并。
    */
   routes?: (app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) => void
+  /**
+   * 无登录入口 /hooks/<扩展 id>/<用户 handle>/...。宿主拒绝未知、外部、禁用用户和未启用扩展，
+   * 并在所属用户的 runAsUser 中调用；扩展必须自行验签，不能把 URL 或 handle 当作授权。
+   */
+  publicRoutes?: (app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) => void
+  /** 内置扩展每用户后台生命周期；signal 在关闭用户库、禁用或卸载时先中止。 */
+  startBackground?: (ctx: Omit<ExtensionContext, 'chatId'>, signal: AbortSignal) => void | Promise<void>
 }
 
 export function defineExtension(extension: Extension): Extension {

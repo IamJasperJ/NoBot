@@ -220,35 +220,33 @@ function SessionTab({
             {t('停用')}
           </Button>
         )}
-        {group && binding.state !== 'left' && (
-          <>
-            {confirmLeave ? (
-              <>
-                <span className="text-[13px] text-red-600">{t('退出后要重新拉 bot 进群才能恢复。')}</span>
-                <Button
-                  variant="danger"
-                  disabled={leave.isPending}
-                  onClick={() =>
-                    leave.mutate(
-                      { id: binding.id, confirm: true },
-                      {
-                        onSuccess: () => toast.info(t('已退出群')),
-                        onError: (e) => toast.error(errorMessage(e)),
-                      },
-                    )
-                  }
-                >
-                  {t('确认退群')}
-                </Button>
-                <Button onClick={() => setConfirmLeave(false)}>{t('取消')}</Button>
-              </>
-            ) : (
-              <Button variant="danger" onClick={() => setConfirmLeave(true)}>
-                {t('退出这个群')}
+        {group &&
+          binding.state !== 'left' &&
+          (confirmLeave ? (
+            <>
+              <span className="text-[13px] text-red-600">{t('退出后要重新拉 bot 进群才能恢复。')}</span>
+              <Button
+                variant="danger"
+                disabled={leave.isPending}
+                onClick={() =>
+                  leave.mutate(
+                    { id: binding.id, confirm: true },
+                    {
+                      onSuccess: () => toast.info(t('已退出群')),
+                      onError: (e) => toast.error(errorMessage(e)),
+                    },
+                  )
+                }
+              >
+                {t('确认退群')}
               </Button>
-            )}
-          </>
-        )}
+              <Button onClick={() => setConfirmLeave(false)}>{t('取消')}</Button>
+            </>
+          ) : (
+            <Button variant="danger" onClick={() => setConfirmLeave(true)}>
+              {t('退出这个群')}
+            </Button>
+          ))}
       </section>
     </div>
   )

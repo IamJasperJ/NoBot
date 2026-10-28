@@ -4,14 +4,17 @@ import { systemDatabase } from '../../../db/system-client'
 import { roomBans, roomMembers, users } from '../../../db/system-schema'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
+import { cleanName } from '../../../lib/input-text'
 import { ensureExternalUser } from '../../../services/external-users'
 import { directoryChange, members, membership, refused, requireRole } from '../../../services/rooms'
+import { appendInitiativeMember } from '../../../services/rooms/trpg'
 import { blocked } from '../../../services/social'
 import { currentUser, runAsRoomActor } from '../../../user-context'
 
 /** 平台不支持旁观；授权只允许正常玩家，仍沿用房间容量、封禁、规则和双向拉黑。 */
 export function addChannelMember(roomId: string, actor: ChannelActorDTO, acceptedRulesVersion?: number) {
   const { room } = requireRole(roomId, ['owner', 'gm'])
+  const displayName = cleanName(actor.displayName).slice(0, 100)
   const db = systemDatabase()
   const id =
     actor.linkedUserId ?? ensureExternalUser(actor.provider, currentUser().id, actor.externalId, actor.displayName).id
@@ -37,6 +40,7 @@ export function addChannelMember(roomId: string, actor: ChannelActorDTO, accepte
     if (existing.role === 'spectator') throw refused()
     if (existing.acceptedRulesVersion !== room.rulesVersion && acceptedRulesVersion !== room.rulesVersion)
       throw new HttpError(409, 'RULES_CHANGED', t('请先同意最新房间规则'))
+    appendInitiativeMember(room, id)
     return id
   }
   if ((room.contentRating !== 'general' || room.rules) && acceptedRulesVersion !== room.rulesVersion)
@@ -49,7 +53,7 @@ export function addChannelMember(roomId: string, actor: ChannelActorDTO, accepte
         roomId,
         userId: id,
         role: 'player',
-        personaName: actor.displayName,
+        personaName: displayName,
         personaDescription: '',
         acceptedRulesVersion: room.rulesVersion,
         joinedAt: Date.now(),
@@ -60,12 +64,13 @@ export function addChannelMember(roomId: string, actor: ChannelActorDTO, accepte
           state: 'active',
           role: 'player',
           acceptedRulesVersion: room.rulesVersion,
-          personaName: actor.displayName,
+          personaName: displayName,
           personaDescription: '',
         },
       })
       .run()
   })
+  appendInitiativeMember(room, id)
   return id
 }
 export function asChannelActor<T>(binding: ChannelBindingDTO, actor: ChannelActorDTO, fn: () => T): T {

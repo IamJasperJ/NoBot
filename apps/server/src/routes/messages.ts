@@ -4,8 +4,6 @@ import { z } from 'zod'
 import { validate } from '../lib/validate'
 import * as chats from '../services/chats'
 import { readableMessage } from '../services/rooms/dto'
-import { rateLimitMessage, roomEditInput } from '../services/rooms/input'
-import { currentUser } from '../user-context'
 
 /** 编辑、删除消息（删除会连同后面的整棵子树） */
 export const messageRoutes = new Hono()
@@ -16,10 +14,9 @@ export const messageRoutes = new Hono()
     '/:id',
     validate(
       'json',
-      editMessageInput.extend({ content: roomEditInput.shape.content, reasoning: z.string().max(100000).optional() }),
+      editMessageInput.extend({ content: z.string().max(100000), reasoning: z.string().max(100000).optional() }),
     ),
     (c) => {
-      rateLimitMessage(`message:${currentUser().id}`)
       return c.json(
         readableMessage(
           chats.editMessage(c.req.param('id'), c.req.valid('json').content, c.req.valid('json').reasoning),

@@ -5,6 +5,7 @@ import { db, getSetting, newId, setSetting } from '../../db/client'
 import { chats, messages, roomEvents, roomUsage } from '../../db/schema'
 import { HttpError } from '../../errors'
 import { t } from '../../i18n'
+import { stripBidi } from '../../lib/input-text'
 import { currentUser } from '../../user-context'
 import { getAttachment } from '../attachments'
 import { editMessage, getChatRow, loadMessage, loadPath } from '../chats'
@@ -21,6 +22,7 @@ import {
   checkQuota,
   checkWritable,
   event,
+  findRoom,
   members,
   membership,
   publish,
@@ -30,7 +32,14 @@ import {
   roomRow,
 } from './index'
 import { rateLimitMessage, validateEdit } from './input'
-import { advanceInitiative, afterAiTurn, assertInitiative, registerChoices, roomActivity } from './trpg'
+import {
+  advanceInitiative,
+  afterAiTurn,
+  assertInitiative,
+  initiativeSnapshot,
+  registerChoices,
+  roomActivity,
+} from './trpg'
 import { runAsRoomActor } from './usage'
 
 interface TurnState {
@@ -131,6 +140,7 @@ export function sendRoomMessage(
   actorId = currentUser().id,
   followTurnMode = true,
 ) {
+  input = { ...input, text: stripBidi(input.text) }
   const { room } = membership(id, actorId)
   const member = checkWritable(room, actorId)
   const state = turnState(id)
@@ -207,8 +217,11 @@ export function sendRoomMessage(
     ephemeral(room, 'room.typing', actorId, { userId: actorId, expiresAt: 0 })
     notifyMentions(room, result.message)
     if (followTurnMode && input.channel === 'ic' && !extraMeta.choice?.counts) {
-      if (room.turnMode === 'initiative') advanceInitiative(room)
-      else if (!(extraMeta.choice && room.choiceMode === 'each')) schedule(room)
+      if (room.turnMode === 'initiative') {
+        const initiative = initiativeSnapshot(room)
+        const entry = initiative.order[initiative.current]
+        if (entry?.kind === 'member' && entry.id === actorId) advanceInitiative(room)
+      } else if (!(extraMeta.choice && room.choiceMode === 'each')) schedule(room)
     }
     broadcastTurn(room)
     return result.message
@@ -285,7 +298,8 @@ function schedule(room: Room) {
       .then(() =>
         asHost(room, async () => {
           try {
-            const latest = roomRow(room.id)
+            const latest = findRoom(room.id)
+            if (!latest) return
             if (latest.status !== 'active' || ['host', 'initiative'].includes(latest.turnMode) || !s.pending.length)
               return
             if (latest.turnMode === 'mention' && !addressed(latest, s)) return
@@ -311,6 +325,7 @@ function schedule(room: Room) {
                     'Decide whether an AI character should respond in this multiplayer scene. Human players may be talking to each other. Respect each character\'s talkativeness. Return only strict JSON: {"respond": boolean, "speaker": "character name or null", "replyTo": "player name or null", "reason": "short reason"}. Use JSON null for missing names. Do not write dialogue. Write the reason in the same language as the conversation.',
                   maxTokens: 150,
                 })
+                if (!findRoom(room.id)) return
                 const decision = parseDecision(answer)
                 if (!decision.respond) return
                 s.speakerId = charactersForRoom(room, false).find(
@@ -324,7 +339,8 @@ function schedule(room: Room) {
             ephemeral(room, 'room.turn', s.actorId, { error: error instanceof Error ? error.message : String(error) })
           } finally {
             s.deciding = false
-            if (!s.running && s.pending.length > evaluated) schedule(roomRow(room.id))
+            const latest = findRoom(room.id)
+            if (latest && !s.running && s.pending.length > evaluated) schedule(latest)
           }
         }),
       )
@@ -390,10 +406,20 @@ export function triggerTurn(
           input.mode === 'trigger' && !input.speakerId && s.speakerId ? { ...input, speakerId: s.speakerId } : input,
           {
             beforeMessage: () => {
-              checkWritable(roomRow(id), actorId)
-              releaseUsage = reserveUsage(roomRow(id), actorId)
+              const latest = findRoom(id)
+              if (!latest) {
+                generation.abortGeneration(room.chatId)
+                return
+              }
+              checkWritable(latest, actorId)
+              releaseUsage = reserveUsage(latest, actorId)
             },
             saved: (message) => {
+              if (!findRoom(id))
+                return () => {
+                  releaseUsage?.()
+                  releaseUsage = undefined
+                }
               db.insert(roomUsage)
                 .values({
                   id: newId(),
@@ -408,6 +434,7 @@ export function triggerTurn(
               return () => {
                 releaseUsage?.()
                 releaseUsage = undefined
+                if (!findRoom(id)) return
                 publish(data)
                 registerChoices(room, message)
               }
@@ -424,6 +451,13 @@ export function triggerTurn(
     let messageId: string | null = null,
       index = 0
     generation.subscribe(job, (e) => {
+      const latest = findRoom(id)
+      if (!latest) {
+        releaseUsage?.()
+        releaseUsage = undefined
+        s.running = false
+        return
+      }
       if (e.type === 'start') {
         messageId = e.assistantMessage.id
         index = 0
@@ -456,9 +490,13 @@ export function triggerTurn(
         s.inputPlayers = undefined
         persistTurn(id, s)
         broadcastTurn(room)
-        afterAiTurn(roomRow(id))
+        afterAiTurn(latest)
         // complete 在任务移出锁之前广播，下一轮交给定时器启动。
-        if (s.pending.length) setTimeout(() => asHost(room, () => schedule(roomRow(id))), 0).unref()
+        if (s.pending.length)
+          setTimeout(() => {
+            const latest = findRoom(id)
+            if (latest) asHost(latest, () => schedule(latest))
+          }, 0).unref()
       }
     })
     broadcastTurn(room)
@@ -481,8 +519,7 @@ export function editRoomMessage(id: string, messageId: string, content: string |
   const { room, member } = membership(id),
     actor = currentUser().id
   if (member.role === 'spectator') throw refused()
-  if (content !== null) content = validateEdit(content)
-  rateLimitMessage(`${id}:${actor}`)
+  if (content !== null) content = validateEdit(stripBidi(content))
   return asHost(room, () => {
     const m = loadMessage(messageId)
     if (m.chatId !== room.chatId || !canReadMessage(m, actor)) throw refused()
@@ -498,6 +535,7 @@ export function editRoomMessage(id: string, messageId: string, content: string |
         path.slice(position + 1).some((p) => p.role === 'assistant'))
     )
       throw refused()
+    if (content !== null) rateLimitMessage(`${id}:${actor}`, Date.now(), true)
     // 房间撤回保留节点与修订记录，避免删除子树时误删其他玩家的发言。
     const data = db.transaction(() => {
       const meta = {

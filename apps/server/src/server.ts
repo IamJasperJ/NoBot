@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { getCookie } from 'hono/cookie'
+import { z } from 'zod'
 import { app as api } from './app'
 import { env } from './env'
 import { HttpError } from './errors'
@@ -9,6 +10,7 @@ import { ensureUserExtensions, forwardPublicExtension, resumeBuiltinBackgrounds 
 import { t } from './i18n'
 import { requestLanguage } from './i18n/request-language'
 import { securityHeaders } from './lib/security-headers'
+import { validationMessage } from './lib/validate'
 import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
 import { miniAppRoutes } from './routes/miniapp'
@@ -18,16 +20,21 @@ import { resumeRoomStates } from './services/rooms'
 import { enforceScope, miniAppCookie } from './services/scoped-session'
 import { runAsUser } from './user-context'
 
+process.on('uncaughtException', (error) => logError('uncaughtException', error))
+process.on('unhandledRejection', (error) => logError('unhandledRejection', error))
+
 export function createServer() {
   resumeRoomStates()
   void resumeBuiltinBackgrounds()
   const server = new Hono()
   server.use('*', securityHeaders)
   server.onError((err, c) => {
+    if (err instanceof z.ZodError)
+      return c.json({ error: { code: 'VALIDATION', message: validationMessage(err.issues) } }, 400)
     if (err instanceof HttpError)
       return c.json({ error: { code: err.code, message: err.message, ...err.details } }, err.status)
     logError(`${c.req.method} ${c.req.path}`, err)
-    return c.json({ error: { code: 'INTERNAL', message: t('服务器内部错误：{error}', { error: err.message }) } }, 500)
+    return c.json({ error: { code: 'INTERNAL', message: t('服务器内部错误') } }, 500)
   })
   server.use('/api/*', (c, next) =>
     requestLanguage.run(c.req.header('Accept-Language')?.toLowerCase().startsWith('en') ? 'en' : 'zh', async () => {

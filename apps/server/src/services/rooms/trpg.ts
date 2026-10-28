@@ -17,6 +17,7 @@ import { db, getSetting, newId, setSetting } from '../../db/client'
 import { chats, messages } from '../../db/schema'
 import { HttpError } from '../../errors'
 import { t } from '../../i18n'
+import { stripBidi } from '../../lib/input-text'
 import { currentUser } from '../../user-context'
 import { getChatRow, loadMessage } from '../chats'
 import { isGenerating } from '../generation/generation'
@@ -30,13 +31,13 @@ import {
   checkQuota,
   checkWritable,
   event,
+  findRoom,
   members,
   membership,
   publish,
   type Room,
   refused,
   requireRole,
-  roomRow,
 } from './index'
 import { broadcastTurn, persistTurn, rescheduleRoom, sendRoomMessage, triggerTurn, turnState } from './turns'
 
@@ -71,7 +72,8 @@ function armRound(room: Room, now = Date.now()) {
       const timer = setTimeout(
         () => {
           try {
-            const latest = roomRow(room.id)
+            const latest = findRoom(room.id)
+            if (!latest) return
             asHost(latest, () => reconcileRound(latest))
           } catch {
             /* 房间删除或停用后不再唤醒。 */
@@ -97,7 +99,8 @@ function armRound(room: Room, now = Date.now()) {
     () => {
       roundTimers.delete(room.id)
       try {
-        const latest = roomRow(room.id)
+        const latest = findRoom(room.id)
+        if (!latest) return
         asHost(latest, () => reconcileRound(latest))
       } catch {
         /* 额度或房间生命周期变化不应中断其他房间的定时器。 */
@@ -172,6 +175,16 @@ export function roundSnapshot(room: Room, now = Date.now()): RoomRoundState {
 export function initiativeSnapshot(room: Room): RoomInitiativeState {
   return getSetting<RoomInitiativeState>(`room.initiative:${room.id}`) ?? { order: [], current: 0 }
 }
+/** 新玩家与回归玩家排到末尾，保留当前行动者和现有次序。 */
+export function appendInitiativeMember(room: Room, userId: string) {
+  if (room.turnMode !== 'initiative' || membership(room.id, userId).member.role !== 'player') return
+  asHost(room, () => {
+    const state = initiativeSnapshot(room)
+    if (state.order.some((entry) => entry.kind === 'member' && entry.id === userId)) return
+    state.order.push({ kind: 'member', id: userId })
+    save(room, 'room.initiative', state)
+  })
+}
 /** 移除当前项时接续原下一项；末项离开则进入下一轮。 */
 export function removeInitiativeMember(room: Room, userId: string) {
   const state = initiativeSnapshot(room)
@@ -190,6 +203,7 @@ export function removeInitiativeMember(room: Room, userId: string) {
 export function assertInitiative(room: Room, userId: string) {
   if (room.turnMode !== 'initiative') return
   const state = initiativeSnapshot(room)
+  if (!state.order.length || ['owner', 'gm'].includes(membership(room.id, userId).member.role)) return
   const entry = state.order[state.current]
   if (entry?.kind !== 'member' || entry.id !== userId) throw new HttpError(409, 'NOT_YOUR_TURN', t('还没有轮到你行动'))
 }
@@ -199,29 +213,29 @@ function startAiEntry(room: Room) {
     entry = state.order[state.current]
   if (entry?.kind !== 'character') return
   // complete 回调执行时生成锁尚未释放，下一次事件循环再申请锁。
-  setTimeout(
-    () =>
-      asHost(room, () => {
-        const latest = initiativeSnapshot(roomRow(room.id))
-        if (
-          latest.current !== state.current ||
-          latest.order[latest.current]?.id !== entry.id ||
-          turnState(room.id).running
+  setTimeout(() => {
+    const currentRoom = findRoom(room.id)
+    if (!currentRoom) return
+    return asHost(currentRoom, () => {
+      const latest = initiativeSnapshot(currentRoom)
+      if (
+        latest.current !== state.current ||
+        latest.order[latest.current]?.id !== entry.id ||
+        turnState(room.id).running
+      )
+        return
+      try {
+        triggerTurn(
+          room.id,
+          members(room.id).find((m) => m.userId === turnState(room.id).actorId)?.userId ?? room.hostUserId,
+          false,
+          { mode: 'trigger', speakerId: entry.id },
         )
-          return
-        try {
-          triggerTurn(
-            room.id,
-            members(room.id).find((m) => m.userId === turnState(room.id).actorId)?.userId ?? room.hostUserId,
-            false,
-            { mode: 'trigger', speakerId: entry.id },
-          )
-        } catch {
-          /* 额度或锁拒绝时保留当前项，主持可重试或跳过。 */
-        }
-      }),
-    0,
-  ).unref()
+      } catch {
+        /* 额度或锁拒绝时保留当前项，主持可重试或跳过。 */
+      }
+    })
+  }, 0).unref()
 }
 export function nextRound(room: Room) {
   const state = roundSnapshot(room)
@@ -447,15 +461,18 @@ export function checkRoom(
 export function whisperRoom(id: string, input: z.infer<typeof roomWhisperInput>) {
   const { room, member } = membership(id)
   checkWritable(room, member.userId)
-  if (input.to !== 'gm' && membership(id, input.to).member.role === 'spectator')
-    throw new HttpError(400, 'WHISPER_SPECTATOR', t('旁观者不能接收私信'))
+  if (input.to === member.userId) throw new HttpError(400, 'WHISPER_SELF', t('不能给自己发送私信'))
+  const target = input.to === 'gm' ? undefined : members(id).find((m) => m.userId === input.to)
+  if (input.to !== 'gm' && !target) throw new HttpError(400, 'WHISPER_RECIPIENT_NOT_MEMBER', t('收件人不在此房间中'))
+  if (target?.role === 'spectator') throw new HttpError(400, 'WHISPER_SPECTATOR', t('旁观者不能接收私信'))
+  if (member.role === 'player' && input.to !== 'gm')
+    throw new HttpError(400, 'WHISPER_PLAYERS_FORBIDDEN', t('玩家只能向主持发送私信'))
   const recipients =
     input.to === 'gm'
       ? members(id)
           .filter((m) => ['owner', 'gm'].includes(m.role))
           .map((m) => m.userId)
-      : [membership(id, input.to).member.userId]
-  if (member.role === 'player' && input.to !== 'gm') throw refused()
+      : [target!.userId]
   return asHost(room, () => {
     const duplicate = db
       .select()
@@ -467,7 +484,7 @@ export function whisperRoom(id: string, input: z.infer<typeof roomWhisperInput>)
     const message = append(
       room,
       member.userId,
-      input.text,
+      stripBidi(input.text),
       {
         channel: 'whisper',
         excluded: true,
@@ -549,17 +566,21 @@ function armVote(room: Room, state: RoomChoiceState, now = Date.now(), retryDela
     return
   }
   const timer = setTimeout(
-    () =>
-      asHost(room, () => {
-        voteTimers.delete(key)
+    () => {
+      voteTimers.delete(key)
+      const currentRoom = findRoom(room.id)
+      if (!currentRoom) return
+      return asHost(currentRoom, () => {
         try {
           closeChoice(room.id, state.messageId)
         } catch {
           // 锁、暂停或额度暂时阻塞时保留原截止时间，稍后重试而不是永久遗失定时任务。
           const latest = getSetting<RoomChoiceState>(`room.choice:${room.id}:${state.messageId}`)
-          if (latest && !latest.closed) armVote(roomRow(room.id), latest, Date.now(), 1000)
+          const currentRoom = findRoom(room.id)
+          if (currentRoom && latest && !latest.closed) armVote(currentRoom, latest, Date.now(), 1000)
         }
-      }),
+      })
+    },
     Math.max(retryDelay, state.deadline - now),
   )
   timer.unref()
@@ -567,10 +588,11 @@ function armVote(room: Room, state: RoomChoiceState, now = Date.now(), retryDela
 }
 export function pickRoomChoice(id: string, messageId: string, index: number, now = Date.now()) {
   const { room, member } = membership(id)
+  if (member.role === 'spectator') throw new HttpError(403, 'CHOICE_SPECTATOR', t('旁观者不能参与选项投票'))
   checkWritable(room, member.userId)
   roomActivity(room, member.userId, now)
   return asHost(room, () => {
-    if (!options(room, messageId)[index]) throw refused()
+    if (!options(room, messageId)[index]) throw new HttpError(400, 'CHOICE_INDEX_INVALID', t('选项编号超出范围'))
     if (room.choiceMode === 'gm') {
       if (member.role === 'player') throw new HttpError(403, 'CHOICE_GM_ONLY', t('此房间仅允许主持选择选项'))
       const state = choiceSnapshot(id, messageId, now)
@@ -617,16 +639,29 @@ function closeChoiceAsHost(room: Room, messageId: string) {
   return asHost(room, () => closeChoice(room.id, messageId))
 }
 export function closeChoice(id: string, messageId: string, winner?: number, random = Math.random) {
-  const { room } = requireRole(id, ['owner', 'gm'])
+  const { room, member } = membership(id)
+  if (!['owner', 'gm'].includes(member.role))
+    throw new HttpError(403, 'CHOICE_CLOSE_FORBIDDEN', t('只有房主或主持可以结束投票'))
   checkWritable(room, currentUser().id)
   if (room.choiceMode !== 'vote') throw refused()
   return asHost(room, () => {
     const state = choiceSnapshot(id, messageId)
     if (state.closed) return state
     const max = Math.max(...state.counts)
+    if (winner === undefined && !Object.keys(state.votes).length) {
+      db.transaction(() => {
+        append(room, room.hostUserId, t('投票已结束，无人投票'), {}, 'system')
+        state.closed = true
+        state.winner = null
+        save(room, 'room.choice', state)
+      })
+      armVote(room, state)
+      return state
+    }
     const tied = state.counts.flatMap((count, index) => (count === max ? [index] : []))
     const selected = winner ?? tied[Math.floor(random() * tied.length)]!
-    if (!options(room, messageId)[selected] || (winner !== undefined && state.counts[selected] !== max)) throw refused()
+    if (!options(room, messageId)[selected] || (winner !== undefined && state.counts[selected] !== max))
+      throw new HttpError(400, 'CHOICE_WINNER_INVALID', t('获胜选项无效，请选择得票最多的选项'))
     if (turnState(id).running || isGenerating(room.chatId))
       throw new HttpError(409, 'GENERATING', t('房间正在生成回复'))
     checkQuota(room, room.hostUserId)

@@ -5,7 +5,7 @@ import { roomUsage } from '../../db/schema'
 import { systemDatabase } from '../../db/system-client'
 import { rooms } from '../../db/system-schema'
 import { currentUser } from '../../user-context'
-import { checkWritable, event, publish, reserveUsage } from './index'
+import { checkWritable, event, findRoom, publish, reserveUsage } from './index'
 
 const actors = new AsyncLocalStorage<string>()
 /** 生成派生的异步生图沿用真正触发者，不能把 runAsUser 后的房主误认为付费触发人。 */
@@ -26,6 +26,10 @@ export function reserveChatAsset(chatId: string | undefined, kind: 'image' | 'tt
   return {
     release,
     saved: () => {
+      if (!findRoom(room.id)) {
+        release()
+        return
+      }
       const saved = db.transaction(() => {
         db.insert(roomUsage).values({ id: newId(), roomId: room.id, userId, kind, createdAt: Date.now() }).run()
         return event(room, 'room.asset', userId, { kind })

@@ -234,8 +234,8 @@ if (!process.env.ROOM_QA_CHILD) {
     expect(as(1, () => r.lobby(invite.token!))).toMatchObject({ alreadyInRoom: true, room: { id: room.id } })
     fail(
       () => as(3, () => r.joinRoom({ invite: invite.token!, personaId: personaIds[3]!, acceptedRulesVersion: 1 })),
-      'NOT_FOUND',
-      404,
+      'INVITE_USED_UP',
+      410,
     )
     const active = as(0, () => r.createInvite(room.id, shared.roomInviteInput.parse({ kind: 'link' })))
     fail(
@@ -402,7 +402,7 @@ if (!process.env.ROOM_QA_CHILD) {
     )
     expect(response.status).toBe(400)
   })
-  test('邀请失效错误仅限成员与创建者，封禁提示只给本人', () => {
+  test('邀请失效错误告知令牌持有者，封禁提示只给本人', () => {
     const room = fixture()
     for (const [changes, code] of [
       [{ expiresAt: 0 }, 'INVITE_EXPIRED'],
@@ -412,7 +412,7 @@ if (!process.env.ROOM_QA_CHILD) {
       const invite = as(0, () => r.createInvite(room.id, shared.roomInviteInput.parse({ kind: 'link', maxUses: 1 })))
       systemDatabase().update(roomInvites).set(changes).where(eq(roomInvites.id, invite.id)).run()
       fail(() => as(1, () => r.validInvite(invite.token!)), code, 410)
-      fail(() => as(3, () => r.lobby(invite.token!)), 'NOT_FOUND', 404)
+      fail(() => as(3, () => r.lobby(invite.token!)), code, 410)
       expect(
         as(1, () => r.joinRoom({ invite: invite.token!, personaId: personaIds[1]!, acceptedRulesVersion: 1 })).id,
       ).toBe(room.id)
@@ -468,5 +468,374 @@ if (!process.env.ROOM_QA_CHILD) {
       as(1, () => r.updatePersona(room.id, { name: 'P\u202eQ' })).members.find((m) => m.userId === 'player')!
         .personaName,
     ).toBe('PQ')
+  })
+  test('R3 BUG-23：删除或关闭慢速生成房间，回调异常隔离且释放锁', async () => {
+    const generation = await import('../src/services/generation/generation')
+    const { mockLlm } = await import('./helpers/mockLlm')
+    const { createApiPreset } = await import('../src/services/connections')
+    const model = mockLlm()
+    const errors: unknown[] = []
+    const onError = (error: unknown) => {
+      errors.push(error)
+    }
+    process.on('unhandledRejection', onError)
+    try {
+      as(0, () => createApiPreset(shared.apiPresetInput.parse({ name: 'slow', baseUrl: model.url, model: 'mock-one' })))
+      model.setScript(() => ({ text: 'slow stream for room deletion', delayMs: 20 }))
+      for (const action of ['delete', 'archive', 'listener'] as const) {
+        const room = fixture()
+        as(0, () => turns.triggerTurn(room.id))
+        const job = generation.getJob(room.chatId)!
+        if (action === 'listener')
+          as(0, () =>
+            generation.subscribe(job, () => {
+              throw new Error('broken subscriber')
+            }),
+          )
+        if (action === 'listener')
+          as(0, () =>
+            generation.subscribe(job, async (event) => {
+              if (event.type === 'complete') throw new Error('broken async subscriber')
+            }),
+          )
+        await Bun.sleep(50)
+        if (action === 'delete') as(0, () => r.deleteRoom(room.id))
+        if (action === 'archive') as(0, () => r.updateRoom(room.id, { status: 'archived' }))
+        if (action !== 'listener') expect(job.controller.signal.aborted).toBe(true)
+        for (let i = 0; i < 300 && generation.isGenerating(room.chatId); i++) await Bun.sleep(5)
+        expect(generation.isGenerating(room.chatId)).toBe(false)
+      }
+      expect(errors).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onError)
+      model.stop()
+    }
+  })
+  test('R3 BUG-24：房主往返转让覆盖旧设置，源设置移走', () => {
+    const transfer = require('../src/services/rooms/transfer') as typeof import('../src/services/rooms/transfer')
+    const { createApiPreset } = require('../src/services/connections') as typeof import('../src/services/connections')
+    for (const i of [0, 1])
+      as(i, () =>
+        createApiPreset(
+          shared.apiPresetInput.parse({ name: 'transfer', baseUrl: 'http://mock/v1', model: 'mock-one' }),
+        ),
+      )
+    const room = fixture()
+    for (const [from, to] of [
+      [0, 1],
+      [1, 0],
+      [0, 1],
+    ]) {
+      as(from!, () => setSetting(`room-activity:${room.id}`, { moved: to }))
+      as(from!, () => transfer.transferOffer(room.id, people[to!]!.id))
+      expect(as(to!, () => transfer.acceptTransfer(room.id)).hostUserId).toBe(people[to!]!.id)
+      const { getSetting } = require('../src/db/client') as typeof import('../src/db/client')
+      expect(as(from!, () => getSetting(`room-activity:${room.id}`))).toBeUndefined()
+      expect(as(to!, () => getSetting(`room-activity:${room.id}`))).toEqual({ moved: to })
+    }
+  })
+  test('R3 BUG-25/26：过去预约可改标题，时间有动态和静态上限', () => {
+    const room = fixture()
+    const session = as(0, () =>
+      ext.saveSession(room.id, { title: 'old', startsAt: Date.now(), durationMinutes: 30, note: '' }),
+    )
+    const { roomSessions } = require('../src/db/system-schema') as typeof import('../src/db/system-schema')
+    const startsAt = Date.now() - 3600000
+    systemDatabase().update(roomSessions).set({ startsAt }).where(eq(roomSessions.id, session.id)).run()
+    expect(as(0, () => ext.saveSession(room.id, { ...session, startsAt, title: 'edited' }, session.id)).title).toBe(
+      'edited',
+    )
+    fail(
+      () => as(0, () => ext.saveSession(room.id, { ...session, startsAt: startsAt - 1 }, session.id)),
+      'SESSION_IN_PAST',
+      400,
+    )
+    fail(
+      () => as(0, () => ext.saveSession(room.id, { ...session, startsAt: Date.now() + 3 * 366 * 86400000 })),
+      'SESSION_TOO_FAR',
+      400,
+    )
+    expect(shared.roomSessionInput.safeParse({ ...session, startsAt: 9e15 }).success).toBe(false)
+  })
+  test('R3 BUG-27：纯控制符名字返回正常校验错误', async () => {
+    const { createPersona, updatePersona } = await import('../src/services/personas')
+    for (const fn of [
+      () => createPersona({ name: '\u202e' }),
+      () => updatePersona(personaIds[0]!, { name: '\u2066' }),
+      () => r.updatePersona(fixture().id, { name: '\u202e' }),
+      () => r.updateRoom(fixture().id, { name: '\u202e' }),
+    ])
+      fail(() => as(0, fn), 'VALIDATION', 400)
+  })
+  test('R3 BUG-29：空先攻允许发言，重入玩家追加末尾，主持可发言', () => {
+    const room = fixture()
+    as(0, () => r.updateRoom(room.id, { turnMode: 'initiative' }))
+    expect(() => as(1, () => trpg.assertInitiative(r.roomRow(room.id), 'player'))).not.toThrow()
+    as(0, () => trpg.setInitiative(room.id, { order: [{ kind: 'member', id: 'player' }], current: 0 }))
+    expect(() => as(0, () => trpg.assertInitiative(r.roomRow(room.id), 'owner'))).not.toThrow()
+    as(1, () => r.removeMember(room.id, 'player', 'left'))
+    const invite = as(0, () => r.createInvite(room.id, shared.roomInviteInput.parse({ kind: 'link' })))
+    as(1, () => r.joinRoom({ invite: invite.token!, personaId: personaIds[1]!, acceptedRulesVersion: 1 }))
+    expect(as(0, () => r.roomDetail(room.id)).initiative.order.at(-1)).toEqual({ kind: 'member', id: 'player' })
+  })
+  test('R3 BUG-30/35：无权编辑和撤回不占额度，正文去控制符', () => {
+    const room = fixture()
+    const m = as(1, () =>
+      turns.sendRoomMessage(
+        room.id,
+        shared.roomSendInput.parse({ text: 'A\u202eB\u2066עברית', channel: 'ooc', clientMessageId: 'bidi' }),
+      ),
+    )
+    expect(m.content).toBe('ABעברית')
+    const own = as(0, () =>
+      turns.sendRoomMessage(
+        room.id,
+        shared.roomSendInput.parse({ text: 'owner', channel: 'ooc', clientMessageId: 'owner' }),
+      ),
+    )
+    for (let i = 0; i < 35; i++)
+      fail(() => as(1, () => turns.editRoomMessage(room.id, own.id, 'bad')), 'ROOM_REFUSED', 403)
+    expect(as(1, () => turns.editRoomMessage(room.id, m.id, 'C\u202eD')).content).toBe('CD')
+    for (let i = 0; i < 35; i++) expect(() => as(1, () => turns.editRoomMessage(room.id, m.id, null))).not.toThrow()
+  })
+  function choiceFixture() {
+    const room = fixture()
+    as(0, () => r.updateRoom(room.id, { choiceMode: 'vote' }))
+    const id = as(0, () => {
+      const id = newId()
+      db.insert(messages)
+        .values({
+          id,
+          chatId: room.chatId,
+          role: 'assistant',
+          content: 'choose',
+          createdAt: Date.now(),
+          meta: { stage: { choices: [{ text: 'A' }, { text: 'B' }] } },
+        })
+        .run()
+      return id
+    })
+    return { room, id }
+  }
+  test('R3 BUG-31：投票、私信具体错误，导出带恢复时间', () => {
+    const { room, id } = choiceFixture()
+    fail(() => as(2, () => trpg.pickRoomChoice(room.id, id, 0)), 'CHOICE_SPECTATOR', 403)
+    fail(() => as(1, () => trpg.pickRoomChoice(room.id, id, 9)), 'CHOICE_INDEX_INVALID', 400)
+    fail(() => as(1, () => trpg.closeChoice(room.id, id)), 'CHOICE_CLOSE_FORBIDDEN', 403)
+    fail(() => as(0, () => trpg.closeChoice(room.id, id, 9)), 'CHOICE_WINNER_INVALID', 400)
+    for (const [actor, to, code] of [
+      [1, 'owner', 'WHISPER_PLAYERS_FORBIDDEN'],
+      [1, 'player', 'WHISPER_SELF'],
+      [0, 'outsider', 'WHISPER_RECIPIENT_NOT_MEMBER'],
+      [0, 'unknown', 'WHISPER_RECIPIENT_NOT_MEMBER'],
+    ] as const)
+      fail(() => as(actor, () => trpg.whisperRoom(room.id, { to, text: 'x', clientMessageId: to })), code, 400)
+    for (let i = 0; i < 3; i++) as(1, () => ext.exportRoom(room.id, 'json'))
+    expect(() => as(1, () => ext.exportRoom(room.id, 'json'))).toThrow()
+    try {
+      as(1, () => ext.exportRoom(room.id, 'json'))
+    } catch (error) {
+      expect(error).toMatchObject({ details: { retryAfter: expect.any(Number), resetAt: expect.any(Number) } })
+    }
+  })
+  test('R3 BUG-32：旁观人数下限', () => {
+    const room = fixture()
+    fail(() => as(0, () => r.updateRoom(room.id, { maxSpectators: 0 })), 'ROOM_CAPACITY_TOO_SMALL', 400)
+  })
+  test('R3 BUG-33：无人投票关闭后不选选项，不启动生成', () => {
+    const { room, id } = choiceFixture()
+    expect(as(0, () => trpg.closeChoice(room.id, id))).toMatchObject({ closed: true, winner: null })
+    expect(as(0, () => turns.turnState(room.id)).running).toBe(false)
+    expect(as(0, () => ext.visibleHistory(room.id)).at(-1)?.content).toContain('无人投票')
+  })
+
+  test('R3 BUG-23：异步素材保存回调在房间删除后静默结束', async () => {
+    const { reserveChatAsset } = await import('../src/services/rooms/usage')
+    const room = fixture()
+    const reservation = as(0, () => reserveChatAsset(room.chatId, 'image'))!
+    as(0, () => r.deleteRoom(room.id))
+    expect(() => as(0, () => reservation.saved())).not.toThrow()
+    expect(as(0, () => db.select().from(roomEvents).where(eq(roomEvents.roomId, room.id)).all())).toEqual([])
+  })
+  test('R3 BUG-29：渠道加入先攻房间也追加次序且清洗显示名', async () => {
+    const { addChannelMember } = await import('../src/extensions/builtin/channels/rooms')
+    const room = fixture()
+    as(0, () => r.updateRoom(room.id, { turnMode: 'initiative' }))
+    as(0, () =>
+      addChannelMember(room.id, {
+        provider: 'telegram',
+        externalId: 'r3',
+        displayName: 'A\u202eB',
+        linkedUserId: 'outsider',
+        role: 'member',
+      } as Parameters<typeof addChannelMember>[1]),
+    )
+    const detail = as(0, () => r.roomDetail(room.id))
+    expect(detail.initiative.order.at(-1)).toEqual({ kind: 'member', id: 'outsider' })
+    expect(detail.members.find((m) => m.userId === 'outsider')?.personaName).toBe('AB')
+  })
+  test('R3 BUG-30：单人编辑允许空内容、控制符和连续编辑，仍限制长度', async () => {
+    const { messageRoutes } = await import('../src/routes/messages')
+    const room = fixture()
+    const m = as(0, () =>
+      turns.sendRoomMessage(
+        room.id,
+        shared.roomSendInput.parse({ text: 'single', channel: 'ooc', clientMessageId: 'single' }),
+      ),
+    )
+    as(0, () => r.deleteRoom(room.id))
+    for (let i = 0; i < 35; i++) {
+      const content = i % 2 ? '' : '\u202e'
+      const response = await as(0, () =>
+        messageRoutes.request(`/${m.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        }),
+      )
+      expect(response.status).toBe(200)
+      expect((await response.json()).content).toBe(content)
+    }
+    const { rateLimitMessage } = await import('../src/services/rooms/input')
+    const deleted = spyOn(Map.prototype, 'delete')
+    try {
+      rateLimitMessage('r3-prune-key', 1)
+      rateLimitMessage('r3-next-key', 60002)
+      expect(deleted).toHaveBeenCalledWith('r3-prune-key')
+    } finally {
+      deleted.mockRestore()
+    }
+  })
+  test('R3 BUG-31：中英文校验、Zod异常边界、好友剩余时间和旁观满员', async () => {
+    const { app } = await import('../src/app')
+    const { requestLanguage } = await import('../src/i18n/request-language')
+    const { z } = await import('zod')
+    const { setAppSettings } = await import('../src/services/settings')
+    app.get('/r3-zod-error', () => {
+      z.object({ name: z.string().min(1) }).parse({ name: '' })
+      return new Response()
+    })
+    for (const [language, expected] of [
+      ['zh', '内容太长，最多 100000 字'],
+      ['en', 'Content is too long (max 100000 characters)'],
+    ] as const) {
+      as(0, () => setAppSettings({ language }))
+      const response = await as(0, () =>
+        requestLanguage.run(language, () =>
+          app.request('/api/messages/missing', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: 'x'.repeat(100001) }),
+          }),
+        ),
+      )
+      expect(response.status).toBe(400)
+      expect((await response.json()).error.message).toBe(expected)
+      const invalid = await as(0, () => requestLanguage.run(language, () => app.request('/api/r3-zod-error')))
+      expect(invalid.status).toBe(400)
+      expect((await invalid.json()).error).toEqual({
+        code: 'VALIDATION',
+        message: language === 'zh' ? '名称不能为空' : 'Name is required',
+      })
+    }
+    const now = Date.now()
+    social.requestFriend('owner', 'spectator', now)
+    social.respondFriend('spectator', 'owner', 'reject', now)
+    for (const [elapsed, zh, en] of [
+      [0, '24 小时', '24 hours'],
+      [86400000 - 180000, '3 分钟', '3 minutes'],
+    ] as const) {
+      for (const [language, expected] of [
+        ['zh', zh],
+        ['en', en],
+      ] as const) {
+        as(0, () => setAppSettings({ language }))
+        const request = () => as(0, () => social.requestFriend('owner', 'spectator', now + elapsed))
+        expect(request).toThrow()
+        try {
+          request()
+        } catch (error) {
+          expect(error).toMatchObject({
+            code: 'SOCIAL_COOLDOWN',
+            message: expect.stringContaining(expected),
+            details: { retryAfter: expect.any(Number) },
+          })
+        }
+      }
+    }
+    as(0, () => setAppSettings({ language: 'zh' }))
+    const room = fixture()
+    as(0, () => r.updateRoom(room.id, { maxSpectators: 1 }))
+    const invite = as(0, () =>
+      r.createInvite(room.id, shared.roomInviteInput.parse({ kind: 'link', role: 'spectator' })),
+    )
+    fail(
+      () => as(3, () => r.joinRoom({ invite: invite.token!, personaId: personaIds[3]!, acceptedRulesVersion: 1 })),
+      'ROOM_SPECTATORS_FULL',
+      409,
+    )
+  })
+  test('R3 BUG-24：转让末尾失败时两端设置和目录共同回滚', async () => {
+    const transfer = await import('../src/services/rooms/transfer')
+    const { getSetting } = await import('../src/db/client')
+    const room = fixture()
+    const key = `room-activity:${room.id}`
+    as(0, () => setSetting(key, { source: true }))
+    as(1, () => setSetting(key, { stale: true }))
+    as(0, () => transfer.transferOffer(room.id, 'player'))
+    const sqlite = systemDatabase().$client
+    sqlite.exec(
+      `CREATE TEMP TRIGGER r3_transfer_failure BEFORE UPDATE ON rooms WHEN OLD.id = '${room.id}' BEGIN SELECT RAISE(ABORT, 'injected transfer failure'); END`,
+    )
+    try {
+      expect(() => as(1, () => transfer.acceptTransfer(room.id))).toThrow('injected transfer failure')
+      expect(r.roomRow(room.id).hostUserId).toBe('owner')
+      expect(as(0, () => getSetting(key))).toEqual({ source: true })
+      expect(as(1, () => getSetting(key))).toEqual({ stale: true })
+    } finally {
+      sqlite.exec('DROP TRIGGER r3_transfer_failure')
+    }
+  })
+  test('R3 BUG-29：已在房间的玩家重新加入补齐先攻，主持插话不消耗玩家轮次', () => {
+    const room = fixture()
+    as(0, () => r.updateRoom(room.id, { turnMode: 'initiative' }))
+    const invite = as(0, () => r.createInvite(room.id, shared.roomInviteInput.parse({ kind: 'link' })))
+    for (let i = 0; i < 2; i++)
+      as(1, () => r.joinRoom({ invite: invite.token!, personaId: personaIds[1]!, acceptedRulesVersion: 1 }))
+    const before = as(0, () => r.roomDetail(room.id))
+    expect(before.initiative.order).toEqual([{ kind: 'member', id: 'player' }])
+    as(0, () =>
+      turns.sendRoomMessage(
+        room.id,
+        shared.roomSendInput.parse({ text: 'GM announcement', channel: 'ic', clientMessageId: 'gm-announcement' }),
+      ),
+    )
+    const after = as(0, () => r.roomDetail(room.id))
+    expect(after.initiative).toEqual(before.initiative)
+    expect(after.round.round).toBe(before.round.round)
+  })
+  test('R3 BUG-23：入口记录未捕获异常与拒绝后子进程继续运行', async () => {
+    const entry = new URL('../src/server.ts', import.meta.url).href
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        '-e',
+        `await import(${JSON.stringify(entry)}); Promise.reject(new Error('r3 rejection')); setTimeout(() => { throw new Error('r3 exception') }, 5); setTimeout(() => console.log('r3 survived'), 40)`,
+      ],
+      {
+        env: { ...process.env },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
+    )
+    const [out, err, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
+    expect(code, out + err).toBe(0)
+    expect(out).toContain('r3 survived')
+    expect(err).toContain('r3 rejection')
+    expect(err).toContain('r3 exception')
   })
 }

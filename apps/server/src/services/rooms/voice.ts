@@ -10,6 +10,7 @@ import {
   charactersForRoom,
   checkWritable,
   event,
+  findRoom,
   membership,
   publish,
   reserveUsage,
@@ -80,6 +81,7 @@ export async function roomVoice(roomId: string, request: Request) {
         result && typeof result === 'object' && 'url' in result && typeof result.url === 'string'
           ? result.url
           : undefined
+      if (!findRoom(roomId)) return Response.json(result)
       const saved = db.transaction(() => {
         if (url) {
           const message = loadMessage(messageId)

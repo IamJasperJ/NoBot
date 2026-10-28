@@ -89,8 +89,17 @@ function useRoomNoticeToasts() {
           const text = withResetTime(quota.message, quota.resetAt)
           if (!useToasts.getState().toasts.some((x) => x.message === text)) toast.error(text)
         }
-        for (const [roomId, reason] of Object.entries(state.removalReasons)) {
-          if (prev.removalReasons[roomId] === reason || reason === 'left') continue
+        const shown = Object.entries(state.removalReasons).filter(([roomId, r]) => prev.removalReasons[roomId] !== r)
+        if (shown.length > 0) {
+          // 提示过就删掉这条记录：同一会话里再次因相同原因被移出时值又会「变化」，才能再提示一次
+          useRoomLive.setState((s) => ({
+            removalReasons: Object.fromEntries(
+              Object.entries(s.removalReasons).filter(([roomId]) => !shown.some(([id]) => id === roomId)),
+            ),
+          }))
+        }
+        for (const [, reason] of shown) {
+          if (reason === 'left') continue
           toast.error(
             {
               kicked: t('你被房主移出了房间'),

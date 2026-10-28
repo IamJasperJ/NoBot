@@ -166,7 +166,11 @@ export function requestFriend(id: string, handle: string, now = Date.now()) {
   }
   if (row?.requestedBy === id && row.respondedAt != null && now - row.respondedAt < 86400000) {
     const retryAfter = Math.ceil((row.respondedAt + 86400000 - now) / 1000)
-    throw new HttpError(429, 'SOCIAL_COOLDOWN', t('对方已拒绝，请在 {seconds} 秒后重试', { seconds: retryAfter }), {
+    const remaining =
+      retryAfter >= 3600
+        ? t('{count} 小时', { count: Math.ceil(retryAfter / 3600) })
+        : t('{count} 分钟', { count: Math.ceil(retryAfter / 60) })
+    throw new HttpError(429, 'SOCIAL_COOLDOWN', t('对方已拒绝，请在 {remaining} 后重试', { remaining }), {
       retryAfter,
     })
   }

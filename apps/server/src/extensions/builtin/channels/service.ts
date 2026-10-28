@@ -36,6 +36,7 @@ import {
   acceptRules,
   checkQuota,
   createRoom,
+  findRoom,
   projectRoomEvent,
   removeMember,
   requireRole,
@@ -1528,7 +1529,7 @@ export class ChannelService {
       ) {
         const bindings = listBindings(id).filter((binding) => binding.state === 'active')
         const busy = bindings.some((binding) => this.host.isGenerating(binding.chatId))
-        const paused = bindings.some((binding) => binding.roomId && roomRow(binding.roomId).status === 'paused')
+        const paused = bindings.some((binding) => binding.roomId && findRoom(binding.roomId)?.status === 'paused')
         entry.client.onlineStatus(busy ? 50 : paused ? 30 : 10)
       }
     for (const binding of listBindings().filter(
@@ -1539,6 +1540,14 @@ export class ChannelService {
       if (!job || this.generationSubscriptions.has(key)) continue
       const dispose = this.host.subscribe(job, (event) => {
         const streamKey = `${binding.id}:stream`
+        if (binding.roomId && !findRoom(binding.roomId)) {
+          this.streams.get(streamKey)?.stream.abort()
+          this.streams.delete(streamKey)
+          this.oneBotTurns.delete(binding.id)
+          this.generationSubscriptions.get(key)?.()
+          this.generationSubscriptions.delete(key)
+          return
+        }
         if (
           event.type === 'start' &&
           !['only', 'decide'].includes(this.settings(binding).values.voice) &&

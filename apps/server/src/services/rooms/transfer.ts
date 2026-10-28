@@ -47,7 +47,7 @@ export function declineTransfer(id: string) {
 }
 /**
  * 先写唯一新素材，再在系统连接 ATTACH 新宿主库的事务中插入完整故事并切换目录。
- * 旧故事只读；失败回滚目录和新库并删除素材。接受重试在目录切换后直接返回，避免重复复制。
+ * 旧故事保留，房间设置移走；失败回滚目录和两端设置并删除素材。接受重试在目录切换后直接返回，避免重复复制。
  * WAL 的跨文件事务不能承诺断电原子性；应用异常可回滚，进程崩溃后需检查目录指向的新故事。
  */
 export function acceptTransfer(id: string) {
@@ -258,17 +258,21 @@ export function acceptTransfer(id: string) {
     const newChatId = mapping.get(room.chatId)!
     statement.query('ATTACH DATABASE ? AS transfer_story').run(target.paths.db)
     attached = true
+    statement.query('ATTACH DATABASE ? AS transfer_source').run(source.paths.db)
     system().transaction(
       () => {
         // 事务内再次检查确认双方与目录，防止过期报价切换另一份故事。
         const latest = system().select().from(roomTransfers).where(eq(roomTransfers.roomId, id)).get()
         if (latest?.createdAt !== offer.createdAt || latest.toUserId !== member.userId) throw refused()
         statement.exec('PRAGMA defer_foreign_keys = ON')
+        // 旧宿主可能再次接回房间；以当前故事的房间索引为准，清理目标库残留，且与复制共同回滚。
+        for (const table of ['room_events', 'room_message_index', 'room_usage'])
+          statement.query(`DELETE FROM transfer_story.${table} WHERE room_id = ?`).run(id)
         const insert = (table: string, row: Row) => {
           const keys = Object.keys(row)
           statement
             .query(
-              `INSERT INTO transfer_story.${table} (${keys.map((k) => `"${k}"`).join(',')}) VALUES (${keys.map(() => '?').join(',')})`,
+              `INSERT INTO transfer_story.${table} (${keys.map((k) => `"${k}"`).join(',')}) VALUES (${keys.map(() => '?').join(',')})${table === 'settings' ? ' ON CONFLICT(key) DO UPDATE SET value = excluded.value' : ''}`,
             )
             .run(...Object.values(row))
         }
@@ -321,6 +325,7 @@ export function acceptTransfer(id: string) {
           ['room_usage', usage],
         ]
         for (const [table, records] of tables) for (const record of records) insert(table, transform(record))
+        for (const row of settings) statement.query('DELETE FROM transfer_source.settings WHERE key = ?').run(row.key!)
         for (const m of personas)
           system()
             .update(roomMembers)
@@ -366,7 +371,16 @@ export function acceptTransfer(id: string) {
     for (const file of files) rmSync(file, { force: true })
     throw error
   } finally {
-    if (attached) statement.exec('DETACH DATABASE transfer_story')
+    if (attached) {
+      statement.exec('DETACH DATABASE transfer_story')
+      if (
+        statement
+          .query<{ name: string }, []>('PRAGMA database_list')
+          .all()
+          .some((database) => database.name === 'transfer_source')
+      )
+        statement.exec('DETACH DATABASE transfer_source')
+    }
   }
   stopRoomTimers(id)
   resetTurnState(id)

@@ -20,7 +20,7 @@ import { roomBans, roomInvites, roomMembers, rooms, users } from '../../db/syste
 import { HttpError } from '../../errors'
 import { t } from '../../i18n'
 import { thumbFile } from '../../lib/files'
-import { stripBidi } from '../../lib/input-text'
+import { cleanName, stripBidi } from '../../lib/input-text'
 import { currentPaths, currentUser, runAsUser } from '../../user-context'
 import { hashToken } from '../auth'
 import { getChatRow, loadMessage } from '../chats'
@@ -31,14 +31,24 @@ import { blocked, friendIds, notify } from '../social'
 import { canReadMessage, roomCover, roomPayload } from './dto'
 import { nextSession, resumeExtensions, unreadDetails } from './extensions'
 import { lobbyAssetUrl } from './lobby'
-import { initiativeSnapshot, removeInitiativeMember, restoreChoices, resumeRoom, roundSnapshot } from './trpg'
+import {
+  appendInitiativeMember,
+  initiativeSnapshot,
+  removeInitiativeMember,
+  restoreChoices,
+  resumeRoom,
+  roundSnapshot,
+} from './trpg'
 import { rescheduleRoom } from './turns'
 
 export type Room = typeof rooms.$inferSelect
 export const unavailable = () => new HttpError(404, 'NOT_FOUND', t('房间不存在或无法访问'))
 export const refused = () => new HttpError(403, 'ROOM_REFUSED', t('没有权限执行此房间操作'))
+export function findRoom(id: string) {
+  return system().select().from(rooms).where(eq(rooms.id, id)).get()
+}
 export function roomRow(id: string): Room {
-  const room = system().select().from(rooms).where(eq(rooms.id, id)).get()
+  const room = findRoom(id)
   if (!room) throw unavailable()
   return room
 }
@@ -167,6 +177,8 @@ export function subscribeRoomEvents(listener: (data: ReturnType<typeof event>) =
   return () => channelListeners.delete(listener)
 }
 export function publish(data: ReturnType<typeof event>) {
+  const room = findRoom(data.roomId)
+  if (!room) return
   for (const listener of channelListeners) {
     try {
       listener(data)
@@ -174,7 +186,6 @@ export function publish(data: ReturnType<typeof event>) {
       /* 渠道故障不能阻断网页房间广播。 */
     }
   }
-  const room = roomRow(data.roomId)
   const topic = `room:${data.roomId}`
   for (const member of members(data.roomId))
     liveHub.publishToTopic(
@@ -298,7 +309,7 @@ function personaSnapshot(personaId?: string) {
   const p = personaId ? db.select().from(personas).where(eq(personas.id, personaId)).get() : undefined
   if (personaId && !p) throw new HttpError(400, 'INVALID_PERSONA', t('所选人设不存在或不属于你'))
   return {
-    personaName: stripBidi(p?.name ?? currentUser().name).slice(0, 100),
+    personaName: cleanName(p?.name ?? currentUser().name).slice(0, 100),
     personaDescription: (p?.description ?? '').slice(0, 8000),
     personaAvatarFile: p?.avatarFile ?? null,
   }
@@ -383,6 +394,14 @@ export function updateRoom(id: string, input: z.infer<typeof updateRoomInput>) {
   const count = members(id).filter((m) => m.role !== 'spectator').length
   if (input.maxMembers !== undefined && input.maxMembers < count)
     throw new HttpError(400, 'ROOM_CAPACITY_TOO_SMALL', t('房间人数上限不能小于当前玩家人数（{count}）', { count }))
+  const spectators = members(id).filter((m) => m.role === 'spectator').length
+  if (input.maxSpectators !== undefined && input.maxSpectators < spectators)
+    throw new HttpError(
+      400,
+      'ROOM_CAPACITY_TOO_SMALL',
+      t('旁观人数上限不能小于当前旁观人数（{count}）', { count: spectators }),
+    )
+  if (input.status === 'archived') asHost(room, () => abortGeneration(room.chatId))
   const bump = (['contentRating', 'contentNotes', 'rules', 'allowSpectators'] as const).some(
     (k) => input[k] !== undefined && input[k] !== room[k],
   )
@@ -519,7 +538,7 @@ export function validInvite(value: string, userId = currentUser().id, allowMembe
     throw unavailable()
   const status = inviteStatus(invite)
   if (status !== 'active') {
-    if (!member && invite.createdBy !== userId) throw unavailable()
+    if (invite.kind !== 'link' && !member && invite.createdBy !== userId) throw unavailable()
     const labels = { expired: t('邀请已过期'), used_up: t('邀请次数已用尽'), revoked: t('邀请已撤销') }
     throw new HttpError(410, `INVITE_${status.toUpperCase()}`, labels[status])
   }
@@ -566,7 +585,10 @@ export function lobby(value: string) {
 export function joinRoom(input: z.infer<typeof roomJoinInput>) {
   const userId = currentUser().id
   const { room: initial } = validInvite(input.invite, userId, true)
-  if (members(initial.id).some((m) => m.userId === userId)) return { ...roomDetail(initial.id), alreadyInRoom: true }
+  if (members(initial.id).some((m) => m.userId === userId)) {
+    appendInitiativeMember(initial, userId)
+    return { ...roomDetail(initial.id), alreadyInRoom: true }
+  }
   const snapshot = copyPersona(initial, input.personaId)
   const id = directoryChange(initial, userId, 'room.member', { action: 'joined', userId }, () => {
     const { invite, room } = validInvite(input.invite)
@@ -585,7 +607,9 @@ export function joinRoom(input: z.infer<typeof roomJoinInput>) {
       members(room.id).filter((m) => (m.role === 'spectator') === (invite.role === 'spectator')).length >=
       (invite.role === 'spectator' ? room.maxSpectators : room.maxMembers)
     )
-      throw new HttpError(409, 'ROOM_FULL', t('房间人数已满'))
+      throw invite.role === 'spectator'
+        ? new HttpError(409, 'ROOM_SPECTATORS_FULL', t('旁观席已满'))
+        : new HttpError(409, 'ROOM_FULL', t('房间人数已满'))
     system()
       .update(roomInvites)
       .set({ uses: invite.uses + 1 })
@@ -632,7 +656,11 @@ export function joinRoom(input: z.infer<typeof roomJoinInput>) {
       .run()
     return room.id
   })
-  asHost(roomRow(id), () => resumeRoom(roomRow(id)))
+  const latest = roomRow(id)
+  asHost(latest, () => {
+    appendInitiativeMember(latest, userId)
+    resumeRoom(latest)
+  })
   return roomDetail(id)
 }
 export function removeMember(id: string, userId: string, action: 'left' | 'kicked' | 'banned') {
@@ -674,7 +702,7 @@ export function updatePersona(id: string, input: string | RoomPersonaInput) {
         personaDescription: member.personaDescription,
         personaAvatarFile: member.personaAvatarFile,
       }
-  if (changes.name !== undefined) snapshot.personaName = stripBidi(changes.name).trim()
+  if (changes.name !== undefined) snapshot.personaName = cleanName(changes.name)
   if (changes.description !== undefined) snapshot.personaDescription = changes.description
   directoryChange(
     room,

@@ -9,7 +9,7 @@ import { env } from '../env'
 import { HttpError, notFound } from '../errors'
 import { unloadUserExtensions } from '../extensions/registry'
 import { t } from '../i18n'
-import { stripBidi } from '../lib/input-text'
+import { cleanName } from '../lib/input-text'
 import { validate } from '../lib/validate'
 import { createUser, userDTO } from '../services/auth'
 import { cancelUserInstallPreviews, extensionOperation } from '../services/extensions/extension-git'
@@ -54,7 +54,7 @@ export const adminRoutes = new Hono()
       const updated = tx
         .update(users)
         .set({
-          name: input.name !== undefined ? stripBidi(input.name) : undefined,
+          name: input.name !== undefined ? cleanName(input.name) : undefined,
           disabled: input.disabled,
           isAdmin: input.isAdmin,
           passwordHash,

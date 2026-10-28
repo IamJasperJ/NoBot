@@ -304,7 +304,7 @@ export interface RoomCharacterProposalDTO {
 }
 export const roomSessionInput = z.object({
   title: z.string().trim().min(1).max(200),
-  startsAt: z.number().int().min(0),
+  startsAt: z.number().int().min(0).max(8.64e15),
   durationMinutes: z.number().int().min(1).max(10080),
   note: z.string().max(4000).default(''),
 })

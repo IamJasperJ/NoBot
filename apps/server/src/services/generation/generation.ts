@@ -66,6 +66,14 @@ export const abortGeneration = (chatId: string) => jobs.get(chatId)?.controller.
  * 所以无论什么时候订阅都不会漏内容。之前已经完成的消息不回放（重新连接的前端会重新拉取会话）。
  */
 export function subscribe(job: Job, listener: (e: GenerateEvent) => void): () => void {
+  const original = listener
+  listener = (event) => {
+    try {
+      Promise.resolve(original(event)).catch((error) => logError('generation subscriber', error))
+    } catch (error) {
+      logError('generation subscriber', error)
+    }
+  }
   if (job.current) {
     const { startEvent, base, content, reasoning } = job.current
     listener(startEvent)
@@ -81,7 +89,13 @@ export function subscribe(job: Job, listener: (e: GenerateEvent) => void): () =>
 }
 
 function emit(job: Job, e: GenerateEvent) {
-  for (const l of job.listeners) l(e)
+  for (const l of job.listeners) {
+    try {
+      l(e)
+    } catch (error) {
+      logError('generation emit', error)
+    }
+  }
 }
 
 const setLeaf = (chatId: string, leafId: string) =>
@@ -257,7 +271,7 @@ export function startGeneration(chatId: string, input: GenerateInput, hooks?: Ge
     listeners: new Set(),
   }
   jobs.set(chatId, job)
-  void runJob(job, ctx, plan)
+  void runJob(job, ctx, plan).catch((error) => logError('generation job', error))
   return job
 }
 
@@ -268,8 +282,8 @@ export function startGeneration(chatId: string, input: GenerateInput, hooks?: Ge
 async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
   const finished: GenerateEvent[] = []
   let roomMessageCount = 0
-  const room = multiplayerPrompt(job.chatId, plan.parentId)
   try {
+    const room = multiplayerPrompt(job.chatId, plan.parentId)
     if (plan.pendingUser) {
       const input = await prepareUserTranslation(plan.pendingUser, job.chatId)
       const userId = newId()
@@ -306,6 +320,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
       for (let round = 0; ; round++) {
         if (job.controller.signal.aborted || (room && roomMessageCount >= 3)) break speakers
         job.hooks?.beforeMessage?.()
+        if (job.controller.signal.aborted) break speakers
         roomMessageCount++
         const step = await generateOne(job, ctx, { speakerId, parentId, type, continueTarget, userMessage })
         if (step.error) finished.push(step.error)
@@ -380,7 +395,11 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
     finished.push(err)
     emit(job, err)
   } finally {
-    emitServerEvent({ type: 'generation:complete', chatId: job.chatId })
+    try {
+      emitServerEvent({ type: 'generation:complete', chatId: job.chatId })
+    } catch (error) {
+      logError('generation complete', error)
+    }
     job.current = null
     job.finished = [...finished, { type: 'complete' }]
     emit(job, { type: 'complete' })
@@ -568,7 +587,11 @@ async function generateOne(
       .run()
     return job.hooks?.saved?.(loadMessage(messageId))
   })
-  afterCommit?.()
+  try {
+    afterCommit?.()
+  } catch (error) {
+    logError('generation saved callback', error)
+  }
   if (status === 'done' && !errorEvent) {
     classifyMessage(messageId)
     if (!toolCalls.length) await applyAutomaticBackground(job.chatId, loreId, !step.continueTarget)

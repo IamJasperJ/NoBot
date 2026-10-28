@@ -1,7 +1,7 @@
 import type { RoomDTO } from '@nobot/shared'
 import { useEffect, useRef, useState } from 'react'
 import { useAbortRoomTurn, useRequestRoomTurn, useTriggerRoomTurn } from '../../api/rooms'
-import { StopIcon, UsersIcon } from '../../components/icons'
+import { StopIcon } from '../../components/icons'
 import { Avatar, Button, cx } from '../../components/ui'
 import { t } from '../../i18n'
 import { useRoomLive } from '../../stores/room'

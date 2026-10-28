@@ -11,7 +11,7 @@ import { currentUser } from '../../user-context'
 import { getChatRow, loadPath } from '../chats'
 import { notify } from '../social'
 import { canReadMessage, roomMessage } from './dto'
-import { asHost, changed, members, membership, type Room, requireRole, roomRow, unavailable } from './index'
+import { asHost, changed, findRoom, members, membership, type Room, requireRole, unavailable } from './index'
 
 /** 去重记录与通知同事务写入，进程重启和定时器重复执行不会重发。 */
 export function notifyRoom(room: Room, userId: string, type: string, key: string, actor: string | null = null) {
@@ -105,7 +105,13 @@ export function exportRoom(id: string, format: 'markdown' | 'json', now = Date.n
       .orderBy(sql`${roomEvents.seq} desc`)
       .all(),
   )
-  if (recent.length >= 3) throw new HttpError(429, 'RATE_LIMITED', t('导出过于频繁，请稍后重试'))
+  if (recent.length >= 3) {
+    const resetAt = recent[2]!.createdAt + 60000
+    throw new HttpError(429, 'RATE_LIMITED', t('导出过于频繁，请稍后重试'), {
+      retryAfter: Math.max(1, Math.ceil((resetAt - now) / 1000)),
+      resetAt,
+    })
+  }
   const rewrite = (v: unknown): unknown => {
     if (typeof v === 'string' && v.startsWith('/api/assets/'))
       return `/api/rooms/${encodeURIComponent(id)}/scope${v.slice(4)}`
@@ -159,17 +165,19 @@ export function nextSession(id: string, userId: string) {
 export function saveSession(id: string, input: z.infer<typeof roomSessionInput>, sessionId?: string) {
   const { room } = requireRole(id, ['owner', 'gm'])
   const actor = currentUser().id
-  if (input.startsAt < Date.now() - 300000)
+  const previous = sessionId
+    ? system()
+        .select()
+        .from(roomSessions)
+        .where(and(eq(roomSessions.id, sessionId), eq(roomSessions.roomId, id)))
+        .get()
+    : undefined
+  if (sessionId && !previous) throw unavailable()
+  const now = Date.now()
+  if ((!previous || previous.startsAt !== input.startsAt) && input.startsAt < now - 300000)
     throw new HttpError(400, 'SESSION_IN_PAST', t('预约开始时间不能早于当前时间五分钟'))
-  if (
-    sessionId &&
-    !system()
-      .select()
-      .from(roomSessions)
-      .where(and(eq(roomSessions.id, sessionId), eq(roomSessions.roomId, id)))
-      .get()
-  )
-    throw unavailable()
+  if (!Number.isFinite(input.startsAt) || input.startsAt > now + 2 * 366 * 86400000)
+    throw new HttpError(400, 'SESSION_TOO_FAR', t('预约开始时间不能超过未来两年'))
   const session = sessionId
     ? system()
         .update(roomSessions)
@@ -233,7 +241,8 @@ export function resumeExtensions(room: Room, now = Date.now()) {
     const timer = setTimeout(
       () => {
         try {
-          resumeExtensions(roomRow(room.id))
+          const latest = findRoom(room.id)
+          if (latest) resumeExtensions(latest)
         } catch {
           /* 房间已删除时不再恢复。 */
         }

@@ -128,8 +128,7 @@ function LobbyDialog({ invite }: { invite: string }) {
   }
   // 已经是成员（邀请可能已经用完）：不再走加入流程，直接进房间
   const already = room?.alreadyInRoom ? room.room : undefined
-  // leave 每次渲染都是新函数，只在拿到房间时跑一次
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 见上
+  // 只在拿到房间时跑一次
   useEffect(() => {
     if (!already) return
     toast.info(t('你已经在「{name}」里了', { name: already.name }))

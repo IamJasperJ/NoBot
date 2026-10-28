@@ -11,6 +11,7 @@ import { lorebooks, type PersonaRow, personas } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { avatarUrl, deleteAvatar, saveAvatar } from '../lib/files'
+import { stripBidi } from '../lib/input-text'
 import { SETTING_KEYS } from './settings'
 
 function getRow(id: string): PersonaRow {
@@ -52,7 +53,7 @@ export function resolvePersona(id: string | null): PersonaRow {
   )
 }
 export function createPersona(input: PersonaInput): PersonaDTO {
-  const data = personaInput.parse(input)
+  const data = personaInput.parse({ ...input, name: stripBidi(input.name) })
   checkBook(data.lorebookId)
   const id = newId()
   const now = Date.now()
@@ -66,7 +67,10 @@ export function createPersona(input: PersonaInput): PersonaDTO {
 }
 export function updatePersona(id: string, input: PersonaUpdateInput): PersonaDTO {
   getRow(id)
-  const data = personaUpdateInput.parse(input)
+  const data = personaUpdateInput.parse({
+    ...input,
+    ...(input.name !== undefined ? { name: stripBidi(input.name) } : {}),
+  })
   // Zod 4 的 partial 仍可能填默认值；PATCH 只保留客户端实际传入的字段。
   for (const key of Object.keys(data) as (keyof typeof data)[]) {
     if (!Object.hasOwn(input, key)) delete data[key]

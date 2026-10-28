@@ -2,6 +2,7 @@ import { and, eq, notExists } from 'drizzle-orm'
 import { newId } from '../db/client'
 import { systemDatabase } from '../db/system-client'
 import { roomMembers, users } from '../db/system-schema'
+import { stripBidi } from '../lib/input-text'
 
 /** 平台身份按提供方、主人和平台 id 唯一，跨主人不能共享外部成员身份。 */
 export function ensureExternalUser(
@@ -11,6 +12,7 @@ export function ensureExternalUser(
   name: string,
   now = Date.now(),
 ) {
+  name = stripBidi(name)
   const db = systemDatabase()
   const identity = and(
     eq(users.kind, 'external'),

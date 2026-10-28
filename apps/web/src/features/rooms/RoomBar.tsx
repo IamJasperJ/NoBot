@@ -1,5 +1,5 @@
 import type { RoomDTO } from '@nobot/shared'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAbortRoomTurn, useRequestRoomTurn, useTriggerRoomTurn } from '../../api/rooms'
 import { StopIcon, UsersIcon } from '../../components/icons'
 import { Avatar, Button, cx } from '../../components/ui'
@@ -34,6 +34,23 @@ export function RoomBar({ room }: { room: RoomDTO }) {
   const abort = useAbortRoomTurn()
   const request = useRequestRoomTurn()
   const openManage = useRoomDialogs((s) => s.openManage)
+  // 房间条浮在聊天区上方：把它的高度写成父元素上的 CSS 变量 --room-bar-h，
+  // VN 的顶部操作栏 / 状态栏和手机上的消息列表据此让开，不被挡住
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    const host = el?.parentElement
+    if (!el || !host) return
+    const update = () =>
+      host.style.setProperty('--room-bar-h', `${Math.ceil(el.getBoundingClientRect().height) + 12}px`)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => {
+      observer.disconnect()
+      host.style.removeProperty('--room-bar-h')
+    }
+  }, [])
 
   const active = room.members.filter((m) => m.state === 'active')
   const typing = Object.entries(typingMap ?? {})
@@ -61,7 +78,10 @@ export function RoomBar({ room }: { room: RoomDTO }) {
             : turnModeLabel()[room.turnMode]
 
   return (
-    <div className="room-bar pointer-events-none absolute top-3 right-3 left-14 z-20 flex flex-col items-end gap-1.5 md:left-3">
+    <div
+      ref={ref}
+      className="room-bar pointer-events-none absolute top-3 right-3 left-14 z-20 flex flex-col items-end gap-1.5 md:left-3"
+    >
       <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-full border border-zinc-200 bg-white/90 py-1 pr-1.5 pl-1 shadow-sm backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/90">
         <button
           type="button"
@@ -84,19 +104,18 @@ export function RoomBar({ room }: { room: RoomDTO }) {
               </span>
             )}
           </span>
-          <span className="hidden min-w-0 flex-col items-start leading-tight sm:flex">
-            <span className="max-w-40 truncate text-xs font-semibold">{room.name}</span>
+          <span className="flex min-w-0 flex-col items-start leading-tight">
+            <span className="max-w-24 truncate text-xs font-semibold sm:max-w-40">{room.name}</span>
             <span
               aria-live="polite"
               className={cx(
-                'max-w-48 truncate text-[11px]',
+                'max-w-28 truncate text-[11px] sm:max-w-48',
                 turn?.running || typing.length ? 'text-violet-600 dark:text-violet-400' : 'text-zinc-500',
               )}
             >
               {status}
             </span>
           </span>
-          <UsersIcon className="size-4 shrink-0 text-zinc-400 sm:hidden" />
         </button>
         {mustAccept ? (
           <Button size="sm" variant="primary" onClick={() => openManage(room.id, 'me')}>

@@ -8,6 +8,7 @@ import { HttpError } from './errors'
 import { ensureUserExtensions, forwardPublicExtension, resumeBuiltinBackgrounds } from './extensions/registry'
 import { t } from './i18n'
 import { requestLanguage } from './i18n/request-language'
+import { securityHeaders } from './lib/security-headers'
 import { adminRoutes } from './routes/admin'
 import { authRoutes } from './routes/auth'
 import { miniAppRoutes } from './routes/miniapp'
@@ -21,8 +22,10 @@ export function createServer() {
   resumeRoomStates()
   void resumeBuiltinBackgrounds()
   const server = new Hono()
+  server.use('*', securityHeaders)
   server.onError((err, c) => {
-    if (err instanceof HttpError) return c.json({ error: { code: err.code, message: err.message } }, err.status)
+    if (err instanceof HttpError)
+      return c.json({ error: { code: err.code, message: err.message, ...err.details } }, err.status)
     logError(`${c.req.method} ${c.req.path}`, err)
     return c.json({ error: { code: 'INTERNAL', message: t('服务器内部错误：{error}', { error: err.message }) } }, 500)
   })

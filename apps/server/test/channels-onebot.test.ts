@@ -359,17 +359,17 @@ test('CH3 集成：真实房间桥、请求审批、私密投递、资料与单�
       const picked = host
         .getChatInfo(groupChat.id)
         .messages.find((item) => item.meta.choice?.messageId === singleChoice.id)!
-      expect(picked.meta.name).toBe('Player Card')
-      expect(picked.meta.author?.name).toBe('Player Card')
+      expect(picked.role).toBe('system')
+      expect(picked.speakerId).toBeNull()
+      expect(picked.meta.author).toBeUndefined()
+      expect(picked.content).toContain('1')
       const external = db.select().from(channelActors).where(eq(channelActors.id, 'player-222')).get()!
       expect(systemDatabase().select().from(users).where(eq(users.id, external.externalUserId!)).get()!.name).toBe(
         'Player Card',
       )
       await service.deliver(groupBinding, picked)
       expect(
-        calls.some(
-          (call) => call.action === 'send_group_msg' && JSON.stringify(call.params).includes('Player Card: Left'),
-        ),
+        calls.some((call) => call.action === 'send_group_msg' && JSON.stringify(call.params).includes(picked.content)),
       ).toBe(true)
       // 同一主人可能还绑定 Telegram；QQ 只能使用 QQ 身份投递，重放和多个群绑定也只能私发一次。
       db.insert(channelActors)

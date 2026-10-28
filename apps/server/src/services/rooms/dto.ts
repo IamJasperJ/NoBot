@@ -62,8 +62,14 @@ export function roomMessage(message: MessageDTO, viewerId?: string, hostId?: str
       meta: { hidden: { reason: message.meta.channel === 'whisper' ? 'whisper' : 'blind' } },
     }
   }
-  const { logId: _logId, lore: _lore, ...meta } = message.meta
-  return { ...message, meta }
+  const { logId: _logId, lore: _lore, edits, ...meta } = message.meta
+  const owner =
+    viewerId && edits && message.chatId
+      ? systemDatabase().select().from(rooms).where(eq(rooms.chatId, message.chatId)).get()?.hostUserId
+      : undefined
+  // 修订只给作者和房主；主持也不能借管理权限阅读他人的旧私信。
+  const canReadEdits = viewerId && (viewerId === message.meta.author?.userId || viewerId === owner)
+  return { ...message, meta: { ...meta, ...(canReadEdits && edits ? { edits } : {}) } }
 }
 
 /** 持久事件和临时增量采用同一裁剪，避免刷新页面与实时接收的权限不同。 */
@@ -84,5 +90,6 @@ export function asRoomViewer<T>(viewerId: string, fn: () => T): T {
 }
 export function readableMessage(message: MessageDTO): MessageDTO {
   const viewerId = viewers.getStore() ?? currentUser().id
-  return canReadMessage(message, viewerId) ? message : roomMessage(message, viewerId, viewerId)
+  const room = systemDatabase().select().from(rooms).where(eq(rooms.chatId, message.chatId)).get()
+  return room ? roomMessage(message, viewerId, room.hostUserId) : message
 }

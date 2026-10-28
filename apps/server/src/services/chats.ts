@@ -441,7 +441,11 @@ export async function deleteChat(chatId: string) {
     abortGeneration(chatId)
     systemDatabase().delete(rooms).where(eq(rooms.id, room.id)).run()
     for (const id of liveHub.topicUsers(`room:${room.id}`)) {
-      liveHub.publishToUser(id, { type: 'room.removed', topic: `user:${id}`, data: { roomId: room.id } })
+      liveHub.publishToUser(id, {
+        type: 'room.removed',
+        topic: `user:${id}`,
+        data: { roomId: room.id, reason: 'room_closed' },
+      })
       liveHub.disconnectUserFromTopic(id, `room:${room.id}`)
     }
     db.transaction(() => {

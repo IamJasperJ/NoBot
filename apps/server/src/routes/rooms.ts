@@ -16,10 +16,12 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { systemDatabase } from '../db/system-client'
 import { roomBans, roomInvites, roomMembers } from '../db/system-schema'
+import { t } from '../i18n'
 import { validate } from '../lib/validate'
 import * as rooms from '../services/rooms'
 import * as roomCharacters from '../services/rooms/characters'
 import * as extensions from '../services/rooms/extensions'
+import { roomEditInput } from '../services/rooms/input'
 import { lobbyAsset } from '../services/rooms/lobby'
 import { dispatchScope } from '../services/rooms/scope'
 import * as transfer from '../services/rooms/transfer'
@@ -49,8 +51,16 @@ export const roomRoutes = new Hono()
     return c.json(ok)
   })
   .get('/:id/usage', (c) => c.json(rooms.usage(c.req.param('id'))))
-  .post('/:id/invites', validate('json', roomInviteInput), (c) =>
-    c.json(rooms.createInvite(c.req.param('id'), c.req.valid('json'))),
+  .post(
+    '/:id/invites',
+    validate(
+      'json',
+      roomInviteInput.superRefine((input, ctx) => {
+        if (input.kind === 'direct' && !input.targetUserId?.trim())
+          ctx.addIssue({ code: 'custom', path: ['targetUserId'], message: t('直接邀请必须指定目标用户') })
+      }),
+    ),
+    (c) => c.json(rooms.createInvite(c.req.param('id'), c.req.valid('json'))),
   )
   .get('/:id/invites', (c) => {
     rooms.requireRole(c.req.param('id'), ['owner', 'gm'])
@@ -60,7 +70,7 @@ export const roomRoutes = new Hono()
         .from(roomInvites)
         .where(eq(roomInvites.roomId, c.req.param('id')))
         .all()
-        .map(({ tokenHash: _, ...dto }) => dto),
+        .map(({ tokenHash: _, ...dto }) => ({ ...dto, status: rooms.inviteStatus(dto) })),
     )
   })
   .delete('/:id/invites/:inviteId', (c) => {
@@ -141,7 +151,7 @@ export const roomRoutes = new Hono()
   .post('/:id/messages', validate('json', roomSendInput), (c) =>
     c.json(turns.sendRoomMessage(c.req.param('id'), c.req.valid('json'))),
   )
-  .patch('/:id/messages/:messageId', validate('json', z.object({ content: z.string() })), (c) =>
+  .patch('/:id/messages/:messageId', validate('json', roomEditInput), (c) =>
     c.json(turns.editRoomMessage(c.req.param('id'), c.req.param('messageId'), c.req.valid('json').content)),
   )
   .delete('/:id/messages/:messageId', (c) =>

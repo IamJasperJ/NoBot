@@ -85,35 +85,51 @@ export function RoundStrip({ room }: { room: RoomDTO }) {
       <span className="text-zinc-500">
         {t('第 {n} 轮 · {done} / {total} 人好了', { n: room.round.round, done: settled, total: players.length })}
       </span>
-      <span className="flex -space-x-1">
-        {players.map((m) => {
-          const state = states[m.userId] ?? 'pending'
-          return (
-            <span
-              key={m.userId}
-              title={`${m.personaName}：${
-                state === 'done'
-                  ? t('完成')
-                  : state === 'passed'
-                    ? t('跳过')
-                    : state === 'away'
-                      ? t('离开')
-                      : t('思考中')
-              }`}
-              className={cx(
-                'size-2.5 rounded-full ring-2 ring-white dark:ring-zinc-900',
-                state === 'done'
-                  ? 'bg-green-500'
-                  : state === 'passed'
-                    ? 'bg-zinc-400'
-                    : state === 'away'
-                      ? 'bg-amber-400'
-                      : 'bg-zinc-200 dark:bg-zinc-600',
-              )}
-            />
-          )
-        })}
-      </span>
+      {players.length > 8 ? (
+        // 人多时小圆点会挤成一条看不清的线，改成进度条；每个人的状态在成员页签里看
+        <span
+          className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={players.length}
+          aria-valuenow={settled}
+        >
+          <span
+            className="block h-full rounded-full bg-green-500"
+            style={{ width: `${(settled / players.length) * 100}%` }}
+          />
+        </span>
+      ) : (
+        <span className="flex -space-x-1">
+          {players.map((m) => {
+            const state = states[m.userId] ?? 'pending'
+            return (
+              <span
+                key={m.userId}
+                title={`${m.personaName}：${
+                  state === 'done'
+                    ? t('完成')
+                    : state === 'passed'
+                      ? t('跳过')
+                      : state === 'away'
+                        ? t('离开')
+                        : t('思考中')
+                }`}
+                className={cx(
+                  'size-2.5 rounded-full ring-2 ring-white dark:ring-zinc-900',
+                  state === 'done'
+                    ? 'bg-green-500'
+                    : state === 'passed'
+                      ? 'bg-zinc-400'
+                      : state === 'away'
+                        ? 'bg-amber-400'
+                        : 'bg-zinc-200 dark:bg-zinc-600',
+                )}
+              />
+            )
+          })}
+        </span>
+      )}
       {amPlayer &&
         (me === 'pending' || me === 'away' ? (
           <>

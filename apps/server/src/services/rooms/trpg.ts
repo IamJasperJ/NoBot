@@ -172,6 +172,21 @@ export function roundSnapshot(room: Room, now = Date.now()): RoomRoundState {
 export function initiativeSnapshot(room: Room): RoomInitiativeState {
   return getSetting<RoomInitiativeState>(`room.initiative:${room.id}`) ?? { order: [], current: 0 }
 }
+/** 移除当前项时接续原下一项；末项离开则进入下一轮。 */
+export function removeInitiativeMember(room: Room, userId: string) {
+  const state = initiativeSnapshot(room)
+  const index = state.order.findIndex((entry) => entry.kind === 'member' && entry.id === userId)
+  if (index < 0) return
+  state.order.splice(index, 1)
+  if (index < state.current) state.current--
+  else if (state.current >= state.order.length) {
+    state.current = 0
+    nextRound(room)
+  }
+  save(room, 'room.initiative', state)
+  notifyInitiative(room, state)
+  startAiEntry(room)
+}
 export function assertInitiative(room: Room, userId: string) {
   if (room.turnMode !== 'initiative') return
   const state = initiativeSnapshot(room)
@@ -432,6 +447,8 @@ export function checkRoom(
 export function whisperRoom(id: string, input: z.infer<typeof roomWhisperInput>) {
   const { room, member } = membership(id)
   checkWritable(room, member.userId)
+  if (input.to !== 'gm' && membership(id, input.to).member.role === 'spectator')
+    throw new HttpError(400, 'WHISPER_SPECTATOR', t('旁观者不能接收私信'))
   const recipients =
     input.to === 'gm'
       ? members(id)
@@ -500,31 +517,27 @@ export function restoreChoices(room: Room, now = Date.now()) {
     if (state && !state.closed) armVote(room, state, now)
   }
 }
-function sendChoice(room: Room, messageId: string, index: number, counts?: number[], actor = currentUser().id) {
+function choiceCheck(room: Room, actor: string, check: ChoiceCheckInput | undefined, random = Math.random) {
+  if (!check) return undefined
+  const member = membership(room.id, actor).member
+  return {
+    ...performCheck(room.chatId, check, undefined, random, {
+      name: member.personaName,
+      prefix: `player:${actor}`,
+      sheet: getSetting<CharacterSheet | null>(`room-sheet:${room.id}:${actor}`) ?? null,
+      characterId: null,
+    }),
+    who: member.personaName,
+  }
+}
+function sendChoice(room: Room, messageId: string, index: number, actor = currentUser().id) {
   const option = options(room, messageId)[index]
   if (!option) throw refused()
-  // 单人投票保留该玩家的人设；多人共同决议才使用中立的房间署名。
-  const collective = counts && counts.reduce((sum, count) => sum + count, 0) > 1
-  const member = membership(room.id, actor).member
-  const check = option.check
-    ? {
-        ...performCheck(room.chatId, option.check, undefined, Math.random, {
-          name: member.personaName,
-          prefix: `player:${actor}`,
-          sheet: getSetting<CharacterSheet | null>(`room-sheet:${room.id}:${actor}`) ?? null,
-          characterId: null,
-        }),
-        who: collective ? room.name : member.personaName,
-      }
-    : undefined
+  const check = choiceCheck(room, actor, option.check)
   return sendRoomMessage(
     room.id,
-    { text: option.text, channel: 'ic', clientMessageId: `choice:${messageId}:${counts ? 'room' : actor}` },
-    {
-      ...(check ? { check } : {}),
-      choice: { messageId, index, counts },
-      ...(collective ? { author: { userId: room.id, name: room.name }, name: room.name } : {}),
-    },
+    { text: option.text, channel: 'ic', clientMessageId: `choice:${messageId}:${actor}` },
+    { ...(check ? { check } : {}), choice: { messageId, index } },
     actor,
   )
 }
@@ -559,10 +572,10 @@ export function pickRoomChoice(id: string, messageId: string, index: number, now
   return asHost(room, () => {
     if (!options(room, messageId)[index]) throw refused()
     if (room.choiceMode === 'gm') {
-      if (member.role === 'player') throw refused()
+      if (member.role === 'player') throw new HttpError(403, 'CHOICE_GM_ONLY', t('此房间仅允许主持选择选项'))
       const state = choiceSnapshot(id, messageId, now)
       if (state.closed) throw new HttpError(409, 'CHOICE_CLOSED', t('选项投票已结束'))
-      const message = sendChoice(room, messageId, index, undefined, member.userId)
+      const message = sendChoice(room, messageId, index, member.userId)
       state.closed = true
       state.winner = index
       state.picks = [member.userId]
@@ -574,7 +587,7 @@ export function pickRoomChoice(id: string, messageId: string, index: number, now
       throw new HttpError(409, 'CHOICE_CLOSED', t('选项投票已结束'))
     if (room.choiceMode === 'each') {
       if (state.picks.includes(member.userId)) throw new HttpError(409, 'ALREADY_PICKED', t('你已经选择过此选项组'))
-      const message = sendChoice(room, messageId, index, undefined, member.userId)
+      const message = sendChoice(room, messageId, index, member.userId)
       state.picks.push(member.userId)
       if (activePlayers(room, now).every((m) => state.picks.includes(m.userId))) state.closed = true
       save(room, 'room.choice', state)
@@ -587,7 +600,9 @@ export function pickRoomChoice(id: string, messageId: string, index: number, now
       }
       return message
     }
-    if (member.role !== 'player' || state.votes[member.userId] !== undefined) throw refused()
+    if (member.role !== 'player') throw new HttpError(403, 'CHOICE_PLAYERS_ONLY', t('主持不能参与玩家投票'))
+    if (state.votes[member.userId] !== undefined)
+      throw new HttpError(409, 'VOTE_CHANGE_NOT_ALLOWED', t('投票后不能更改选择'))
     state.votes[member.userId] = index
     state.counts[index] = (state.counts[index] ?? 0) + 1
     save(room, 'room.choice', state)
@@ -601,7 +616,7 @@ export function pickRoomChoice(id: string, messageId: string, index: number, now
 function closeChoiceAsHost(room: Room, messageId: string) {
   return asHost(room, () => closeChoice(room.id, messageId))
 }
-export function closeChoice(id: string, messageId: string, winner?: number) {
+export function closeChoice(id: string, messageId: string, winner?: number, random = Math.random) {
   const { room } = requireRole(id, ['owner', 'gm'])
   checkWritable(room, currentUser().id)
   if (room.choiceMode !== 'vote') throw refused()
@@ -609,14 +624,31 @@ export function closeChoice(id: string, messageId: string, winner?: number) {
     const state = choiceSnapshot(id, messageId)
     if (state.closed) return state
     const max = Math.max(...state.counts)
-    const selected = winner ?? state.counts.indexOf(max)
+    const tied = state.counts.flatMap((count, index) => (count === max ? [index] : []))
+    const selected = winner ?? tied[Math.floor(random() * tied.length)]!
     if (!options(room, messageId)[selected] || (winner !== undefined && state.counts[selected] !== max)) throw refused()
     if (turnState(id).running || isGenerating(room.chatId))
       throw new HttpError(409, 'GENERATING', t('房间正在生成回复'))
     checkQuota(room, room.hostUserId)
     db.transaction(() => {
+      const option = options(room, messageId)[selected]!
+      const content = t('投票结果：{option}。票数：{counts}。{tie}', {
+        option: option.text,
+        counts: state.counts.join(', '),
+        tie: tied.length > 1 ? t('出现平票，已在平票选项中随机选择') : '',
+      })
       const voters = Object.keys(state.votes)
-      sendChoice(room, messageId, selected, state.counts, voters.length === 1 ? voters[0]! : room.hostUserId)
+      const check = choiceCheck(room, voters.length === 1 ? voters[0]! : room.hostUserId, option.check, random)
+      append(
+        room,
+        room.hostUserId,
+        content,
+        {
+          ...(check ? { check } : {}),
+          choice: { messageId, index: selected, counts: state.counts },
+        },
+        'system',
+      )
       state.closed = true
       state.winner = selected
       save(room, 'room.choice', state)
@@ -635,7 +667,7 @@ function notifyPending(room: Room, state: RoomRoundState) {
 }
 function notifyInitiative(room: Room, state: RoomInitiativeState) {
   const entry = state.order[state.current]
-  if (entry?.kind === 'member')
+  if (entry?.kind === 'member' && members(room.id).some((m) => m.userId === entry.id))
     notifyRoom(room, entry.id, 'room.your-turn', `your-turn:${room.id}:${roundSnapshot(room).round}:${entry.id}`)
 }
 

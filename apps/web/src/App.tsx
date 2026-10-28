@@ -38,8 +38,9 @@ import { useMobile } from './hooks/useMobile'
 import { useQuickReplyAutomation } from './hooks/useQuickReplyAutomation'
 import { t } from './i18n'
 import { useAppearance } from './stores/appearance'
+import { useRoomLive } from './stores/room'
 import { useSessionStore } from './stores/session'
-import { toast, useToasts } from './stores/toast'
+import { toast, useToasts, withResetTime } from './stores/toast'
 import { useUi, type View } from './stores/ui'
 
 const NAV = (): { view: View; label: string; icon: ReactNode }[] => [
@@ -72,6 +73,36 @@ function SocialBadge() {
 /** 新通知弹出提示 */
 function useNotificationToasts() {
   useEffect(() => subscribeNotifications((n) => toast.info(notificationText(n))), [])
+}
+
+/**
+ * 房间里只发给自己的提醒：AI 额度用完、被移出房间。
+ * 服务端把它们放进 useRoomLive，这里比较前后两次的值，有新的就弹提示
+ */
+function useRoomNoticeToasts() {
+  useEffect(
+    () =>
+      useRoomLive.subscribe((state, prev) => {
+        for (const [roomId, quota] of Object.entries(state.quota)) {
+          if (prev.quota[roomId] === quota) continue
+          // 同一次触发的请求本身也会报错弹出同样的文字，已经在显示就不重复弹
+          const text = withResetTime(quota.message, quota.resetAt)
+          if (!useToasts.getState().toasts.some((x) => x.message === text)) toast.error(text)
+        }
+        for (const [roomId, reason] of Object.entries(state.removalReasons)) {
+          if (prev.removalReasons[roomId] === reason || reason === 'left') continue
+          toast.error(
+            {
+              kicked: t('你被房主移出了房间'),
+              banned: t('你被房主移出并禁止再加入这个房间'),
+              room_closed: t('房主关闭了这个房间'),
+              online_play_off: t('房主关闭了联机，房间已结束'),
+            }[reason],
+          )
+        }
+      }),
+    [],
+  )
 }
 
 /** 最左侧的图标导航。项目多时可以滚动；「设置」固定在最下面 */
@@ -210,6 +241,42 @@ function Toasts() {
   )
 }
 
+/**
+ * 断线提示：实时连接断开超过几秒（或浏览器报告离线）时，顶部显示一个小条。
+ * 短暂重连不提示，免得闪一下；恢复后自动消失
+ */
+function ConnectionBanner() {
+  const state = useLiveStore((s) => s.state)
+  const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false)
+  const [stale, setStale] = useState(false)
+  useEffect(() => {
+    const update = () => setOffline(navigator.onLine === false)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
+  useEffect(() => {
+    if (state !== 'connecting') {
+      setStale(false)
+      return
+    }
+    const timer = setTimeout(() => setStale(true), 4000)
+    return () => clearTimeout(timer)
+  }, [state])
+  if (!offline && !stale) return null
+  return (
+    <div role="status" className="pointer-events-none fixed inset-x-0 top-2 z-50 flex justify-center px-4">
+      <span className="flex items-center gap-2 rounded-full bg-amber-500 px-3.5 py-1.5 text-[13px] font-medium text-white shadow-lg">
+        <span className="size-2 animate-pulse rounded-full bg-white" />
+        {offline ? t('网络已断开，恢复后会自动重连') : t('与服务器的连接断开了，正在重连…')}
+      </span>
+    </div>
+  )
+}
+
 function PanelContent({ view }: { view: View }) {
   switch (view) {
     case 'chat':
@@ -242,6 +309,7 @@ function PanelContent({ view }: { view: View }) {
 export function App() {
   useQuickReplyAutomation()
   useNotificationToasts()
+  useRoomNoticeToasts()
   const qc = useQueryClient()
   const sessionStatus = useSessionStore((s) => s.status)
   useEffect(() => {
@@ -319,6 +387,7 @@ export function App() {
       />
       <RoomDialogs />
       <Toasts />
+      <ConnectionBanner />
     </div>
   )
 }

@@ -37,6 +37,7 @@ import {
   roomDetail,
   unavailable,
 } from './index'
+import { validateEdit } from './input'
 import { checkRoom, rollRoom } from './trpg'
 import { abortTurn, editRoomMessage, triggerTurn } from './turns'
 import { runAsRoomActor } from './usage'
@@ -141,18 +142,11 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
   const messageMatch = /^\/messages\/([^/]+)$/.exec(path)
   if (messageMatch && (method === 'PATCH' || method === 'DELETE')) {
     const body: unknown = method === 'PATCH' ? await request.json() : null
-    if (
-      method === 'PATCH' &&
-      (!body || typeof body !== 'object' || !('content' in body) || typeof body.content !== 'string')
-    )
-      throw unavailable()
-    return Response.json(
-      editRoomMessage(
-        roomId,
-        messageMatch[1]!,
-        body && typeof body === 'object' && 'content' in body ? String(body.content) : null,
-      ),
-    )
+    const content =
+      method === 'PATCH'
+        ? validateEdit(body && typeof body === 'object' && 'content' in body ? body.content : undefined)
+        : null
+    return Response.json(editRoomMessage(roomId, messageMatch[1]!, content))
   }
   const body =
     method === 'POST'

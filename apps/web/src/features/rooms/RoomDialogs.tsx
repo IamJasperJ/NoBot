@@ -126,6 +126,16 @@ function LobbyDialog({ invite }: { invite: string }) {
     // 从链接进来的：去掉地址栏里的 /join/…，刷新后不会再弹出
     if (joinInviteFromPath()) history.replaceState(null, '', '/')
   }
+  // 已经是成员（邀请可能已经用完）：不再走加入流程，直接进房间
+  const already = room?.alreadyInRoom ? room.room : undefined
+  // leave 每次渲染都是新函数，只在拿到房间时跑一次
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 见上
+  useEffect(() => {
+    if (!already) return
+    toast.info(t('你已经在「{name}」里了', { name: already.name }))
+    leave()
+    useUi.getState().openChat({}, already.chatId)
+  }, [already])
   const submit = () => {
     if (!room) return
     void join
@@ -181,7 +191,10 @@ function LobbyDialog({ invite }: { invite: string }) {
             <RulesText room={room} />
             <p className="text-zinc-500">{room.payer}</p>
             <p className="text-zinc-500">{room.historyNote}</p>
-            <p className="text-zinc-500">{t('你每小时最多触发 AI {count} 次', { count: room.guestQuota.perHour })}</p>
+            {/* 旁观者不能触发 AI，不显示额度 */}
+            {room.inviteRole !== 'spectator' && (
+              <p className="text-zinc-500">{t('你每小时最多触发 AI {count} 次', { count: room.guestQuota.perHour })}</p>
+            )}
           </section>
           <section className="space-y-3">
             {personas.data?.length ? (

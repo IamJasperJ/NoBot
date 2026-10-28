@@ -2627,7 +2627,6 @@ export const en: Record<string, string> = {
   撤回完成: 'Not done yet',
   下一轮: 'Next round',
   发言频道: 'Channel',
-  私信主持: 'Whisper to GM',
   '私信 {name}': 'Whisper to {name}',
   '私信，只有对方看得到…': 'Whisper, only they can see it…',
   '还没轮到你，可以发场外或私信': 'Not your turn yet. You can post out of character or whisper',
@@ -3197,4 +3196,17 @@ export const en: Record<string, string> = {
     'Max sticker sets collected automatically; no more are added once full',
   'bot 收藏的表情没有文字含义，开启后用识图模型看一次，写几个关键词，角色才知道什么时候用':
     "The bot's saved stickers have no text meaning; this has a vision model look at each once and write a few keywords so the character knows when to use it",
+  '网络已断开，恢复后会自动重连': "You're offline. We'll reconnect automatically.",
+  '与服务器的连接断开了，正在重连…': 'Lost connection to the server. Reconnecting…',
+  '连不上服务器，请检查网络后重试': "Can't reach the server. Check your network and try again.",
+  '私信主持（AI 看不到）': 'Whisper to GM (hidden from AI)',
+  '私信只有你和对方能看到，AI 不会读到，也不会回应':
+    "Only you and the recipient see whispers; the AI won't read or answer them",
+  '房间规则有更新，请阅读并确认': 'The room rules changed. Please read and accept them.',
+  '{message}（{time} 恢复）': '{message} (resets at {time})',
+  你被房主移出了房间: 'The host removed you from the room.',
+  你被房主移出并禁止再加入这个房间: 'The host removed and banned you from this room.',
+  房主关闭了这个房间: 'The host closed this room.',
+  '房主关闭了联机，房间已结束': 'The host turned off online play; the room has ended.',
+  '你已经在「{name}」里了': 'You are already in “{name}”.',
 }

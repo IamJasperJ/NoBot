@@ -403,6 +403,8 @@ export function Composer({
           // 剧情：AI 会看到；场外：闲聊，不发给 AI；私信：只有对方看得到，也不发给 AI
           <select
             aria-label={t('发言频道')}
+            // 私信不进 AI 上下文（避免泄露给其他人），悬停说明一下，免得以为 AI 主持会回应
+            title={whisperTo ? t('私信只有你和对方能看到，AI 不会读到，也不会回应') : undefined}
             value={channel}
             onChange={(e) => setChannel(e.target.value as typeof channel)}
             className={cx(
@@ -418,7 +420,7 @@ export function Composer({
             <option value="ooc">{t('场外')}</option>
             {room.permissions.canWhisper &&
               (room.myRole === 'player' ? (
-                <option value="w:gm">{t('私信主持')}</option>
+                <option value="w:gm">{t('私信主持（AI 看不到）')}</option>
               ) : (
                 room.members
                   .filter((m) => m.state === 'active' && m.userId !== room.myUserId)

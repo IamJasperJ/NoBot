@@ -20,16 +20,18 @@ import { roomBans, roomInvites, roomMembers, rooms, users } from '../../db/syste
 import { HttpError } from '../../errors'
 import { t } from '../../i18n'
 import { thumbFile } from '../../lib/files'
+import { stripBidi } from '../../lib/input-text'
 import { currentPaths, currentUser, runAsUser } from '../../user-context'
 import { hashToken } from '../auth'
-import { getChatRow } from '../chats'
+import { getChatRow, loadMessage } from '../chats'
 import { abortGeneration } from '../generation/generation'
 import { liveHub } from '../live/hub'
+import { logError } from '../logs'
 import { blocked, friendIds, notify } from '../social'
 import { canReadMessage, roomCover, roomPayload } from './dto'
 import { nextSession, resumeExtensions, unreadDetails } from './extensions'
 import { lobbyAssetUrl } from './lobby'
-import { initiativeSnapshot, restoreChoices, resumeRoom, roundSnapshot } from './trpg'
+import { initiativeSnapshot, removeInitiativeMember, restoreChoices, resumeRoom, roundSnapshot } from './trpg'
 import { rescheduleRoom } from './turns'
 
 export type Room = typeof rooms.$inferSelect
@@ -101,7 +103,7 @@ export function event(room: Room, type: string, actorId: string, payload: Record
     type,
     actorId,
     entityId: entityId ?? null,
-    payload: roomPayload(payload),
+    payload,
     createdAt: Date.now(),
   }
   db.insert(roomEvents).values(data).run()
@@ -121,9 +123,30 @@ export function projectRoomEvent(data: ReturnType<typeof event>, viewerId: strin
     }
     if (data.type.startsWith('room.character.') && !['room.character.withdrawn'].includes(data.type))
       return { ...data, payload: {} }
+    const payload = { ...data.payload }
+    // 重放旧事件也按最新修订投影，撤回后不能通过旧游标取回正文。
+    for (const key of ['message', 'assistantMessage', 'userMessage']) {
+      const value = payload[key]
+      if (value && typeof value === 'object' && 'id' in value && typeof value.id === 'string') {
+        const latest = db.select().from(messages).where(eq(messages.id, value.id)).get()
+        if (
+          latest &&
+          latest.chatId === room.chatId &&
+          (latest.meta.version ?? 1) >
+            ('meta' in value &&
+            value.meta &&
+            typeof value.meta === 'object' &&
+            'version' in value.meta &&
+            typeof value.meta.version === 'number'
+              ? value.meta.version
+              : 1)
+        )
+          payload[key] = loadMessage(latest.id)
+      }
+    }
     const viewer = membership(room.id, viewerId).member
     if (viewer.role === 'spectator') {
-      const message = data.payload.message ?? data.payload.assistantMessage
+      const message = payload.message ?? payload.assistantMessage
       if (
         ['room.round', 'room.initiative', 'room.turn', 'room.typing', 'room.suggestion'].includes(data.type) ||
         data.seq <= (room.spectatorHistory === 'since-join' ? viewer.joinedSeq : -1) ||
@@ -134,7 +157,7 @@ export function projectRoomEvent(data: ReturnType<typeof event>, viewerId: strin
       )
         return { ...data, type: 'room.cursor', entityId: null, payload: {} }
     }
-    return { ...data, payload: roomPayload(data.payload, viewerId, room.hostUserId) }
+    return { ...data, payload: roomPayload(payload, viewerId, room.hostUserId) }
   })
 }
 const channelListeners = new Set<(data: ReturnType<typeof event>) => void>()
@@ -199,7 +222,13 @@ export function directoryChange<T>(
       },
       { behavior: 'immediate' },
     )
-    if (data) publish(data)
+    if (data) {
+      try {
+        publish(data)
+      } catch (error) {
+        logError('room committed notification', error)
+      }
+    }
     return result
   } finally {
     sqlite.exec('DETACH DATABASE room_story')
@@ -243,7 +272,7 @@ export function roomDetail(id: string): RoomDTO {
         member.role !== 'spectator' &&
         room.status === 'active' &&
         member.acceptedRulesVersion === room.rulesVersion &&
-        (room.choiceMode !== 'gm' || member.role !== 'player'),
+        (room.choiceMode === 'vote' ? member.role === 'player' : room.choiceMode !== 'gm' || member.role !== 'player'),
     },
     unreadCount: unreadDetails(id).count,
     round: asHost(room, () => roundSnapshot(room)),
@@ -267,10 +296,10 @@ export function listRooms() {
 }
 function personaSnapshot(personaId?: string) {
   const p = personaId ? db.select().from(personas).where(eq(personas.id, personaId)).get() : undefined
-  if (personaId && !p) throw unavailable()
+  if (personaId && !p) throw new HttpError(400, 'INVALID_PERSONA', t('所选人设不存在或不属于你'))
   return {
-    personaName: p?.name ?? currentUser().name,
-    personaDescription: p?.description ?? '',
+    personaName: stripBidi(p?.name ?? currentUser().name).slice(0, 100),
+    personaDescription: (p?.description ?? '').slice(0, 8000),
     personaAvatarFile: p?.avatarFile ?? null,
   }
 }
@@ -290,8 +319,10 @@ function copyPersona(room: Room, personaId: string) {
   return p
 }
 export function createRoom(input: z.infer<typeof createRoomInput>) {
+  input = sanitizeSettings(input)
   getChatRow(input.chatId)
-  if (system().select().from(rooms).where(eq(rooms.chatId, input.chatId)).get()) throw refused()
+  if (system().select().from(rooms).where(eq(rooms.chatId, input.chatId)).get())
+    throw new HttpError(409, 'ROOM_ALREADY_EXISTS', t('此会话已经开启了房间'))
   const { personaId, ...settings } = input
   const now = Date.now(),
     id = newId(),
@@ -348,6 +379,10 @@ export function createRoom(input: z.infer<typeof createRoomInput>) {
 }
 export function updateRoom(id: string, input: z.infer<typeof updateRoomInput>) {
   const { room } = requireRole(id, ['owner'])
+  input = sanitizeSettings(input)
+  const count = members(id).filter((m) => m.role !== 'spectator').length
+  if (input.maxMembers !== undefined && input.maxMembers < count)
+    throw new HttpError(400, 'ROOM_CAPACITY_TOO_SMALL', t('房间人数上限不能小于当前玩家人数（{count}）', { count }))
   const bump = (['contentRating', 'contentNotes', 'rules', 'allowSpectators'] as const).some(
     (k) => input[k] !== undefined && input[k] !== room[k],
   )
@@ -355,25 +390,47 @@ export function updateRoom(id: string, input: z.infer<typeof updateRoomInput>) {
     room,
     currentUser().id,
     'room.settings',
-    { settings: { ...room, ...input, rulesVersion: room.rulesVersion + Number(bump) } },
+    {
+      settings: { ...room, ...input, rulesVersion: room.rulesVersion + Number(bump) },
+      ...(input.status === 'archived' ? { reason: 'room_closed' } : {}),
+    },
     () => {
       system()
         .update(rooms)
         .set({ ...input, rulesVersion: room.rulesVersion + Number(bump), updatedAt: Date.now() })
         .where(eq(rooms.id, id))
         .run()
+      if (bump)
+        system()
+          .update(roomMembers)
+          .set({ acceptedRulesVersion: room.rulesVersion + 1 })
+          .where(
+            and(
+              eq(roomMembers.roomId, id),
+              or(eq(roomMembers.userId, currentUser().id), eq(roomMembers.role, 'owner')),
+            ),
+          )
+          .run()
     },
   )
-  rescheduleRoom(id)
-  const latestRoom = roomRow(id)
-  asHost(latestRoom, () => resumeRoom(latestRoom))
+  try {
+    rescheduleRoom(id)
+    const latestRoom = roomRow(id)
+    asHost(latestRoom, () => resumeRoom(latestRoom))
+  } catch (error) {
+    logError('room update notifications', error)
+  }
   return roomDetail(id)
 }
 export function deleteRoom(id: string) {
   const { room } = requireRole(id, ['owner'])
   asHost(room, () => abortGeneration(room.chatId))
   for (const m of members(id)) {
-    liveHub.publishToUser(m.userId, { type: 'room.removed', topic: `user:${m.userId}`, data: { roomId: id } })
+    liveHub.publishToUser(m.userId, {
+      type: 'room.removed',
+      topic: `user:${m.userId}`,
+      data: { roomId: id, reason: 'online_play_off' },
+    })
     liveHub.disconnectUserFromTopic(m.userId, `room:${id}`)
   }
   asHost(room, () =>
@@ -387,6 +444,8 @@ export function deleteRoom(id: string) {
 }
 export function createInvite(id: string, input: z.infer<typeof roomInviteInput>) {
   const { room, member } = membership(id)
+  if (input.kind === 'direct' && !input.targetUserId?.trim())
+    throw new HttpError(400, 'VALIDATION', t('直接邀请必须指定目标用户'))
   if (
     member.role === 'spectator' ||
     (input.role === 'spectator' && (!room.allowSpectators || member.role === 'player'))
@@ -426,41 +485,53 @@ export function createInvite(id: string, input: z.infer<typeof roomInviteInput>)
       ...(room.contentRating === 'general' ? { description: room.description } : {}),
     })
   const { tokenHash: _, ...dto } = invite
-  return { ...dto, ...(token ? { token, url: `/join/${token}` } : {}) }
+  return { ...dto, status: inviteStatus(invite), ...(token ? { token, url: `/join/${token}` } : {}) }
 }
-export function validInvite(value: string, userId = currentUser().id) {
+export function inviteStatus(invite: {
+  revokedAt: number | null
+  expiresAt: number
+  maxUses: number | null
+  uses: number
+}) {
+  if (invite.revokedAt !== null) return 'revoked' as const
+  if (invite.expiresAt <= Date.now()) return 'expired' as const
+  if (invite.maxUses !== null && invite.uses >= invite.maxUses) return 'used_up' as const
+  return 'active' as const
+}
+export function validInvite(value: string, userId = currentUser().id, allowMember = false) {
   const invite = system()
     .select()
     .from(roomInvites)
     .where(or(eq(roomInvites.id, value), eq(roomInvites.tokenHash, hashToken(value))))
     .get()
-  if (
-    !invite ||
-    invite.revokedAt !== null ||
-    invite.expiresAt <= Date.now() ||
-    (invite.maxUses !== null && invite.uses >= invite.maxUses) ||
-    (invite.kind === 'direct' && invite.targetUserId !== userId)
-  )
-    throw unavailable()
-  if (invite.kind === 'link' && invite.tokenHash !== hashToken(value)) throw unavailable()
+  if (!invite || (invite.kind === 'link' && invite.tokenHash !== hashToken(value))) throw unavailable()
   const room = roomRow(invite.roomId)
-  if (
-    room.status === 'archived' ||
-    blocked(room.hostUserId, userId) ||
-    system()
-      .select()
-      .from(roomBans)
-      .where(and(eq(roomBans.roomId, room.id), eq(roomBans.userId, userId)))
-      .get()
-  )
+  const member = members(room.id).find((m) => m.userId === userId)
+  const banned = system()
+    .select()
+    .from(roomBans)
+    .where(and(eq(roomBans.roomId, room.id), eq(roomBans.userId, userId)))
+    .get()
+  if (banned) throw new HttpError(403, 'ROOM_BANNED', t('你已被禁止加入此房间'))
+  if (room.status === 'archived' || blocked(room.hostUserId, userId)) throw unavailable()
+  if (allowMember && member) return { invite, room }
+  if (invite.kind === 'direct' && invite.targetUserId !== userId && invite.createdBy !== userId && !member)
     throw unavailable()
+  const status = inviteStatus(invite)
+  if (status !== 'active') {
+    if (!member && invite.createdBy !== userId) throw unavailable()
+    const labels = { expired: t('邀请已过期'), used_up: t('邀请次数已用尽'), revoked: t('邀请已撤销') }
+    throw new HttpError(410, `INVITE_${status.toUpperCase()}`, labels[status])
+  }
   return { invite, room }
 }
 export function lobby(value: string) {
-  const { room, invite } = validInvite(value)
+  const { room, invite } = validInvite(value, currentUser().id, true)
+  const alreadyInRoom = members(room.id).some((m) => m.userId === currentUser().id)
   const host = system().select().from(users).where(eq(users.id, room.hostUserId)).get()!
   return {
     id: room.id,
+    ...(alreadyInRoom ? { alreadyInRoom: true, room: roomDetail(room.id) } : {}),
     name: room.name,
     description: room.description,
     coverAsset: lobbyAssetUrl(value, room.coverAsset),
@@ -494,7 +565,8 @@ export function lobby(value: string) {
 }
 export function joinRoom(input: z.infer<typeof roomJoinInput>) {
   const userId = currentUser().id
-  const { room: initial } = validInvite(input.invite)
+  const { room: initial } = validInvite(input.invite, userId, true)
+  if (members(initial.id).some((m) => m.userId === userId)) return { ...roomDetail(initial.id), alreadyInRoom: true }
   const snapshot = copyPersona(initial, input.personaId)
   const id = directoryChange(initial, userId, 'room.member', { action: 'joined', userId }, () => {
     const { invite, room } = validInvite(input.invite)
@@ -588,7 +660,8 @@ export function removeMember(id: string, userId: string, action: 'left' | 'kicke
       .where(and(eq(roomMembers.roomId, id), eq(roomMembers.userId, userId)))
       .run()
   })
-  liveHub.publishToUser(userId, { type: 'room.removed', topic: `user:${userId}`, data: { roomId: id } })
+  asHost(room, () => removeInitiativeMember(room, userId))
+  liveHub.publishToUser(userId, { type: 'room.removed', topic: `user:${userId}`, data: { roomId: id, reason: action } })
   liveHub.disconnectUserFromTopic(userId, `room:${id}`)
 }
 export function updatePersona(id: string, input: string | RoomPersonaInput) {
@@ -601,7 +674,7 @@ export function updatePersona(id: string, input: string | RoomPersonaInput) {
         personaDescription: member.personaDescription,
         personaAvatarFile: member.personaAvatarFile,
       }
-  if (changes.name !== undefined) snapshot.personaName = changes.name
+  if (changes.name !== undefined) snapshot.personaName = stripBidi(changes.name).trim()
   if (changes.description !== undefined) snapshot.personaDescription = changes.description
   directoryChange(
     room,
@@ -662,8 +735,21 @@ export function checkQuota(room: Room, userId: string, reserve = 1) {
       pending.filter((r) => r.userId === userId).length +
       reserve >
       room.guestQuota.perHour
-  )
-    throw new HttpError(429, 'ROOM_QUOTA', t('房间生成额度已用尽，请稍后重试'))
+  ) {
+    const daily = rows.filter((r) => r.createdAt >= dayStart).length + pending.length + reserve > room.guestQuota.perDay
+    const hourlyRows = rows.filter((r) => r.userId === userId && r.createdAt > now - 3600000)
+    const hourlyReset = (hourlyRows.length ? Math.min(...hourlyRows.map((row) => row.createdAt)) : now) + 3600000
+    const hourly =
+      hourlyRows.length + pending.filter((r) => r.userId === userId).length + reserve > room.guestQuota.perHour
+    const resetAt = Math.max(daily ? dayStart + 86400000 : 0, hourly ? hourlyReset : 0)
+    const message = t('房间生成额度已用尽，请稍后重试')
+    liveHub.publishToUser(userId, {
+      type: 'room.quota',
+      topic: `user:${userId}`,
+      data: { roomId: room.id, code: 'ROOM_QUOTA', message, resetAt },
+    })
+    throw new HttpError(429, 'ROOM_QUOTA', message, { resetAt })
+  }
 }
 
 /** 先预占再调用模型，避免文本和语音并发通过同一个剩余额度。 */
@@ -710,8 +796,19 @@ export function resumeRoomStates() {
     try {
       if (room.status === 'active') asHost(room, () => resumeRoom(room))
       resumeExtensions(room)
-    } catch {
-      /* 已禁用的房主或损坏房间不能阻塞服务器启动。 */
+    } catch (error) {
+      logError('room resume notifications', error)
     }
   }
+}
+
+/** 名称清洗在服务边界执行，渠道和网页使用相同的规则。 */
+function sanitizeSettings<T extends { name?: string; description?: string }>(input: T): T {
+  const result = { ...input }
+  if (result.name !== undefined) {
+    result.name = stripBidi(result.name).trim()
+    if (!result.name) throw new HttpError(400, 'VALIDATION', t('房间名称不能为空'))
+  }
+  if (result.description !== undefined) result.description = stripBidi(result.description)
+  return result
 }

@@ -130,6 +130,8 @@ export function MessageList({ chatId, messages, busy, hasMore, loadingMore, load
   const items = virtualizer.getVirtualItems()
   return (
     <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      {/* 手机上房间条盖在消息顶部，留出它的高度（不在房间里时变量不存在，高度为 0） */}
+      <div aria-hidden="true" className="md:hidden" style={{ height: 'var(--room-bar-h, 0px)' }} />
       {loadingMore && <div className="py-2 text-center text-xs text-zinc-400">{t('加载更早的消息…')}</div>}
       <div className="chat-column relative w-full" style={{ height: virtualizer.getTotalSize() }}>
         <div className="absolute inset-x-0 top-0" style={{ transform: `translateY(${items[0]?.start ?? 0}px)` }}>

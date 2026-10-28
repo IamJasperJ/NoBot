@@ -90,6 +90,8 @@ export class ApiRequestError extends Error {
     public code: string,
     message: string,
     public status: number,
+    public retryAfter?: number,
+    public resetAt?: number,
   ) {
     super(message)
   }
@@ -102,6 +104,8 @@ export async function readError(res: Response): Promise<ApiRequestError> {
     data?.error?.code ?? 'HTTP',
     data?.error?.message ?? t('请求失败（{status}）', { status: res.status }),
     res.status,
+    typeof data?.error?.retryAfter === 'number' ? data.error.retryAfter : undefined,
+    typeof data?.error?.resetAt === 'number' ? data.error.resetAt : undefined,
   )
 }
 

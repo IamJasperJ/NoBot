@@ -600,3 +600,31 @@ for (const change of ['停用扩展', '关闭图片工具'] as const) {
     expect((await page(chat)).messages.some((m) => m.id === resultId)).toBe(true)
   })
 }
+
+test('BUG-17：开发模拟模型 roll_dice 只生成一次工具调用和一次续写', async () => {
+  const { chat } = await setup()
+  await updatePreset((data) => ({ ...data, samplers: { ...data.samplers, functionCalling: true } }))
+  const { mockLlmFetch } = await import('../../../scripts/mock-llm')
+  const original = globalThis.fetch
+  const previousDelay = process.env.DELAY
+  process.env.DELAY = '0'
+  const { spyOn } = await import('bun:test')
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    const req = new Request(input, init)
+    return req.url.startsWith(model.url.replace(/\/v1$/, '')) ? mockLlmFetch(req) : original(input, init)
+  })
+  try {
+    const events = await generate(chat, { mode: 'send', text: '请掷骰' })
+    const assistants = done(events)
+    expect(assistants).toHaveLength(2)
+    expect(assistants[0]!.meta.toolCalls?.[0]?.name).toBe('roll_dice')
+    expect(assistants[0]!.content).toBe('')
+    expect(assistants[1]!.meta.toolCalls).toBeUndefined()
+    expect(assistants[1]!.content).toContain('根据工具结果')
+    expect((await page(chat)).messages.filter((m) => m.role === 'tool')).toHaveLength(1)
+  } finally {
+    fetchSpy.mockRestore()
+    if (previousDelay === undefined) delete process.env.DELAY
+    else process.env.DELAY = previousDelay
+  }
+})

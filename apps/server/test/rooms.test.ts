@@ -172,7 +172,7 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
       .set({ expiresAt: now - 1 })
       .where(eq(roomInvites.id, expired.id))
       .run()
-    expect(() => guest(() => r.lobby(expired.token!))).toThrow()
+    expect(guest(() => r.lobby(expired.token!)).alreadyInRoom).toBe(true)
     for (const path of [
       `/chats/${b.chat.id}`,
       `/chats/${otherHostChat.id}`,

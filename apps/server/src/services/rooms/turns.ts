@@ -29,6 +29,7 @@ import {
   reserveUsage,
   roomRow,
 } from './index'
+import { rateLimitMessage, validateEdit } from './input'
 import { advanceInitiative, afterAiTurn, assertInitiative, registerChoices, roomActivity } from './trpg'
 import { runAsRoomActor } from './usage'
 
@@ -123,7 +124,6 @@ export function broadcastTurn(room: Room) {
     cooldownUntil: s.cooldownUntil,
   })
 }
-const attempts = new Map<string, number[]>()
 export function sendRoomMessage(
   id: string,
   input: z.infer<typeof roomSendInput>,
@@ -144,13 +144,9 @@ export function sendRoomMessage(
     if (duplicate) return roomMessage(loadMessage(duplicate.id), actorId, room.hostUserId)
     if (input.channel === 'ic' && !extraMeta.choice?.counts) assertInitiative(room, actorId)
     roomActivity(room, actorId)
-    const now = Date.now(),
-      key = `${id}:${actorId}`,
-      recent = (attempts.get(key) ?? []).filter((n) => n > now - 60000)
-    if (recent.length >= 30) throw new HttpError(429, 'RATE_LIMITED', t('消息发送过于频繁，请稍后重试'))
+    const now = Date.now()
+    rateLimitMessage(`${id}:${actorId}`, now)
     if (input.replyTo && loadMessage(input.replyTo).chatId !== room.chatId) throw refused()
-    recent.push(now)
-    attempts.set(key, recent)
     const attachments = (input.images ?? []).map((imageId) => {
       const known =
         db
@@ -207,6 +203,8 @@ export function sendRoomMessage(
       return { message, event: event(room, 'room.message', actorId, { action: 'created', message }, messageId) }
     })
     publish(result.event)
+    typingTimes.delete(`${id}:${actorId}`)
+    ephemeral(room, 'room.typing', actorId, { userId: actorId, expiresAt: 0 })
     notifyMentions(room, result.message)
     if (followTurnMode && input.channel === 'ic' && !extraMeta.choice?.counts) {
       if (room.turnMode === 'initiative') advanceInitiative(room)
@@ -483,6 +481,8 @@ export function editRoomMessage(id: string, messageId: string, content: string |
   const { room, member } = membership(id),
     actor = currentUser().id
   if (member.role === 'spectator') throw refused()
+  if (content !== null) content = validateEdit(content)
+  rateLimitMessage(`${id}:${actor}`)
   return asHost(room, () => {
     const m = loadMessage(messageId)
     if (m.chatId !== room.chatId || !canReadMessage(m, actor)) throw refused()
@@ -503,7 +503,9 @@ export function editRoomMessage(id: string, messageId: string, content: string |
       const meta = {
         ...m.meta,
         version: (m.meta.version ?? 1) + 1,
-        edits: [...(m.meta.edits ?? []), { content: m.content, actorId: actor, createdAt: Date.now() }],
+        edits: [...(m.meta.edits ?? []), { content: m.content, actorId: actor, createdAt: Date.now() }]
+          .slice(-10)
+          .map((edit) => ({ ...edit, content: edit.content.slice(0, 4000) })),
         ...(content === null ? { excluded: true } : {}),
       }
       db.update(messages).set({ meta }).where(eq(messages.id, messageId)).run()

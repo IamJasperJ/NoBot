@@ -51,7 +51,8 @@ z.config(z.locales.zhCN())
 export const app = new Hono().basePath('/api')
 
 app.onError((err, c) => {
-  if (err instanceof HttpError) return c.json({ error: { code: err.code, message: err.message } }, err.status)
+  if (err instanceof HttpError)
+    return c.json({ error: { code: err.code, message: err.message, ...err.details } }, err.status)
   console.error(err)
   logError(`${c.req.method} ${c.req.path}`, err)
   return c.json({ error: { code: 'INTERNAL', message: t('服务器内部错误：{error}', { error: err.message }) } }, 500)

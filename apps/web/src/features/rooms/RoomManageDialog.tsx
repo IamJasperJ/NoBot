@@ -225,7 +225,10 @@ function Invite({ room }: { room: RoomDTO }) {
         )
       })
       .catch((e: unknown) => toast.error(errorMessage(e)))
-  const active = (invites.data ?? []).filter((i) => !i.revokedAt && i.expiresAt > Date.now())
+  // 用完、过期、撤销的都不算有效；服务端给了 status 就按它判断
+  const active = (invites.data ?? []).filter((i) =>
+    i.status ? i.status === 'active' : !i.revokedAt && i.expiresAt > Date.now(),
+  )
   const inviteLabel = (i: RoomInviteDTO) => {
     if (i.kind === 'link')
       return t('邀请链接 · 已用 {uses}{max}', { uses: i.uses, max: i.maxUses ? ` / ${i.maxUses}` : '' })
@@ -354,12 +357,22 @@ function Me({ room, onLeft }: { room: RoomDTO; onLeft: () => void }) {
     <div className="space-y-5">
       {mustAccept && (
         <section className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40">
-          <p className="font-medium">{t('房间规则有更新，确认后才能继续发言')}</p>
+          <p className="font-medium">
+            {me.role === 'spectator' ? t('房间规则有更新，请阅读并确认') : t('房间规则有更新，确认后才能继续发言')}
+          </p>
           <RulesText room={room} />
           <Button
             size="sm"
             variant="primary"
-            onClick={() => void run(accept.mutateAsync({ id: room.id, rulesVersion: room.rulesVersion }), t('已确认'))}
+            // 确认后关掉对话框回到聊天：打开它的目的就是确认规则
+            onClick={() =>
+              void run(
+                accept
+                  .mutateAsync({ id: room.id, rulesVersion: room.rulesVersion })
+                  .then(() => useRoomDialogs.getState().close()),
+                t('已确认'),
+              )
+            }
           >
             {t('我已阅读并同意')}
           </Button>

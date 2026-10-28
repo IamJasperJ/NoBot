@@ -1,5 +1,24 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  直接邀请必须指定目标用户: 'A direct invite requires a target user',
+  '编辑内容不能为空，且不能超过 100000 字符': 'Edited content must not be blank or exceed 100000 characters',
+  房间名称不能为空: 'Room name must not be blank',
+  所选人设不存在或不属于你: 'The selected persona does not exist or does not belong to you',
+  此会话已经开启了房间: 'This chat already has a room',
+  '房间人数上限不能小于当前玩家人数（{count}）': 'Member limit cannot be lower than the current player count ({count})',
+  你已被禁止加入此房间: 'You are banned from this room',
+  邀请已过期: 'This invite has expired',
+  邀请次数已用尽: 'This invite has been used up',
+  邀请已撤销: 'This invite has been revoked',
+  旁观者不能接收私信: 'Spectators cannot receive whispers',
+  此房间仅允许主持选择选项: 'Only the host or GM can choose options in this room',
+  主持不能参与玩家投票: 'The host and GM cannot participate in player votes',
+  投票后不能更改选择: 'Votes cannot be changed after submission',
+  预约开始时间不能早于当前时间五分钟: 'The session cannot start more than five minutes in the past',
+  '对方已拒绝，请在 {seconds} 秒后重试': 'Your request was declined. Try again in {seconds} seconds',
+  '投票结果：{option}。票数：{counts}。{tie}': 'Vote result: {option}. Counts: {counts}. {tie}',
+  '出现平票，已在平票选项中随机选择': 'A tie occurred; an option was selected randomly among the tied options',
+
   工具调用超时: 'Tool call timed out',
   让角色看到生成的图片: 'Let the character see generated images',
   '默认关闭；开启后工具生成的成品图片按生成预设的工具图片限制发送给模型':

@@ -428,3 +428,25 @@ test('旧房主收到转让事件立即切换 scope，旧私人聊天不再重�
     fetchSpy.mockRestore()
   }
 })
+
+test('QA：额度和移除原因保留给 UI，退出账号时清除', () => {
+  applyRoomLive('room.quota', { roomId: 'qa', code: 'ROOM_QUOTA', message: '额度已用尽', resetAt: 123 })
+  expect(useRoomLive.getState()).toMatchObject({
+    quota: { qa: { code: 'ROOM_QUOTA', message: '额度已用尽', resetAt: 123 } },
+  })
+  applyRoomLive('room.removed', { roomId: 'qa', reason: 'banned' })
+  expect(useRoomLive.getState()).toMatchObject({ removalReasons: { qa: 'banned' } })
+  clearRoomSession()
+  expect(useRoomLive.getState()).toMatchObject({ quota: {}, removalReasons: {} })
+})
+
+test('QA：HTTP 错误保留冷却秒数和额度重置时间', async () => {
+  const { readError } = await import('./client')
+  const error = await readError(
+    Response.json(
+      { error: { code: 'SOCIAL_COOLDOWN', message: '稍后重试', retryAfter: 42, resetAt: 123 } },
+      { status: 429 },
+    ),
+  )
+  expect(error).toMatchObject({ code: 'SOCIAL_COOLDOWN', status: 429, retryAfter: 42, resetAt: 123 })
+})

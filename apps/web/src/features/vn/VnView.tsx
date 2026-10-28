@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../api/client'
 import { refreshChatState } from '../../api/queries'
+import { useRoomForChat } from '../../api/rooms'
 import { useFreshDice, usePickChoice, useTrpgSettings } from '../../api/trpg'
 import { ChevronRightIcon } from '../../components/icons'
 import { cx } from '../../components/ui'
@@ -61,6 +62,7 @@ export function VnView({
 }) {
   const mobile = useMobile()
   const qc = useQueryClient()
+  const spectator = !!useRoomForChat(chatId)?.permissions.isSpectator
   const knownNames = cast.stage?.knownNames ?? Object.values(cast.speakers).map((s) => s.name)
   const members = useMemo(() => Object.entries(cast.speakers).map(([id, s]) => ({ id, name: s.name })), [cast.speakers])
   const player = useVnPlayer({ chatId, messages, play, knownNames, members })
@@ -231,30 +233,36 @@ export function VnView({
       </div>
 
       {/* 顶部：场景信息 + 操作 */}
-      {!hidden && (
-        <VnToolbar
-          chatId={chatId}
-          play={play}
-          player={player}
-          images={images}
-          scene={player.stage.scene}
-          cinema={cinema}
-          hudLeft={inlineHud && play.interaction.hudPosition === 'top-left' ? hud : undefined}
-          hudRight={inlineHud && play.interaction.hudPosition !== 'top-left' ? hud : undefined}
-          tools={{ on: toolsOpen, set: setToolsOpen }}
-          adjusting={{ on: adjusting, set: setAdjusting }}
-          saves={{ on: saves, set: setSaves }}
-          backlog={{ on: backlog, set: setBacklog }}
-          onHide={() => setHidden(true)}
-        />
-      )}
+      {/* 联机房间里房间条在右上角，VN 顶部的操作栏和状态栏整体下移让开 */}
+      <div style={{ paddingTop: 'var(--room-bar-h, 0px)' }} className="relative z-10">
+        {!hidden && (
+          <VnToolbar
+            chatId={chatId}
+            play={play}
+            player={player}
+            images={images}
+            scene={player.stage.scene}
+            cinema={cinema}
+            hudLeft={inlineHud && play.interaction.hudPosition === 'top-left' ? hud : undefined}
+            hudRight={inlineHud && play.interaction.hudPosition !== 'top-left' ? hud : undefined}
+            tools={{ on: toolsOpen, set: setToolsOpen }}
+            adjusting={{ on: adjusting, set: setAdjusting }}
+            saves={{ on: saves, set: setSaves }}
+            backlog={{ on: backlog, set: setBacklog }}
+            onHide={() => setHidden(true)}
+          />
+        )}
 
-      {/* 状态面板：手机 / 「顶部一行」是画面上方的一行摘要；宽屏的在顶部操作栏里 */}
-      {!hidden && !cinema && showHud && hudBar && !saves && !backlog && hud}
+        {/* 状态面板：手机 / 「顶部一行」是画面上方的一行摘要；宽屏的在顶部操作栏里 */}
+        {!hidden && !cinema && showHud && hudBar && !saves && !backlog && hud}
+      </div>
 
       {/* 战斗：顶部居中的先攻条 */}
       {!hidden && !cinema && combat && trpg.initiativeBar && (
-        <div className="pointer-events-none absolute inset-x-0 top-14 z-[7] flex justify-center px-4">
+        <div
+          className="pointer-events-none absolute inset-x-0 z-[7] flex justify-center px-4"
+          style={{ top: 'calc(3.5rem + var(--room-bar-h, 0px))' }}
+        >
           <InitiativeBar combat={combat} vars={hudVars} avatarOf={avatarOf} playerName={cast.user.name} />
         </div>
       )}
@@ -364,11 +372,19 @@ export function VnView({
               </button>
             </div>
           ) : ended || busy ? (
-            (!choices?.length || play.interaction.inputWithChoices) && (
+            (!choices?.length || play.interaction.inputWithChoices) &&
+            // 旁观者只能看：和聊天视图一样不给输入框，免得发出去才被拒
+            (spectator ? (
+              <div className="mx-auto mb-3 flex w-full max-w-4xl justify-center px-3">
+                <span className="vn-chip rounded-full px-4 py-1.5 text-sm">
+                  {t('你在旁观这个房间，只能看，不能发言')}
+                </span>
+              </div>
+            ) : (
               <div className="vn-composer">
                 <Composer chatId={chatId} generating={busy} group={group} lastMessage={messages.at(-1) ?? null} />
               </div>
-            )
+            ))
           ) : (
             <div className="mx-auto mb-3 flex w-full max-w-4xl justify-end gap-2 px-3 md:px-6">
               <button

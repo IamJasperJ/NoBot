@@ -392,7 +392,31 @@ export function applyRoomLive(type: string, raw: unknown) {
   const room =
     queryClient.getQueryData<RoomDTO>(roomKeys.detail(id)) ??
     queryClient.getQueryData<RoomDTO[]>(roomKeys.list)?.find((r) => r.id === id)
+  if (
+    type === 'room.quota' &&
+    'code' in raw &&
+    raw.code === 'ROOM_QUOTA' &&
+    'message' in raw &&
+    typeof raw.message === 'string' &&
+    'resetAt' in raw &&
+    typeof raw.resetAt === 'number'
+  ) {
+    const quota = { code: 'ROOM_QUOTA' as const, message: raw.message, resetAt: raw.resetAt }
+    useRoomLive.setState((s) => ({ quota: { ...s.quota, [id]: quota } }))
+    return
+  }
   if (type === 'room.removed') {
+    if (
+      'reason' in raw &&
+      (raw.reason === 'left' ||
+        raw.reason === 'kicked' ||
+        raw.reason === 'banned' ||
+        raw.reason === 'room_closed' ||
+        raw.reason === 'online_play_off')
+    ) {
+      const reason = raw.reason
+      useRoomLive.setState((s) => ({ removalReasons: { ...s.removalReasons, [id]: reason } }))
+    }
     if (room) {
       removeRoomScope(room.chatId)
       queryClient.removeQueries({ queryKey: keys.chat(room.chatId) })
@@ -511,7 +535,7 @@ export function clearRoomSession() {
   deltaIndexes.clear()
   typingAt.clear()
   removeRoomScope()
-  useRoomLive.setState({ typing: {}, turns: {}, suggestions: {} })
+  useRoomLive.setState({ typing: {}, turns: {}, suggestions: {}, quota: {}, removalReasons: {} })
   useStreaming.setState({ streams: {}, chatId: null, messageId: null, text: '', reasoning: '' })
   queryClient.removeQueries({ queryKey: roomKeys.all })
 }

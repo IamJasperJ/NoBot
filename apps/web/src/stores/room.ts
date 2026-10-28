@@ -8,12 +8,16 @@ export interface RoomTurnState {
   error?: string
 }
 export const useRoomLive = create<{
+  quota: Record<string, { code: 'ROOM_QUOTA'; message: string; resetAt: number }>
+  removalReasons: Record<string, 'left' | 'kicked' | 'banned' | 'room_closed' | 'online_play_off'>
   typing: Record<string, Record<string, number>>
   turns: Record<string, RoomTurnState>
   suggestions: Record<string, Record<string, string[]>>
   setTyping: (roomId: string, userId: string, expiresAt: number) => void
   clearRoom: (roomId: string) => void
 }>((set) => ({
+  quota: {},
+  removalReasons: {},
   typing: {},
   turns: {},
   suggestions: {},

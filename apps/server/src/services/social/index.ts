@@ -164,7 +164,12 @@ export function requestFriend(id: string, handle: string, now = Date.now()) {
     if (row.requestedBy !== id) respondFriend(id, target.id, 'accept', now)
     return
   }
-  if (row?.respondedAt != null && now - row.respondedAt < 86400000) throw denied()
+  if (row?.requestedBy === id && row.respondedAt != null && now - row.respondedAt < 86400000) {
+    const retryAfter = Math.ceil((row.respondedAt + 86400000 - now) / 1000)
+    throw new HttpError(429, 'SOCIAL_COOLDOWN', t('对方已拒绝，请在 {seconds} 秒后重试', { seconds: retryAfter }), {
+      retryAfter,
+    })
+  }
   db()
     .insert(f)
     .values({ ...pair(id, target.id), requestedBy: id, status: 'pending', createdAt: now })

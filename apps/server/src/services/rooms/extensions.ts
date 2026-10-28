@@ -1,5 +1,5 @@
 import type { MessageDTO, RoomSessionDTO, roomSessionInput } from '@nobot/shared'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import type { z } from 'zod'
 import { db, getSetting, newId } from '../../db/client'
 import { roomEvents, roomMessageIndex } from '../../db/schema'
@@ -90,15 +90,22 @@ export function setNotify(id: string, notifyPreference: 'all' | 'mentions' | 'no
 }
 export function exportRoom(id: string, format: 'markdown' | 'json', now = Date.now()) {
   const { room, member } = membership(id)
-  const last = asHost(room, () =>
+  const recent = asHost(room, () =>
     db
       .select()
       .from(roomEvents)
-      .where(and(eq(roomEvents.roomId, id), eq(roomEvents.type, 'room.export'), eq(roomEvents.actorId, member.userId)))
+      .where(
+        and(
+          eq(roomEvents.roomId, id),
+          eq(roomEvents.type, 'room.export'),
+          eq(roomEvents.actorId, member.userId),
+          gt(roomEvents.createdAt, now - 60000),
+        ),
+      )
       .orderBy(sql`${roomEvents.seq} desc`)
-      .get(),
+      .all(),
   )
-  if (last && now - last.createdAt < 10000) throw new HttpError(429, 'RATE_LIMITED', t('导出过于频繁，请稍后重试'))
+  if (recent.length >= 3) throw new HttpError(429, 'RATE_LIMITED', t('导出过于频繁，请稍后重试'))
   const rewrite = (v: unknown): unknown => {
     if (typeof v === 'string' && v.startsWith('/api/assets/'))
       return `/api/rooms/${encodeURIComponent(id)}/scope${v.slice(4)}`
@@ -152,6 +159,8 @@ export function nextSession(id: string, userId: string) {
 export function saveSession(id: string, input: z.infer<typeof roomSessionInput>, sessionId?: string) {
   const { room } = requireRole(id, ['owner', 'gm'])
   const actor = currentUser().id
+  if (input.startsAt < Date.now() - 300000)
+    throw new HttpError(400, 'SESSION_IN_PAST', t('预约开始时间不能早于当前时间五分钟'))
   if (
     sessionId &&
     !system()

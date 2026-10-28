@@ -8,6 +8,7 @@ import { systemDatabase } from '../db/system-client'
 import { sessions, users } from '../db/system-schema'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
+import { stripBidi } from '../lib/input-text'
 import { liveHub } from './live/hub'
 import { miniAppCookie, miniAppLifetime, writeMiniAppCookie } from './scoped-session'
 
@@ -190,7 +191,7 @@ export async function createUser(input: { handle: string; name: string; password
     .values({
       id: newId(),
       handle: input.handle,
-      name: input.name,
+      name: stripBidi(input.name),
       passwordHash,
       isAdmin: input.isAdmin,
       createdAt: Date.now(),

@@ -10,6 +10,7 @@ export class HttpError extends Error {
     public status: ContentfulStatusCode,
     public code: string,
     message: string,
+    public details: { retryAfter?: number; resetAt?: number } = {},
   ) {
     super(message)
   }

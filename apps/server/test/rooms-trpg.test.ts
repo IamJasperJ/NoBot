@@ -319,7 +319,11 @@ test('MP3：骰点可见性、私信、回合持久化、先攻与选项状态�
     const winnerMessage = as('owner', () =>
       loadPath(createChatLeaf()).findLast((m) => m.meta.choice?.messageId === voted),
     )!
-    expect(winnerMessage.meta.author?.name).toBe('Campaign')
+    expect(winnerMessage.role).toBe('system')
+    expect(winnerMessage.speakerId).toBeNull()
+    expect(winnerMessage.meta.author).toBeUndefined()
+    expect(winnerMessage.content).toContain('B')
+    expect(winnerMessage.content).toContain('0, 2')
     expect(
       as('owner', () => toHistory(loadGenerationContext(chatId, { requireConnection: false }), winnerMessage.id)).at(-1)
         ?.content,
@@ -330,7 +334,10 @@ test('MP3：骰点可见性、私信、回合持久化、先攻与选项状态�
     as('author', () => trpg.pickRoomChoice(roomId, tie, 0))
     as('other', () => trpg.pickRoomChoice(roomId, tie, 1))
     expect(as('owner', () => trpg.choiceSnapshot(roomId, tie)).closed).toBe(false)
-    expect(as('gm', () => trpg.closeChoice(roomId, tie, 1)).winner).toBe(1)
+    expect(as('gm', () => trpg.closeChoice(roomId, tie, undefined, () => 0.99)).winner).toBe(1)
+    expect(
+      as('owner', () => loadPath(createChatLeaf())).findLast((m) => m.meta.choice?.messageId === tie)?.content,
+    ).toContain('平票')
     await settledVote(tie, requestCount)
     requestCount = model.requests.length
     const early = choiceMessage()

@@ -3,7 +3,7 @@ import { z } from 'zod'
 export const roomSettingsInput = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().max(4000).default(''),
-  coverAsset: z.string().nullable().default(null),
+  coverAsset: z.string().max(4000).nullable().default(null),
   mode: z.enum(['chat', 'trpg', 'custom']).default('chat'),
   turnMode: z.enum(['smart', 'auto', 'mention', 'host', 'initiative']).default('smart'),
   contentRating: z.enum(['general', 'mature', 'explicit']).default('general'),
@@ -124,6 +124,7 @@ export interface RoomMemberDTO {
   lastReadSeq: number
 }
 export interface RoomDTO extends z.infer<typeof roomSettingsInput> {
+  alreadyInRoom?: boolean
   id: string
   hostUserId: string
   chatId: string
@@ -142,6 +143,7 @@ export interface RoomDTO extends z.infer<typeof roomSettingsInput> {
   initiative: RoomInitiativeState
 }
 export interface RoomInviteDTO {
+  status: 'active' | 'used_up' | 'expired' | 'revoked'
   role: 'player' | 'spectator'
   id: string
   roomId: string
@@ -154,6 +156,8 @@ export interface RoomInviteDTO {
   revokedAt: number | null
 }
 export interface RoomLobbyDTO {
+  alreadyInRoom?: boolean
+  room?: RoomDTO
   inviteRole: 'player' | 'spectator'
   spectators: string[]
   spectatorHistory: 'all' | 'since-join'

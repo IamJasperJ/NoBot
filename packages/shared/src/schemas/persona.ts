@@ -15,8 +15,8 @@ export interface PersonaDTO {
 }
 
 export const personaInput = z.object({
-  name: z.string().trim().min(1),
-  description: z.string().default(''),
+  name: z.string().trim().min(1).max(100),
+  description: z.string().max(8000).default(''),
   lorebookId: z.string().nullable().default(null),
   sheet: characterSheetSchema.nullable().default(null),
 })

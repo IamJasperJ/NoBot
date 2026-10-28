@@ -332,6 +332,11 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
       expect(host.getChatInfo(binding.chatId).messages.at(-1)?.meta.excluded).toBe(true)
       await service.receive(account.id, inbound(1, 'duplicate'))
       expect(rooms.members(room.id)).toHaveLength(2)
+      const beforeEmpty = host.getChatInfo(binding.chatId).messages.length
+      const callsBeforeEmpty = calls.length
+      await service.receive(account.id, inbound(8101, '\u202e\u2066'))
+      expect(host.getChatInfo(binding.chatId).messages).toHaveLength(beforeEmpty)
+      expect(calls.slice(callsBeforeEmpty).filter((call) => call.method === 'sendMessage')).toHaveLength(0)
       await service.receive(account.id, inbound(2, '((second'))
       expect(listBindings(account.id)).toHaveLength(2)
       expect(() =>

@@ -31,7 +31,7 @@ import {
   reserveUsage,
   roomRow,
 } from './index'
-import { rateLimitMessage, validateEdit } from './input'
+import { cleanMessageText, rateLimitMessage, validateEdit } from './input'
 import {
   advanceInitiative,
   afterAiTurn,
@@ -140,9 +140,9 @@ export function sendRoomMessage(
   actorId = currentUser().id,
   followTurnMode = true,
 ) {
-  input = { ...input, text: stripBidi(input.text) }
   const { room } = membership(id, actorId)
   const member = checkWritable(room, actorId)
+  input = { ...input, text: cleanMessageText(input.text, !!input.images?.length) }
   const state = turnState(id)
   return asHost(room, () => {
     const duplicate = db
@@ -171,7 +171,7 @@ export function sendRoomMessage(
           .where(eq(messages.chatId, room.chatId))
           .all()
           .some((m) => m.meta.images?.some((image) => image.id === imageId))
-      if (!known) throw refused()
+      if (!known) throw new HttpError(400, 'ROOM_ATTACHMENT_UNAVAILABLE', t('所选附件不可用，请重新上传'))
       return getAttachment(imageId)
     })
     const messageId = newId()
@@ -377,7 +377,7 @@ export function triggerTurn(
     input.speakerId &&
     !asHost(room, () => charactersForRoom(room, false).some((c) => c.id === input.speakerId))
   )
-    throw refused()
+    throw new HttpError(400, 'ROOM_SPEAKER_UNAVAILABLE', t('所选发言角色不在房间中或已静音'))
   checkWritable(room, actorId)
   if (manual && member.role === 'player') throw refused()
   return asHost(room, () => {
@@ -518,7 +518,7 @@ export function abortTurn(id: string) {
 export function editRoomMessage(id: string, messageId: string, content: string | null) {
   const { room, member } = membership(id),
     actor = currentUser().id
-  if (member.role === 'spectator') throw refused()
+  if (member.role === 'spectator') throw new HttpError(403, 'ROOM_SPECTATOR_READ_ONLY', t('旁观者只能查看房间'))
   if (content !== null) content = validateEdit(stripBidi(content))
   return asHost(room, () => {
     const m = loadMessage(messageId)
@@ -527,14 +527,11 @@ export function editRoomMessage(id: string, messageId: string, content: string |
       throw new HttpError(409, 'GENERATING', t('房间正在生成回复'))
     const path = loadPath(getChatRow(room.chatId).activeLeafId)
     const position = path.findIndex((p) => p.id === messageId)
-    if (
-      member.role === 'player' &&
-      (m.role !== 'user' ||
-        m.meta.author?.userId !== actor ||
-        position < 0 ||
-        path.slice(position + 1).some((p) => p.role === 'assistant'))
-    )
-      throw refused()
+    if (member.role === 'player') {
+      if (m.role !== 'user' || m.meta.author?.userId !== actor) throw refused()
+      if (position < 0 || path.slice(position + 1).some((p) => p.role === 'assistant'))
+        throw new HttpError(409, 'ROOM_MESSAGE_EDIT_EXPIRED', t('此消息已收到回复或不在当前分支，无法编辑或撤回'))
+    }
     if (content !== null) rateLimitMessage(`${id}:${actor}`, Date.now(), true)
     // 房间撤回保留节点与修订记录，避免删除子树时误删其他玩家的发言。
     const data = db.transaction(() => {
@@ -569,7 +566,8 @@ export function suggest(id: string, messageId: string) {
   checkWritable(room, actor)
   asHost(room, () => {
     const m = loadMessage(messageId)
-    if (m.chatId !== room.chatId || m.role !== 'assistant') throw refused()
+    if (m.chatId !== room.chatId) throw refused()
+    if (m.role !== 'assistant') throw new HttpError(400, 'ROOM_SUGGESTION_INVALID_MESSAGE', t('只能对模型回复提出建议'))
   })
   changed(room, 'room.suggestion', actor, { messageId, userId: actor, reaction: '👍' })
 }

@@ -465,20 +465,21 @@ export function createInvite(id: string, input: z.infer<typeof roomInviteInput>)
   const { room, member } = membership(id)
   if (input.kind === 'direct' && !input.targetUserId?.trim())
     throw new HttpError(400, 'VALIDATION', t('直接邀请必须指定目标用户'))
-  if (
-    member.role === 'spectator' ||
-    (input.role === 'spectator' && (!room.allowSpectators || member.role === 'player'))
-  )
-    throw refused()
-  if (member.role === 'player' && !room.allowMemberInvites) throw refused()
-  if (
-    input.kind === 'direct' &&
-    (!input.targetUserId ||
-      !friendIds(currentUser().id).includes(input.targetUserId) ||
-      blocked(currentUser().id, input.targetUserId) ||
-      blocked(room.hostUserId, input.targetUserId))
-  )
-    throw refused()
+  if (member.role === 'spectator') throw new HttpError(403, 'INVITE_SPECTATOR_FORBIDDEN', t('旁观者不能创建邀请'))
+  if (input.role === 'spectator' && !room.allowSpectators)
+    throw new HttpError(403, 'ROOM_SPECTATORS_DISABLED', t('此房间不允许旁观者'))
+  if (input.role === 'spectator' && member.role === 'player')
+    throw new HttpError(403, 'INVITE_SPECTATOR_ROLE_FORBIDDEN', t('玩家不能创建旁观邀请'))
+  if (member.role === 'player' && !room.allowMemberInvites)
+    throw new HttpError(403, 'INVITE_MEMBERS_DISABLED', t('此房间不允许玩家创建邀请'))
+  if (input.kind === 'direct') {
+    const target = input.targetUserId!
+    if (target === currentUser().id) throw new HttpError(403, 'INVITE_SELF', t('不能邀请自己'))
+    if (blocked(currentUser().id, target) || blocked(room.hostUserId, target))
+      throw new HttpError(403, 'INVITE_TARGET_UNAVAILABLE', t('暂时无法邀请此用户'))
+    if (!friendIds(currentUser().id).includes(target))
+      throw new HttpError(403, 'INVITE_NOT_FRIEND', t('只能直接邀请好友'))
+  }
   const token = input.kind === 'link' ? randomBytes(32).toString('base64url') : undefined
   const invite = system()
     .insert(roomInvites)
@@ -602,7 +603,8 @@ export function joinRoom(input: z.infer<typeof roomJoinInput>) {
       .where(and(eq(roomMembers.roomId, room.id), eq(roomMembers.userId, userId)))
       .get()
     if (existing?.state === 'active') return room.id
-    if (invite.role === 'spectator' && !room.allowSpectators) throw refused()
+    if (invite.role === 'spectator' && !room.allowSpectators)
+      throw new HttpError(403, 'ROOM_SPECTATORS_DISABLED', t('此房间不允许旁观者'))
     if (
       members(room.id).filter((m) => (m.role === 'spectator') === (invite.role === 'spectator')).length >=
       (invite.role === 'spectator' ? room.maxSpectators : room.maxMembers)
@@ -666,13 +668,14 @@ export function joinRoom(input: z.infer<typeof roomJoinInput>) {
 export function removeMember(id: string, userId: string, action: 'left' | 'kicked' | 'banned') {
   const { room, member } = membership(id)
   const target = membership(id, userId).member
+  if (target.role === 'owner')
+    throw new HttpError(403, 'ROOM_OWNER_REMOVAL_FORBIDDEN', t('房主不能离开或被移除，请先转让或解散房间'))
   if (
-    target.role === 'owner' ||
-    (action === 'left'
+    action === 'left'
       ? userId !== currentUser().id
       : action === 'banned'
         ? member.role !== 'owner'
-        : !(member.role === 'owner' || (member.role === 'gm' && room.allowGmKick && target.role === 'player')))
+        : !(member.role === 'owner' || (member.role === 'gm' && room.allowGmKick && target.role === 'player'))
   )
     throw refused()
   directoryChange(room, currentUser().id, 'room.member', { action, userId }, () => {
@@ -691,6 +694,40 @@ export function removeMember(id: string, userId: string, action: 'left' | 'kicke
   asHost(room, () => removeInitiativeMember(room, userId))
   liveHub.publishToUser(userId, { type: 'room.removed', topic: `user:${userId}`, data: { roomId: id, reason: action } })
   liveHub.disconnectUserFromTopic(userId, `room:${id}`)
+}
+/** 角色写入后同步先攻；通知失败不影响已提交的角色变更。 */
+export function changeMemberRole(id: string, userId: string, role: 'player' | 'gm' | 'spectator') {
+  const { room } = requireRole(id, ['owner'])
+  const target = membership(id, userId).member
+  if (target.role === 'owner') throw new HttpError(403, 'ROOM_OWNER_ROLE_FIXED', t('不能修改房主身份，请使用房主转让'))
+  const active = members(id)
+  if (
+    target.role === 'spectator' &&
+    role !== 'spectator' &&
+    active.filter((m) => m.role !== 'spectator').length >= room.maxMembers
+  )
+    throw new HttpError(409, 'ROOM_FULL', t('房间人数已满'))
+  if (role === 'spectator') {
+    if (!room.allowSpectators) throw new HttpError(403, 'ROOM_SPECTATORS_DISABLED', t('此房间不允许旁观者'))
+    if (target.role !== 'spectator' && active.filter((m) => m.role === 'spectator').length >= room.maxSpectators)
+      throw new HttpError(409, 'ROOM_SPECTATORS_FULL', t('旁观席已满'))
+  }
+  directoryChange(room, currentUser().id, 'room.member', { action: 'role', userId, role }, () => {
+    system()
+      .update(roomMembers)
+      .set({ role })
+      .where(and(eq(roomMembers.roomId, id), eq(roomMembers.userId, userId)))
+      .run()
+  })
+  try {
+    asHost(room, () => {
+      if (role === 'spectator') removeInitiativeMember(room, userId)
+      else if (target.role === 'spectator') appendInitiativeMember(room, userId)
+    })
+  } catch (error) {
+    logError('room role notifications', error)
+  }
+  return roomDetail(id)
 }
 export function updatePersona(id: string, input: string | RoomPersonaInput) {
   const { room, member } = membership(id)
@@ -735,7 +772,7 @@ export function usage(id: string) {
 }
 export function checkWritable(room: Room, userId: string) {
   const { member } = membership(room.id, userId)
-  if (member.role === 'spectator') throw refused()
+  if (member.role === 'spectator') throw new HttpError(403, 'ROOM_SPECTATOR_READ_ONLY', t('旁观者只能查看房间'))
   if (room.status !== 'active') throw new HttpError(409, 'ROOM_PAUSED', t('房间已暂停或归档'))
   if (member.acceptedRulesVersion !== room.rulesVersion)
     throw new HttpError(409, 'RULES_CHANGED', t('请先同意最新房间规则'))

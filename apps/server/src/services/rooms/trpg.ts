@@ -17,7 +17,6 @@ import { db, getSetting, newId, setSetting } from '../../db/client'
 import { chats, messages } from '../../db/schema'
 import { HttpError } from '../../errors'
 import { t } from '../../i18n'
-import { stripBidi } from '../../lib/input-text'
 import { currentUser } from '../../user-context'
 import { getChatRow, loadMessage } from '../chats'
 import { isGenerating } from '../generation/generation'
@@ -36,9 +35,9 @@ import {
   membership,
   publish,
   type Room,
-  refused,
   requireRole,
 } from './index'
+import { cleanMessageText } from './input'
 import { broadcastTurn, persistTurn, rescheduleRoom, sendRoomMessage, triggerTurn, turnState } from './turns'
 
 function save(room: Room, type: string, value: RoomRoundState | RoomInitiativeState | RoomChoiceState) {
@@ -303,7 +302,8 @@ export function readyRoom(id: string, state: 'pending' | 'done' | 'passed', now 
 }
 export function skipRound(id: string, userId: string) {
   const { room } = requireRole(id, ['owner', 'gm'])
-  if (membership(id, userId).member.role === 'spectator') throw refused()
+  if (membership(id, userId).member.role === 'spectator')
+    throw new HttpError(400, 'ROUND_SPECTATOR', t('旁观者不参与轮次'))
   return asHost(room, () => {
     const snapshot = roundSnapshot(room)
     snapshot.members[userId] = 'passed'
@@ -328,10 +328,15 @@ export function setInitiative(id: string, input: z.infer<typeof roomInitiativeIn
     const unique = new Set(input.order.map((e) => `${e.kind}:${e.id}`))
     if (
       unique.size !== input.order.length ||
-      input.order.some((e) => !(e.kind === 'member' ? playerIds : characterIds).has(e.id)) ||
+      input.order.some((e) => !(e.kind === 'member' ? playerIds : characterIds).has(e.id))
+    )
+      throw new HttpError(400, 'INITIATIVE_INVALID_MEMBER', t('先攻顺序只能包含不重复的在场玩家、主持或角色'))
+    if (
+      !Number.isInteger(input.current ?? 0) ||
+      (input.current ?? 0) < 0 ||
       (input.current ?? 0) >= Math.max(1, input.order.length)
     )
-      throw refused()
+      throw new HttpError(400, 'INITIATIVE_INVALID_CURRENT', t('当前先攻位置超出顺序范围'))
     if (turnState(id).running) throw new HttpError(409, 'GENERATING', t('房间正在生成回复'))
     const state = { order: input.order, current: input.current ?? 0 }
     save(room, 'room.initiative', state)
@@ -460,6 +465,7 @@ export function checkRoom(
 }
 export function whisperRoom(id: string, input: z.infer<typeof roomWhisperInput>) {
   const { room, member } = membership(id)
+  if (member.role === 'spectator') throw new HttpError(403, 'WHISPER_SPECTATOR_SENDER', t('旁观者不能发送私信'))
   checkWritable(room, member.userId)
   if (input.to === member.userId) throw new HttpError(400, 'WHISPER_SELF', t('不能给自己发送私信'))
   const target = input.to === 'gm' ? undefined : members(id).find((m) => m.userId === input.to)
@@ -484,7 +490,7 @@ export function whisperRoom(id: string, input: z.infer<typeof roomWhisperInput>)
     const message = append(
       room,
       member.userId,
-      stripBidi(input.text),
+      cleanMessageText(input.text),
       {
         channel: 'whisper',
         excluded: true,
@@ -505,7 +511,7 @@ const voteTimers = new Map<string, ReturnType<typeof setTimeout>>()
 function options(room: Room, messageId: string) {
   const message = loadMessage(messageId)
   if (message.chatId !== room.chatId || message.role !== 'assistant' || !message.meta.stage?.choices?.length)
-    throw refused()
+    throw new HttpError(400, 'CHOICE_UNAVAILABLE', t('此消息没有可用选项'))
   return message.meta.stage.choices
 }
 export function choiceSnapshot(id: string, messageId: string, now = Date.now()): RoomChoiceState {
@@ -549,7 +555,7 @@ function choiceCheck(room: Room, actor: string, check: ChoiceCheckInput | undefi
 }
 function sendChoice(room: Room, messageId: string, index: number, actor = currentUser().id) {
   const option = options(room, messageId)[index]
-  if (!option) throw refused()
+  if (!option) throw new HttpError(400, 'CHOICE_INDEX_INVALID', t('选项序号无效'))
   const check = choiceCheck(room, actor, option.check)
   return sendRoomMessage(
     room.id,
@@ -643,7 +649,7 @@ export function closeChoice(id: string, messageId: string, winner?: number, rand
   if (!['owner', 'gm'].includes(member.role))
     throw new HttpError(403, 'CHOICE_CLOSE_FORBIDDEN', t('只有房主或主持可以结束投票'))
   checkWritable(room, currentUser().id)
-  if (room.choiceMode !== 'vote') throw refused()
+  if (room.choiceMode !== 'vote') throw new HttpError(409, 'CHOICE_NOT_VOTING', t('此房间当前未启用投票模式'))
   return asHost(room, () => {
     const state = choiceSnapshot(id, messageId)
     if (state.closed) return state

@@ -189,7 +189,7 @@ describe('服务端双语', () => {
         body: JSON.stringify({ name: 'test', members: [] }),
       })
       expect(invalidGroup.status).toBe(400)
-      expect(JSON.stringify(await invalidGroup.json())).toContain('A group chat must have at least one member')
+      expect(JSON.stringify(await invalidGroup.json())).toContain('Members must contain at least one item')
       await request(`/play-presets/${companion.id}`, 'PATCH', { name: '我的陪伴' })
       await request(`/presets/${seededPrompt.id}`, 'PATCH', { name: '我的生成预设' })
       await request(`/personas/${seededPersona.id}`, 'PATCH', { name: '我的人设' })

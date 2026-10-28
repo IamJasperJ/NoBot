@@ -15,7 +15,7 @@ import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { systemDatabase } from '../db/system-client'
-import { roomBans, roomInvites, roomMembers } from '../db/system-schema'
+import { roomBans, roomInvites } from '../db/system-schema'
 import { t } from '../i18n'
 import { validate } from '../lib/validate'
 import * as rooms from '../services/rooms'
@@ -109,38 +109,7 @@ export const roomRoutes = new Hono()
   .patch(
     '/:id/members/:userId/role',
     validate('json', z.object({ role: z.enum(['player', 'gm', 'spectator']) })),
-    (c) => {
-      const { room } = rooms.requireRole(c.req.param('id'), ['owner'])
-      const target = rooms.membership(room.id, c.req.param('userId')).member
-      if (
-        target.role === 'owner' ||
-        (target.role === 'spectator' &&
-          c.req.valid('json').role !== 'spectator' &&
-          rooms.members(room.id).filter((m) => m.role !== 'spectator').length >= room.maxMembers)
-      )
-        throw rooms.refused()
-      if (
-        c.req.valid('json').role === 'spectator' &&
-        (!room.allowSpectators ||
-          (target.role !== 'spectator' &&
-            rooms.members(room.id).filter((m) => m.role === 'spectator').length >= room.maxSpectators))
-      )
-        throw rooms.refused()
-      rooms.directoryChange(
-        room,
-        currentUser().id,
-        'room.member',
-        { action: 'role', userId: target.userId, role: c.req.valid('json').role },
-        () => {
-          systemDatabase()
-            .update(roomMembers)
-            .set({ role: c.req.valid('json').role })
-            .where(and(eq(roomMembers.roomId, room.id), eq(roomMembers.userId, target.userId)))
-            .run()
-        },
-      )
-      return c.json(rooms.roomDetail(room.id))
-    },
+    (c) => c.json(rooms.changeMemberRole(c.req.param('id'), c.req.param('userId'), c.req.valid('json').role)),
   )
   .put('/:id/persona', validate('json', roomPersonaInput), (c) =>
     c.json(rooms.updatePersona(c.req.param('id'), c.req.valid('json'))),

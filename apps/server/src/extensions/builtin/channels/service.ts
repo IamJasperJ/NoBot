@@ -29,6 +29,7 @@ import { systemDatabase } from '../../../db/system-client'
 import { rooms } from '../../../db/system-schema'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
+import { stripBidi } from '../../../lib/input-text'
 import { getChatRow, loadMessage, loadPath } from '../../../services/chats'
 import { getJob } from '../../../services/generation/generation'
 import { stageMembers } from '../../../services/generation/stage'
@@ -670,6 +671,8 @@ export class ChannelService {
     if (binding.roomId) updateVoicePreference(binding, event.text, this.settings(binding).values)
     const isOoc = event.text.startsWith('((')
     if (binding.roomId) {
+      // 渠道无有效正文时静默丢弃，避免写入空消息或向平台发送校验错误。
+      if (!stripBidi(event.text).trim() && !images.length) return
       const memberId = actor.linkedUserId ?? actor.externalUserId
       if (!memberId) throw refused()
       let replyTo: string | undefined

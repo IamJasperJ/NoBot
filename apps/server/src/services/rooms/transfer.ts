@@ -21,7 +21,8 @@ type Row = Record<string, string | number | null>
 export function transferOffer(id: string, userId: string) {
   const { room } = requireRole(id, ['owner'])
   const target = membership(id, userId).member
-  if (!['gm', 'player'].includes(target.role) || userId === room.hostUserId) throw refused()
+  if (!['gm', 'player'].includes(target.role) || userId === room.hostUserId)
+    throw new HttpError(400, 'TRANSFER_INVALID_TARGET', t('只能将房间转让给其他玩家或主持'))
   const offer = system()
     .insert(roomTransfers)
     .values({ roomId: id, fromUserId: room.hostUserId, toUserId: userId, createdAt: Date.now() })
@@ -42,7 +43,8 @@ export function getTransfer(id: string) {
 export function declineTransfer(id: string) {
   const { member } = membership(id)
   const offer = getTransfer(id)
-  if (!offer || offer.toUserId !== member.userId) throw refused()
+  if (!offer || offer.toUserId !== member.userId)
+    throw new HttpError(409, 'TRANSFER_OFFER_UNAVAILABLE', t('房主转让邀请已失效或不适用于你'))
   system().delete(roomTransfers).where(eq(roomTransfers.roomId, id)).run()
 }
 /**
@@ -60,7 +62,7 @@ export function acceptTransfer(id: string) {
     offer.fromUserId !== room.hostUserId ||
     !['gm', 'player'].includes(member.role)
   )
-    throw refused()
+    throw new HttpError(409, 'TRANSFER_OFFER_UNAVAILABLE', t('房主转让邀请已失效或不适用于你'))
   const connection = db
     .select()
     .from(apiPresets)
@@ -263,7 +265,8 @@ export function acceptTransfer(id: string) {
       () => {
         // 事务内再次检查确认双方与目录，防止过期报价切换另一份故事。
         const latest = system().select().from(roomTransfers).where(eq(roomTransfers.roomId, id)).get()
-        if (latest?.createdAt !== offer.createdAt || latest.toUserId !== member.userId) throw refused()
+        if (latest?.createdAt !== offer.createdAt || latest.toUserId !== member.userId)
+          throw new HttpError(409, 'TRANSFER_OFFER_UNAVAILABLE', t('房主转让邀请已失效或不适用于你'))
         statement.exec('PRAGMA defer_foreign_keys = ON')
         // 旧宿主可能再次接回房间；以当前故事的房间索引为准，清理目标库残留，且与复制共同回滚。
         for (const table of ['room_events', 'room_message_index', 'room_usage'])

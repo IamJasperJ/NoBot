@@ -94,6 +94,303 @@ if (!process.env.ROOM_QA_CHILD) {
     for (const person of people) closeUserDatabase(person.id)
   })
 
+  test('R4 BUG-36：清洗后的空消息和私信不能入库', () => {
+    const room = fixture()
+    for (const text of ['\u202e', ' \u2066\u2069 ']) {
+      fail(
+        () =>
+          as(1, () =>
+            turns.sendRoomMessage(room.id, shared.roomSendInput.parse({ text, channel: 'ooc', clientMessageId: text })),
+          ),
+        'VALIDATION',
+        400,
+      )
+      fail(() => as(1, () => trpg.whisperRoom(room.id, { text, to: 'gm', clientMessageId: text })), 'VALIDATION', 400)
+    }
+    expect(as(0, () => ext.visibleHistory(room.id))).toHaveLength(0)
+  })
+  test('R4 BUG-36：渠道服务原有纯图片消息仍可发送，网页仍要求正文', async () => {
+    const room = fixture()
+    const sharp = (await import('sharp')).default
+    const { dispatchScope } = await import('../src/services/rooms/scope')
+    const bytes = await sharp({ create: { width: 1, height: 1, channels: 3, background: '#ffffff' } })
+      .png()
+      .toBuffer()
+    const form = new FormData()
+    form.set('chatId', room.chatId)
+    form.set('file', new File([new Uint8Array(bytes)], 'pixel.png', { type: 'image/png' }))
+    const response = await as(1, () =>
+      dispatchScope(room.id, new Request('http://room/attachments', { method: 'POST', body: form }), '/attachments'),
+    )
+    const attachment = (await response.json()) as { id: string }
+    expect(
+      shared.roomSendInput.safeParse({
+        text: '',
+        images: [attachment.id],
+        channel: 'ooc',
+        clientMessageId: 'web-image',
+      }).success,
+    ).toBe(false)
+    const result = as(1, () =>
+      turns.sendRoomMessage(room.id, {
+        text: '',
+        images: [attachment.id],
+        channel: 'ooc',
+        clientMessageId: 'channel-image',
+      }),
+    )
+    expect(result.content).toBe('')
+    expect(result.meta.images?.[0]?.id).toBe(attachment.id)
+    await expect(
+      as(1, () =>
+        dispatchScope(
+          room.id,
+          new Request('http://room/messages', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: '\u202e' }),
+          }),
+          `/messages/${result.id}`,
+        ),
+      ),
+    ).rejects.toMatchObject({ code: 'VALIDATION', status: 400 })
+  })
+  test('R4 BUG-37：角色降级移除当前末项，升回玩家只追加一次', async () => {
+    const room = fixture()
+    as(0, () => r.updateRoom(room.id, { turnMode: 'initiative' }))
+    as(0, () =>
+      trpg.setInitiative(room.id, {
+        order: [
+          { kind: 'member', id: 'owner' },
+          { kind: 'member', id: 'player' },
+        ],
+        current: 1,
+      }),
+    )
+    const { roomRoutes } = await import('../src/routes/rooms')
+    const role = (value: string) =>
+      as(0, () =>
+        roomRoutes.request(`/${room.id}/members/player/role`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: value }),
+        }),
+      )
+    expect((await role('spectator')).status).toBe(200)
+    expect(as(0, () => r.roomDetail(room.id)).initiative).toEqual({
+      order: [{ kind: 'member', id: 'owner' }],
+      current: 0,
+    })
+    expect(as(0, () => r.roomDetail(room.id)).round.round).toBe(2)
+    expect((await role('gm')).status).toBe(200)
+    expect(as(0, () => r.roomDetail(room.id)).initiative.order).toHaveLength(1)
+    await role('spectator')
+    await role('player')
+    await role('player')
+    expect(as(0, () => r.roomDetail(room.id)).initiative.order.at(-1)).toEqual({ kind: 'member', id: 'player' })
+    expect(as(0, () => r.roomDetail(room.id)).initiative.order).toHaveLength(2)
+  })
+  test('R4 BUG-38：成员操作返回具体错误且外人仍不可探测', () => {
+    const room = fixture()
+    for (const [actor, input, code] of [
+      [0, { kind: 'direct', targetUserId: 'owner' }, 'INVITE_SELF'],
+      [0, { kind: 'direct', targetUserId: 'outsider' }, 'INVITE_NOT_FRIEND'],
+      [2, { kind: 'link' }, 'INVITE_SPECTATOR_FORBIDDEN'],
+      [1, { kind: 'link' }, 'INVITE_MEMBERS_DISABLED'],
+      [1, { kind: 'link', role: 'spectator' }, 'INVITE_SPECTATOR_ROLE_FORBIDDEN'],
+    ] as const)
+      fail(() => as(actor, () => r.createInvite(room.id, shared.roomInviteInput.parse(input))), code, 403)
+    for (const to of ['gm', 'owner'])
+      fail(
+        () => as(2, () => trpg.whisperRoom(room.id, { to, text: 'x', clientMessageId: to })),
+        'WHISPER_SPECTATOR_SENDER',
+        403,
+      )
+    for (const id of ['spectator', 'outsider'])
+      fail(
+        () => as(0, () => trpg.setInitiative(room.id, { order: [{ kind: 'member', id }], current: 0 })),
+        'INITIATIVE_INVALID_MEMBER',
+        400,
+      )
+    fail(() => as(0, () => trpg.setInitiative(room.id, { order: [], current: 1 })), 'INITIATIVE_INVALID_CURRENT', 400)
+    fail(() => as(3, () => r.createInvite(room.id, shared.roomInviteInput.parse({ kind: 'link' }))), 'NOT_FOUND', 404)
+  })
+  test('R4 BUG-38：角色容量、禁旁观及邀请屏蔽双向一致', () => {
+    const room = fixture()
+    fail(() => as(0, () => r.changeMemberRole(room.id, 'owner', 'gm')), 'ROOM_OWNER_ROLE_FIXED', 403)
+    as(0, () => r.updateRoom(room.id, { maxMembers: 2, maxSpectators: 1 }))
+    fail(() => as(0, () => r.changeMemberRole(room.id, 'spectator', 'player')), 'ROOM_FULL', 409)
+    fail(() => as(0, () => r.changeMemberRole(room.id, 'spectator', 'gm')), 'ROOM_FULL', 409)
+    fail(() => as(0, () => r.changeMemberRole(room.id, 'player', 'spectator')), 'ROOM_SPECTATORS_FULL', 409)
+    as(0, () => r.updateRoom(room.id, { allowSpectators: false }))
+    fail(() => as(0, () => r.changeMemberRole(room.id, 'player', 'spectator')), 'ROOM_SPECTATORS_DISABLED', 403)
+    fail(
+      () => as(0, () => r.createInvite(room.id, shared.roomInviteInput.parse({ kind: 'link', role: 'spectator' }))),
+      'ROOM_SPECTATORS_DISABLED',
+      403,
+    )
+    for (const [from, to] of [
+      ['owner', 'outsider'],
+      ['outsider', 'owner'],
+    ] as const) {
+      social.blockUser(from, to)
+      try {
+        fail(
+          () =>
+            as(0, () =>
+              r.createInvite(room.id, shared.roomInviteInput.parse({ kind: 'direct', targetUserId: 'outsider' })),
+            ),
+          'INVITE_TARGET_UNAVAILABLE',
+          403,
+        )
+      } finally {
+        social.unblockUser(from, to)
+      }
+    }
+  })
+  test('R4 BUG-38：先攻、投票、转让和角色撤回状态错误可读', () => {
+    const room = fixture()
+    fail(() => as(0, () => trpg.skipRound(room.id, 'spectator')), 'ROUND_SPECTATOR', 400)
+    fail(() => as(0, () => trpg.closeChoice(room.id, 'missing')), 'CHOICE_NOT_VOTING', 409)
+    const transfer = require('../src/services/rooms/transfer') as typeof import('../src/services/rooms/transfer')
+    fail(() => as(0, () => transfer.transferOffer(room.id, 'spectator')), 'TRANSFER_INVALID_TARGET', 400)
+    fail(() => as(1, () => transfer.acceptTransfer(room.id)), 'TRANSFER_OFFER_UNAVAILABLE', 409)
+    fail(() => as(1, () => transfer.declineTransfer(room.id)), 'TRANSFER_OFFER_UNAVAILABLE', 409)
+  })
+  test('R4 BUG-38：正常界面的失效素材、发言者和编辑状态有具体错误', () => {
+    const room = fixture()
+    const input = shared.roomSendInput.parse({ text: 'x', channel: 'ooc', clientMessageId: 'asset' })
+    fail(
+      () => as(1, () => turns.sendRoomMessage(room.id, { ...input, images: ['missing'] })),
+      'ROOM_ATTACHMENT_UNAVAILABLE',
+      400,
+    )
+    fail(
+      () => as(0, () => turns.triggerTurn(room.id, 'owner', true, { mode: 'trigger', speakerId: 'missing' })),
+      'ROOM_SPEAKER_UNAVAILABLE',
+      400,
+    )
+    fail(() => as(0, () => r.removeMember(room.id, 'owner', 'left')), 'ROOM_OWNER_REMOVAL_FORBIDDEN', 403)
+    const own = as(1, () => turns.sendRoomMessage(room.id, { ...input, clientMessageId: 'edit' }))
+    as(0, () => {
+      const id = newId()
+      db.insert(messages)
+        .values({
+          id,
+          chatId: room.chatId,
+          parentId: own.id,
+          role: 'assistant',
+          content: 'reply',
+          createdAt: Date.now(),
+        })
+        .run()
+      const { chats } = require('../src/db/schema') as typeof import('../src/db/schema')
+      db.update(chats).set({ activeLeafId: id }).where(eq(chats.id, room.chatId)).run()
+    })
+    fail(() => as(1, () => turns.editRoomMessage(room.id, own.id, 'late')), 'ROOM_MESSAGE_EDIT_EXPIRED', 409)
+    fail(() => as(1, () => turns.suggest(room.id, own.id)), 'ROOM_SUGGESTION_INVALID_MESSAGE', 400)
+    fail(() => as(0, () => trpg.choiceSnapshot(room.id, own.id)), 'CHOICE_UNAVAILABLE', 400)
+  })
+  test('R4 BUG-38：角色撤回状态失败有具体错误', async () => {
+    const room = fixture()
+    const { withdrawCharacter } = await import('../src/services/rooms/characters')
+    const copyId = as(0, () => {
+      const id = newId()
+      db.insert(characters)
+        .values({
+          id,
+          name: 'copy',
+          extensions: { room: { roomId: room.id, ownerUserId: 'owner' } },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+        .run()
+      return id
+    })
+    fail(() => as(0, () => withdrawCharacter(room.id, copyId)), 'ROOM_CHARACTER_NOT_IN_GROUP', 409)
+  })
+  test('R4 BUG-37：角色变更先攻通知异常不回滚已保存状态', () => {
+    const room = fixture()
+    as(0, () => trpg.setInitiative(room.id, { order: [{ kind: 'member', id: 'player' }], current: 0 }))
+    const remove = trpg.removeInitiativeMember
+    const notification = spyOn(trpg, 'removeInitiativeMember').mockImplementation((room, userId) => {
+      remove(room, userId)
+      throw new Error('r4 notification failure')
+    })
+    try {
+      const detail = as(0, () => r.changeMemberRole(room.id, 'player', 'spectator'))
+      expect(r.members(room.id).find((m) => m.userId === 'player')?.role).toBe('spectator')
+      expect(detail.initiative.order).toEqual([])
+    } finally {
+      notification.mockRestore()
+    }
+  })
+  test('R4 BUG-39：常见校验错误不泄露内部类型、枚举和正则，中英文登录一致', async () => {
+    const { validationMessage } = await import('../src/lib/validate')
+    const { setAppSettings } = await import('../src/services/settings')
+    const { requestLanguage } = await import('../src/i18n/request-language')
+    const { z } = await import('zod')
+    const { createServer } = await import('../src/server')
+    const cases = [
+      [
+        z.object({ maxMembers: z.number().max(32) }),
+        { maxMembers: 33 },
+        '玩家人数上限不能大于 32',
+        'Member limit must not exceed 32',
+      ],
+      [
+        z.object({ maxMembers: z.number().min(2) }),
+        { maxMembers: 1 },
+        '玩家人数上限不能小于 2',
+        'Member limit must be at least 2',
+      ],
+      [
+        z.object({ channel: z.enum(['ic', 'ooc']) }),
+        { channel: 'bad' },
+        '频道的取值无效',
+        'Channel has an invalid value',
+      ],
+      [
+        z.object({ startsAt: z.number().int() }),
+        { startsAt: 1.2 },
+        '开始时间必须是整数',
+        'Start time must be a whole number',
+      ],
+      [z.object({ role: z.string() }), { role: 1 }, '身份必须是文字', 'Role must be text'],
+      [
+        z.object({ name: z.string().refine(() => false, 'internal details') }),
+        { name: 'x' },
+        '名称无效',
+        'Name is invalid',
+      ],
+      [z.strictObject({}), { secret: 1 }, '参数包含不支持的字段', 'Parameters contain unsupported fields'],
+    ] as const
+    for (const language of ['zh', 'en'] as const)
+      await as(0, () =>
+        requestLanguage.run(language, async () => {
+          setAppSettings({ language })
+          for (const [schema, input, zh, en] of cases)
+            expect(validationMessage(schema.safeParse(input).error!.issues)).toBe(language === 'zh' ? zh : en)
+          const response = await createServer().request('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept-Language': language },
+            body: JSON.stringify({ handle: '!!!', password: 'x' }),
+          })
+          expect(response.status).toBe(400)
+          expect((await response.json()).error.message).toBe(
+            language === 'zh' ? '用户名格式不正确' : 'Username has an invalid format',
+          )
+        }),
+      )
+    as(0, () => setAppSettings({ language: 'zh' }))
+  })
+  test('R4 BUG-40：人设新增和 PATCH 限制名字和描述长度', () => {
+    for (const schema of [shared.personaInput, shared.personaUpdateInput]) {
+      expect(schema.safeParse({ name: 'x'.repeat(5000) }).success).toBe(false)
+      expect(schema.safeParse({ name: 'ok', description: 'x'.repeat(8001) }).success).toBe(false)
+      expect(schema.safeParse({ name: 'x'.repeat(100), description: 'x'.repeat(8000) }).success).toBe(true)
+    }
+  })
   test('BUG-18：编辑内容、历史与频率有界', () => {
     const room = fixture()
     const m = as(1, () =>
@@ -755,6 +1052,7 @@ if (!process.env.ROOM_QA_CHILD) {
         try {
           request()
         } catch (error) {
+          if (language === 'zh') expect((error as Error).message).not.toContain(' 后')
           expect(error).toMatchObject({
             code: 'SOCIAL_COOLDOWN',
             message: expect.stringContaining(expected),

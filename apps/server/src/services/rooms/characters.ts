@@ -293,7 +293,8 @@ export function withdrawCharacter(id: string, copyId: string) {
     const ownership = c?.extensions.room as { roomId?: string; ownerUserId?: string } | undefined
     if (ownership?.roomId !== id || ownership.ownerUserId !== member.userId) throw refused()
     const chat = getChatRow(room.chatId)
-    if (!chat.groupId || isGenerating(room.chatId)) throw refused()
+    if (!chat.groupId) throw new HttpError(409, 'ROOM_CHARACTER_NOT_IN_GROUP', t('当前房间不是群聊，无法撤回角色'))
+    if (isGenerating(room.chatId)) throw new HttpError(409, 'GENERATING', t('房间正在生成回复'))
     db.update(groupMembers)
       .set({ muted: true })
       .where(and(eq(groupMembers.groupId, chat.groupId), eq(groupMembers.characterId, copyId)))

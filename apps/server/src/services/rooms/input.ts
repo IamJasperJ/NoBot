@@ -2,6 +2,7 @@ import { roomSendInput } from '@nobot/shared'
 import { z } from 'zod'
 import { HttpError } from '../../errors'
 import { t } from '../../i18n'
+import { stripBidi } from '../../lib/input-text'
 
 export const roomEditInput = z.object({ content: roomSendInput.shape.text })
 
@@ -9,6 +10,13 @@ export function validateEdit(content: unknown): string {
   const parsed = roomSendInput.shape.text.safeParse(content)
   if (!parsed.success) throw new HttpError(400, 'VALIDATION', t('编辑内容不能为空，且不能超过 100000 字符'))
   return parsed.data
+}
+
+/** 清洗后再判空；渠道服务保留原有的纯图片发送能力，网页仍由 schema 要求正文。 */
+export function cleanMessageText(text: string, hasImages = false) {
+  const cleaned = stripBidi(text)
+  if (!cleaned.trim() && !hasImages) throw new HttpError(400, 'VALIDATION', t('内容不能为空'))
+  return cleaned
 }
 
 const attempts = new Map<string, number[]>()

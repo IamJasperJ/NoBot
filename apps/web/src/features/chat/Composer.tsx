@@ -408,7 +408,7 @@ export function Composer({
             value={channel}
             onChange={(e) => setChannel(e.target.value as typeof channel)}
             className={cx(
-              'mb-0.5 h-7 max-w-28 shrink-0 cursor-pointer appearance-none truncate rounded-md px-2 text-xs font-semibold',
+              'mb-0.5 h-7 max-w-36 shrink-0 cursor-pointer appearance-none truncate rounded-md px-2 text-xs font-semibold',
               channel === 'ic'
                 ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
                 : whisperTo
@@ -420,7 +420,7 @@ export function Composer({
             <option value="ooc">{t('场外')}</option>
             {room.permissions.canWhisper &&
               (room.myRole === 'player' ? (
-                <option value="w:gm">{t('私信主持（AI 看不到）')}</option>
+                <option value="w:gm">{t('私信主持·AI 不可见')}</option>
               ) : (
                 room.members
                   .filter((m) => m.state === 'active' && m.userId !== room.myUserId)

@@ -3199,7 +3199,7 @@ export const en: Record<string, string> = {
   '网络已断开，恢复后会自动重连': "You're offline. We'll reconnect automatically.",
   '与服务器的连接断开了，正在重连…': 'Lost connection to the server. Reconnecting…',
   '连不上服务器，请检查网络后重试': "Can't reach the server. Check your network and try again.",
-  '私信主持（AI 看不到）': 'Whisper to GM (hidden from AI)',
+  '私信主持·AI 不可见': 'Whisper GM · hidden from AI',
   '私信只有你和对方能看到，AI 不会读到，也不会回应':
     "Only you and the recipient see whispers; the AI won't read or answer them",
   '房间规则有更新，请阅读并确认': 'The room rules changed. Please read and accept them.',

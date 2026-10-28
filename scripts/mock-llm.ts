@@ -17,9 +17,8 @@ const mockPng = Buffer.from(
   'base64',
 )
 const imageJobs = new Map<string, number>()
-Bun.serve({
-  port: Number(process.env.PORT ?? 3999),
-  async fetch(req) {
+const mockServer = {
+  async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url)
     if (req.method === 'POST' && url.pathname === '/v1/images/generations') {
       const body = (await req.json()) as { prompt?: string }
@@ -68,21 +67,29 @@ Bun.serve({
     await Bun.write(process.env.LAST_REQ ?? '/dev/null', JSON.stringify(body, null, 2))
     const msgs: any[] = body.messages
     const lastUser = [...msgs].reverse().find((m) => m.role === 'user')?.content ?? ''
-    const hasToolResult = msgs.some((m) => m.role === 'tool')
+    const hasToolResult = msgs.slice(msgs.findLastIndex((m) => m.role === 'user') + 1).some((m) => m.role === 'tool')
     const toolNames: string[] = (body.tools ?? []).map((t: any) => t.function?.name)
     const toolCall = hasToolResult
       ? null
-      : String(lastUser).includes('掷骰') && toolNames.includes('roll_dice')
-        ? { name: 'roll_dice', arguments: '{"expression":"1d20","reason":"潜行检定"}' }
-        : String(lastUser).includes('检定') && toolNames.includes('ability_check')
-          ? { name: 'ability_check', arguments: '{"who":"player","skill":"stealth","dc":13}' }
-          : String(lastUser).includes('画图') && toolNames.includes('generate_image')
-            ? {
-                name: 'generate_image',
-                arguments: '{"prompt":"1girl, cozy cafe, sunset light","orientation":"portrait"}',
-              }
-            : null
-    const wantTool = !!toolCall
+      : String(lastUser).includes('VOICEPLEASE') && toolNames.includes('send_voice')
+        ? { name: 'send_voice', arguments: '{}' }
+        : String(lastUser).includes('STICKER') && toolNames.includes('send_sticker')
+          ? { name: 'send_sticker', arguments: '{"mood":"😏"}' }
+          : String(lastUser).includes('掷骰') && toolNames.includes('roll_dice')
+            ? { name: 'roll_dice', arguments: '{"expression":"1d20","reason":"潜行检定"}' }
+            : String(lastUser).includes('检定') && toolNames.includes('ability_check')
+              ? { name: 'ability_check', arguments: '{"who":"player","skill":"stealth","dc":13}' }
+              : String(lastUser).includes('画图') && toolNames.includes('generate_image')
+                ? {
+                    name: 'generate_image',
+                    arguments: '{"prompt":"1girl, cozy cafe, sunset light","orientation":"portrait"}',
+                  }
+                : null
+    // 静默提炼优先于历史里的剧情和工具触发词，返回可直接交给图片接口的英文提示词。
+    const imagePromptRequest =
+      body.tool_choice === 'none' &&
+      /AI image prompt|visually clear still-image moment/.test(String(msgs.at(-1)?.content))
+    const wantTool = !!toolCall && !imagePromptRequest
     const _last = msgs.at(-1)
     const vnReply = [
       '<scene bg="公会大厅" place="冒险者公会" time="傍晚" />',
@@ -141,21 +148,32 @@ Bun.serve({
         : String(lastUser).includes('战斗')
           ? '<combat start: 艾莉丝, 哥布林> 哥布林冲入大厅，艾莉丝拔剑迎战。'
           : null
-    const reply = translationRequest
-      ? `[译] ${String(lastUser)}`
-      : summaryRequest
-        ? `模拟总结：${summaryText}`
-        : nameRequest
-          ? '{"name": "模拟背景", "description": "模拟模型写的画面描述"}'
-          : classifyAnswer
-            ? classifyAnswer
-            : hasToolResult
-              ? `根据工具结果「${msgs.filter((m) => m.role === 'tool').at(-1).content}」，继续故事。`
-              : combatReply
-                ? combatReply
-                : String(lastUser).includes('VN')
-                  ? vnReply
-                  : `你好！这是模拟回复，你刚才说的是「${String(lastUser).slice(0, 20)}」。`
+    const introRequest = msgs.some((m) => String(m.content).includes('Write a short public bio for a chat-bot profile'))
+    const reply = imagePromptRequest
+      ? 'a cat sitting by a harbor window, soft fur, relaxed pose, wooden room, warm evening light, wide cinematic framing'
+      : introRequest
+        ? JSON.stringify({
+            zh: { short: '亲切的聊天伙伴。', long: '一位亲切的聊天伙伴，陪你分享日常与想象中的冒险。' },
+            en: {
+              short: 'A friendly chat companion.',
+              long: 'A friendly companion for everyday conversations and imaginative adventures.',
+            },
+          })
+        : translationRequest
+          ? `[译] ${String(lastUser)}`
+          : summaryRequest
+            ? `模拟总结：${summaryText}`
+            : nameRequest
+              ? '{"name": "模拟背景", "description": "模拟模型写的画面描述"}'
+              : classifyAnswer
+                ? classifyAnswer
+                : hasToolResult
+                  ? `根据工具结果「${msgs.filter((m) => m.role === 'tool').at(-1).content}」，继续故事。`
+                  : combatReply
+                    ? combatReply
+                    : String(lastUser).includes('VN')
+                      ? vnReply
+                      : `你好！这是模拟回复，你刚才说的是「${String(lastUser).slice(0, 20)}」。`
     const enc = new TextEncoder()
     if (!body.stream) {
       return Response.json({
@@ -217,5 +235,11 @@ Bun.serve({
     })
     return new Response(stream, { headers: { 'content-type': 'text/event-stream' } })
   },
-})
-console.log('mock llm on 3999')
+}
+export const mockLlmFetch = mockServer.fetch
+
+if (import.meta.main) {
+  const port = Number(process.env.PORT ?? 3999)
+  Bun.serve({ port, fetch: mockLlmFetch })
+  console.log(`mock llm on ${port}`)
+}

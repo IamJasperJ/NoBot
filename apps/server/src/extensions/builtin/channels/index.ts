@@ -10,7 +10,7 @@ import { and, eq } from 'drizzle-orm'
 import type { Hono } from 'hono'
 import { upgradeWebSocket } from 'hono/bun'
 import { z } from 'zod'
-import { db, getSetting, newId } from '../../../db/client'
+import { db, getSetting, newId, setSetting } from '../../../db/client'
 import {
   channelAccounts,
   channelActors,
@@ -39,7 +39,10 @@ import { oneBotFields } from './onebot-settings'
 import { leaveGroup, respondRequest } from './policies'
 import { sealCredentials } from './secrets'
 import { ChannelService } from './service'
+import { stickerRoutes } from './sticker-routes'
+import { stickerTools } from './sticker-tool'
 import { accountDTO, accountRow, bindingRow, listBindings, recordActorSeen } from './store'
+import { voicePreferenceKey, voiceTools } from './voice-decision'
 
 const services = new WeakMap<object, ChannelService>()
 const pairingAttempts = new Map<string, number[]>()
@@ -66,6 +69,7 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
   const getService = () => channelService(ctx)
   const client = (id: string) =>
     getService().runtime.accounts.get(id)?.client ?? getService().runtime.client(accountRow(id).config)
+  stickerRoutes(app, () => getService().runtime)
   managedBotRoutes(app, () => getService().runtime)
   oneBotRoutes(app, () => getService().runtime)
   const presence = (id: string) => getService().runtime.presence(id)
@@ -170,6 +174,9 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
     cleanupExternalUsers(currentUser().id)
     return c.json({ ok: true })
   })
+  app.post('/accounts/:id/presence/regenerate-intro', async (c) =>
+    c.json(await presence(c.req.param('id')).regenerateIntro()),
+  )
   app.get('/accounts/:id/presence/preview', async (c) => c.json(await presence(c.req.param('id')).preview()))
   app.post('/accounts/:id/presence/apply', validate('json', confirmInput), async (c) =>
     c.json(await presence(c.req.param('id')).apply(true)),
@@ -249,35 +256,41 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
   })
   app.get('/bindings', (c) => c.json(listBindings(c.req.query('accountId'))))
   app.get('/bindings/:id', (c) => c.json(bindingRow(c.req.param('id'))))
-  app.patch('/bindings/:id', validate('json', channelBindingInput.partial()), async (c) => {
-    const binding = bindingRow(c.req.param('id'))
-    const patch = c.req.valid('json')
-    // Zod 会在 partial 中填入默认值；PATCH 只能使用请求实际携带的字段，避免清空平台名称。
-    const supplied = await c.req.json<Record<string, unknown>>()
-    for (const key of Object.keys(patch) as (keyof typeof patch)[]) {
-      if (!Object.hasOwn(supplied, key)) delete patch[key]
-    }
-    const updated = { ...binding, ...patch, accountId: binding.accountId }
-    // 更换位置会使旧投递与回调失效，位置键只允许创建时指定。
-    if (updated.chat !== binding.chat || updated.scope !== binding.scope)
-      throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
-    if (updated.source === 'attached') {
-      const room = systemDatabase().select().from(rooms).where(eq(rooms.chatId, updated.chatId)).get()
-      if (room && room.hostUserId !== currentUser().id) throw new HttpError(403, 'FORBIDDEN', t('没有渠道操作权限'))
-      updated.roomId =
-        room?.id ??
-        createRoom(
-          createRoomInput.parse({ name: ctx.host.getChatInfo(updated.chatId).chat.title, chatId: updated.chatId }),
-        ).id
-    }
-    if (updated.roomId) {
-      const room = systemDatabase().select().from(rooms).where(eq(rooms.id, updated.roomId)).get()
-      if (!room || room.hostUserId !== currentUser().id || room.chatId !== updated.chatId)
-        throw new HttpError(403, 'FORBIDDEN', t('没有渠道操作权限'))
-    }
-    getService().saveBinding(updated)
-    return c.json(bindingRow(updated.id))
-  })
+  app.patch(
+    '/bindings/:id',
+    validate('json', channelBindingInput.partial().extend({ voicePreference: z.null().optional() })),
+    async (c) => {
+      const binding = bindingRow(c.req.param('id'))
+      const patch = c.req.valid('json')
+      // Zod 会在 partial 中填入默认值；PATCH 只能使用请求实际携带的字段，避免清空平台名称。
+      const supplied = await c.req.json<Record<string, unknown>>()
+      for (const key of Object.keys(patch) as (keyof typeof patch)[]) {
+        if (!Object.hasOwn(supplied, key)) delete patch[key]
+      }
+      const { voicePreference: resetVoicePreference, ...bindingPatch } = patch
+      const updated = { ...binding, ...bindingPatch, accountId: binding.accountId }
+      // 更换位置会使旧投递与回调失效，位置键只允许创建时指定。
+      if (updated.chat !== binding.chat || updated.scope !== binding.scope)
+        throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
+      if (updated.source === 'attached') {
+        const room = systemDatabase().select().from(rooms).where(eq(rooms.chatId, updated.chatId)).get()
+        if (room && room.hostUserId !== currentUser().id) throw new HttpError(403, 'FORBIDDEN', t('没有渠道操作权限'))
+        updated.roomId =
+          room?.id ??
+          createRoom(
+            createRoomInput.parse({ name: ctx.host.getChatInfo(updated.chatId).chat.title, chatId: updated.chatId }),
+          ).id
+      }
+      if (updated.roomId) {
+        const room = systemDatabase().select().from(rooms).where(eq(rooms.id, updated.roomId)).get()
+        if (!room || room.hostUserId !== currentUser().id || room.chatId !== updated.chatId)
+          throw new HttpError(403, 'FORBIDDEN', t('没有渠道操作权限'))
+      }
+      getService().saveBinding(updated)
+      if (resetVoicePreference === null) setSetting(voicePreferenceKey(binding.id), null)
+      return c.json(bindingRow(updated.id))
+    },
+  )
   app.post('/bindings/:id/disable', (c) => {
     const binding = bindingRow(c.req.param('id'))
     getService().saveBinding({ ...binding, state: 'disabled' })
@@ -524,8 +537,17 @@ export default defineExtension({
     { type: 'boolean', key: 'mentionOnTurn', label: '回合提示时提及成员' },
     { type: 'boolean', key: 'reactions', label: '表情回应' },
     { type: 'number', key: 'reactionCooldownMs', label: '表情回应冷却毫秒', min: 1000 },
-    { type: 'number', key: 'reactionDailyBudget', label: '表情回应每日预算', min: 0, max: 1000 },
+    {
+      type: 'number',
+      key: 'reactionDailyBudget',
+      hint: '0 表示不限次数，仍受开关和冷却限制',
+      label: '表情回应每日预算',
+      min: 0,
+      max: 1000,
+    },
   ],
+  tools: (ctx) =>
+    ctx.chatId ? [...stickerTools(ctx, channelService(ctx)), ...voiceTools(ctx, channelService(ctx))] : [],
   routes,
   publicRoutes(app, ctx) {
     app.get('/:id/onebot', async (c, next) => {

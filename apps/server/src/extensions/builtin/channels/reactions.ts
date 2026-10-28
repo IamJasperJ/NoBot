@@ -20,7 +20,7 @@ export async function reactToMessage(
   const previous = getSetting<{ day: number; count: number; last: Record<string, number> }>(key)
   const state = previous?.day === day ? previous : { day, count: 0, last: {} }
   if (
-    state.count >= settings.reactionDailyBudget ||
+    (settings.reactionDailyBudget > 0 && state.count >= settings.reactionDailyBudget) ||
     (state.last[actor] !== undefined && now - state.last[actor]! < settings.reactionCooldownMs)
   )
     return

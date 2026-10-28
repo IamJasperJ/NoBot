@@ -25,6 +25,20 @@ export interface ToolCall {
 
 /** 消息的附加信息，存成 json */
 export interface MessageMeta {
+  /** 仅标记当前角色回复的渠道语音意图，不在工具执行时合成。 */
+  channelVoice?: {
+    bindingIds: string[]
+    style: 'only' | 'with-text'
+    bindingStyles?: Record<string, 'only' | 'with-text'>
+  }
+
+  /** 平台原生表情只存引用，正文保持干净。 */
+  stickers?: {
+    platform: 'telegram' | 'onebot11'
+    accountId?: string
+    mood: string
+    ref: import('./channels').ChannelStickerRef
+  }[]
   /** 房间消息保存发送时的人设快照与真实作者，改名不影响旧消息。 */
   author?: { userId: string; name: string }
   channel?: 'ic' | 'ooc' | 'whisper'

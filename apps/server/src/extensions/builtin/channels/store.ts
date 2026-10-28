@@ -111,6 +111,7 @@ function bindingDTO(row: typeof channelBindings.$inferSelect): ChannelBindingDTO
     ...value,
     chatTitle: db.select().from(chats).where(eq(chats.id, row.chatId)).get()?.title ?? '',
     memberCount: 0,
+    voicePreference: getSetting<ChannelBindingDTO['voicePreference']>(`channels:voice-preference:${row.id}`) ?? null,
   }
   const seen = db
     .select()

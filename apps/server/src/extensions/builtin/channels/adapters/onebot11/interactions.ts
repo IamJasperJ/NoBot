@@ -7,7 +7,10 @@ export function socialBudget(account: string, target: string, settings: ChannelS
   const day = Math.floor(now / 86400000)
   const saved = getSetting<{ day: number; count: number; last: Record<string, number> }>(key)
   const state = saved?.day === day ? saved : { day, count: 0, last: {} }
-  if (state.count >= settings.socialDailyBudget || now - (state.last[target] ?? -Infinity) < settings.socialCooldownMs)
+  if (
+    (settings.socialDailyBudget > 0 && state.count >= settings.socialDailyBudget) ||
+    now - (state.last[target] ?? -Infinity) < settings.socialCooldownMs
+  )
     return false
   state.count++
   state.last[target] = now

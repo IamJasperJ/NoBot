@@ -46,7 +46,13 @@ export function anthropicBody(body: Json): Json {
     if (message.name && typeof message.content === 'string')
       content = contentParts(`${message.name}: ${message.content}`)
     if (message.role === 'tool')
-      content = [{ type: 'tool_result', tool_use_id: message.tool_call_id, content: message.content }]
+      content = [
+        {
+          type: 'tool_result',
+          tool_use_id: message.tool_call_id,
+          content: Array.isArray(message.content) ? contentParts(message.content) : message.content,
+        },
+      ]
     for (const call of message.tool_calls ?? [])
       content.push({
         type: 'tool_use',

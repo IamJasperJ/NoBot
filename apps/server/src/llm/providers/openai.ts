@@ -2,6 +2,7 @@ import type { ToolCall } from '@nobot/shared'
 import { parseSSE } from '@nobot/shared'
 import { t } from '../../i18n'
 import { endpoint, headers, toLlmError, toNetworkError } from '../common'
+import { toolImageFallback } from '../tool-images'
 import { type CompletionRequest, type LlmConnection, LlmError, type StreamChunk } from '../types'
 
 export function openaiBase(c: LlmConnection): string {
@@ -16,7 +17,10 @@ export function openaiHeaders(c: LlmConnection): Headers {
   })
 }
 export function openaiBody(input: Record<string, unknown>, provider: string): Record<string, unknown> {
-  const body = { ...input }
+  const body: Record<string, unknown> = {
+    ...input,
+    ...(Array.isArray(input.messages) ? { messages: toolImageFallback(input.messages) } : {}),
+  }
   if (['openai', 'mistralai', 'perplexity', 'cohere', 'ai21'].includes(provider)) {
     for (const key of ['top_k', 'min_p', 'top_a', 'repetition_penalty', 'include_reasoning']) delete body[key]
   }

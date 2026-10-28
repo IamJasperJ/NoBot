@@ -19,6 +19,7 @@ import { miniAppUrl, publicBaseUrl } from './miniapp'
 import { PresenceSync } from './presence'
 import { sealCredentials } from './secrets'
 import { resolveChannelSettings } from './settings'
+import { refreshQqFaces } from './stickers'
 import { accountDTO, accountRow, channelLog } from './store'
 
 export interface AccountRuntime {
@@ -69,6 +70,10 @@ export class ChannelRuntime {
               })
               .where(eq(channelAccounts.id, id))
               .run()
+            if (client.napcat)
+              void refreshQqFaces(id, client, this.host, this.fetch).catch(() =>
+                this.log(id, 'stickers.refresh.failed'),
+              )
             if (row.config.presence.confirmed)
               void this.accounts
                 .get(id)

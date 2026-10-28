@@ -641,6 +641,23 @@ describe('图片组装', () => {
     setBudget(value, 299)
     expect(buildPrompt(value).report.historyKept).toBe(0)
   })
+  test('工具图片与用户图片共用 300 token 预算，截断时整组调用和结果一起移除', () => {
+    const value = minimal()
+    value.preset.samplers.inlineImages = true
+    value.enabledTools = ['camera']
+    value.history = [
+      { ...history('a', 'assistant', ''), toolCalls: [{ id: 'call', name: 'camera', arguments: '{}' }] },
+      { ...history('t', 'tool', 'Screenshot'), toolCallId: 'call', images: ['image'] },
+    ]
+    const result = buildPrompt(value)
+    expect(result.messages.at(-1)?.images).toEqual(['image'])
+    expect(result.report.segments.find((segment) => segment.messageId === 't')?.tokens).toBe(
+      300 + tokenCost('Screenshot'),
+    )
+    setBudget(value, result.report.totalTokens - 1)
+    expect(buildPrompt(value).messages).toEqual([])
+    expect(buildPrompt(value).report.historyKept).toBe(0)
+  })
   test('所有后处理模式都保留图片字段与消息边界，续写图片也参与限制', () => {
     for (const mode of ['none', 'merge', 'semi_strict', 'strict', 'single_user'] as const) {
       const value = minimal()

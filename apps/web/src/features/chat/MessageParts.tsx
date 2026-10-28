@@ -33,7 +33,9 @@ export function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: st
       ? t('🎲 掷骰')
       : msg.meta.toolName === 'ability_check'
         ? t('🎲 检定')
-        : t('🔧 {toolName}', { toolName: msg.meta.toolName ?? t('工具') })
+        : msg.meta.stickers?.length
+          ? t('表情包')
+          : t('🔧 {toolName}', { toolName: msg.meta.toolName ?? t('工具') })
   return (
     <div className="px-4 py-1 pl-[68px]">
       <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -43,6 +45,16 @@ export function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: st
           <CheckCard result={msg.meta.check} animate={animate} ms={trpg.diceMs} showDc={trpg.showDc} compact />
         ) : msg.meta.dice ? (
           <DiceCard result={msg.meta.dice} animate={animate} ms={trpg.diceMs} compact />
+        ) : msg.meta.stickers?.length ? (
+          // 表情包只存平台引用，网页上看不到图，显示心情和发到了哪个平台
+          <span className="min-w-0 text-zinc-600 dark:text-zinc-300">
+            {t('{mood} · 已发到 {platform}', {
+              mood: msg.meta.stickers[0]?.mood ?? '',
+              platform: [
+                ...new Set(msg.meta.stickers.map((s) => (s.platform === 'telegram' ? 'Telegram' : 'QQ'))),
+              ].join(' / '),
+            })}
+          </span>
         ) : (
           <span className="min-w-0 break-words whitespace-pre-wrap">{text}</span>
         )}

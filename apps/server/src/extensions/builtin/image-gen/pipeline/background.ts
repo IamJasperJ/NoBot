@@ -19,6 +19,7 @@ export async function nameBackground(
   settings: Settings,
   prompt: string,
   characterName: string,
+  signal?: AbortSignal,
 ) {
   const chat = getChatRow(chatId)
   const stage = computeStage(chatId, loadPath(chat.activeLeafId))
@@ -49,6 +50,7 @@ export async function nameBackground(
     const reply = await ctx.host.complete({
       chatId,
       summary: t('背景起名'),
+      signal,
       connectionId: settings.promptConnectionId || undefined,
       model: settings.promptModel || undefined,
       messages: [
@@ -90,8 +92,10 @@ export async function background(
   settings: Settings,
   prompt: string,
   backgroundName?: string,
+  signal?: AbortSignal,
 ) {
-  const metadata = await nameBackground(ctx, chatId, settings, prompt, name)
+  const metadata = await nameBackground(ctx, chatId, settings, prompt, name, signal)
+  signal?.throwIfAborted()
   const saved = await ctx.host.saveBackground(bytes, {
     source: 'generated',
     chatId,

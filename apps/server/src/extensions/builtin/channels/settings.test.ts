@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test'
 import { channelAccountInput, channelBindingInput, channelSettingsOverrideSchema } from '@nobot/shared'
-import { desiredPresence, publicIntro } from './presence'
 import { locationKey, matchChannelBinding, resolveChannelSettings } from './settings'
 
 test('三层设置按键覆盖并保留 false 与来源', () => {
@@ -29,13 +28,15 @@ test('隔离键严格区分 actor、topic、位置且不存在分隔符碰撞', 
   expect(locationKey(a, 'per-topic')).not.toBe(locationKey({ ...a, thread: '5' }, 'per-topic'))
   expect(locationKey({ scope: 'a|b', chat: 'c' }, 'dm')).not.toBe(locationKey({ scope: 'a', chat: 'b|c' }, 'dm'))
 })
-test('公开介绍只读公开字段或首段、宏中和、按码点截断', () => {
+test('公开介绍清洗描述首段、解析人名宏并保留显式字段行为', async () => {
+  await import('../../registry')
+  const { publicIntro } = await import('./presence')
   const character = {
     name: 'Alice',
     description: '{{char}} greets {{user}}.\n\nPRIVATE DEFINITION',
     extensions: { system_prompt: 'TOP SECRET' },
   }
-  expect(publicIntro(character, false, 512)).toBe('Alice greets .')
+  expect(publicIntro(character, false, 512)).toBe('Alice greets you.')
   expect(
     publicIntro({ ...character, extensions: { nobot: { publicIntro: '😀'.repeat(600) } } }, false, 512),
   ).toHaveLength(1024)
@@ -43,7 +44,8 @@ test('公开介绍只读公开字段或首段、宏中和、按码点截断', ()
     'Public only',
   )
 })
-test('资料配置默认不接管、各语言覆盖不携带凭据或完整卡片', () => {
+test('资料配置默认不接管、各语言覆盖不携带凭据或完整卡片', async () => {
+  const { desiredPresence } = await import('./presence')
   const config = channelAccountInput.parse({
     name: 'bot',
     credentials: { token: 'SECRET' },
@@ -110,4 +112,30 @@ test('CH2a 媒体默认值、三层覆盖和按群聊范围默认回显', () => 
     resolveChannelSettings({ settings: { echoTranscript: true } }, { scope: 'private' }).values.echoTranscript,
   ).toBe(true)
   expect(resolveChannelSettings({}, { scope: 'group' }, { echoTranscript: false }).values.echoTranscript).toBe(false)
+})
+
+test('纯语音设置默认值和三层逐键覆盖', () => {
+  expect(resolveChannelSettings({}, {}).values).toMatchObject({
+    voice: 'button',
+    voiceNarration: 'text',
+    voiceLongText: 'split',
+    voiceMaxChars: 300,
+  })
+  const result = resolveChannelSettings(
+    { settings: { voice: 'only', voiceNarration: 'speak' } },
+    { settings: { voiceNarration: 'drop', voiceMaxChars: 120 } },
+    { voiceLongText: 'text', voiceMaxChars: 200 },
+  )
+  expect(result.values).toMatchObject({
+    voice: 'only',
+    voiceNarration: 'drop',
+    voiceLongText: 'text',
+    voiceMaxChars: 120,
+  })
+  expect(result.provenance).toMatchObject({
+    voice: 'account',
+    voiceNarration: 'binding',
+    voiceLongText: 'global',
+    voiceMaxChars: 'binding',
+  })
 })

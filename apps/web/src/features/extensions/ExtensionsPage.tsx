@@ -243,13 +243,15 @@ export function ExtensionDetail({
               {t('有未保存的修改，点右上角「保存」生效')}
             </div>
           )}
-          {extension.id === 'channels' && extension.enabled && !extension.loadError && (
-            <>
-              <ChannelsManager />
-              <h3 className="px-1 pt-2 text-sm font-semibold">{t('全局默认')}</h3>
-            </>
-          )}
-          {extension.settingsSchema.length > 0 ? (
+          {extension.id === 'channels' && !extension.loadError ? (
+            // 渠道的全局默认按平台拆进各页签，不用通用的设置编辑器；停用时也按平台分开显示
+            <ChannelsManager
+              settings={draft}
+              onSettingsChange={setDraft}
+              disabled={busy}
+              enabled={extension.enabled && !extension.needsApproval}
+            />
+          ) : extension.settingsSchema.length > 0 ? (
             <SettingsEditor
               fields={extension.settingsSchema}
               values={draft}

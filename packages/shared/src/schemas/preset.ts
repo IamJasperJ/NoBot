@@ -57,8 +57,10 @@ export const samplerSchema = z.object({
   disabledTools: z.array(z.string()).default([]),
   /** 接口自带的联网搜索。未实现 */
   webSearch: z.boolean().default(false),
-  /** 发送图片给多模态模型（用户消息里附带的图片），模型本身要支持看图 */
+  /** 发送用户与工具消息的图片给多模态模型，模型本身要支持看图 */
   inlineImages: z.boolean().default(false),
+  /** 最多发送最近多少条工具图片消息，0 表示从不发送工具图片。 */
+  toolImageLimit: z.number().int().min(0).max(50).default(2),
   /** 最多发送最近的多少张图片，更早的图片换成「[图片]」文字；0 表示不限制 */
   imageLimit: z.number().int().min(0).max(50).default(4),
   /** 发送前把图片缩小到这个最大边长（像素），越小越省 token */

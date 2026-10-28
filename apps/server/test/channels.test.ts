@@ -44,7 +44,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
   const { groupAdded, checkIdle, respondRequest } = await import('../src/extensions/builtin/channels/policies')
   const { accountRow, accountDTO, bindingRow, listBindings } = await import('../src/extensions/builtin/channels/store')
   const { createCharacter, updateCharacter, setCharacterAvatar } = await import('../src/services/characters')
-  const { createChat } = await import('../src/services/chats')
+  const { createChat, getChatRow } = await import('../src/services/chats')
   const rooms = await import('../src/services/rooms')
   const { asChannelActor, addChannelMember } = await import('../src/extensions/builtin/channels/rooms')
   const trpg = await import('../src/services/rooms/trpg')
@@ -71,7 +71,9 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
     const method = String(input).split('/').at(-1)!
     if (init?.body instanceof FormData) avatarUploads.push(init.body)
     const body =
-      init?.body instanceof FormData ? {} : (JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
+      init?.body instanceof FormData
+        ? Object.fromEntries(init.body.entries())
+        : (JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>)
     calls.push({ url: String(input), method, body })
     return Response.json({
       ok: true,
@@ -758,7 +760,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
           service.saveBinding(fixed)
           for (const [speakerId, name, expected] of [
             [secondCharacter.id, 'Bob', 'Plain reply <i>waves</i>'],
-            [character.id, 'Alice', '<b>Alice: </b>Plain reply <i>waves</i>'],
+            [character.id, 'Alice', 'Plain reply <i>waves</i>'],
           ]) {
             const before = calls.length
             const message = host.appendMessage(fixed.chatId, {
@@ -793,7 +795,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
             .at(-1)?.body.text,
         )
         expect(stageHtml).not.toContain('<b>Bob:')
-        expect(stageHtml).toContain('<b>Alice: </b>')
+        expect(stageHtml).not.toContain('<b>Alice: </b>')
         expect(stageHtml).toContain('<i>waves</i>')
         expect(stageHtml).not.toContain('<i> Plain')
         const genericReply = host.appendMessage(ownerBinding.chatId, {
@@ -809,7 +811,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
             .slice(beforeGeneric)
             .filter((c) => ['sendMessage', 'editMessageText'].includes(c.method))
             .at(-1)?.body.text,
-        ).toBe('<b>Alice: </b>Generic reply')
+        ).toBe('Generic reply')
         const routed = { ...binding, state: 'active' as const, speakers: { [secondCharacter.id]: second.id } }
         service.saveBinding(routed)
         const reply = host.appendMessage(binding.chatId, {
@@ -827,6 +829,16 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
               String(c.body.text).includes('Second speaker'),
           ),
         ).toBe(true)
+        expect(
+          calls
+            .filter(
+              (call) =>
+                call.url.includes('OTHER_SECRET') &&
+                call.method === 'sendMessage' &&
+                String(call.body.text).includes('Second speaker'),
+            )
+            .at(-1)?.body.text,
+        ).not.toContain('Bob:')
         const speakerChat = createChat({ characterId: secondCharacter.id })
         const streamed = {
           ...ownerBinding,
@@ -850,9 +862,172 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
             .slice(startCalls)
             .some((c) => c.url.includes('OTHER_SECRET') && c.method === 'editMessageText' && c.body.chat_id === '-600'),
         ).toBe(true)
+        const onlyBinding = {
+          ...streamed,
+          id: newId(),
+          chat: '-601',
+          settings: { voice: 'only' as const, voiceNarration: 'speak' as const, stream: true, streamIntervalMs: 250 },
+        }
+        service.saveBinding(onlyBinding)
+        const voicePath = join(directory, 'only-stream.mp3')
+        await Bun.write(voicePath, new Uint8Array([73, 68, 51, 4, 0, 0, 0, 0, 0, 0]))
+        const synthesis = spyOn(host, 'synthesizeSpeech').mockResolvedValue({
+          kind: 'audio',
+          files: [{ path: voicePath, mime: 'audio/mpeg', text: 'Final voice response' }],
+        })
+        try {
+          model.setScript(() => ({ text: 'Final voice response for Bob', delayMs: 20 }))
+          const voiceStart = calls.length
+          await service.generate(onlyBinding, { mode: 'send', text: 'Voice only Bob', images: [] })
+          await host.waitIdle(speakerChat.id, 5000)
+          for (let i = 0; i < 50 && !calls.slice(voiceStart).some((call) => call.method === 'sendVoice'); i++)
+            await Bun.sleep(20)
+          const voiceCalls = calls.slice(voiceStart).filter((call) => String(call.body.chat_id) === '-601')
+          expect(voiceCalls.some((call) => call.method === 'sendVoice')).toBe(true)
+          expect(voiceCalls.some((call) => call.body.action === 'record_voice')).toBe(true)
+          expect(voiceCalls.some((call) => ['sendMessageDraft', 'editMessageText'].includes(call.method))).toBe(false)
+          expect(voiceCalls.some((call) => String(call.body.text).includes('Final voice response'))).toBe(false)
+          expect(
+            synthesis.mock.calls.flatMap((call) => call[2]?.segments ?? []).map((segment) => segment.text),
+          ).toEqual(['Final voice response for Bob'])
+        } finally {
+          synthesis.mockRestore()
+        }
       } finally {
         model.stop()
       }
+      // 通用机器人首次选择和显式切换共用菜单，选择后要求重发，避免保存附件和原始输入。
+      const pickerCharacters = Array.from({ length: 10 }, (_, i) => createCharacter({ name: `Picker ${i}` }))
+      const { createGroup } = await import('../src/services/groups')
+      const pickerGroup = createGroup({ name: 'Picker Team', members: [{ characterId: pickerCharacters[0]!.id }] })
+      const generic = await service.runtime.create(
+        channelAccountInput.parse({
+          name: 'Picker bot',
+          credentials: { token: 'PICKER_SECRET', webhookSecret: 'picker-hook' },
+          receiveMode: 'webhook',
+          webhookUrl: 'https://example.test/hook',
+          policies: { newLocation: { private: 'auto', group: 'auto' } },
+          settings: { actorRateLimit: 1000 },
+        }),
+      )
+      await service.runtime.start(generic.id)
+      let pickerSequence = 10000
+      const pickerMessage = (text: string, chat = 10, from = 10) =>
+        service.receive(generic.id, {
+          update_id: ++pickerSequence,
+          message: {
+            message_id: pickerSequence,
+            chat: { id: chat, type: chat < 0 ? 'supergroup' : 'private' },
+            from: { id: from, first_name: 'Picker user' },
+            text,
+          },
+        })
+      const pickerActions = () =>
+        db
+          .select()
+          .from(channelActions)
+          .all()
+          .filter((a) => a.action === 'picker' && a.args.accountId === generic.id && !a.usedAt)
+      const press = (token: string, chat = 10, from = 10) =>
+        service.receive(generic.id, {
+          update_id: ++pickerSequence,
+          callback_query: {
+            id: String(pickerSequence),
+            data: token,
+            from: { id: from, first_name: 'Picker user' },
+            message: { message_id: 1, chat: { id: chat, type: chat < 0 ? 'supergroup' : 'private' } },
+          },
+        })
+      await pickerMessage('hello', 99881, 99881)
+      expect(String(calls.at(-1)?.body.text)).toContain('请先配对')
+      expect(pickerActions()).toHaveLength(0)
+      await pickerMessage('hello')
+      expect(listBindings(generic.id)).toHaveLength(0)
+      let menu = pickerActions()
+      expect(menu.filter((a) => a.args.targetId)).toHaveLength(8)
+      expect(menu.every((a) => a.allowedActor === '10' && a.token.length < 64 && !a.bindingId)).toBe(true)
+      const next = menu.find((a) => a.args.page === 1)!
+      await press(next.token, 10, 12)
+      expect(listBindings(generic.id)).toHaveLength(0)
+      await press(next.token)
+      expect(pickerActions().some((a) => a.args.page === 0)).toBe(true)
+      const firstPick = pickerActions().find((a) => a.args.targetKind === 'char')!
+      await press(firstPick.token, 99999)
+      expect(listBindings(generic.id)).toHaveLength(0)
+      await press(firstPick.token)
+      expect(getChatRow(listBindings(generic.id)[0]!.chatId).characterId).toBe(String(firstPick.args.targetId))
+      expect(String(calls.at(-1)?.body.text)).toContain('重新发送')
+      await pickerMessage('/char Picker 0')
+      let picked = listBindings(generic.id)[0]!
+      expect(getChatRow(picked.chatId).characterId).toBe(pickerCharacters[0]!.id)
+      expect(String(calls.at(-1)?.body.text)).toContain('重新发送')
+      await pickerMessage('/char')
+      expect(pickerActions().length).toBeGreaterThan(1)
+      await pickerMessage('/char pIcKeR')
+      expect(pickerActions().filter((a) => a.args.targetId)).toHaveLength(8)
+      await pickerMessage('/char missing-picker-name')
+      expect(String(calls.at(-1)?.body.text)).toContain('没有匹配')
+      await pickerMessage(`/char ${pickerCharacters[1]!.id}`)
+      picked = listBindings(generic.id)[0]!
+      expect(getChatRow(picked.chatId).characterId).toBe(pickerCharacters[1]!.id)
+      await pickerMessage('/group')
+      expect(pickerActions().some((a) => a.args.targetKind === 'group' && a.args.targetId === pickerGroup.id)).toBe(
+        true,
+      )
+      await pickerMessage('/group pIcKeR tEaM')
+      expect(getChatRow(listBindings(generic.id)[0]!.chatId).groupId).toBe(pickerGroup.id)
+      await pickerMessage(`/group ${pickerGroup.id}`)
+      expect(getChatRow(listBindings(generic.id)[0]!.chatId).groupId).toBe(pickerGroup.id)
+      await pickerMessage('hello', -8888)
+      menu = pickerActions().filter((a) => (a.args.event as { chat: { id: number } }).chat.id === -8888)
+      expect(menu.length).toBeGreaterThan(0)
+      await press(menu.find((a) => a.args.targetKind === 'char')!.token, -8888)
+      expect(listBindings(generic.id).find((b) => b.chat === '-8888')?.roomId).toBeTruthy()
+      await pickerMessage('/char', -8888, 12)
+      expect(String(calls.at(-1)?.body.text)).toMatch(/权限|无法访问/)
+      db.update(channelAccounts)
+        .set({ characterAllowlist: [pickerCharacters[0]!.id] })
+        .where(eq(channelAccounts.id, generic.id))
+        .run()
+      expect(accountDTO(accountRow(generic.id)).characterAllowlist).toEqual([pickerCharacters[0]!.id])
+      await pickerMessage('/char')
+      expect(
+        pickerActions()
+          .filter((a) => (a.args.event as { chat: { id: number } }).chat.id === 10 && a.args.targetKind === 'char')
+          .map((a) => a.args.targetId),
+      ).toEqual([pickerCharacters[0]!.id])
+      await pickerMessage(`/char ${pickerCharacters[1]!.id}`)
+      expect(String(calls.at(-1)?.body.text)).toContain('没有匹配')
+      db.update(channelAccounts)
+        .set({ characterMode: 'fixed', characterId: character.id })
+        .where(eq(channelAccounts.id, account.id))
+        .run()
+      await service.receive(account.id, {
+        update_id: ++pickerSequence,
+        message: {
+          message_id: pickerSequence,
+          chat: { id: 10, type: 'private' },
+          from: { id: 10, first_name: 'Owner' },
+          text: '/char',
+        },
+      })
+      expect(String(calls.at(-1)?.body.text)).toContain('始终扮演')
+      db.update(channelAccounts).set({ characterMode: 'generic' }).where(eq(channelAccounts.id, account.id)).run()
+      const { reactToMessage } = await import('../src/extensions/builtin/channels/reactions')
+      picked = listBindings(generic.id)[0]!
+      service.saveBinding({
+        ...picked,
+        settings: { reactions: true, reactionDailyBudget: 0, reactionCooldownMs: 1000 },
+      })
+      const reactionStart = calls.filter((c) => c.method === 'setMessageReaction').length
+      const pickerClient = service.runtime.accounts.get(generic.id)!.client
+      for (const now of [100000, 100001, 101001])
+        await reactToMessage(service, bindingRow(picked.id), '10', 1, pickerClient, now)
+      expect(calls.filter((c) => c.method === 'setMessageReaction').length - reactionStart).toBe(2)
+      service.saveBinding({ ...bindingRow(picked.id), settings: { reactions: true, reactionDailyBudget: 1 } })
+      await reactToMessage(service, bindingRow(picked.id), 'other', 2, pickerClient, 102002)
+      expect(calls.filter((c) => c.method === 'setMessageReaction').length - reactionStart).toBe(2)
+      await service.runtime.stop(generic.id)
       const rotated = await app.request(`/api/ext/channels/accounts/${account.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import { t } from '../../../../../i18n'
+import { qqFaceName } from '../../qq-faces'
+import { isQqNativeSticker } from '../../sticker-types'
 import { decodeTelegram } from '../telegram/receive'
 import type { OneBotClient, OneBotSegment } from './client'
 
@@ -33,7 +36,7 @@ export function oneBotSegments(input: unknown): OneBotSegment[] {
   return segments
 }
 /** 统一业务事件沿用既有房间桥形状；群 id 在桥内加负号，避免与私聊 id 冲突。 */
-export function decodeOneBot(input: unknown, client: OneBotClient) {
+export function decodeOneBot(input: unknown, client: OneBotClient, meaning?: (segment: OneBotSegment) => string) {
   const parsed = object.safeParse(input)
   if (!parsed.success) return null
   const event = parsed.data
@@ -53,10 +56,14 @@ export function decodeOneBot(input: unknown, client: OneBotClient) {
       segment.type === 'text'
         ? String(segment.data.text ?? '')
         : segment.type === 'face'
-          ? `[face:${segment.data.id}]`
-          : segment.type === 'at' && /^\d+$/.test(String(segment.data.qq)) && String(segment.data.qq) !== client.selfId
-            ? `@${segment.data.qq}`
-            : '',
+          ? t('[表情: {name}]', { name: qqFaceName(String(segment.data.id)) })
+          : isQqNativeSticker(segment)
+            ? t('[表情包: {name}]', { name: meaning?.(segment) ?? String(segment.data.summary || t('未标注表情包')) })
+            : segment.type === 'at' &&
+                /^\d+$/.test(String(segment.data.qq)) &&
+                String(segment.data.qq) !== client.selfId
+              ? `@${segment.data.qq}`
+              : '',
     )
     .join('')
     .trim()
@@ -67,7 +74,7 @@ export function decodeOneBot(input: unknown, client: OneBotClient) {
   const reply = segments.find((segment) => segment.type === 'reply')
   const media = (kind: 'image' | 'record') =>
     segments
-      .filter((segment) => segment.type === kind)
+      .filter((segment) => segment.type === kind && !isQqNativeSticker(segment))
       .map((segment) => ({
         file_id: client.registerMedia(
           kind,
@@ -90,6 +97,7 @@ export function decodeOneBot(input: unknown, client: OneBotClient) {
         },
         from: { id: Number(event.user_id), first_name: name },
         text,
+        nativeStickers: segments.filter(isQqNativeSticker),
         photo: photos.length ? photos : undefined,
         voice: media('record')[0],
         document: segments.some((segment) => segment.type === 'file')

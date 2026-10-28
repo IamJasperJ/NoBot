@@ -20,13 +20,14 @@ export async function synthesizeSpeech(
   ctx: AudioContext,
   chatId: string,
   messageId: string,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; segments?: import('@nobot/core/stage').TtsSegment[] },
 ): Promise<SpeechResult> {
   if (loadMessage(messageId).chatId !== chatId) throw new HttpError(400, 'BAD_REQUEST', t('消息不在这个会话里'))
   const settings = effectiveSettings(chatId, audioSettings.parse(ctx.settings), ctx.storage)
   if (!settings.ttsEnabled) return { kind: 'unavailable', reason: 'tts-disabled' }
   const context = { ...ctx, host, userKey: currentUser().handle }
-  let { segments } = messageSegments(messageId)
+  let segments = opts?.segments ?? messageSegments(messageId).segments
+  if (opts?.segments) settings.readNarration = true
   if (settings.deliveryDirector && settings.deliveryMode !== 'off') {
     const directions = await directMessage(context, messageId, chatId, segments)
     segments = segments.map((segment, i) => applyDirection(segment, directions[i]))
@@ -35,7 +36,10 @@ export async function synthesizeSpeech(
   for (const segment of segments) {
     opts?.signal?.throwIfAborted()
     const voice = await resolveVoice(chatId, segment.speaker, settings, context)
-    if ('kind' in voice || voice.engine === 'browser' || !ttsEngines[voice.engine].configured(settings)) continue
+    if ('kind' in voice || voice.engine === 'browser' || !ttsEngines[voice.engine].configured(settings)) {
+      if (opts?.segments) return { kind: 'unavailable', reason: 'no-voice' }
+      continue
+    }
     const result = await synthesizeVoice(
       voice,
       segment.text,
@@ -46,7 +50,10 @@ export async function synthesizeSpeech(
       speakerDeliveryStyle(segment.speaker, chatId),
       segment.director,
     )
-    if (result.kind !== 'audio') continue
+    if (result.kind !== 'audio') {
+      if (opts?.segments) return { kind: 'unavailable', reason: 'no-voice' }
+      continue
+    }
     const name = basename(result.url)
     files.push({
       path: join(paths.ttsCache, name),

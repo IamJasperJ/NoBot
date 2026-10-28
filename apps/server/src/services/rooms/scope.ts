@@ -26,9 +26,20 @@ import { computeStage } from '../generation/stage'
 import { readTemporaryActors } from '../sprites/temporary-actors'
 import { asRoomViewer, canReadMessage, roomCover, roomMessage } from './dto'
 import { visibleHistory } from './extensions'
-import { asHost, charactersForRoom, checkWritable, event, members, membership, publish, unavailable } from './index'
+import {
+  asHost,
+  charactersForRoom,
+  checkWritable,
+  event,
+  members,
+  membership,
+  publish,
+  roomDetail,
+  unavailable,
+} from './index'
 import { checkRoom, rollRoom } from './trpg'
 import { abortTurn, editRoomMessage, triggerTurn } from './turns'
+import { runAsRoomActor } from './usage'
 import { roomView } from './view'
 import { roomVoice } from './voice'
 
@@ -49,6 +60,24 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
   const method = request.method
   // 禁止编码路径、重复斜线与任何隐式路径归一化带来的白名单绕过。
   if (path.includes('%') || path.includes('..') || path.includes('//')) throw unavailable()
+  if (method === 'POST' && path === '/ext/image-gen/commands/imagine') {
+    checkWritable(room, actor)
+    if (!roomDetail(roomId).permissions.canGenerateImages) throw unavailable()
+    const body: unknown = await request.json()
+    if (!body || typeof body !== 'object' || !('chatId' in body) || body.chatId !== room.chatId) throw unavailable()
+    return asHost(room, () =>
+      runAsRoomActor(actor, () =>
+        forwardExtension(
+          'image-gen',
+          new Request('http://room/api/ext/image-gen/commands/imagine', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          }),
+        ),
+      ),
+    )
+  }
   if (method === 'GET' && path === `/ext/audio/tts/chat/${room.chatId}`) {
     return asHost(room, async () => {
       const response = await forwardExtension('audio', new Request(`http://room/api${path}`))

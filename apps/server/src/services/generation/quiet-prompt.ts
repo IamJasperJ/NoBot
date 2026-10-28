@@ -7,6 +7,7 @@ import { redactImages, resolveImages } from '../attachments'
 import { replaceImageAttachments } from '../caption'
 import { getApiPresetRow } from '../connections'
 import { insertLog } from '../logs'
+import { resolveProfile } from '../profiles'
 import { assembleWithVectors, loadGenerationContext, loadLore } from './context'
 
 /** 与扩展宿主共用静默生成，保持上下文、图片处理和日志行为一致。 */
@@ -28,23 +29,24 @@ async function requestCompletion(
   let model: string | null = null
   let request: unknown
   try {
-    const ctx = loadGenerationContext(opts.chatId, { requireConnection: !opts.connectionId })
-    if ('purpose' in opts && opts.purpose === 'image') {
+    const ctx = opts.chatId ? loadGenerationContext(opts.chatId, { requireConnection: !opts.connectionId }) : null
+    const profile = ctx ?? resolveProfile(undefined, !opts.connectionId)
+    if (ctx && 'purpose' in opts && opts.purpose === 'image') {
       // 酒馆按当前主体加载角色世界书；其他群成员的常驻条目不能抢占本次人物的身份资料。
       ctx.loreEntries = loadLore(opts.chatId, [opts.speakerId ?? ctx.members[0]?.id ?? ''], ctx.persona.lorebookId)
     }
-    const connection = opts.connectionId ? getApiPresetRow(opts.connectionId) : ctx.connection
+    const connection = opts.connectionId ? getApiPresetRow(opts.connectionId) : profile.connection
     if (!connection) throw new HttpError(400, 'NO_CONNECTION', t('没有可用的模型连接'))
     model = opts.model || connection.model
     let prompt =
       'messages' in opts
         ? [...opts.messages]
         : (
-            await assembleWithVectors(ctx, {
+            await assembleWithVectors(ctx!, {
               type: 'normal',
-              speakerId: opts.speakerId ?? ctx.members[0]?.id ?? '',
+              speakerId: opts.speakerId ?? ctx!.members[0]?.id ?? '',
               leafId:
-                opts.includeHistory === false ? null : opts.leafId === undefined ? ctx.chat.activeLeafId : opts.leafId,
+                opts.includeHistory === false ? null : opts.leafId === undefined ? ctx!.chat.activeLeafId : opts.leafId,
               toolsEnabled: false,
               quiet: true,
               plainHistory: opts.purpose === 'image',
@@ -59,13 +61,13 @@ async function requestCompletion(
       else prompt.push({ role, content: opts.instruction })
     }
     prompt = replaceImageAttachments(prompt, { ...connection, model })
-    const images = await resolveImages(prompt, ctx.preset.samplers.imageMaxSize)
+    const images = await resolveImages(prompt, profile.preset.samplers.imageMaxSize)
     const body = buildRequestBody({
       model,
       messages: prompt,
       images,
       samplers: {
-        ...ctx.preset.samplers,
+        ...profile.preset.samplers,
         stream: false,
         ...(opts.maxTokens === undefined ? {} : { maxTokens: opts.maxTokens }),
       },
@@ -78,7 +80,7 @@ async function requestCompletion(
       messages[messages.length - 1] = {
         role: 'user',
         content: [
-          { type: 'text', text: 'instruction' in opts ? opts.instruction : '' },
+          { type: 'text', text: 'instruction' in opts ? opts.instruction : (opts.messages.at(-1)?.content ?? '') },
           { type: 'image_url', image_url: { url: `data:image/png;base64,${png.toString('base64')}` } },
         ],
       }

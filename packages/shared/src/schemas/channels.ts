@@ -3,6 +3,11 @@ import { z } from 'zod'
 export const channelProvider = z.enum(['telegram', 'onebot11'])
 export type ChannelProvider = z.infer<typeof channelProvider>
 export const channelSettingsSchema = z.object({
+  stickerFrequency: z.enum(['off', 'rarely', 'sometimes', 'often']).default('sometimes'),
+  stickerCooldownSec: z.number().int().min(0).max(86400).default(30),
+  stickerAutoLearn: z.boolean().default(true),
+  stickerAutoLabel: z.boolean().default(false),
+  stickerMaxSets: z.number().int().min(0).max(300).default(30),
   multiSpeaker: z.enum(['prefix', 'forward']).default('prefix'),
   controlsFooter: z.boolean().default(false),
   groupCard: z.boolean().default(true),
@@ -13,10 +18,17 @@ export const channelSettingsSchema = z.object({
   dailySign: z.boolean().default(false),
   maxMessageLength: z.number().int().min(100).max(4500).default(4500),
   socialCooldownMs: z.number().int().min(1000).default(60000),
+  // 0 表示不限每日次数，仍受开关和冷却限制。
   socialDailyBudget: z.number().int().min(0).max(1000).default(20),
   miniAppButton: z.boolean().default(true),
   miniAppMenuButton: z.boolean().default(true),
-  voice: z.enum(['off', 'auto', 'button']).default('button'),
+  voice: z.enum(['off', 'auto', 'button', 'only', 'decide']).default('button'),
+  voiceDecideBias: z.enum(['low', 'medium', 'high']).default('medium'),
+  voiceDecideStyle: z.enum(['only', 'with-text']).default('only'),
+  voiceDecideHourlyMax: z.number().int().min(0).default(10),
+  voiceNarration: z.enum(['speak', 'text', 'drop']).default('text'),
+  voiceLongText: z.enum(['split', 'text']).default('split'),
+  voiceMaxChars: z.number().int().min(1).max(4500).default(300),
   voiceInput: z.boolean().default(true),
   echoTranscript: z.boolean().default(true),
   sprites: z.enum(['off', 'changes', 'every']).default('off'),
@@ -41,6 +53,7 @@ export const channelSettingsSchema = z.object({
   mentionOnTurn: z.boolean().default(true),
   reactions: z.boolean().default(false),
   reactionCooldownMs: z.number().int().min(1000).default(60000),
+  // 0 表示不限每日次数，仍受开关和冷却限制。
   reactionDailyBudget: z.number().int().min(0).max(1000).default(20),
 })
 // 覆盖对象不能沿用字段默认值，否则未填写的键也会被标成显式覆盖。
@@ -95,8 +108,12 @@ export const channelPresenceSchema = z.object({
   confirmed: z.boolean().default(false),
   avatar: presenceField.prefault({}),
   name: presenceField.prefault({}),
-  description: presenceField.prefault({}),
-  shortDescription: presenceField.prefault({}),
+  description: presenceField
+    .extend({ introSource: z.enum(['auto', 'creator-notes', 'description', 'model', 'rules']).default('auto') })
+    .prefault({}),
+  shortDescription: presenceField
+    .extend({ introSource: z.enum(['auto', 'creator-notes', 'description', 'model', 'rules']).default('auto') })
+    .prefault({}),
 })
 export type ChannelPresence = z.infer<typeof channelPresenceSchema>
 export type ChannelCapabilityState = 'supported' | 'unsupported' | 'unknown' | 'console_only' | 'permission_required'
@@ -141,6 +158,8 @@ export const channelAccountInput = z
     characterId: z.string().nullable().default(null),
     groupId: z.string().nullable().default(null),
     defaultCharacterId: z.string().nullable().default(null),
+    // 空列表允许账号访问主人的全部角色。
+    characterAllowlist: z.array(z.string()).default([]),
     personaMode: channelPersonaMode.default('platform-name'),
     globalPersonaId: z.string().nullable().default(null),
     personaLocked: z.boolean().default(false),
@@ -212,6 +231,7 @@ export interface ChannelBindingDTO extends z.infer<typeof channelBindingInput> {
   lastActivityAt: number
   createdBy: string
   idleWarnedAt: number | null
+  voicePreference?: { bias?: 'low' | 'medium' | 'high'; suppressed?: boolean; updatedAt: number } | null
 }
 export interface ChannelActorDTO {
   personaName?: string | null
@@ -253,8 +273,64 @@ export interface ChannelLogEntry {
   code: string
   message: string
 }
+export interface ChannelPresenceValue {
+  value: string
+  source: 'explicit' | 'generated' | 'creator-notes' | 'description' | 'rules' | 'custom'
+  language?: 'zh' | 'en'
+}
 export interface ChannelPresencePreview {
+  /** 保留原字符串映射；fields 和 languages 提供来源及多语言预览。 */
+  fields: Record<string, ChannelPresenceValue>
+  languages: Record<'zh' | 'en', Record<string, ChannelPresenceValue>>
   current: Record<string, string>
   desired: Record<string, string>
   confirmed: boolean
+}
+
+/** 只保存平台引用；禁止在表情引用中放入本机路径或图片字节。 */
+export type ChannelStickerRef =
+  | {
+      kind: 'telegram'
+      file_id: string
+      file_unique_id: string
+      set_name?: string
+      emoji?: string
+      type: 'regular' | 'mask' | 'custom_emoji'
+      format: 'static' | 'animated' | 'video'
+      thumbnail?: string
+    }
+  | { kind: 'face'; id: string }
+  | { kind: 'mface'; emoji_package_id: string; emoji_id: string; key: string; summary?: string; url?: string }
+  | { kind: 'image'; id: string; url: string; sub_type: number; summary?: string }
+export interface ChannelStickerDTO {
+  id: string
+  groupId: string
+  accountId: string
+  ref: ChannelStickerRef
+  meanings: string[]
+  enabled: boolean
+  characters: string[]
+  usageCount: number
+  previewUrl: string | null
+}
+export interface ChannelStickerGroupDTO {
+  id: string
+  accountId: string
+  source: 'telegram-set' | 'telegram-learned' | 'qq-face' | 'qq-collected' | 'qq-learned'
+  name: string
+  title: string
+  enabled: boolean
+  characters: string[]
+  count: number
+  enabledCount: number
+  entries: ChannelStickerDTO[]
+}
+export interface ChannelStickersDTO {
+  groups: ChannelStickerGroupDTO[]
+  count: number
+}
+export interface ChannelStickerPatch {
+  enabled?: boolean
+  characters?: string[]
+  meanings?: string[]
 }

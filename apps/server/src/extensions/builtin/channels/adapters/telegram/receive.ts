@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { telegramStickerSchema } from '../../sticker-types'
 
 const user = z.object({
   id: z.number().int(),
@@ -42,7 +43,8 @@ const message = z.object({
   audio: media.optional(),
   video_note: media.optional(),
   document: media.optional(),
-  sticker: z.object({ emoji: z.string().optional() }).optional(),
+  sticker: telegramStickerSchema.partial().optional(),
+  nativeStickers: z.array(z.object({ type: z.string(), data: z.record(z.string(), z.unknown()) })).optional(),
 })
 const membership = z.object({
   chat,

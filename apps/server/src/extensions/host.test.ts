@@ -183,7 +183,7 @@ test('扩展宿主：消息、静默请求、内置路由、动态工具及保�
     expect(toHistory(ctx, pending.id).at(-1)?.content).toBe('(Sent an image)')
     const tool = host.appendMessage(chat.id, { role: 'tool', content: '工具结果', meta: { images: [image] } })
     expect(toHistory(ctx, tool.id).at(-1)).toMatchObject({ role: 'tool', content: '工具结果' })
-    expect(toHistory(ctx, tool.id).at(-1)?.images).toBeUndefined()
+    expect(toHistory(ctx, tool.id).at(-1)?.images).toEqual([image.id])
     // 图片还在生成（或失败）的 tool 消息也必须留在历史里，否则 tool_calls 失去配对，模型会反复调用工具
     const pendingTool = host.appendMessage(chat.id, {
       role: 'tool',
@@ -323,7 +323,7 @@ test('扩展宿主：消息、静默请求、内置路由、动态工具及保�
       'ext2_tool',
     ])
     expect(availableTools().some(({ tool }) => tool.name === 'ext2_tool')).toBe(true)
-    const direct = await runTool('ext2_tool', '{}', { chatId: chat.id, vars: {} })
+    const direct = await runTool('ext2_tool', '{}', { chatId: chat.id, vars: {}, signal: new AbortController().signal })
     expect(direct.meta?.images).toEqual([image])
     const emptyChat = await json<ChatDTO>('/chats', { characterId: actor.id })
     const preset = (await json<PromptPresetDTO[]>('/presets', undefined, 'GET'))[0]!

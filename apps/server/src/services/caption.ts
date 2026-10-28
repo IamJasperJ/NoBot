@@ -5,7 +5,7 @@ import { getAttachment } from './attachments'
 import { SETTING_KEYS } from './settings'
 
 /** 能力回退不依赖扩展启用；强制文字描述只在扩展开启时生效。 */
-export function replaceImageAttachments<T extends { content: string; images?: string[] }>(
+export function replaceImageAttachments<T extends { content: string; images?: string[]; role?: string }>(
   history: T[],
   connection: ApiPresetRow | null,
 ): T[] {
@@ -20,15 +20,17 @@ export function replaceImageAttachments<T extends { content: string; images?: st
       ...rest,
       content: [
         message.content,
-        imageDescriptions(
-          images.map((id) => {
-            try {
-              return getAttachment(id)
-            } catch {
-              return {}
-            }
-          }),
-        ),
+        message.role === 'tool'
+          ? `[Tool returned ${images.length} image(s); this model cannot view images.]`
+          : imageDescriptions(
+              images.map((id) => {
+                try {
+                  return getAttachment(id)
+                } catch {
+                  return {}
+                }
+              }),
+            ),
       ]
         .filter(Boolean)
         .join('\n'),

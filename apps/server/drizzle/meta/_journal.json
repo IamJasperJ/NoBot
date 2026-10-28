@@ -197,6 +197,20 @@
       "when": 1792843090876,
       "tag": "0027_strong_william_stryker",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1793079123671,
+      "tag": "0028_perpetual_king_cobra",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1793121300954,
+      "tag": "0029_robust_aqueduct",
+      "breakpoints": true
     }
   ]
 }

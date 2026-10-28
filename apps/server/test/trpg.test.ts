@@ -107,6 +107,7 @@ test('VN5：属性卡、检定、工具、提示词与战斗分支集成', async
     expect(stage.initialVars(chat.id).vars['player.hp']).toBe(22)
     const ctx = {
       chatId: chat.id,
+      signal: new AbortController().signal,
       vars: { ...base, 'Goblin.dex': 18, 'Goblin.skills': ['stealth'], 'Goblin.proficiencyBonus': 2 },
       random: () => 0.99,
     }

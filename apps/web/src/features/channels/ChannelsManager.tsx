@@ -1,6 +1,8 @@
+import { channelSettingsSchema } from '@nobot/shared'
 import { useState } from 'react'
 import {
   type ChannelAccountDTO,
+  type ChannelProvider,
   useChannelAccountAction,
   useChannelAccounts,
   useChannelLog,
@@ -11,7 +13,7 @@ import {
   useRespondChannelRequest,
 } from '../../api/channels'
 import { useCharacters } from '../../api/queries'
-import { SelectField, Tabs, TextField } from '../../components/form'
+import { NumberField, SelectField, Tabs, TextField } from '../../components/form'
 import {
   BanIcon,
   CheckIcon,
@@ -28,46 +30,119 @@ import { Avatar, Button, badgeClass, controlClass, cx, Dialog } from '../../comp
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { AccountDialog } from './AccountDialog'
-import { providerLabel, statusMeta, timeAgo } from './shared'
+import { OverrideEditor, providerLabel, statusMeta, timeAgo } from './shared'
 
-/** 渠道扩展详情页顶部：机器人列表、待处理请求、配对。全局默认设置仍由扩展页的设置编辑器负责 */
-export function ChannelsManager() {
-  const accounts = useChannelAccounts()
+type Tab = 'telegram' | 'onebot11' | 'shared'
+
+/**
+ * 渠道扩展详情页：按平台分页签。每个平台页签只放这个平台的机器人、待处理请求和平台专用的全局默认；
+ * 两边共用的默认设置和最近记录放在「通用」。全局默认写进扩展设置的草稿，由扩展页右上角「保存」提交。
+ */
+export function ChannelsManager({
+  settings,
+  onSettingsChange,
+  disabled,
+  enabled,
+}: {
+  settings: Record<string, unknown>
+  onSettingsChange: (next: Record<string, unknown>) => void
+  disabled?: boolean
+  /** 扩展没打开时只能改默认设置，机器人、请求、配对都要等打开后才有 */
+  enabled: boolean
+}) {
+  const accounts = useChannelAccounts(enabled)
+  const [tab, setTab] = useState<Tab>('telegram')
   const [openId, setOpenId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const open = accounts.data?.find((a) => a.id === openId) ?? null
+  const all = accounts.data ?? []
+  const open = all.find((a) => a.id === openId) ?? null
+  const values = channelSettingsSchema.parse(settings)
+  const pending = (provider: ChannelProvider) =>
+    all.filter((a) => a.provider === provider).reduce((n, a) => n + (a.pendingRequestCount ?? 0), 0)
+  const label = (provider: ChannelProvider) => {
+    const n = pending(provider)
+    return n > 0 ? `${providerLabel(provider)} · ${n}` : providerLabel(provider)
+  }
+  const defaults = (only: Tab) => (
+    <OverrideEditor
+      plain
+      only={only}
+      value={values}
+      effective={values}
+      inheritedFrom={() => 'global'}
+      disabled={disabled}
+      onChange={(next) => onSettingsChange({ ...settings, ...next })}
+    />
+  )
   return (
     <div className="space-y-3">
-      <PendingRequests accounts={accounts.data ?? []} />
-      <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
-        <header className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
-          <h3 className="text-sm font-semibold">{t('机器人')}</h3>
-          <span className="text-xs text-zinc-500">
-            {t('Telegram 或 QQ（NapCat）；每个 bot 可以固定扮演一个角色，也可以当通用 bot')}
-          </span>
-          <Button size="sm" variant="primary" className="ml-auto" onClick={() => setCreating(true)}>
-            <PlusIcon />
-            {t('添加')}
-          </Button>
-        </header>
-        {accounts.isLoading ? (
-          <p className="px-3 py-6 text-center text-sm text-zinc-500">{t('加载中…')}</p>
-        ) : (accounts.data ?? []).length === 0 ? (
-          <div className="space-y-2 px-3 py-6 text-center text-[13px] text-zinc-500">
-            <p>{t('还没有机器人。')}</p>
-            <p>{t('Telegram：找 @BotFather 发 /newbot 拿 Token；QQ：先装好 NapCat。')}</p>
-          </div>
-        ) : (
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {(accounts.data ?? []).map((a) => (
-              <AccountRow key={a.id} account={a} onOpen={() => setOpenId(a.id)} />
-            ))}
-          </ul>
-        )}
-      </section>
-      <PairingCard />
-      <LogCard />
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'telegram', label: label('telegram') },
+          { id: 'onebot11', label: label('onebot11') },
+          { id: 'shared', label: t('通用') },
+        ]}
+      />
+      {tab === 'shared' ? (
+        <>
+          <p className="px-1 text-[13px] text-zinc-500">
+            {t('两个平台共用的默认值；每个机器人、每个群或私聊还可以单独改。')}
+          </p>
+          {defaults('shared')}
+          {enabled && <LogCard />}
+        </>
+      ) : (
+        <>
+          {enabled ? (
+            <>
+              <PendingRequests accounts={all.filter((a) => a.provider === tab)} />
+              <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
+                <header className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+                  <h3 className="text-sm font-semibold">{t('机器人')}</h3>
+                  <span className="truncate text-xs text-zinc-500">
+                    {t('每个 bot 可以固定扮演一个角色，也可以当通用 bot')}
+                  </span>
+                  <Button size="sm" variant="primary" className="ml-auto" onClick={() => setCreating(true)}>
+                    <PlusIcon />
+                    {t('添加')}
+                  </Button>
+                </header>
+                {accounts.isLoading ? (
+                  <p className="px-3 py-6 text-center text-sm text-zinc-500">{t('加载中…')}</p>
+                ) : all.every((a) => a.provider !== tab) ? (
+                  <p className="px-3 py-6 text-center text-[13px] text-zinc-500">
+                    {tab === 'telegram'
+                      ? t('还没有 Telegram 机器人。找 @BotFather 发 /newbot 拿到 Token 后点「添加」。')
+                      : t('还没有 QQ 机器人。先装好 NapCat，再点「添加」。')}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {all
+                      .filter((a) => a.provider === tab)
+                      .map((a) => (
+                        <AccountRow key={a.id} account={a} onOpen={() => setOpenId(a.id)} />
+                      ))}
+                  </ul>
+                )}
+              </section>
+              <PairingCard />
+            </>
+          ) : (
+            <p className="rounded-xl border border-dashed border-zinc-300 px-3 py-4 text-center text-[13px] text-zinc-500 dark:border-zinc-700">
+              {t('打开右上方的开关启用这个扩展后，才能添加机器人。默认设置现在就可以先改。')}
+            </p>
+          )}
+          <h3 className="px-1 pt-2 text-sm font-semibold">{t('{name} 默认设置', { name: providerLabel(tab) })}</h3>
+          {tab === 'telegram' && (
+            <TelegramGlobal settings={settings} onSettingsChange={onSettingsChange} disabled={disabled} />
+          )}
+          {defaults(tab)}
+        </>
+      )}
       <CreateDialog
+        provider={tab === 'onebot11' ? 'onebot11' : 'telegram'}
         open={creating}
         onClose={() => setCreating(false)}
         onCreated={(id) => {
@@ -77,6 +152,40 @@ export function ChannelsManager() {
       />
       <AccountDialog account={open} onClose={() => setOpenId(null)} />
     </div>
+  )
+}
+
+/** Telegram 专用的扩展级设置：Mini App 和 webhook 共用的公网地址 */
+function TelegramGlobal({
+  settings,
+  onSettingsChange,
+  disabled,
+}: {
+  settings: Record<string, unknown>
+  onSettingsChange: (next: Record<string, unknown>) => void
+  disabled?: boolean
+}) {
+  return (
+    <section className="grid gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-3 sm:grid-cols-2 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <TextField
+        label={t('HTTPS 公网地址')}
+        hint={t('VN 舞台（Mini App）和 webhook 共用，例如 https://nobot.example.com；不填就不能用 Mini App')}
+        placeholder="https://nobot.example.com"
+        disabled={disabled}
+        value={typeof settings.publicBaseUrl === 'string' ? settings.publicBaseUrl : ''}
+        onChange={(publicBaseUrl) => onSettingsChange({ ...settings, publicBaseUrl: publicBaseUrl.trim() })}
+      />
+      <NumberField
+        label={t('Mini App 登录有效期（秒）')}
+        hint={t('Telegram 签名超过这个时间就要重新打开')}
+        disabled={disabled}
+        value={typeof settings.miniAppAuthMaxAgeSeconds === 'number' ? settings.miniAppAuthMaxAgeSeconds : 600}
+        min={1}
+        max={600}
+        slider={false}
+        onChange={(miniAppAuthMaxAgeSeconds) => onSettingsChange({ ...settings, miniAppAuthMaxAgeSeconds })}
+      />
+    </section>
   )
 }
 
@@ -162,10 +271,12 @@ function AccountRow({ account, onOpen }: { account: ChannelAccountDTO; onOpen: (
 }
 
 function CreateDialog({
+  provider,
   open,
   onClose,
   onCreated,
 }: {
+  provider: ChannelProvider
   open: boolean
   onClose: () => void
   onCreated: (id: string) => void
@@ -173,7 +284,6 @@ function CreateDialog({
   const characters = useCharacters().data ?? []
   const create = useCreateChannelAccount()
   const empty = {
-    provider: 'telegram' as 'telegram' | 'onebot11',
     name: '',
     token: '',
     mode: 'ws-forward' as 'ws-forward' | 'ws-reverse',
@@ -182,7 +292,7 @@ function CreateDialog({
     characterId: '',
   }
   const [form, setForm] = useState(empty)
-  const qq = form.provider === 'onebot11'
+  const qq = provider === 'onebot11'
   const ready =
     form.token.trim() &&
     (form.characterMode === 'generic' || form.characterId) &&
@@ -219,16 +329,13 @@ function CreateDialog({
     )
   }
   return (
-    <Dialog open={open} onClose={onClose} title={t('添加机器人')} className="w-[min(560px,calc(100vw-32px))]">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={qq ? t('添加 QQ 机器人') : t('添加 Telegram 机器人')}
+      className="w-[min(560px,calc(100vw-32px))]"
+    >
       <div className="space-y-4">
-        <Tabs
-          value={form.provider}
-          onChange={(provider) => setForm({ ...form, provider })}
-          tabs={[
-            { id: 'telegram', label: 'Telegram' },
-            { id: 'onebot11', label: t('QQ（NapCat）') },
-          ]}
-        />
         {qq ? (
           <>
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
@@ -316,7 +423,9 @@ function CreateDialog({
 }
 
 function PendingRequests({ accounts }: { accounts: ChannelAccountDTO[] }) {
-  const requests = (useChannelRequests().data ?? []).filter((r) => r.state === 'pending')
+  const requests = (useChannelRequests().data ?? []).filter(
+    (r) => r.state === 'pending' && accounts.some((a) => a.id === r.accountId),
+  )
   const respond = useRespondChannelRequest()
   if (requests.length === 0) return null
   const name = (id: string) => {

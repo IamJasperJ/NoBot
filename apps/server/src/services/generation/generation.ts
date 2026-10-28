@@ -318,14 +318,24 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
         // 执行工具，结果作为 tool 消息挂在消息树上，然后同一个角色接着写
         for (const call of step.toolCalls) {
           const vars = computeVars(loadPath(parentId), initialVars(job.chatId).vars)
-          const result = await runTool(
-            call.name,
-            call.arguments,
-            { chatId: job.chatId, vars },
-            ctx.preset.samplers.disabledTools,
-          )
+          let result = job.controller.signal.aborted
+            ? { content: 'Tool call aborted by user.' }
+            : await runTool(
+                call.name,
+                call.arguments,
+                { chatId: job.chatId, speakerId, vars, signal: job.controller.signal },
+                ctx.preset.samplers.disabledTools,
+              )
+          if (job.controller.signal.aborted) result = { content: 'Tool call aborted by user.' }
           const toolId = newId()
           const meta: MessageMeta = { ...result.meta, toolCallId: call.id, toolName: call.name }
+          // 工具媒体继承发起回复的隐私边界，不能把私密内容投递到公开渠道。
+          if (result.meta?.stickers || result.meta?.images || result.meta?.imageGen) {
+            meta.author = step.message.meta.author
+            meta.channel = step.message.meta.channel
+            meta.visibility = step.message.meta.visibility
+            meta.hidden = step.message.meta.hidden
+          }
           if (result.varsPatch) meta.varsPatch = result.varsPatch
           db.insert(messages)
             .values({
@@ -333,6 +343,8 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
               chatId: job.chatId,
               parentId,
               role: 'tool',
+              status: job.controller.signal.aborted ? 'aborted' : 'done',
+              speakerId,
               content: result.content,
               meta,
               createdAt: Date.now(),
@@ -342,13 +354,20 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
           parentId = toolId
           emitServerEvent({ type: 'message:saved', message: loadMessage(toolId) })
           emit(job, { type: 'message', message: loadMessage(toolId) })
-          if (result.onSaved) {
+          if (result.onSaved && !job.controller.signal.aborted) {
             try {
               await result.onSaved(toolId)
             } catch (error) {
               logError(t('扩展工具保存回调'), error)
             }
           }
+        }
+        if (job.controller.signal.aborted) {
+          // 为本轮所有调用保存中止结果，保留完整配对；后续生成仍可阅读这条工具链。
+          db.update(messages).set({ status: 'aborted' }).where(eq(messages.id, step.message.id)).run()
+          emit(job, { type: 'message', message: loadMessage(step.message.id) })
+          emitServerEvent({ type: 'message:saved', message: loadMessage(step.message.id) })
+          break speakers
         }
         type = 'normal'
         continueTarget = null
@@ -388,7 +407,7 @@ async function generateOne(
   if (!connection) throw new HttpError(400, 'NO_API_PRESET', t('还没有配置模型连接'))
   const speaker = (ctx.members.find((m) => m.id === step.speakerId) ?? ctx.members[0]) as PromptCharacter
   const started = Date.now()
-  const enabledTools = enabledToolNames(job.chatId, ctx.preset.samplers)
+  const enabledTools = enabledToolNames(job.chatId, ctx.preset.samplers, speaker.id)
 
   // 1. 准备消息：续写复用原消息，否则插入一条空的 streaming 消息
   let messageId: string
@@ -463,7 +482,11 @@ async function generateOne(
       messages: assembled.messages,
       samplers: ctx.preset.samplers,
       ...(enabledTools.length
-        ? { tools: toOpenAITools([], job.chatId).filter((item) => enabledTools.includes(item.function.name)) }
+        ? {
+            tools: toOpenAITools([], job.chatId, speaker.id).filter((item) =>
+              enabledTools.includes(item.function.name),
+            ),
+          }
         : {}),
     })
     requestBody = redactImages(body, images)

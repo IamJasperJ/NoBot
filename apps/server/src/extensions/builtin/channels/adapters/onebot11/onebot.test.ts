@@ -146,7 +146,7 @@ test('数组和 CQ 文本解码 @、引用、表情、图片、语音；忽略�
   }
   const event = decodeOneBot(raw, client)
   expect(event).toMatchObject({
-    text: 'hello & [face:14]',
+    text: 'hello & [表情: 微笑]',
     displayName: 'Player',
     mentionsBot: true,
     chat: { id: -100 },

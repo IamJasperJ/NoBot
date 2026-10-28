@@ -4,6 +4,60 @@ import { t } from '.'
 /** 固定元数据延迟到返回 DTO 时翻译，避免模块初始化时锁定语言。未知的第三方文字保持原样。 */
 export function translateMetadata(text: string): string {
   switch (text) {
+    case '让角色看到生成的图片':
+      return t('让角色看到生成的图片')
+    case '默认关闭；开启后工具生成的成品图片按生成预设的工具图片限制发送给模型':
+      return t('默认关闭；开启后工具生成的成品图片按生成预设的工具图片限制发送给模型')
+    case '让角色决定':
+      return t('让角色决定')
+    case '角色语音意愿':
+      return t('角色语音意愿')
+    case '角色语音发送方式':
+      return t('角色语音发送方式')
+    case '文字加语音':
+      return t('文字加语音')
+    case '角色语音每小时上限':
+      return t('角色语音每小时上限')
+    case '0 表示不限次数':
+      return t('0 表示不限次数')
+
+    case '渠道贴纸频率':
+      return t('渠道贴纸频率')
+    case '很少':
+      return t('很少')
+    case '有时':
+      return t('有时')
+    case '经常':
+      return t('经常')
+    case '贴纸最短间隔秒数':
+      return t('贴纸最短间隔秒数')
+    case '自动学习渠道贴纸':
+      return t('自动学习渠道贴纸')
+    case '自动标注收藏表情':
+      return t('自动标注收藏表情')
+    case '自动学习贴纸集上限':
+      return t('自动学习贴纸集上限')
+
+    case '仅发送语音':
+      return t('仅发送语音')
+    case '纯语音旁白处理':
+      return t('纯语音旁白处理')
+    case '旁白作为文字':
+      return t('旁白作为文字')
+    case '省略旁白':
+      return t('省略旁白')
+    case '纯语音长文本处理':
+      return t('纯语音长文本处理')
+    case '分段朗读':
+      return t('分段朗读')
+    case '改发文字':
+      return t('改发文字')
+    case '语音分段字符上限':
+      return t('语音分段字符上限')
+    case '操作':
+      return t('操作')
+    case '0 表示不限次数，仍受开关和冷却限制':
+      return t('0 表示不限次数，仍受开关和冷却限制')
     case '渠道设置无效':
       return t('渠道设置无效')
     case 'QQ 多角色消息':

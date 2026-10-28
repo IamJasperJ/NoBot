@@ -242,6 +242,19 @@ export function toHistory(ctx: GenerationContext, leafId: string | null, plainHi
         )
       : [],
   )
+  const seeGeneratedImages =
+    getSetting<Record<string, unknown>>(SETTING_KEYS.extensionSettings('image-gen'))?.seeGeneratedImages === true
+  // 关闭的生图结果不占用普通工具的图片名额，重试中的旧成品也不会提前发送。
+  const toolImages = path.filter(
+    (m) =>
+      m.role === 'tool' &&
+      m.meta.images?.length &&
+      m.status !== 'error' &&
+      !m.meta.excluded &&
+      (!m.meta.imageGen || (seeGeneratedImages && m.meta.imageGen.status === 'done')),
+  )
+  const limit = ctx.preset.samplers.toolImageLimit
+  const recent = new Set(limit > 0 ? toolImages.slice(-limit).map((m) => m.id) : [])
   return path
     .filter(
       (m) =>
@@ -269,6 +282,9 @@ export function toHistory(ctx: GenerationContext, leafId: string | null, plainHi
               : m.role === 'assistant'
                 ? normalizeDeliveryTags(m.content)
                 : m.content) +
+        (m.role === 'tool' && m.meta.images?.length && !recent.has(m.id)
+          ? `\n[Tool returned ${m.meta.images.length} image(s); images omitted from history.]`
+          : '') +
         (m.role === 'user' && m.meta.check ? `\n${describeCheck(m.meta.check)}` : '') +
         (m.meta.choice?.counts
           ? `\n[Room vote counts by option: ${m.meta.choice.counts.map((count, index) => `${index + 1}=${count}`).join(', ')}.]`
@@ -282,7 +298,9 @@ export function toHistory(ctx: GenerationContext, leafId: string | null, plainHi
             ? (m.meta.toolName ?? 'tool')
             : ((m.speakerId && names.get(m.speakerId)) ?? m.meta.name ?? ctx.members[0]?.name ?? ''),
       speakerId: m.speakerId,
-      ...(m.role === 'user' && m.meta.images?.length ? { images: m.meta.images.map((image) => image.id) } : {}),
+      ...((m.role === 'user' || (m.role === 'tool' && recent.has(m.id))) && m.meta.images?.length
+        ? { images: m.meta.images.map((image) => image.id) }
+        : {}),
       ...(m.meta.toolCalls ? { toolCalls: m.meta.toolCalls } : {}),
       ...(m.meta.toolCallId ? { toolCallId: m.meta.toolCallId } : {}),
     }))
@@ -363,7 +381,7 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
       opts.enabledTools ??
       (opts.toolsEnabled === false || opts.type === 'impersonate'
         ? []
-        : enabledToolNames(ctx.chat.id, ctx.preset.samplers)),
+        : enabledToolNames(ctx.chat.id, ctx.preset.samplers, opts.speakerId)),
     now: new Date(),
     macros: { ...collectMacros(ctx.chat.id), ...(multiplayer ? { players: () => multiplayer.players } : {}) },
   }

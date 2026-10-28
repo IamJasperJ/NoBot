@@ -12,9 +12,14 @@ import { errorText, freeze, safeError, writePrompt } from './prompt'
 import { renderImage } from './render'
 import { tasks } from './state'
 
-export async function runImageTool(ctx: ExtensionContext, args: Record<string, unknown>): Promise<ToolResult> {
+export async function runImageTool(
+  ctx: ExtensionContext,
+  args: Record<string, unknown>,
+  options: { updateToolContent?: boolean; signal?: AbortSignal } = {},
+): Promise<ToolResult> {
   let meta: ImageGenMeta = { status: 'error', mode: 'tool' }
   try {
+    options.signal?.throwIfAborted()
     const legacy = args.mode === undefined
     const requested =
       args.mode === 'portrait' ? 'face' : (args.mode ?? (args.as_background === true ? 'background' : 'free'))
@@ -60,13 +65,15 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
     Object.assign(snapshot, size)
     const run = async (messageId?: string): Promise<ToolResult> => {
       const controller = new AbortController()
+      const signal =
+        !messageId && options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
       if (messageId) {
         tasks.set(messageId, controller)
         ctx.storage.set(`request:${messageId}`, snapshot)
       }
       try {
         const stage = (value: ImageGenMeta['stage'], position?: number) => {
-          controller.signal.throwIfAborted()
+          signal.throwIfAborted()
           meta = { ...meta, stage: value, queuePosition: position }
           if (messageId) ctx.host.updateMessageMeta(messageId, { imageGen: meta })
         }
@@ -81,7 +88,7 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
                   ...snapshot,
                   input: { ...snapshot.input, mode: legacy && mode === 'background' ? 'background' : 'free' },
                 },
-                controller.signal,
+                signal,
                 true,
               )
               const refined = rewritten.rawPrompt
@@ -96,7 +103,7 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
             }
           }
           Object.assign(snapshot, composePrompt(settings, styleMode, prompt, snapshot.character))
-        } else await writePrompt(ctx, snapshot, controller.signal)
+        } else await writePrompt(ctx, snapshot, signal)
         settings.negativePrompt = snapshot.negative ?? ''
         meta = { ...meta, prompt: snapshot.prompt, negative: snapshot.negative, caption: caption(snapshot) }
         const bytes = await renderImage(
@@ -106,15 +113,24 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
           size.width,
           size.height,
           ctx.chatId,
-          controller.signal,
+          signal,
           stage,
         )
         stage('saving')
         if (mode === 'background') {
-          await background(ctx, ctx.chatId, bytes, prepared.character.name, settings, snapshot.prompt!)
+          await background(
+            ctx,
+            ctx.chatId,
+            bytes,
+            prepared.character.name,
+            settings,
+            snapshot.prompt!,
+            undefined,
+            signal,
+          )
         }
         const image = await ctx.host.saveImage(bytes)
-        controller.signal.throwIfAborted()
+        signal.throwIfAborted()
         const result = {
           content:
             mode === 'background'
@@ -125,13 +141,20 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
         if (messageId) ctx.host.updateMessageMeta(messageId, result.meta)
         return result
       } catch (error) {
+        ctx.host.log({
+          chatId: ctx.chatId,
+          kind: 'image',
+          status: 'error',
+          summary: t('生成图片'),
+          response: { messageId, stage: meta.stage, error: safeError(error, settings) },
+        })
         const result = {
           content: 'Image generation failed. The user can inspect the error and retry.',
           meta: {
             imageGen: {
               ...meta,
               status: 'error' as const,
-              error: controller.signal.aborted ? t('已取消') : safeError(error, settings),
+              error: signal.aborted ? t('已取消') : safeError(error, settings),
             },
           },
         }
@@ -171,7 +194,8 @@ export async function runImageTool(ctx: ExtensionContext, args: Record<string, u
           message:
             'Continue your reply without waiting. Do not claim the image is finished or invent its URL. The placeholder updates automatically.',
         })
-        editMessage(messageId, result.content)
+        // 斜杠命令保存用户描述；队列 JSON 只用于工具消息，避免把模型指令发给网页用户。
+        if (options.updateToolContent !== false) editMessage(messageId, result.content)
         ctx.host.updateMessageMeta(messageId, { imageGen: meta })
         void run(messageId).catch(console.error)
       },

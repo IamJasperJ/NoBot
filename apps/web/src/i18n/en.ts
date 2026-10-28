@@ -1,5 +1,9 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  工具图片消息限制: 'Tool image message limit',
+  '最多发送最近多少条工具图片消息，0 表示从不发送；仍受发送图片开关和图片总数限制。':
+    'Send images from this many recent tool messages. 0 never sends tool images; the image switch and total image limit still apply.',
+
   在浏览器中打开: 'Open in browser',
   '请从 Telegram 中打开舞台链接': 'Open the stage link from Telegram',
   'VN 舞台暂不可用': 'The VN stage is currently unavailable',
@@ -2828,7 +2832,6 @@ export const en: Record<string, string> = {
   '发言的 bot': 'Speaking bot',
   选择角色: 'Choose a character',
   机器人: 'Bots',
-  '还没有机器人。': 'No bots yet.',
   '扮演 {name}': 'Plays {name}',
   未选择角色: 'no character',
   '通用 bot': 'General bot',
@@ -2896,14 +2899,13 @@ export const en: Record<string, string> = {
   消息下方的按钮: 'Buttons under messages',
   同步与提醒: 'Sync & reminders',
   网页上发的消息同步到平台: 'Mirror web messages to the platform',
-  同步时带人设名: 'Include the persona name when mirroring',
-  '平台上删消息时也删 NoBot 记录': 'Deleting on the platform also deletes in NoBot',
+  消息前加说话人名字: 'Prefix messages with the speaker name',
+  '在 NoBot 删消息时也撤回平台上的': 'Recall platform messages when deleted in NoBot',
   '轮到某人时在群里 @ 他': "@mention people in the group when it's their turn",
   每人每分钟最多消息数: 'Max messages per person per minute',
   轻互动: 'Light interactions',
   角色给消息回表情: 'Character reacts to messages with emoji',
   '冷却（毫秒）': 'Cooldown (ms)',
-  每天最多次数: 'Max per day',
   继承全局: 'Global',
   继承机器人: 'From bot',
   本处设置: 'Set here',
@@ -2922,7 +2924,6 @@ export const en: Record<string, string> = {
   语音: 'Voice',
   角色语音: 'Character voice',
   '点 🔊 才读': 'Read when 🔊 is tapped',
-  自动读: 'Read automatically',
   不读: "Don't read",
   把用户的语音转成文字: "Transcribe users' voice messages",
   把识别出的文字发回来: 'Post the transcript back',
@@ -2996,12 +2997,7 @@ export const en: Record<string, string> = {
   被戳时戳回去: 'Poke back',
   被戳写进剧情: 'Pokes become story events',
   每天群签到: 'Daily group sign-in',
-  'Telegram 或 QQ（NapCat）；每个 bot 可以固定扮演一个角色，也可以当通用 bot':
-    'Telegram or QQ (NapCat). Each bot can play one fixed character or act as a general bot',
-  'Telegram：找 @BotFather 发 /newbot 拿 Token；QQ：先装好 NapCat。':
-    'Telegram: send /newbot to @BotFather for a token. QQ: install NapCat first.',
   '已添加 {name}': 'Added {name}',
-  添加机器人: 'Add a bot',
   'QQ（NapCat）': 'QQ (NapCat)',
   'NapCat 是非官方的 QQ 客户端，QQ 号有被风控或封禁的风险。建议用专门的小号，不要用常用号。':
     'NapCat is an unofficial QQ client, so the QQ account may be restricted or banned. Use a dedicated secondary account, not your main one.',
@@ -3012,4 +3008,193 @@ export const en: Record<string, string> = {
   '两边填同一个 Token': 'Use the same token on both sides',
   '创建后会显示要填进 NapCat 的地址。': 'The address to enter in NapCat is shown after creating.',
   '{name} 申请加入群': '{name} asked to join the group',
+  通用: 'Shared',
+  '两个平台共用的默认值；每个机器人、每个群或私聊还可以单独改。':
+    'Defaults shared by both platforms. Each bot, group or DM can still override them.',
+  '每个 bot 可以固定扮演一个角色，也可以当通用 bot': 'Each bot can play one fixed character or act as a general bot',
+  '还没有 Telegram 机器人。找 @BotFather 发 /newbot 拿到 Token 后点「添加」。':
+    'No Telegram bots yet. Send /newbot to @BotFather, then click Add with the token.',
+  '还没有 QQ 机器人。先装好 NapCat，再点「添加」。': 'No QQ bots yet. Install NapCat first, then click Add.',
+  '{name} 默认设置': '{name} defaults',
+  'HTTPS 公网地址': 'Public HTTPS address',
+  'VN 舞台（Mini App）和 webhook 共用，例如 https://nobot.example.com；不填就不能用 Mini App':
+    'Used by the VN stage (Mini App) and webhooks, e.g. https://nobot.example.com. The Mini App is unavailable without it.',
+  'Mini App 登录有效期（秒）': 'Mini App sign-in lifetime (seconds)',
+  'Telegram 签名超过这个时间就要重新打开': 'After this, the Telegram signature expires and the app must be reopened',
+  '添加 QQ 机器人': 'Add a QQ bot',
+  '添加 Telegram 机器人': 'Add a Telegram bot',
+  '打开右上方的开关启用这个扩展后，才能添加机器人。默认设置现在就可以先改。':
+    'Turn on this extension with the switch at the top right to add bots. You can already change the defaults.',
+  '每天最多次数（0 为不限）': 'Max per day (0 = unlimited)',
+  可以选的角色: 'Selectable characters',
+  全部角色: 'All characters',
+  '已选 {n} 个': '{n} selected',
+  改回全部: 'Reset to all',
+  '/char 和第一次说话时的选择按钮只列出这些角色；一个都不勾表示全部':
+    '/char and the first-message picker only list these characters. Select none to allow all.',
+  自动挑选: 'Pick automatically',
+  用作者说明: 'Use creator notes',
+  让模型写: 'Let the model write it',
+  '用描述原文（所有人可见）': 'Use the description as-is (public)',
+  '自动提取（不用模型）': 'Extract automatically (no model)',
+  来自角色卡的公开介绍: "From the card's public intro",
+  来自作者说明: 'From creator notes',
+  来自描述原文: 'From the description',
+  模型写的: 'Written by the model',
+  自动提取: 'Extracted automatically',
+  '{name}的来源': 'Source of {name}',
+  英文用户看到的版本: 'Version shown to English users',
+  '对模型写的简介不满意？': 'Not happy with the bio the model wrote?',
+  '正在重写…': 'Rewriting…',
+  让模型重写: 'Ask the model to rewrite',
+  '发 /speak 才读': 'Read on /speak',
+  '点 🔊 或发 /speak 才读': 'Read on 🔊 or /speak',
+  '文字 + 语音': 'Text + voice',
+  只发语音: 'Voice only',
+  '只发语音时，旁白': 'Narration in voice-only mode',
+  发成短文字: 'Send as short text',
+  一起读出来: 'Read it aloud',
+  '只发语音时，太长的回复': 'Long replies in voice-only mode',
+  拆成几条语音: 'Split into several voice notes',
+  改发文字: 'Send as text instead',
+  一条语音最多读几个字: 'Max characters per voice note',
+  贴纸包: 'Sticker set',
+  聊天里学到的: 'Learned from chats',
+  'QQ 小黄脸': 'QQ faces',
+  'bot 收藏的表情': "Bot's saved stickers",
+  '角色会按心情从这些贴纸里挑一个发出去。贴纸都留在 Telegram，NoBot 只记下引用和含义（emoji）。':
+    'Characters pick one of these stickers to match their mood. Stickers stay on Telegram; NoBot only keeps references and meanings (emoji).',
+  '角色会按心情从这些表情里挑一个发出去。表情都留在 QQ，NoBot 只记下引用和含义。':
+    'Characters pick one of these stickers to match their mood. Stickers stay on QQ; NoBot only keeps references and meanings.',
+  '发送频率和是否自动学习在「行为」页签里设置。': 'Frequency and auto-learning are set on the Behavior tab.',
+  '贴纸包链接或名称，例如 https://t.me/addstickers/xxx': 'Sticker set link or name, e.g. https://t.me/addstickers/xxx',
+  添加贴纸包: 'Add sticker set',
+  'bot 在线时才能读取收藏': 'The bot must be online to read its saved stickers',
+  已刷新: 'Refreshed',
+  刷新收藏的表情: 'Refresh saved stickers',
+  '共 {n} 个': '{n} total',
+  '还没有贴纸。添加一个贴纸包，或在群里 / 私聊里发几张贴纸让它学。':
+    'No stickers yet. Add a sticker set, or send a few stickers in a group or DM for it to learn.',
+  '还没有表情。刷新 bot 收藏的表情，或在群里发几个表情让它学。':
+    "No stickers yet. Refresh the bot's saved stickers, or send a few in a group for it to learn.",
+  '{n} 个': '{n}',
+  '{on} / {n} 个启用': '{on} / {n} enabled',
+  专用角色: 'Character-only',
+  所有角色可用: 'All characters',
+  删除这一组: 'Delete this group',
+  '勾选后只有这些角色会用这一组；一个都不勾表示所有角色都能用':
+    'Only the selected characters use this group; select none to let every character use it',
+  '（没有含义）': '(no meaning)',
+  '用过 {n} 次': 'used {n} times',
+  表情包: 'Stickers',
+  让角色自己决定: 'Let the character decide',
+  '角色决定时，多常发语音': 'How often the character chooses voice',
+  '少，被要求才发': 'Rarely, mostly when asked',
+  适中: 'Moderately',
+  '多，合适就发': 'Often, whenever it fits',
+  角色决定发语音时: 'When the character chooses voice',
+  '每小时最多几条语音（0 为不限）': 'Max voice notes per hour (0 = unlimited)',
+  角色发表情包: 'Character sends stickers',
+  偶尔: 'Rarely',
+  有时: 'Sometimes',
+  经常: 'Often',
+  两次之间至少隔几秒: 'Minimum seconds between stickers',
+  记住聊天里别人发的表情: 'Remember stickers others send in chats',
+  最多自动收录几个贴纸包: 'Max sticker sets to collect automatically',
+  用识图模型给收藏表情写含义: 'Label saved stickers with a vision model',
+  '{mood} · 已发到 {platform}': '{mood} · sent on {platform}',
+  不要发语音: 'no voice messages',
+  多发语音: 'more voice messages',
+  少发语音: 'fewer voice messages',
+  正常发语音: 'normal voice messages',
+  '这里有人说过「{what}」（{time}），角色自己决定发语音时会照做。':
+    'Someone here asked for "{what}" ({time}); the character follows it when deciding on voice.',
+  已清除: 'Cleared',
+  '边生成边更新消息：私聊用打字草稿，群里定时编辑同一条消息；关掉则生成完一次性发出':
+    'Update the message while generating: a typing draft in DMs, periodic edits of one message in groups. Off sends the whole reply at once',
+  '流式输出时多久编辑一次消息；太快可能触发平台限流':
+    'How often to edit the message while streaming; too fast may hit platform rate limits',
+  '模型的思考过程（推理内容）要不要发到平台上；折叠显示时用可展开的引用块':
+    "Whether to send the model's reasoning to the platform; folded shows it in an expandable quote",
+  '角色还在回复时又有人发消息：排队合并会等这条回完，再把新消息一起回复；打断重来会停掉当前回复，带上新消息重新生成':
+    'When someone writes while the character is still replying: queue waits for the reply and then answers the new messages together; interrupt stops the reply and regenerates with the new messages',
+  '⟲ 按钮：重新生成这条回复': '⟲ button: regenerate this reply',
+  '◀ 按钮：切回上一个备选回复': '◀ button: go back to the previous alternative reply',
+  '▶ 按钮：切到下一个备选回复，没有就生成一个新的': '▶ button: go to the next alternative reply, or generate a new one',
+  '➕ 按钮：接着这条回复往下写': '➕ button: continue this reply',
+  '🗑 按钮：删掉这条回复': '🗑 button: delete this reply',
+  '角色的回复要不要读成语音（用角色在音频扩展里设的声音）。「发 /speak 才读」：回复后发 /speak 读最近一条；「让角色自己决定」：角色觉得合适或被要求时才发语音':
+    'Whether replies are read aloud (with the character\'s voice from the audio extension). "Read on /speak": send /speak to read the latest reply. "Let the character decide": voice only when it fits or is asked for',
+  '角色的回复要不要读成语音（用角色在音频扩展里设的声音）。「点 🔊 才读」：消息下方有朗读按钮；「让角色自己决定」：角色觉得合适或被要求时才发语音':
+    'Whether replies are read aloud (with the character\'s voice from the audio extension). "Read on 🔊": a read-aloud button under each message. "Let the character decide": voice only when it fits or is asked for',
+  '只在「让角色自己决定」时有效：少＝基本只在被要求时发，多＝气氛合适就发。聊天里说「多发语音 / 别发语音」也会改变它':
+    'Only for "Let the character decide": rarely = mostly when asked, often = whenever the mood fits. Saying "more voice" / "no voice" in chat also changes it',
+  '只在「让角色自己决定」时有效：决定发语音的那条回复，是只发语音，还是文字和语音都发':
+    'Only for "Let the character decide": whether a voice reply is voice only or text plus voice',
+  '每个群 / 私聊每小时最多发几条语音，超过后改发文字；0 为不限':
+    'Max voice notes per group / DM per hour; beyond that replies are text. 0 = unlimited',
+  '只发语音时，回复里的旁白（动作、环境描写）怎么处理：发成短文字、一起读出来，或者直接不发':
+    'In voice-only mode, what to do with narration (actions, scenery): send as short text, read it too, or drop it',
+  '回复超过「一条语音最多读几个字」时：拆成几条语音，或这一条改发文字':
+    'When a reply exceeds the per-voice-note limit: split into several voice notes, or send that reply as text',
+  '一条语音最多读多少字，超过按上一项处理': 'Max characters per voice note; longer replies follow the setting above',
+  '用户在平台上发语音时，用音频扩展的语音识别转成文字交给角色':
+    "Transcribe users' voice messages with the audio extension's speech recognition and pass the text to the character",
+  '把识别出的文字回复给发语音的人，方便确认听没听错':
+    'Reply with the transcript so the sender can check it was heard correctly',
+  '回复里带 <cg> 舞台指令时生成的 CG 图；打码发送会加剧透遮罩，点开才看得到':
+    'CG images generated from <cg> stage directions; spoiler hides them until tapped',
+  '角色调用画图工具或 /imagine 生成的图片；打码发送会加剧透遮罩。/imagine 总会发送':
+    'Images from the image tool or /imagine; spoiler hides them until tapped. /imagine is always sent',
+  'VN 模式下角色的立绘图片：只在出场和换表情时发，或者每条回复都发':
+    'Character sprites in VN mode: only on entrance and expression changes, or with every reply',
+  'VN 模式下场景变化时，把新的背景图发出来': 'Send the new background image when the scene changes in VN mode',
+  '角色状态（好感度、属性等状态栏）变化时发一张卡片；置顶则只保留一条置顶消息并原地更新':
+    'Send a card when character status (affection, stats…) changes; pinned keeps one pinned message updated in place',
+  '掷骰时先发 Telegram 自带的 🎲 动画骰子，再给出结果': "Send Telegram's animated 🎲 before the roll result",
+  '私聊输入框旁的菜单按钮改成打开 VN 舞台（Mini App），需要先在「基本」里配好公开地址':
+    'The DM menu button opens the VN stage (Mini App); set the public URL on the Basic tab first',
+  '每条回复下方加一个 📖 按钮，点开在 Mini App 里看这一段的 VN 舞台':
+    'Add a 📖 button under each reply that opens this part of the story on the VN stage',
+  '群聊里一条回复有多个角色说话：每段前加「名字：」，或打包成合并转发，每个角色一条':
+    'When several characters speak in one group reply: prefix each part with "Name:", or bundle them as a forwarded message, one per character',
+  'bot 在群里的群名片自动改成当前扮演的角色名': "Set the bot's group nickname to the character it is playing",
+  '生成回复时把 QQ 在线状态切成忙碌，回完再切回来': 'Set the QQ status to busy while generating, then switch back',
+  'QQ 没有按钮，在每条回复末尾加一行「回复 /regen 重来，/swipe 换一个」':
+    'QQ has no buttons, so add a line "Reply /regen to retry, /swipe for another" to each reply',
+  '私密内容（悄悄话、暗骰结果）要私发时，对方不是 bot 好友也通过群临时会话发过去':
+    "Send private content (whispers, blind rolls) through a group temp chat when the recipient isn't the bot's friend",
+  超过这个字数的回复会拆成几条发送: 'Replies longer than this are split into several messages',
+  '有人戳一戳 bot 时，bot 也戳回去': 'Poke back when someone pokes the bot',
+  '把「某某戳了戳你」写进聊天记录，让角色对此做出反应': 'Add "X poked you" to the chat so the character reacts to it',
+  'bot 每天在活跃的群里自动群签到一次（当天群里第一次有人说话时）':
+    'Check in once a day in active groups (when the first message of the day arrives)',
+  '戳回去、签到这类轻互动两次之间至少隔多久':
+    'Minimum time between light interactions such as poking back and check-ins',
+  '轻互动每天最多做几次；0 为不限': 'Max light interactions per day; 0 = unlimited',
+  '你在 NoBot 网页里对同一个聊天发的消息和角色回复，也同步发到平台上':
+    'Messages and replies you send in this chat on the NoBot web app are also posted to the platform',
+  '群聊里有多个角色、由这个 bot 代发时，在回复前加「角色名：」；网页同步过去的消息前加你的人设名。单角色聊天不会加':
+    'In multi-character chats where this bot speaks for others, prefix replies with "Name:"; mirrored web messages get your persona name. Single-character chats never get a prefix',
+  '在 NoBot 里删掉消息（或删掉某个回复）时，把已经发到平台上的那几条也撤回':
+    'When you delete a message or reply in NoBot, also recall what was already posted to the platform',
+  '跑团轮流行动时，轮到谁就在群里 @ 谁': "Mention whoever's turn it is in TRPG turn order",
+  '防刷屏：同一个人一分钟内超过这么多条，多出的消息不会让角色回复':
+    "Anti-spam: messages beyond this many per person per minute don't trigger replies",
+  '角色偶尔给别人的消息贴一个表情回应（贴表情）': "The character sometimes reacts to people's messages with an emoji",
+  '角色偶尔给别人的消息点一个表情回应（Reaction）':
+    "The character sometimes reacts to people's messages with an emoji reaction",
+  两次表情回应之间至少隔多久: 'Minimum time between reactions',
+  '表情回应每天最多几次；0 为不限': 'Max reactions per day; 0 = unlimited',
+  '角色在回复里发表情包的频率；表情包在「表情包」页签管理':
+    'How often the character sends stickers; manage them on the Stickers tab',
+  '同一个群 / 私聊里两次发表情包至少隔多少秒': 'Minimum seconds between stickers in the same group / DM',
+  '别人在群里或私聊发的表情会被记下来，之后角色也能用（只记引用，不存图片）':
+    'Stickers people send in groups or DMs are remembered for the character to use (references only, no images stored)',
+  '别人发的贴纸会被记下来，并自动收录它所在的整个贴纸包（只记引用，不存图片）':
+    'Stickers people send are remembered, and their whole sticker set is collected (references only, no images stored)',
+  '自动学习最多收录多少个贴纸包，满了就不再新增':
+    'Max sticker sets collected automatically; no more are added once full',
+  'bot 收藏的表情没有文字含义，开启后用识图模型看一次，写几个关键词，角色才知道什么时候用':
+    "The bot's saved stickers have no text meaning; this has a vision model look at each once and write a few keywords so the character knows when to use it",
 }

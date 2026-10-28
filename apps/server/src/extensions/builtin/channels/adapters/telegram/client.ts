@@ -77,6 +77,19 @@ export class TelegramClient {
     this.tail = pending
     await pending
   }
+  /** 预览原样流式转发，token 只留在服务端，不经过附件缓存。 */
+  async streamFile(path: string): Promise<Response> {
+    if (path.split('/').some((part) => part === '..') || !/^[a-zA-Z0-9_./-]+$/.test(path)) throw new TelegramError(400)
+    const response = await this.fetcher(`${this.fileEndpoint}/${path}`, { signal: AbortSignal.timeout(30000) })
+    if (!response.ok) throw new TelegramError(response.status)
+    return new Response(response.body, {
+      headers: {
+        'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    })
+  }
   async downloadFile(path: string, limit: number): Promise<Uint8Array> {
     if (path.split('/').some((part) => part === '..') || !/^[a-zA-Z0-9_./-]+$/.test(path)) throw new TelegramError(400)
     const response = await this.fetcher(`${this.fileEndpoint}/${path}`, { signal: AbortSignal.timeout(30000) })

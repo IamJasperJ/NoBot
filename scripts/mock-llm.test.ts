@@ -1,20 +1,9 @@
-import { expect, spyOn, test } from 'bun:test'
+import { expect, test } from 'bun:test'
 import { parseStageMessage } from '../packages/core/src/stage'
 
 test('模拟 VN 回复在首句台词后插入 CG，流式与非流式内容一致', async () => {
-  // 捕获真实脚本的处理器，沙箱中无需监听端口也能验证开发用回复。
-  let respond!: (request: Request) => Promise<Response>
-  const serve = spyOn(Bun, 'serve').mockImplementation(((options: { fetch: typeof respond }) => {
-    respond = options.fetch
-    return {} as ReturnType<typeof Bun.serve>
-  }) as typeof Bun.serve)
-  const log = spyOn(console, 'log').mockImplementation(() => {})
-  try {
-    await import('./mock-llm')
-  } finally {
-    serve.mockRestore()
-    log.mockRestore()
-  }
+  // 直接复用服务处理器，沙箱中无需监听端口。
+  const { mockLlmFetch: respond } = await import('./mock-llm')
   const previousDelay = process.env.DELAY
   process.env.DELAY = '0'
   const request = (stream: boolean) =>
@@ -54,5 +43,69 @@ test('模拟 VN 回复在首句台词后插入 CG，流式与非流式内容一�
   } finally {
     if (previousDelay === undefined) delete process.env.DELAY
     else process.env.DELAY = previousDelay
+  }
+})
+
+test('模拟贴纸工具只在 STICKER 且工具可用且尚无结果时触发', async () => {
+  const { mockLlmFetch } = await import('./mock-llm')
+  const request = (tools: string[], toolResult = false) =>
+    mockLlmFetch(
+      new Request('http://mock/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stream: false,
+          messages: [
+            { role: 'user', content: 'STICKER' },
+            ...(toolResult ? [{ role: 'tool', content: 'queued' }] : []),
+          ],
+          tools: tools.map((name) => ({ type: 'function', function: { name } })),
+        }),
+      }),
+    )
+  const response = (await (await request(['send_sticker'])).json()) as {
+    choices: { message: { tool_calls: { function: { name: string; arguments: string } }[] } }[]
+  }
+  expect(response.choices[0]?.message.tool_calls[0]?.function).toEqual({
+    name: 'send_sticker',
+    arguments: '{"mood":"😏"}',
+  })
+  for (const [tools, result] of [
+    [[], false],
+    [['send_sticker'], true],
+  ] as const) {
+    const body = (await (await request([...tools], result)).json()) as {
+      choices: { message: { tool_calls?: unknown[] } }[]
+    }
+    expect(body.choices[0]?.message.tool_calls).toBeUndefined()
+  }
+})
+
+test('模拟语音工具只在当前回复尚无工具结果且支持 send_voice 时触发', async () => {
+  const { mockLlmFetch } = await import('./mock-llm')
+  for (const [available, done, expected] of [
+    [true, false, true],
+    [false, false, false],
+    [true, true, false],
+  ] as const) {
+    const response = await mockLlmFetch(
+      new Request('http://mock/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stream: false,
+          messages: [
+            { role: 'tool', content: 'previous turn' },
+            { role: 'user', content: 'VOICEPLEASE' },
+            ...(done ? [{ role: 'tool', content: 'queued' }] : []),
+          ],
+          tools: available ? [{ type: 'function', function: { name: 'send_voice' } }] : [],
+        }),
+      }),
+    )
+    const body = (await response.json()) as {
+      choices: { message: { tool_calls?: { function: { name: string } }[] } }[]
+    }
+    expect(body.choices[0]?.message.tool_calls?.[0]?.function.name === 'send_voice').toBe(expected)
   }
 })

@@ -107,6 +107,7 @@ const shape = z
     messageTemplate: z.string().default('[{{char}} sent an image: {{prompt}}]'),
     visibleFromButton: z.boolean().default(false),
     visibleFromTool: z.boolean().default(false),
+    seeGeneratedImages: z.boolean().default(false),
     visibleFromInteractive: z.boolean().default(false),
   })
   .catchall(z.unknown())
@@ -374,6 +375,11 @@ export const settingsSchema: ExtensionSettingField[] = [
     ),
   ),
   heading('interaction', '交互与工具', true),
+  bool(
+    'seeGeneratedImages',
+    '让角色看到生成的图片',
+    '默认关闭；开启后工具生成的成品图片按生成预设的工具图片限制发送给模型',
+  ),
   bool('toolEnabled', '允许模型调用 generate_image 工具', '让聊天模型在需要时发起图片生成'),
   bool('interactiveMode', '交互模式', '匹配用户的中英文要图请求，和文字回复同时生成；开启工具调用时不生效'),
   bool('promptWithHistory', '写提示词时带上聊天记录', '关闭时仅使用角色设定和本次指令'),

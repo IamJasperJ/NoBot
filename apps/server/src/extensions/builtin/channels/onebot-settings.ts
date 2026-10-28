@@ -27,5 +27,12 @@ export const oneBotFields: ExtensionSettingField[] = [
   { key: 'dailySign', type: 'boolean', label: 'QQ 每日群签到' },
   { key: 'maxMessageLength', type: 'number', label: 'QQ 单条消息字符上限', min: 100, max: 4500 },
   { key: 'socialCooldownMs', type: 'number', label: 'QQ 轻互动冷却毫秒', min: 1000 },
-  { key: 'socialDailyBudget', type: 'number', label: 'QQ 轻互动每日预算', min: 0, max: 1000 },
+  {
+    key: 'socialDailyBudget',
+    type: 'number',
+    label: 'QQ 轻互动每日预算',
+    hint: '0 表示不限次数，仍受开关和冷却限制',
+    min: 0,
+    max: 1000,
+  },
 ]

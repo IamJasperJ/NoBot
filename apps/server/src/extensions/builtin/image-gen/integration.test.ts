@@ -58,7 +58,9 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     let promptFail = false
     let promptReply = '<think>隐藏</think>Prompt: "1girl, blue hair"'
     const chatRequests: Record<string, unknown>[] = []
+    const requestSignals: AbortSignal[] = []
     const respond = async (request: Request) => {
+      requestSignals.push(request.signal)
       remoteHeaders.push(new Headers(request.headers))
       const url = new URL(request.url)
       remoteRequests.push({ url: request.url, authorization: request.headers.get('authorization') })
@@ -395,6 +397,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     const tool = await runTool('generate_image', '{"prompt":"cat","orientation":"square"}', {
       chatId: chat.id,
       vars: {},
+      signal: new AbortController().signal,
     })
     expect(tool.meta?.imageGen).toMatchObject({ status: 'done', mode: 'tool' })
     // 方图：宽高相等（不再按模型名强制成 1024×1024）
@@ -402,19 +405,34 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     expect(tool.meta?.images).toHaveLength(1)
     expect(bodies.at(-1)).toMatchObject({ quality: 'high', negative_prompt: 'custom', size: '832x832' })
     configure({ async: true })
-    const asyncTool = await runTool('generate_image', '{"prompt":"cat"}', { chatId: chat.id, vars: {} })
+    const asyncTool = await runTool('generate_image', '{"prompt":"cat"}', {
+      chatId: chat.id,
+      vars: {},
+      signal: new AbortController().signal,
+    })
     expect(asyncTool.meta?.imageGen?.status).toBe('pending')
     const savedTool = host.appendMessage(chat.id, { role: 'tool', content: asyncTool.content, meta: asyncTool.meta })
     asyncTool.onSaved?.(savedTool.id)
     expect((await wait(savedTool.id)).meta.images).toHaveLength(1)
     configure({ async: false })
     expect(
-      (await runTool('generate_image', '{"prompt":"scenery","as_background":true}', { chatId: chat.id, vars: {} }))
-        .content,
+      (
+        await runTool('generate_image', '{"prompt":"scenery","as_background":true}', {
+          chatId: chat.id,
+          vars: {},
+          signal: new AbortController().signal,
+        })
+      ).content,
     ).toBe('Image generated and set as the chat background.')
     configure({ openaiBaseUrl: '' })
     expect(
-      (await runTool('generate_image', '{"prompt":"cat"}', { chatId: chat.id, vars: {} })).meta?.imageGen?.status,
+      (
+        await runTool('generate_image', '{"prompt":"cat"}', {
+          chatId: chat.id,
+          vars: {},
+          signal: new AbortController().signal,
+        })
+      ).meta?.imageGen?.status,
     ).toBe('error')
     configure({ openaiBaseUrl: `${base}/v1`, openaiApiKey: 'img3-secret-key', openaiExtra: '{' })
     const leaf = getChatRow(chat.id).activeLeafId
@@ -561,7 +579,11 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     })
     expect(crossChat.status).toBe(400)
     configure({ async: true, refineModelPrompts: false })
-    const toolFailure = await runTool('generate_image', '{"prompt":"FAIL"}', { chatId: groupChat.id, vars: {} })
+    const toolFailure = await runTool('generate_image', '{"prompt":"FAIL"}', {
+      chatId: groupChat.id,
+      vars: {},
+      signal: new AbortController().signal,
+    })
     const toolError = host.appendMessage(groupChat.id, {
       role: 'tool',
       content: toolFailure.content,
@@ -818,7 +840,11 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       hidden: false,
       caption: '[画师 sent an image: visible cat]',
     })
-    const hiddenTool = await runTool('generate_image', '{"prompt":"cat"}', { chatId: chat.id, vars: {} })
+    const hiddenTool = await runTool('generate_image', '{"prompt":"cat"}', {
+      chatId: chat.id,
+      vars: {},
+      signal: new AbortController().signal,
+    })
     expect(hiddenTool.meta?.imageGen).toMatchObject({ hidden: true, caption: '[画师 sent an image: cat]' })
     configure({ visibleFromButton: false })
     configure({
@@ -975,7 +1001,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       refineModelPrompts: false,
     })
     const invoke = (args: Record<string, unknown>, chatId = chat.id) =>
-      runTool('generate_image', JSON.stringify(args), { chatId, vars: {} })
+      runTool('generate_image', JSON.stringify(args), { chatId, vars: {}, signal: new AbortController().signal })
     for (const mode of ['character', 'portrait', 'face', 'user', 'scene', 'last', 'raw_last']) {
       host.appendMessage(chat.id, { role: 'assistant', content: 'A cat beside a lake.' })
       const beforePrompts = chatRequests.length
@@ -984,6 +1010,17 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       expect(image.meta?.imageGen?.mode).toBe(mode === 'portrait' ? 'face' : mode)
       expect(chatRequests.length - beforePrompts).toBe(mode === 'raw_last' ? 0 : 1)
     }
+    const signalStart = requestSignals.length
+    const toolController = new AbortController()
+    const signalled = await runTool('generate_image', JSON.stringify({ mode: 'character' }), {
+      chatId: chat.id,
+      vars: {},
+      signal: toolController.signal,
+    })
+    expect(signalled.meta?.imageGen?.status).toBe('done')
+    expect(requestSignals.length - signalStart).toBe(2)
+    toolController.abort()
+    expect(requestSignals.slice(signalStart).every((signal) => signal.aborted)).toBe(true)
     const beforeDirect = chatRequests.length
     const direct = await invoke({ mode: 'portrait', prompt: 'original final description', orientation: 'landscape' })
     expect(chatRequests).toHaveLength(beforeDirect)

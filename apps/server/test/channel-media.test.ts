@@ -225,7 +225,7 @@ test('CH2a：ASR 限制、宿主合成、媒体缓存、入站附件、隐私、
     await service.media.deliver(binding, rich, mediaSettings, client, account.id)
     expect(calls.some((c) => c.method === 'sendPhoto' && String(c.body.has_spoiler) === 'true')).toBe(true)
     expect(calls.some((c) => c.method === 'sendDocument' && c.multipart)).toBe(true)
-    expect(calls.some((c) => ['sendVoice', 'sendAudio'].includes(c.method))).toBe(true)
+    expect(calls.some((c) => ['sendVoice', 'sendAudio'].includes(c.method))).toBe(false)
     expect(calls.some((c) => c.method === 'pinChatMessage')).toBe(true)
     const count = calls.length
     await service.media.deliver(binding, rich, mediaSettings, client, account.id)
@@ -363,6 +363,220 @@ test('CH2a：ASR 限制、宿主合成、媒体缓存、入站附件、隐私、
     service.onEvent({ type: 'message:updated', message: ready })
     await Bun.sleep(1800)
     expect(calls.filter((c) => c.method === 'sendPhoto').length).toBeGreaterThan(beforePhoto)
+    // 工具占位和旧版提示词描述在任何状态下都不能离开服务器。
+    const toolImage = host.appendMessage(chat.id, {
+      role: 'tool',
+      content: JSON.stringify({ status: 'queued', task_id: 'private-task', message: 'SECRET PROMPT' }),
+      meta: { imageGen: { status: 'pending', mode: 'tool', hidden: true, prompt: 'SECRET PROMPT' } },
+    })
+    const beforeTool = calls.length
+    await service.deliver(binding, toolImage)
+    await Bun.sleep(3200)
+    expect(calls.slice(beforeTool).filter((c) => c.method === 'sendChatAction').length).toBeGreaterThanOrEqual(2)
+    expect(calls.slice(beforeTool).some((c) => c.method === 'sendMessage')).toBe(false)
+    const genericTool = host.appendMessage(chat.id, {
+      role: 'tool',
+      content: 'Private screenshot',
+      meta: { images: [attachment] },
+    })
+    const genericStart = calls.length
+    await service.deliver(binding, genericTool)
+    expect(calls.slice(genericStart).some((call) => ['sendPhoto', 'sendMediaGroup'].includes(call.method))).toBe(false)
+    const toolDone = host.updateMessageMeta(toolImage.id, {
+      imageGen: { ...toolImage.meta.imageGen!, status: 'done' },
+      images: [attachment],
+    })
+    service.onEvent({ type: 'message:updated', message: toolDone })
+    await Bun.sleep(1800)
+    expect(calls.slice(beforeTool).filter((c) => c.method === 'sendPhoto')).toHaveLength(1)
+    expect(calls.slice(beforeTool).some((c) => JSON.stringify(c.body).includes('SECRET PROMPT'))).toBe(false)
+    const legacy = host.appendMessage(chat.id, {
+      role: 'assistant',
+      speakerId: character.id,
+      content: 'Alice sends a picture that contains: SECRET PROMPT..',
+      meta: { name: 'Alice', imageGen: { status: 'done', mode: 'tool' }, images: [attachment] },
+    })
+    const beforeLegacy = calls.length
+    await service.deliver(binding, legacy)
+    expect(calls.slice(beforeLegacy).map((c) => c.method)).toEqual(['sendPhoto'])
+    expect(calls.at(-1)!.body.caption).toBeUndefined()
+    expect(calls.at(-1)!.body.reply_markup).toBeUndefined()
+    const second = { ...attachment, id: 'second-image' }
+    const mixed = host.appendMessage(chat.id, {
+      role: 'assistant',
+      speakerId: character.id,
+      content: '<think>SECRET REASON</think>Hello image!',
+      meta: { images: [attachment, second], imageGen: { status: 'done', mode: 'tool' } },
+    })
+    const beforeMixed = calls.length
+    await service.deliver(binding, mixed)
+    expect(
+      calls
+        .slice(beforeMixed)
+        .filter((c) => c.method !== 'editMessageReplyMarkup')
+        .map((c) => c.method),
+    ).toEqual(['sendMessage', 'sendMediaGroup'])
+    expect(calls[beforeMixed]!.body.text).toContain('Hello image!')
+    expect(JSON.stringify(calls[beforeMixed]!.body)).not.toContain('SECRET')
+    expect(JSON.stringify(calls[beforeMixed]!.body.reply_markup)).not.toMatch(/🔊|◀|▶|➕|⟲/)
+    const album = JSON.parse(String(calls.at(-1)!.body.media))
+    expect(album).toHaveLength(2)
+    expect(album.every((item: Record<string, unknown>) => item.caption === undefined)).toBe(true)
+    for (const mode of ['spoiler', 'off'] as const) {
+      const before = calls.length
+      await service.media.deliver(
+        binding,
+        { ...toolDone, id: `tool-${mode}`, meta: { ...toolDone.meta, images: [attachment, second] } },
+        { ...mediaSettings, generatedImages: mode },
+        client,
+        account.id,
+      )
+      if (mode === 'off') expect(calls.length).toBe(before)
+      else
+        expect(
+          JSON.parse(String(calls.at(-1)!.body.media)).every((item: { has_spoiler: boolean }) => item.has_spoiler),
+        ).toBe(true)
+    }
+    const beforeFailure = calls.length
+    await service.deliver(binding, {
+      ...legacy,
+      id: 'failed-tool',
+      meta: { imageGen: { status: 'error', mode: 'tool', error: 'SECRET STACK' } },
+    })
+    expect(calls.slice(beforeFailure).map((c) => c.method)).toEqual(['sendMessage'])
+    expect(String(calls.at(-1)!.body.text)).toMatch(/图片生成失败|Image generation failed/)
+    expect(JSON.stringify(calls.at(-1)!.body)).not.toContain('SECRET')
+    const { OneBotClient } = await import('../src/extensions/builtin/channels/adapters/onebot11/client')
+    const { OneBotTransport, OneBotSendQueue } = await import(
+      '../src/extensions/builtin/channels/adapters/onebot11/transport'
+    )
+    const oneCalls: { action: string; params: Record<string, unknown> }[] = []
+    const transport = new OneBotTransport({
+      token: '',
+      onConnect: async () => {},
+      onEvent: () => {},
+      onStatus: () => {},
+      onBreaker: () => {},
+    })
+    transport.attach({
+      send: (raw) => {
+        const call = JSON.parse(raw)
+        oneCalls.push(call)
+        transport.receive({ echo: call.echo, status: 'ok', retcode: 0, data: { message_id: ++seq } })
+      },
+      close: () => {},
+    })
+    const oneConfig = channelAccountInput.parse({
+      provider: 'onebot11',
+      name: 'Images',
+      credentials: { accessToken: 'test-secret' },
+      connection: { mode: 'ws-reverse' },
+    })
+    const oneClient = new OneBotClient(
+      transport,
+      oneConfig,
+      undefined,
+      undefined,
+      new OneBotSendQueue(
+        oneConfig.rateLimit,
+        Date.now,
+        async () => {},
+        () => 0,
+      ),
+    )
+    const entry = service.runtime.accounts.get(account.id)!
+    const telegramClient = entry.client
+    entry.client = oneClient
+    try {
+      const before = oneCalls.length
+      const genericOneStart = calls.length
+      await service.deliver(binding, { ...genericTool, id: 'one-generic-tool' })
+      expect(calls.slice(genericOneStart).some((call) => JSON.stringify(call.body).includes('base64://'))).toBe(false)
+      await service.deliver(binding, { ...toolImage, id: 'one-pending' })
+      expect(oneCalls.length).toBe(before)
+      service.onEvent({ type: 'message:updated', message: { ...toolDone, id: 'one-pending' } })
+      await Bun.sleep(1800)
+      expect(oneCalls.slice(before)).toHaveLength(1)
+      expect(oneCalls.at(-1)!.params.message).toMatchObject([{ type: 'image' }])
+      await service.deliver(binding, { ...legacy, id: 'one-legacy' })
+      expect(oneCalls.at(-1)!.params.message).toMatchObject([{ type: 'image' }])
+      expect(oneCalls.at(-1)!.params.message).toHaveLength(1)
+      const mixedStart = oneCalls.length
+      await service.deliver(binding, { ...mixed, id: 'one-mixed' })
+      expect(
+        oneCalls
+          .slice(mixedStart)
+          .map((call) => (call.params.message as { type: string }[]).map((segment) => segment.type)),
+      ).toEqual([['text'], ['image', 'image']])
+      for (const mode of ['spoiler', 'off'] as const) {
+        const start = oneCalls.length
+        await service.media.deliver(
+          binding,
+          { ...toolDone, id: `one-${mode}`, meta: { ...toolDone.meta, images: [attachment, second] } },
+          { ...mediaSettings, generatedImages: mode },
+          oneClient,
+          account.id,
+        )
+        if (mode === 'off') expect(oneCalls.length).toBe(start)
+        else
+          expect(oneCalls.at(-1)!.params.message).toMatchObject([
+            { type: 'image', data: { type: 'flash' } },
+            { type: 'image', data: { type: 'flash' } },
+          ])
+      }
+      await service.deliver(binding, {
+        ...toolImage,
+        id: 'one-error',
+        meta: { imageGen: { status: 'error', mode: 'tool', error: 'SECRET STACK' } },
+      })
+      expect(JSON.stringify(oneCalls.at(-1))).toMatch(/图片生成失败|Image generation failed/)
+      expect(JSON.stringify(oneCalls)).not.toContain('SECRET')
+    } finally {
+      entry.client = telegramClient
+      oneClient.stop()
+    }
+    const { eq } = await import('drizzle-orm')
+    db.update(channelActors).set({ dmChatId: '11' }).where(eq(channelActors.id, actor.id)).run()
+    const privacyStart = calls.length
+    const whisperImage = host.appendMessage(groupChat.id, {
+      role: 'assistant',
+      content: 'Alice sends a picture that contains: PRIVATE PROMPT..',
+      meta: {
+        channel: 'whisper',
+        visibility: { level: 'self' },
+        author: { userId: currentUser().id, name: 'Owner' },
+        images: [attachment],
+        imageGen: { status: 'done', mode: 'tool' },
+      },
+    })
+    await service.deliver(group, whisperImage)
+    expect(
+      calls
+        .slice(privacyStart)
+        .some((call) => ['sendPhoto', 'sendMediaGroup'].includes(call.method) && String(call.body.chat_id) === '-11'),
+    ).toBe(false)
+    expect(JSON.stringify(calls.slice(privacyStart))).not.toContain('PRIVATE PROMPT')
+    expect(
+      calls.slice(privacyStart).some((call) => call.method === 'sendPhoto' && String(call.body.chat_id) === '11'),
+    ).toBe(true)
+    const privateMixedStart = calls.length
+    await service.deliver(group, { ...whisperImage, id: 'private-mixed', content: 'Private reply.' })
+    expect(
+      calls
+        .slice(privateMixedStart)
+        .filter((call) => ['sendMessage', 'sendPhoto'].includes(call.method))
+        .map((call) => call.method),
+    ).toEqual(['sendMessage', 'sendPhoto'])
+    expect(calls.slice(privateMixedStart).every((call) => String(call.body.chat_id) === '11')).toBe(true)
+
+    const offStart = calls.length
+    service.saveBinding({ ...binding, settings: { generatedImages: 'off' } })
+    await service.deliver(binding, { ...legacy, id: 'off-legacy' })
+    expect(calls.length).toBe(offStart)
+    service.saveBinding(binding)
+    const speakStart = calls.length
+    await service.media.speak(binding, legacy, client, account.id)
+    expect(calls.length).toBe(speakStart)
     const failedImage = host.appendMessage(chat.id, {
       role: 'assistant',
       content: 'Text survives media failure',

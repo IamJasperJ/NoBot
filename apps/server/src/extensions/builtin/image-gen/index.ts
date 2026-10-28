@@ -79,15 +79,23 @@ export default defineExtension({
         return { description: t('图片描述') }
       },
       run: async (ctx, args, text) => {
-        // 命令没有工具消息的保存回调，使用同步路径并将图片元数据追加到会话。
+        // 命令也保存异步占位消息，复用工具的完成回调，频道和网页看到同一张图片。
         const result = await runImageTool(
-          { ...ctx, settings: { ...ctx.settings, async: false, visibleFromTool: true } },
+          { ...ctx, settings: { ...ctx.settings, async: true, visibleFromTool: true } },
           { ...args, mode: args.mode ?? 'free', ...(text ? { prompt: text } : {}) },
+          { updateToolContent: false },
         )
-        if (result.meta?.imageGen?.status === 'error') throw new Error(result.meta.imageGen.error)
-        if (result.meta?.images?.length)
-          ctx.host.appendMessage(ctx.chatId, { role: 'system', content: text, meta: result.meta })
-        return result.content
+        if (result.meta?.imageGen?.status === 'error')
+          throw new HttpError(400, 'IMAGE_COMMAND', t('图片生成尚未配置或未启用'))
+        if (result.meta?.imageGen) {
+          const saved = ctx.host.appendMessage(ctx.chatId, {
+            role: 'system',
+            content: text,
+            meta: { ...result.meta, clientMessageId: 'imagine' },
+          })
+          result.onSaved?.(saved.id)
+        }
+        return result.onSaved ? t('🎨 正在画…') : result.content
       },
     },
   ],
@@ -331,7 +339,9 @@ export default defineExtension({
               },
               required: ['mode'],
             },
-            run: (args, toolCtx) => runImageTool(toolCtx.extension ?? { ...ctx, chatId: toolCtx.chatId }, args),
+            timeoutMs: 300_000,
+            run: (args, toolCtx) =>
+              runImageTool(toolCtx.extension ?? { ...ctx, chatId: toolCtx.chatId }, args, { signal: toolCtx.signal }),
           },
         ]
       : [],

@@ -15,6 +15,7 @@ import {
   useDeleteChannelFriend,
   useManagedBotAccess,
   useManagedBotLink,
+  useRegenerateChannelIntro,
   useRotateManagedBotToken,
   useSyncChannelPresence,
   useUpdateChannelAccount,
@@ -27,6 +28,7 @@ import { Avatar, Button, badgeClass, controlClass, cx, Dialog, selectClass } fro
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { BindingDialog } from './BindingDialog'
+import { StickersTab } from './StickersTab'
 import {
   capabilityLabel,
   isolationLabel,
@@ -39,7 +41,7 @@ import {
   timeAgo,
 } from './shared'
 
-type Tab = 'basic' | 'presence' | 'policies' | 'persona' | 'behavior' | 'places'
+type Tab = 'basic' | 'presence' | 'policies' | 'persona' | 'behavior' | 'stickers' | 'places'
 type Draft = Partial<Omit<ChannelAccountInput, 'credentials'>> & { token?: string }
 
 /** 一个机器人的全部设置；按页签分开，草稿统一由底部「保存」提交（政策单独保存，因为可能需要确认） */
@@ -80,7 +82,8 @@ export function AccountDialog({ account, onClose }: { account: ChannelAccountDTO
   return (
     <Dialog open onClose={onClose} title={account.name} className="w-[min(980px,calc(100vw-32px))]">
       <div className="space-y-4">
-        <div className="-mx-1 overflow-x-auto px-1">
+        {/* 页签固定在顶部，长页面滚动时不会被卷走 */}
+        <div className="sticky -top-5 z-10 -mx-5 -mt-5 overflow-x-auto bg-white px-5 pt-5 pb-1 dark:bg-zinc-900">
           <div className="min-w-[560px]">
             <Tabs
               value={tab}
@@ -91,6 +94,7 @@ export function AccountDialog({ account, onClose }: { account: ChannelAccountDTO
                 { id: 'policies', label: t('进群与好友') },
                 { id: 'persona', label: t('玩家人设') },
                 { id: 'behavior', label: t('行为') },
+                { id: 'stickers', label: t('表情包') },
                 { id: 'places', label: t('群和私聊') },
               ]}
             />
@@ -109,9 +113,10 @@ export function AccountDialog({ account, onClose }: { account: ChannelAccountDTO
             onChange={(settings) => patch({ settings })}
           />
         )}
+        {tab === 'stickers' && <StickersTab account={account} />}
         {tab === 'places' && <PlacesTab account={account} onOpen={setBindingId} />}
-        {tab !== 'policies' && tab !== 'places' && (
-          <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-end gap-2 border-t border-zinc-200 bg-white px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+        {tab !== 'policies' && tab !== 'places' && tab !== 'stickers' && (
+          <div className="sticky -bottom-5 z-10 -mx-5 -mb-5 flex items-center justify-end gap-2 border-t border-zinc-200 bg-white px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900">
             {dirty && <span className="mr-auto text-xs text-amber-600">{t('有未保存的修改')}</span>}
             <Button variant="secondary" disabled={!dirty} onClick={() => setDraft({})}>
               {t('撤销')}
@@ -152,6 +157,55 @@ function CharacterSelect({
   )
 }
 
+/** 通用 bot 能让人选的角色：一个都不勾 = 全部角色 */
+function CharacterAllowlist({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
+  const characters = useCharacters().data ?? []
+  const all = value.length === 0
+  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <span className="text-[13px] font-medium">{t('可以选的角色')}</span>
+        <span className="text-xs text-zinc-500">{all ? t('全部角色') : t('已选 {n} 个', { n: value.length })}</span>
+        {!all && (
+          <button
+            type="button"
+            className="ml-auto text-xs text-violet-600 hover:underline"
+            onClick={() => onChange([])}
+          >
+            {t('改回全部')}
+          </button>
+        )}
+      </div>
+      <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
+        {characters.map((c) => {
+          const on = value.includes(c.id)
+          return (
+            <button
+              key={c.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => toggle(c.id)}
+              className={cx(
+                'flex items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-0.5 text-[13px]',
+                on
+                  ? 'border-violet-400 bg-violet-50 text-violet-800 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-200'
+                  : 'border-zinc-200 text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:text-zinc-300',
+              )}
+            >
+              <Avatar name={c.name} url={c.avatarUrl} size={20} />
+              {c.name}
+            </button>
+          )
+        })}
+      </div>
+      <span className="block text-xs text-zinc-500">
+        {t('/char 和第一次说话时的选择按钮只列出这些角色；一个都不勾表示全部')}
+      </span>
+    </div>
+  )
+}
+
 function BasicTab({
   account,
   draft,
@@ -165,91 +219,100 @@ function BasicTab({
 }) {
   const status = statusMeta(account.status)
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <section className="space-y-4">
-        <div className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-[13px] dark:border-zinc-800">
-          <span className={cx('size-2 rounded-full', status.dot)} />
-          <span>{status.label}</span>
-          <span className="text-zinc-400">·</span>
-          <span className="text-zinc-500">{providerLabel(account.provider)}</span>
-          {account.botUsername && <span className="ml-auto font-mono text-zinc-500">@{account.botUsername}</span>}
-        </div>
-        {account.lastError && <p className="text-xs text-red-600">{account.lastError}</p>}
-        <TextField label={t('名称')} value={draft.name ?? ''} onChange={(name) => patch({ name })} />
-        {account.provider === 'onebot11' ? (
-          <OneBotConnection account={account} draft={draft} token={token} patch={patch} />
-        ) : (
-          <>
-            <TextField
-              label={t('Bot Token')}
-              type="password"
-              hint={t('留空表示不修改')}
-              placeholder={account.credentials}
-              value={token ?? ''}
-              onChange={(v) => patch({ token: v })}
-            />
-            <SelectField
-              label={t('接收消息的方式')}
-              hint={t('长轮询不需要公网地址，适合家里的电脑；Webhook 需要一个 Telegram 能访问的 HTTPS 地址')}
-              value={(draft.receiveMode ?? 'polling') as 'polling' | 'webhook'}
-              onChange={(receiveMode) => patch({ receiveMode })}
-              options={[
-                { value: 'polling', label: t('长轮询') },
-                { value: 'webhook', label: 'Webhook' },
-              ]}
-            />
-            {draft.receiveMode === 'webhook' && (
+    <div className="space-y-4">
+      {/* 状态条占满一行，下面两栏都从带标题的输入项开始，左右对齐 */}
+      <div className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-[13px] dark:border-zinc-800">
+        <span className={cx('size-2 rounded-full', status.dot)} />
+        <span>{status.label}</span>
+        <span className="text-zinc-400">·</span>
+        <span className="text-zinc-500">{providerLabel(account.provider)}</span>
+        {account.lastError && <span className="min-w-0 truncate text-xs text-red-600">{account.lastError}</span>}
+        {account.botUsername && <span className="ml-auto font-mono text-zinc-500">@{account.botUsername}</span>}
+      </div>
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <section className="space-y-4">
+          <TextField label={t('名称')} value={draft.name ?? ''} onChange={(name) => patch({ name })} />
+          {account.provider === 'onebot11' ? (
+            <OneBotConnection account={account} draft={draft} token={token} patch={patch} />
+          ) : (
+            <>
               <TextField
-                label={t('公网地址')}
-                placeholder="https://nobot.example.com"
-                value={draft.webhookUrl ?? ''}
-                onChange={(v) => patch({ webhookUrl: v || null })}
+                label={t('Bot Token')}
+                type="password"
+                hint={t('留空表示不修改')}
+                placeholder={account.credentials}
+                value={token ?? ''}
+                onChange={(v) => patch({ token: v })}
               />
-            )}
-            <details className="text-[13px]">
-              <summary className="cursor-pointer text-zinc-500">{t('高级')}</summary>
-              <div className="pt-3">
+              <SelectField
+                label={t('接收消息的方式')}
+                hint={t('长轮询不需要公网地址，适合家里的电脑；Webhook 需要一个 Telegram 能访问的 HTTPS 地址')}
+                value={(draft.receiveMode ?? 'polling') as 'polling' | 'webhook'}
+                onChange={(receiveMode) => patch({ receiveMode })}
+                options={[
+                  { value: 'polling', label: t('长轮询') },
+                  { value: 'webhook', label: 'Webhook' },
+                ]}
+              />
+              {draft.receiveMode === 'webhook' && (
                 <TextField
-                  label={t('Bot API 地址')}
-                  hint={t('用自建的 Bot API 服务时修改')}
-                  value={draft.baseUrl ?? ''}
-                  onChange={(baseUrl) => patch({ baseUrl })}
+                  label={t('公网地址')}
+                  placeholder="https://nobot.example.com"
+                  value={draft.webhookUrl ?? ''}
+                  onChange={(v) => patch({ webhookUrl: v || null })}
                 />
-              </div>
-            </details>
-          </>
-        )}
-      </section>
-      <section className="space-y-4">
-        <SelectField
-          label={t('扮演方式')}
-          value={draft.characterMode ?? 'generic'}
-          onChange={(characterMode) => patch({ characterMode })}
-          options={[
-            { value: 'fixed', label: t('一角色一 bot：这个 bot 就是某个角色') },
-            { value: 'generic', label: t('通用 bot：每个群 / 私聊各自选角色（/char）') },
-          ]}
-        />
-        {draft.characterMode === 'fixed' ? (
-          <CharacterSelect
-            label={t('角色')}
-            value={draft.characterId}
-            onChange={(characterId) => patch({ characterId })}
-            emptyLabel={t('未选择')}
+              )}
+              <details className="text-[13px]">
+                <summary className="cursor-pointer text-zinc-500">{t('高级')}</summary>
+                <div className="pt-3">
+                  <TextField
+                    label={t('Bot API 地址')}
+                    hint={t('用自建的 Bot API 服务时修改')}
+                    value={draft.baseUrl ?? ''}
+                    onChange={(baseUrl) => patch({ baseUrl })}
+                  />
+                </div>
+              </details>
+            </>
+          )}
+        </section>
+        <section className="space-y-4">
+          <SelectField
+            label={t('扮演方式')}
+            value={draft.characterMode ?? 'generic'}
+            onChange={(characterMode) => patch({ characterMode })}
+            options={[
+              { value: 'fixed', label: t('一角色一 bot：这个 bot 就是某个角色') },
+              { value: 'generic', label: t('通用 bot：每个群 / 私聊各自选角色（/char）') },
+            ]}
           />
-        ) : (
-          <CharacterSelect
-            label={t('新位置的默认角色')}
-            hint={t('不选时，第一次说话会先让对方用按钮选角色')}
-            value={draft.defaultCharacterId}
-            onChange={(defaultCharacterId) => patch({ defaultCharacterId })}
-            emptyLabel={t('先让对方选')}
-          />
-        )}
-        {account.provider === 'telegram' && <MiniAppStatus account={account} />}
-        {account.canManageBots && <CreateManagedBot account={account} />}
-        {account.managedBy && <ManagedBotPanel account={account} />}
-      </section>
+          {draft.characterMode === 'fixed' ? (
+            <CharacterSelect
+              label={t('角色')}
+              value={draft.characterId}
+              onChange={(characterId) => patch({ characterId })}
+              emptyLabel={t('未选择')}
+            />
+          ) : (
+            <CharacterSelect
+              label={t('新位置的默认角色')}
+              hint={t('不选时，第一次说话会先让对方用按钮选角色')}
+              value={draft.defaultCharacterId}
+              onChange={(defaultCharacterId) => patch({ defaultCharacterId })}
+              emptyLabel={t('先让对方选')}
+            />
+          )}
+          {draft.characterMode !== 'fixed' && (
+            <CharacterAllowlist
+              value={draft.characterAllowlist ?? []}
+              onChange={(characterAllowlist) => patch({ characterAllowlist })}
+            />
+          )}
+          {account.provider === 'telegram' && <MiniAppStatus account={account} />}
+          {account.canManageBots && <CreateManagedBot account={account} />}
+          {account.managedBy && <ManagedBotPanel account={account} />}
+        </section>
+      </div>
     </div>
   )
 }
@@ -488,6 +551,27 @@ function ManagedBotPanel({ account }: { account: ChannelAccountDTO }) {
   )
 }
 
+const introSourceOptions = () => [
+  { value: 'auto', label: t('自动挑选') },
+  { value: 'creator-notes', label: t('用作者说明') },
+  { value: 'model', label: t('让模型写') },
+  { value: 'description', label: t('用描述原文（所有人可见）') },
+  { value: 'rules', label: t('自动提取（不用模型）') },
+]
+
+/** 预览里每个值是从哪来的 */
+const sourceText = (source: string) =>
+  (
+    ({
+      explicit: t('来自角色卡的公开介绍'),
+      'creator-notes': t('来自作者说明'),
+      description: t('来自描述原文'),
+      generated: t('模型写的'),
+      rules: t('自动提取'),
+      custom: t('自定义'),
+    }) as Record<string, string>
+  )[source] ?? source
+
 const presenceFields = () =>
   [
     { key: 'avatar', label: t('头像'), max: 0 },
@@ -509,6 +593,7 @@ function PresenceTab({
   const preview = useChannelPresencePreview(previewing ? account.id : '')
   const apply = useApplyChannelPresence()
   const sync = useSyncChannelPresence()
+  const regenerate = useRegenerateChannelIntro()
   const characters = useCharacters().data ?? []
   const sourceId = account.characterMode === 'fixed' ? account.characterId : presence.characterId
   const source = characters.find((c) => c.id === sourceId)
@@ -584,6 +669,23 @@ function PresenceTab({
                     <option value="unmanaged">{t('不管理')}</option>
                   </select>
                 )}
+                {!capability &&
+                  value.mode === 'follow-character' &&
+                  (field.key === 'description' || field.key === 'shortDescription') && (
+                    <select
+                      aria-label={t('{name}的来源', { name: field.label })}
+                      title={t('{name}的来源', { name: field.label })}
+                      className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-[13px] dark:border-zinc-700 dark:bg-zinc-900"
+                      value={presence[field.key].introSource ?? 'auto'}
+                      onChange={(e) => setField(field.key, { introSource: e.target.value })}
+                    >
+                      {introSourceOptions().map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 <span className="ml-auto text-xs text-zinc-500">
                   {state?.error
                     ? t('同步失败：{error}', { error: state.error })
@@ -670,12 +772,40 @@ function PresenceTab({
                         ) : (
                           next || t('不变')
                         )}
+                        {preview.data.fields?.[f.key] && next && (
+                          <span className={cx(badgeClass, 'mt-1 block w-fit font-normal text-zinc-500')}>
+                            {sourceText(preview.data.fields[f.key]?.source ?? '')}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
+            {(['description', 'shortDescription'] as const).some((k) => preview.data.languages?.en?.[k]?.value) && (
+              <details className="text-[13px]">
+                <summary className="cursor-pointer text-zinc-500">{t('英文用户看到的版本')}</summary>
+                <dl className="space-y-2 pt-2">
+                  {(['shortDescription', 'description'] as const).map((k) => (
+                    <div key={k}>
+                      <dt className="text-xs text-zinc-500">{k === 'description' ? t('简介') : t('短简介')}</dt>
+                      <dd className="break-words whitespace-pre-wrap">{preview.data.languages.en[k]?.value || '—'}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </details>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-zinc-500">{t('对模型写的简介不满意？')}</span>
+              <Button
+                size="sm"
+                disabled={regenerate.isPending}
+                onClick={() => regenerate.mutate(account.id, { onError: (e) => toast.error(errorMessage(e)) })}
+              >
+                {regenerate.isPending ? t('正在重写…') : t('让模型重写')}
+              </Button>
+            </div>
             {!preview.data.confirmed && (
               <div className="flex items-center justify-end gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
                 <span className="mr-auto text-xs text-zinc-500">{t('确认后，以后角色卡变化会自动同步到平台')}</span>

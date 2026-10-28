@@ -76,7 +76,11 @@ export type TranscriptionResult =
 
 /** 扩展通过宿主复用当前会话的生成、附件和消息能力。 */
 export interface ExtensionHost {
-  synthesizeSpeech(chatId: string, messageId: string, opts?: { signal?: AbortSignal }): Promise<SpeechResult>
+  synthesizeSpeech(
+    chatId: string,
+    messageId: string,
+    opts?: { signal?: AbortSignal; segments?: import('@nobot/core/stage').TtsSegment[] },
+  ): Promise<SpeechResult>
   transcribe(
     bytes: Uint8Array,
     mime: string,
@@ -122,10 +126,12 @@ export interface ExtensionHost {
     avatar?: Uint8Array
     signal?: AbortSignal
   }): Promise<string>
-  /** 直接请求模型，不组装上下文；连接和模型为空时跟随会话，使用会话采样参数，去掉思考并记录扩展日志。 */
+  /** 直接请求模型，不组装上下文；省略 chatId 时只读主人的全局默认配置，不组装角色或历史；否则连接和采样参数跟随会话，去掉思考并记录扩展日志。 */
   complete(opts: {
-    chatId: string
+    chatId?: string
     messages: ChatMessage[]
+    /** 原生表情标注仅传内存图片，日志隐藏图片数据。 */
+    avatar?: Uint8Array
     summary: string
     connectionId?: string
     model?: string
@@ -184,6 +190,8 @@ export interface ExtensionContext {
   settings: Record<string, unknown>
   /** 当前会话 id；在非会话场景（自定义接口、全局事件）里为空字符串 */
   chatId: string
+  /** 生成宿主传入实际发言角色，动态工具按角色裁剪。 */
+  speakerId?: string
   storage: ExtensionStorage
 }
 
@@ -222,6 +230,12 @@ export interface Extension {
   defaultSettings?: Record<string, unknown>
   /** 宏：名字（小写）→ 处理函数，参数是 {{名字::参数}} 里 :: 之后的部分 */
   macros?: Record<string, (arg: string, ctx: ExtensionContext) => string>
+  /**
+   * 工具的第二个参数提供 signal，网络和静默模型请求必须传递该信号。
+   * 返回 images 可包含附件 id 或 { bytes: Uint8Array, mime: string }，最多四张、每张不超过 10MB；
+   * 宿主复用上传解码与存储，把附件写入工具消息 meta.images，下一轮按视觉能力和预算发送。
+   * timeoutMs 默认 60000，确需更长执行时间时可显式覆盖。
+   */
   tools?: ToolDefinition[] | ((ctx: ExtensionContext) => ToolDefinition[])
   commands?: (CommandDescription & {
     // biome-ignore lint/suspicious/noConfusingVoidType: 命令允许只产生副作用，保持扩展实现的 void 返回类型。

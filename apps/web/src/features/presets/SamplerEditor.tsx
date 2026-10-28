@@ -235,6 +235,15 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
           slider={false}
         />
         <NumberField
+          label={t('工具图片消息限制')}
+          hint={t('最多发送最近多少条工具图片消息，0 表示从不发送；仍受发送图片开关和图片总数限制。')}
+          value={value.toolImageLimit}
+          onChange={(v) => set('toolImageLimit', Math.round(v))}
+          min={0}
+          max={50}
+          slider={false}
+        />
+        <NumberField
           label={t('图片最大边长')}
           hint={t('发送前缩小图片，单位像素；不会放大小图。上传存储的最大边为 2048 像素。')}
           value={value.imageMaxSize}

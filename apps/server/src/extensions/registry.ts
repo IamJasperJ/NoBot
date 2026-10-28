@@ -586,21 +586,21 @@ function contextOf(ext: Extension, chatId: string): ExtensionContext {
   return { settings, chatId, storage: storageOf(ext.id), host }
 }
 
-function toolsOf(ext: Extension, chatId: string) {
+function toolsOf(ext: Extension, chatId: string, speakerId?: string) {
   return safely(
     ext,
     'tools',
-    () => (typeof ext.tools === 'function' ? ext.tools(contextOf(ext, chatId)) : (ext.tools ?? [])),
+    () => (typeof ext.tools === 'function' ? ext.tools({ ...contextOf(ext, chatId), speakerId }) : (ext.tools ?? [])),
     [],
   )
 }
 
 // 执行时重新读取设置，并使用工具调用所属的会话上下文。
-setExtensionToolsProvider((chatId = '') =>
+setExtensionToolsProvider((chatId = '', speakerId) =>
   visibleExtensions()
     .filter(isEnabled)
     .flatMap(({ extension: ext }) =>
-      toolsOf(ext, chatId).map((tool) => ({
+      toolsOf(ext, chatId, speakerId).map((tool) => ({
         source: ext.name,
         tool: {
           ...tool,

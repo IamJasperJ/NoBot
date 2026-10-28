@@ -3,6 +3,8 @@ import type {
   ChannelAccountConfig,
   ChannelBindingDTO,
   ChannelPresenceSync,
+  ChannelStickerGroupDTO,
+  ChannelStickerRef,
   CharacterSheet,
   GenerationLogSummary,
   GroupActivation,
@@ -459,6 +461,7 @@ export const channelAccounts = sqliteTable('channel_accounts', {
   characterId: text('character_id'),
   groupId: text('group_id'),
   defaultCharacterId: text('default_character_id'),
+  characterAllowlist: text('character_allowlist', { mode: 'json' }).$type<string[]>().notNull().default([]),
   personaMode: text('persona_mode').$type<ChannelAccountConfig['personaMode']>().notNull(),
   globalPersonaId: text('global_persona_id'),
   personaLocked: integer('persona_locked', { mode: 'boolean' }).notNull().default(false),
@@ -554,9 +557,8 @@ export const channelDeliveries = sqliteTable('channel_deliveries', {
 })
 export const channelActions = sqliteTable('channel_actions', {
   token: text('token').primaryKey(),
-  bindingId: text('binding_id')
-    .notNull()
-    .references(() => channelBindings.id, { onDelete: 'cascade' }),
+  // 首次选择角色时尚未建立绑定，位置和账号保存在动作参数里。
+  bindingId: text('binding_id').references(() => channelBindings.id, { onDelete: 'cascade' }),
   action: text('action').notNull(),
   args: text('args', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
   messageId: text('message_id'),
@@ -644,4 +646,49 @@ export const channelManagedIntents = sqliteTable('channel_managed_intents', {
   createdBy: text('created_by').notNull(),
   createdAt: integer('created_at').notNull(),
   expiresAt: integer('expires_at').notNull(),
+})
+
+export const channelStickerGroups = sqliteTable(
+  'channel_sticker_groups',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+    source: text('source').$type<ChannelStickerGroupDTO['source']>().notNull(),
+    name: text('name').notNull(),
+    title: text('title').notNull(),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    characters: text('characters', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    fetchedAt: integer('fetched_at'),
+    attemptedAt: integer('attempted_at'),
+  },
+  (t) => [uniqueIndex('channel_sticker_groups_source_idx').on(t.accountId, t.source, t.name)],
+)
+export const channelStickers = sqliteTable(
+  'channel_stickers',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => channelAccounts.id, { onDelete: 'cascade' }),
+    groupId: text('group_id')
+      .notNull()
+      .references(() => channelStickerGroups.id, { onDelete: 'cascade' }),
+    platformKey: text('platform_key').notNull(),
+    ref: text('ref', { mode: 'json' }).$type<ChannelStickerRef>().notNull(),
+    meanings: text('meanings', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    characters: text('characters', { mode: 'json' }).$type<string[]>().notNull().default([]),
+    usageCount: integer('usage_count').notNull().default(0),
+    labelAttempted: integer('label_attempted', { mode: 'boolean' }).notNull().default(false),
+  },
+  (t) => [uniqueIndex('channel_stickers_platform_idx').on(t.accountId, t.platformKey)],
+)
+export const channelStickerCooldowns = sqliteTable('channel_sticker_cooldowns', {
+  bindingId: text('binding_id')
+    .primaryKey()
+    .references(() => channelBindings.id, { onDelete: 'cascade' }),
+  lastSentAt: integer('last_sent_at').notNull(),
+  replyCount: integer('reply_count').notNull(),
 })

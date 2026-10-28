@@ -11,6 +11,8 @@ import type {
   ChannelPresenceSync,
   ChannelRequestDTO,
   ChannelSettingsResolution,
+  ChannelStickerPatch,
+  ChannelStickersDTO,
 } from '@nobot/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { readError } from './client'
@@ -30,14 +32,21 @@ export type {
   ChannelPresence,
   ChannelPresencePreview,
   ChannelPresenceSync,
+  ChannelPresenceValue,
   ChannelProvider,
   ChannelRequestDTO,
   ChannelSettings,
   ChannelSettingsOverride,
   ChannelSettingsResolution,
+  ChannelStickerDTO,
+  ChannelStickerGroupDTO,
+  ChannelStickerPatch,
+  ChannelStickerRef,
+  ChannelStickersDTO,
 } from '@nobot/shared'
 export const channelKeys = {
   all: ['channels'] as const,
+  stickers: (id: string) => ['channels', 'stickers', id] as const,
   accounts: ['channels', 'accounts'] as const,
   account: (id: string) => ['channels', 'account', id] as const,
   bindings: (accountId?: string) => ['channels', 'bindings', accountId ?? 'all'] as const,
@@ -79,6 +88,24 @@ export type ChannelOneBotAction =
   | { action: 'essence' | 'read'; messageId: number; confirm: true }
   | { action: 'notice'; content: string; confirm: true }
 export const channelsApi = {
+  stickers: (id: string) => request<ChannelStickersDTO>(`/accounts/${encode(id)}/stickers`),
+  addStickerSet: ({ accountId, name }: { accountId: string; name: string }) =>
+    request<ChannelStickersDTO>(`/accounts/${encode(accountId)}/stickers/sets`, 'POST', { name }),
+  refreshQqFaces: (accountId: string) =>
+    request<ChannelStickersDTO>(`/accounts/${encode(accountId)}/stickers/refresh`, 'POST'),
+  updateSticker: ({
+    accountId,
+    id,
+    kind = 'entries',
+    patch,
+  }: {
+    accountId: string
+    id: string
+    kind?: 'entries' | 'sets'
+    patch: ChannelStickerPatch
+  }) => request<ChannelStickersDTO>(`/accounts/${encode(accountId)}/stickers/${kind}/${encode(id)}`, 'PATCH', patch),
+  deleteSticker: ({ accountId, id, kind = 'entries' }: { accountId: string; id: string; kind?: 'entries' | 'sets' }) =>
+    request<ChannelStickersDTO>(`/accounts/${encode(accountId)}/stickers/${kind}/${encode(id)}`, 'DELETE'),
   friends: (id: string) => request<ChannelFriendDTO[]>(`/accounts/${encode(id)}/friends`),
   deleteFriend: ({ id, userId, confirm }: { id: string; userId: number; confirm: true }) =>
     request<{ ok: true }>(`/accounts/${encode(id)}/friends/delete`, 'POST', { userId, confirm }),
@@ -108,6 +135,8 @@ export const channelsApi = {
   deleteAccount: (id: string) => request<{ ok: true }>(`/accounts/${encode(id)}`, 'DELETE'),
   accountAction: ({ id, action }: { id: string; action: 'start' | 'stop' | 'restart' }) =>
     request<ChannelAccountDTO>(`/accounts/${encode(id)}/${action}`, 'POST'),
+  regenerateIntro: (id: string) =>
+    request<ChannelPresencePreview>(`/accounts/${encode(id)}/presence/regenerate-intro`, 'POST'),
   presencePreview: (id: string) => request<ChannelPresencePreview>(`/accounts/${encode(id)}/presence/preview`),
   presenceApply: ({ id, confirm }: { id: string; confirm: true }) =>
     request<ChannelPresenceSync>(`/accounts/${encode(id)}/presence/apply`, 'POST', { confirm }),
@@ -122,7 +151,7 @@ export const channelsApi = {
     request<ChannelBindingDTO[]>(`/bindings${accountId ? `?accountId=${encode(accountId)}` : ''}`),
   createBinding: (input: ChannelBindingInput) => request<ChannelBindingDTO>('/bindings', 'POST', input),
   binding: (id: string) => request<ChannelBindingDTO>(`/bindings/${encode(id)}`),
-  updateBinding: ({ id, patch }: { id: string; patch: Partial<ChannelBindingInput> }) =>
+  updateBinding: ({ id, patch }: { id: string; patch: Partial<ChannelBindingInput> & { voicePreference?: null } }) =>
     request<ChannelBindingDTO>(`/bindings/${encode(id)}`, 'PATCH', patch),
   disableBinding: (id: string) => request<{ ok: true }>(`/bindings/${encode(id)}/disable`, 'POST'),
   leaveBinding: ({ id, confirm }: { id: string; confirm: true }) =>
@@ -144,7 +173,9 @@ export const channelsApi = {
   native: ({ id, input }: { id: string; input: ChannelNativeAction }) =>
     request<unknown>(`/bindings/${encode(id)}/native`, 'POST', input),
 }
-export const useChannelAccounts = () => useQuery({ queryKey: channelKeys.accounts, queryFn: channelsApi.accounts })
+/** enabled=false：扩展还没打开时不请求（接口会 404） */
+export const useChannelAccounts = (enabled = true) =>
+  useQuery({ queryKey: channelKeys.accounts, queryFn: channelsApi.accounts, enabled })
 export const useChannelAccount = (id: string) =>
   useQuery({ queryKey: channelKeys.account(id), queryFn: () => channelsApi.account(id), enabled: !!id })
 export const useChannelBindings = (accountId?: string) =>
@@ -204,3 +235,39 @@ export const useChannelFriends = (id: string) =>
 export const useDeleteChannelFriend = () => useChannelMutation(channelsApi.deleteFriend)
 export const useChannelOneBotAction = () => useChannelMutation(channelsApi.onebot)
 export const useChannelStageLink = () => useChannelMutation(channelsApi.stageLink)
+
+export const useRegenerateChannelIntro = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: channelsApi.regenerateIntro,
+    onSuccess: (preview, id) => {
+      qc.setQueryData(channelKeys.presence(id), preview)
+      void qc.invalidateQueries({ queryKey: channelKeys.accounts })
+      void qc.invalidateQueries({ queryKey: ['character'] })
+      void qc.invalidateQueries({ queryKey: ['characters'] })
+    },
+  })
+}
+
+export const channelStickerPreviewUrl = (accountId: string, stickerId: string) =>
+  `/api/ext/channels/accounts/${encode(accountId)}/stickers/${encode(stickerId)}/preview`
+export function useChannelStickers(accountId: string) {
+  return useQuery({
+    queryKey: channelKeys.stickers(accountId),
+    queryFn: () => channelsApi.stickers(accountId),
+    enabled: !!accountId,
+  })
+}
+function useStickerMutation<T>(mutationFn: (input: T) => Promise<ChannelStickersDTO>, account: (input: T) => string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn,
+    onSuccess: (data, input) => {
+      queryClient.setQueryData(channelKeys.stickers(account(input)), data)
+    },
+  })
+}
+export const useAddStickerSet = () => useStickerMutation(channelsApi.addStickerSet, (input) => input.accountId)
+export const useRefreshQqFaces = () => useStickerMutation(channelsApi.refreshQqFaces, (accountId) => accountId)
+export const useUpdateSticker = () => useStickerMutation(channelsApi.updateSticker, (input) => input.accountId)
+export const useDeleteSticker = () => useStickerMutation(channelsApi.deleteSticker, (input) => input.accountId)

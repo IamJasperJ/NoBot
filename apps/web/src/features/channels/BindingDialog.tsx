@@ -21,7 +21,15 @@ import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { useRoomDialogs } from '../rooms/shared'
-import { isolationLabel, OverrideEditor, personaModeOptions, scopeLabel, stateMeta, triggerOptions } from './shared'
+import {
+  isolationLabel,
+  OverrideEditor,
+  personaModeOptions,
+  scopeLabel,
+  stateMeta,
+  timeAgo,
+  triggerOptions,
+} from './shared'
 
 type Tab = 'session' | 'members' | 'behavior' | 'speakers'
 type Patch = Partial<ChannelBindingInput>
@@ -91,7 +99,7 @@ export function BindingDialog({
           <SpeakersTab account={account} value={merged.speakers ?? {}} onChange={(speakers) => patch({ speakers })} />
         )}
         {tab !== 'members' && (
-          <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-end gap-2 border-t border-zinc-200 bg-white px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="sticky -bottom-5 z-10 -mx-5 -mb-5 flex items-center justify-end gap-2 border-t border-zinc-200 bg-white px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900">
             {dirty && <span className="mr-auto text-xs text-amber-600">{t('有未保存的修改')}</span>}
             <Button disabled={!dirty} onClick={() => setDraft({})}>
               {t('撤销')}
@@ -328,14 +336,53 @@ function BehaviorTab({
   const resolved = useChannelSettings(binding.id).data
   if (!resolved) return null
   return (
-    <OverrideEditor
-      provider={provider}
-      value={value}
-      effective={resolved.values}
-      // 本层没覆盖时，来源一定在上层；服务端的 provenance 可能还是保存前的「binding」，退回到机器人
-      inheritedFrom={(key) => (resolved.provenance[key] === 'binding' ? 'account' : resolved.provenance[key])}
-      onChange={onChange}
-    />
+    <div className="space-y-3">
+      {binding.voicePreference && <VoicePreferenceNote binding={binding} />}
+      <OverrideEditor
+        provider={provider}
+        value={value}
+        effective={resolved.values}
+        // 本层没覆盖时，来源一定在上层；服务端的 provenance 可能还是保存前的「binding」，退回到机器人
+        inheritedFrom={(key) => (resolved.provenance[key] === 'binding' ? 'account' : resolved.provenance[key])}
+        onChange={onChange}
+      />
+    </div>
+  )
+}
+
+/** 聊天里说过「多发语音 / 别发语音」后记下的偏好；只在「让角色自己决定」时生效，可以一键清掉 */
+function VoicePreferenceNote({ binding }: { binding: ChannelBindingDTO }) {
+  const update = useUpdateChannelBinding()
+  const pref = binding.voicePreference
+  if (!pref) return null
+  const what = pref.suppressed
+    ? t('不要发语音')
+    : pref.bias === 'high'
+      ? t('多发语音')
+      : pref.bias === 'low'
+        ? t('少发语音')
+        : t('正常发语音')
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-[13px] text-violet-800 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200">
+      <span className="min-w-0 flex-1">
+        {t('这里有人说过「{what}」（{time}），角色自己决定发语音时会照做。', {
+          what,
+          time: timeAgo(pref.updatedAt),
+        })}
+      </span>
+      <Button
+        size="sm"
+        disabled={update.isPending}
+        onClick={() =>
+          update.mutate(
+            { id: binding.id, patch: { voicePreference: null } },
+            { onSuccess: () => toast.info(t('已清除')), onError: (e) => toast.error(errorMessage(e)) },
+          )
+        }
+      >
+        {t('清除')}
+      </Button>
+    </div>
   )
 }
 

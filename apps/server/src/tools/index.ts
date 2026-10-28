@@ -1,6 +1,9 @@
 import { describeCheck, formatDice, rollDice as rollDetailedDice } from '@nobot/core/stage'
 import type { MessageMeta, ToolInfo } from '@nobot/shared'
 import type { ExtensionContext } from '../extensions/types'
+import { t } from '../i18n'
+import { getAttachment, saveAttachment } from '../services/attachments'
+import { insertLog } from '../services/logs'
 import { chatRules, performCheck } from '../services/trpg/trpg'
 
 /**
@@ -14,13 +17,21 @@ import { chatRules, performCheck } from '../services/trpg/trpg'
 export interface ToolContext {
   /** 扩展工具独有的宿主和设置，chatId 与当前调用一致。 */
   extension?: ExtensionContext
+  /** 当前生成取消或本次工具超时都会中止此信号。 */
+  signal: AbortSignal
   chatId: string
+  speakerId?: string
   /** 调用前的会话变量（沿激活路径累加得到） */
   vars: Record<string, unknown>
   random?: () => number
 }
 
+/** 原始图片沿用上传附件的 10MB 限制与解码校验，宿主每次最多接受四张。 */
+export type ToolImage = string | { bytes: Uint8Array; mime: string }
+
 export interface ToolResult {
+  /** 已存在的附件 id，或由宿主校验并保存的图片字节与 MIME。 */
+  images?: ToolImage[]
   /** 浅合并进已保存工具消息的元数据，数组整体替换。 */
   meta?: Partial<MessageMeta>
   /** 入库后调用；异步任务可以用宿主更新该消息。 */
@@ -33,6 +44,8 @@ export interface ToolResult {
 
 export interface ToolDefinition {
   name: string
+  /** 单次调用上限，默认 60 秒；长任务可以显式延长。 */
+  timeoutMs?: number
   description: string
   /** 参数的 JSON Schema（OpenAI function calling 格式） */
   parameters: Record<string, unknown>
@@ -158,13 +171,17 @@ const setState: ToolDefinition = {
 export const BUILTIN_TOOLS: ToolDefinition[] = [rollDice, abilityCheck, getTime, getState, setState]
 
 /** 当前可用的全部工具：内置 + 已启用扩展提供的。扩展注册表在启动时注入，避免循环依赖 */
-let extensionToolsProvider: (chatId?: string) => { tool: ToolDefinition; source: string }[] = () => []
+let extensionToolsProvider: (chatId?: string, speakerId?: string) => { tool: ToolDefinition; source: string }[] =
+  () => []
 export function setExtensionToolsProvider(fn: typeof extensionToolsProvider) {
   extensionToolsProvider = fn
 }
 
-export function availableTools(chatId?: string): { tool: ToolDefinition; source: string }[] {
-  const all = [...BUILTIN_TOOLS.map((tool) => ({ tool, source: 'builtin' })), ...extensionToolsProvider(chatId)]
+export function availableTools(chatId?: string, speakerId?: string): { tool: ToolDefinition; source: string }[] {
+  const all = [
+    ...BUILTIN_TOOLS.map((tool) => ({ tool, source: 'builtin' })),
+    ...extensionToolsProvider(chatId, speakerId),
+  ]
   // 同名工具以先注册的为准
   const seen = new Set<string>()
   return all.filter(({ tool }) => {
@@ -180,8 +197,8 @@ export function listToolInfo(): ToolInfo[] {
 }
 
 /** 转成 OpenAI 请求体里的 tools 字段。disabled 是生成预设里单独关闭的工具 */
-export function toOpenAITools(disabled: string[] = [], chatId?: string) {
-  return availableTools(chatId)
+export function toOpenAITools(disabled: string[] = [], chatId?: string, speakerId?: string) {
+  return availableTools(chatId, speakerId)
     .filter(({ tool }) => !disabled.includes(tool.name))
     .map(({ tool }) => ({
       type: 'function' as const,
@@ -197,7 +214,7 @@ export async function runTool(
 ): Promise<ToolResult> {
   // 模型偶尔会调用没提供给它的工具，关闭的工具一律拒绝执行
   if (disabled.includes(name)) return { content: `Tool ${name} is disabled.` }
-  const found = availableTools(ctx.chatId).find(({ tool }) => tool.name === name)
+  const found = availableTools(ctx.chatId, ctx.speakerId).find(({ tool }) => tool.name === name)
   if (!found) return { content: `No tool named ${name} exists.` }
   let args: Record<string, unknown> = {}
   try {
@@ -206,14 +223,71 @@ export async function runTool(
   } catch {
     return { content: `Tool arguments are not valid JSON: ${rawArgs.slice(0, 200)}` }
   }
+  const timeoutMs = found.tool.timeoutMs ?? 60_000
+  const controller = new AbortController()
+  const signal = AbortSignal.any([ctx.signal, controller.signal])
+  const timer = setTimeout(() => controller.abort(new DOMException('Tool timeout', 'TimeoutError')), timeoutMs)
+  let stop: (() => void) | undefined
   try {
-    return await found.tool.run(args, ctx)
+    signal.throwIfAborted()
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      stop = () => reject(signal.reason)
+      signal.addEventListener('abort', stop, { once: true })
+    })
+    // 即使扩展忘记响应 signal，宿主也必须及时结束等待；迟到结果不会入库。
+    return await Promise.race([
+      (async () => {
+        const result = await found.tool.run(args, { ...ctx, signal })
+        signal.throwIfAborted()
+        if (result.images) {
+          if (result.images.length > 4) throw new Error('Too many tool images')
+          for (const image of result.images) {
+            if (
+              typeof image !== 'string' &&
+              (!image.mime.startsWith('image/') || image.bytes.byteLength > 10 * 1024 * 1024)
+            )
+              throw new Error('Invalid tool image MIME or size')
+            if (typeof image === 'string') getAttachment(image)
+          }
+          const images = []
+          for (const image of result.images) {
+            signal.throwIfAborted()
+            images.push(typeof image === 'string' ? getAttachment(image) : await saveAttachment(image.bytes))
+          }
+          result.meta = { ...result.meta, images }
+        }
+        signal.throwIfAborted()
+        return result
+      })(),
+      cancelled,
+    ])
   } catch (e) {
+    if (ctx.signal.aborted) return { content: 'Tool call aborted by user.' }
+    if (controller.signal.aborted) {
+      const content = `Tool timed out after ${timeoutMs / 1000}s.`
+      insertLog({
+        chatId: ctx.chatId,
+        kind: 'extension',
+        status: 'error',
+        summary: t('工具调用超时'),
+        response: { tool: name, timeoutMs, error: content },
+      })
+      return { content }
+    }
     return { content: `Tool execution failed (${e instanceof Error ? e.name : 'unknown error'}).` }
+  } finally {
+    clearTimeout(timer)
+    if (stop) signal.removeEventListener('abort', stop)
   }
 }
 
 /** 历史过滤和请求定义共用按会话解析后的工具列表。 */
-export function enabledToolNames(chatId: string, samplers: { functionCalling: boolean; disabledTools: string[] }) {
-  return samplers.functionCalling ? toOpenAITools(samplers.disabledTools, chatId).map((item) => item.function.name) : []
+export function enabledToolNames(
+  chatId: string,
+  samplers: { functionCalling: boolean; disabledTools: string[] },
+  speakerId?: string,
+) {
+  return samplers.functionCalling
+    ? toOpenAITools(samplers.disabledTools, chatId, speakerId).map((item) => item.function.name)
+    : []
 }

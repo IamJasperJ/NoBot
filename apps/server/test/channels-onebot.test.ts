@@ -29,7 +29,9 @@ test('CH3 集成：真实房间桥、请求审批、私密投递、资料与单�
   const { channelAccountInput } = await import('@nobot/shared')
   const { eq } = await import('drizzle-orm')
   const { db, setSetting } = await import('../src/db/client')
-  const { channelAccounts, channelActors, channelRequests, channelMiniAppTokens } = await import('../src/db/schema')
+  const { channelAccounts, channelActors, channelRequests, channelMiniAppTokens, channelActions } = await import(
+    '../src/db/schema'
+  )
   const { systemDatabase } = await import('../src/db/system-client')
   const { users, roomMembers } = await import('../src/db/system-schema')
   const { runAsUser, closeUserDatabase } = await import('../src/user-context')
@@ -181,6 +183,20 @@ test('CH3 集成：真实房间桥、请求审批、私密投递、资料与单�
         idleWarnedAt: null,
       })
       const binding = listBindings(account.id)[0]!
+      await service.receive(account.id, message('/imagine', 9001))
+      expect(calls.some((call) => JSON.stringify(call.params).includes('/imagine N'))).toBe(true)
+      const imagineActions = () =>
+        db
+          .select()
+          .from(channelActions)
+          .all()
+          .filter((a) => a.action === 'imagine' && !a.usedAt)
+      expect(imagineActions()).toHaveLength(9)
+      await service.receive(account.id, message('9', 9002))
+      expect(calls.some((call) => JSON.stringify(call.params).includes('请在 /imagine 后输入图片描述'))).toBe(true)
+      await service.receive(account.id, message('/sd', 9003))
+      await service.receive(account.id, message('/imagine 9', 9004))
+      expect(imagineActions().find((a) => a.args.number === 9)).toBeUndefined()
       const assistant = host.appendMessage(chat.id, { role: 'assistant', content: 'Hello QQ' })
       await service.deliver(binding, assistant)
       const before = calls.length
@@ -511,8 +527,30 @@ test('CH3 集成：真实房间桥、请求审批、私密投递、资料与单�
       expect(
         socialBudget(account.id, 'poke:222', { ...service.settings(binding).values, socialDailyBudget: 1 }, 100001),
       ).toBe(false)
+      const unlimitedSocial = { ...service.settings(binding).values, socialDailyBudget: 0 }
+      expect(socialBudget(account.id, 'poke:333', unlimitedSocial, 100002)).toBe(true)
+      expect(socialBudget(account.id, 'poke:333', unlimitedSocial, 100003)).toBe(false)
+      expect(socialBudget(account.id, 'poke:333', unlimitedSocial, 200003)).toBe(true)
       expect(signBudget(account.id, '100', 100000)).toBe(true)
       expect(signBudget(account.id, '100', 100001)).toBe(false)
+      // QQ 首次菜单允许数字回复及 /char N，角色选择后要求用户重发。
+      db.update(channelAccounts)
+        .set({
+          defaultCharacterId: null,
+          policies: { ...accountRow(account.id).config.policies, newLocation: { private: 'auto', group: 'auto' } },
+        })
+        .where(eq(channelAccounts.id, account.id))
+        .run()
+      await service.receive(account.id, { ...message('hello picker', 90001, true), group_id: 987 })
+      expect(JSON.stringify(calls.at(-1)?.params)).toContain('/char N')
+      await service.receive(account.id, { ...message('1', 90002, true), group_id: 987 })
+      const numberedBinding = listBindings(account.id).find((b) => b.chat === '-987')!
+      expect(numberedBinding).toBeTruthy()
+      expect(JSON.stringify(calls.at(-1)?.params)).toContain('重新发送')
+      await service.receive(account.id, { ...message('/char', 90003, true), group_id: 987 })
+      expect(JSON.stringify(calls.at(-1)?.params)).toContain('/char N')
+      await service.receive(account.id, { ...message('/char 1', 90004, true), group_id: 987 })
+      expect(listBindings(account.id).find((b) => b.id === numberedBinding.id)?.chatId).not.toBe(numberedBinding.chatId)
       await leaveGroup(account.id, '-100', client)
       expect(calls.at(-1)).toMatchObject({ action: 'set_group_leave', params: { is_dismiss: false } })
       await checkIdle(account.id, client)

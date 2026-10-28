@@ -3,15 +3,29 @@ import type { ChannelPresencePreview, CharacterDTO } from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db } from '../../../db/client'
-import { channelAccounts } from '../../../db/schema'
+import { channelAccounts, chats } from '../../../db/schema'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { readAvatar } from '../../../lib/files'
+import { isGenerating } from '../../../services/generation/generation'
+import { getLanguage } from '../../../services/settings'
 import { currentContext } from '../../../user-context'
 import type { ExtensionHost } from '../../types'
 import { OneBotClient } from './adapters/onebot11/client'
 import { TelegramError } from './adapters/telegram/client'
 import type { ChannelClient } from './adapters/types'
+import {
+  cleanIntro,
+  creatorIntro,
+  type GeneratedIntro,
+  type IntroCharacter,
+  introHash,
+  introInputs,
+  introPrompt,
+  parseIntro,
+  rulesIntro,
+  trimIntro,
+} from './public-intro'
 import { type AccountRow, accountRow } from './store'
 
 const fields = {
@@ -21,28 +35,48 @@ const fields = {
 } as const
 const hash = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex')
 const truncate = (value: string, length: number) => Array.from(value).slice(0, length).join('')
-/** 只读公开介绍或描述首段；不展开卡片宏，避免把私有定义经宏间接带到平台。 */
-export function publicIntro(
-  character: Pick<CharacterDTO, 'name' | 'description' | 'extensions'>,
-  short: boolean,
-  limit: number,
-) {
-  const nobot = character.extensions.nobot
-  const extension = nobot && typeof nobot === 'object' ? (nobot as Record<string, unknown>) : {}
-  const explicit = extension[short ? 'publicShortIntro' : 'publicIntro']
-  const text =
-    typeof explicit === 'string' && explicit.trim() ? explicit : (character.description.split(/\r?\n\s*\r?\n/)[0] ?? '')
-  return truncate(
-    text
-      .replace(/{{\s*char\s*}}/gi, character.name)
-      .replace(/{{\s*user\s*}}/gi, '')
-      .replace(/{{[\s\S]*?}}/g, '')
-      .trim(),
-    limit,
-  )
+export function publicIntro(character: IntroCharacter, short: boolean, limit: number) {
+  return selectIntro(character, short, limit, 'auto', getLanguage()).value
 }
-export function desiredPresence(account: AccountRow, character?: CharacterDTO): Record<string, string> {
-  const desired: Record<string, string> = {}
+function selectIntro(character: IntroCharacter, short: boolean, limit: number, mode: string, language: 'zh' | 'en') {
+  const nobot = character.extensions.nobot as Record<string, unknown> | undefined
+  const explicit = nobot?.[short ? 'publicShortIntro' : 'publicIntro']
+  if (mode === 'auto' && typeof explicit === 'string' && explicit.trim())
+    return {
+      value: truncate(
+        explicit
+          .replace(/{{\s*char\s*}}/gi, character.name)
+          .replace(/{{[\s\S]*?}}/g, '')
+          .trim(),
+        limit,
+      ),
+      source: 'explicit' as const,
+      language,
+    }
+  if (mode === 'auto' || mode === 'creator-notes') {
+    const notes = creatorIntro(character, short, limit)
+    if (notes) return { value: notes, source: 'creator-notes' as const, language }
+  }
+  if (mode === 'auto' || mode === 'model') {
+    const generated = nobot?.generatedIntro as GeneratedIntro | undefined
+    if (generated?.hash === introHash(character)) {
+      const parsed = parseIntro(JSON.stringify(generated), character.name)
+      if (parsed)
+        return {
+          value: trimIntro(parsed[language][short ? 'short' : 'long'], limit),
+          source: 'generated' as const,
+          language,
+        }
+    }
+  }
+  return {
+    value: rulesIntro(character, short, limit),
+    source: cleanIntro(character.description, character.name) ? ('description' as const) : ('rules' as const),
+    language,
+  }
+}
+export function presenceValues(account: AccountRow, character?: CharacterDTO, language = getLanguage()) {
+  const result: Record<string, import('@nobot/shared').ChannelPresenceValue> = {}
   for (const [field, [, , limit]] of Object.entries(fields)) {
     const key = field as keyof typeof fields
     const onebot = account.config.provider === 'onebot11'
@@ -50,24 +84,45 @@ export function desiredPresence(account: AccountRow, character?: CharacterDTO): 
     const effectiveLimit = onebot ? (key === 'name' ? 24 : 80) : limit
     const config = account.config.presence[key]
     if (config.mode === 'unmanaged') continue
-    const fallback =
+    const value =
       config.mode === 'custom'
-        ? config.value
-        : character
-          ? key === 'name'
-            ? character.name
-            : publicIntro(character, key === 'shortDescription', effectiveLimit)
-          : undefined
-    if (fallback === undefined) continue
-    desired[`${key}:`] = truncate(fallback, effectiveLimit)
+        ? { value: truncate(config.value, effectiveLimit), source: 'custom' as const }
+        : !character
+          ? undefined
+          : key === 'name'
+            ? { value: truncate(character.name, effectiveLimit), source: 'rules' as const }
+            : selectIntro(
+                character,
+                key === 'shortDescription',
+                effectiveLimit,
+                'introSource' in config ? config.introSource : 'auto',
+                language,
+              )
+    if (!value) continue
+    result[`${key}:`] = value
     if (onebot) continue
-    for (const language of ['zh', 'en'] as const) {
-      const override = config.languages[language]
-      if (override !== undefined) desired[`${key}:${language}`] = truncate(override, limit)
+    for (const lang of ['zh', 'en'] as const) {
+      const override = config.languages[lang]
+      if (override !== undefined)
+        result[`${key}:${lang}`] = { value: truncate(override, limit), source: 'custom', language: lang }
+      else if (key !== 'name' && character && config.mode === 'follow-character')
+        result[`${key}:${lang}`] = selectIntro(
+          character,
+          key === 'shortDescription',
+          limit,
+          'introSource' in config ? config.introSource : 'auto',
+          lang,
+        )
     }
   }
-  return desired
+  return result
 }
+export function desiredPresence(account: AccountRow, character?: CharacterDTO): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(presenceValues(account, character)).map(([key, value]) => [key, value.value]),
+  )
+}
+const introTasks = new WeakMap<object, Map<string, Promise<void>>>()
 const syncQueues = new WeakMap<object, Map<string, Promise<unknown>>>()
 export class PresenceSync {
   constructor(
@@ -82,7 +137,114 @@ export class PresenceSync {
       account.config.characterMode === 'fixed' ? account.config.characterId : account.config.presence.characterId
     return id ? this.host.getCharacter(id) : undefined
   }
-  async preview(): Promise<ChannelPresencePreview> {
+  private async ensureIntro(force = false) {
+    const row = accountRow(this.id)
+    const character = this.character(row)
+    if (!character) return
+    const needsModel =
+      force ||
+      (['description', 'shortDescription'] as const).some((key) => {
+        const field = row.config.presence[key]
+        if (field.mode !== 'follow-character' || (row.config.provider === 'onebot11' && key === 'shortDescription'))
+          return false
+        if (field.introSource === 'model') return true
+        if (field.introSource !== 'auto') return false
+        return (
+          ['rules', 'description'].includes(
+            selectIntro(
+              character,
+              key === 'shortDescription',
+              row.config.provider === 'onebot11' ? 80 : key === 'description' ? 512 : 120,
+              'auto',
+              getLanguage(),
+            ).source,
+          ) &&
+          !creatorIntro(
+            character,
+            key === 'shortDescription',
+            row.config.provider === 'onebot11' ? 80 : key === 'description' ? 512 : 120,
+          )
+        )
+      })
+    if (!needsModel) return
+    const hash = introHash(character)
+    const nobot = character.extensions.nobot as Record<string, unknown> | undefined
+    if (
+      !force &&
+      (nobot?.generatedIntro as GeneratedIntro | undefined)?.hash === hash &&
+      parseIntro(JSON.stringify(nobot?.generatedIntro), character.name)
+    )
+      return
+    // 与同角色的简介生成合并，已有聊天生成时跳过静默任务。
+    if (
+      db
+        .select({ id: chats.id })
+        .from(chats)
+        .all()
+        .some((chat) => isGenerating(chat.id))
+    )
+      return
+    const database = currentContext().sqlite
+    let tasks = introTasks.get(database)
+    if (!tasks) {
+      tasks = new Map()
+      introTasks.set(database, tasks)
+    }
+    const old = tasks.get(character.id)
+    if (old) {
+      await old
+      return
+    }
+    const task = (async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (this.signal.aborted) return
+        try {
+          const text = await this.host.complete({
+            messages: [
+              { role: 'system', content: introPrompt },
+              { role: 'user', content: JSON.stringify(introInputs(character)) },
+            ],
+            summary: 'Public bot bio',
+            maxTokens: 1400,
+            signal: this.signal,
+          })
+          const parsed = parseIntro(text, character.name)
+          if (!parsed) continue
+          const fresh = this.host.getCharacter(character.id)
+          if (this.signal.aborted || introHash(fresh) !== hash) return
+          this.host.updateCharacterExtensions(character.id, {
+            nobot: {
+              ...((fresh.extensions.nobot as Record<string, unknown>) ?? {}),
+              generatedIntro: { hash, ...parsed, generatedAt: this.now() },
+            },
+          })
+          return
+        } catch {
+          /* 无连接或请求失败时保持规则回退，不阻断平台资料预览。 */
+        }
+      }
+      if (force && !this.signal.aborted) {
+        const fresh = this.host.getCharacter(character.id)
+        if (introHash(fresh) !== hash) return
+        // 强制重新生成失败也必须回退规则，不能把旧缓存伪装成本次生成结果。
+        const nobot = { ...((fresh.extensions.nobot as Record<string, unknown>) ?? {}) }
+        delete nobot.generatedIntro
+        this.host.updateCharacterExtensions(character.id, { nobot })
+      }
+    })()
+    tasks.set(character.id, task)
+    try {
+      await task
+    } finally {
+      if (tasks.get(character.id) === task) tasks.delete(character.id)
+    }
+  }
+  async regenerateIntro() {
+    await this.ensureIntro(true)
+    return this.preview(false)
+  }
+  async preview(generate = true): Promise<ChannelPresencePreview> {
+    if (generate) await this.ensureIntro()
     const row = accountRow(this.id)
     const character = this.character(row)
     const values = desiredPresence(row, character)
@@ -127,7 +289,25 @@ export class PresenceSync {
               ? `/api/characters/${encodeURIComponent(avatar.value)}/avatar`
               : ''
     }
-    return { current, desired, confirmed: row.config.presence.confirmed }
+    const details = presenceValues(row, character)
+    const fieldValues = Object.fromEntries(
+      Object.entries(details)
+        .filter(([key]) => key.endsWith(':'))
+        .map(([key, value]) => [key.slice(0, -1), value]),
+    )
+    if (avatar.mode !== 'unmanaged')
+      fieldValues.avatar = { value: desired.avatar!, source: avatar.mode === 'custom' ? 'custom' : 'rules' }
+    const languages = Object.fromEntries(
+      (['zh', 'en'] as const).map((lang) => [
+        lang,
+        Object.fromEntries(
+          Object.entries(details)
+            .filter(([key]) => key.endsWith(`:${lang}`))
+            .map(([key, value]) => [key.split(':')[0], value]),
+        ),
+      ]),
+    ) as ChannelPresencePreview['languages']
+    return { current, desired, fields: fieldValues, languages, confirmed: row.config.presence.confirmed }
   }
   apply(confirm: boolean) {
     if (!confirm) throw new HttpError(409, 'CONFIRM_REQUIRED', t('请先确认资料同步预览'))
@@ -157,6 +337,7 @@ export class PresenceSync {
   private async perform(force: boolean) {
     let row = accountRow(this.id)
     if (!row.config.presence.confirmed) throw new HttpError(409, 'CONFIRM_REQUIRED', t('请先确认资料同步预览'))
+    await this.ensureIntro()
     const character = this.character(row)
     const desired = desiredPresence(row, character)
     let avatar: Uint8Array | undefined
@@ -219,7 +400,12 @@ export class PresenceSync {
               field === 'name' ? { nickname: value } : { longNick: value },
               this.signal,
             )
-          } else await this.client.call(`set${method}`, { [parameter]: value, language_code: language }, this.signal)
+          } else
+            await this.client.call(
+              `set${method}`,
+              { [parameter]: value, ...(language ? { language_code: language } : {}) },
+              this.signal,
+            )
         }
         state.appliedHash = desiredHash
       } catch (error) {

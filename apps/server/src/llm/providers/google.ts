@@ -1,5 +1,6 @@
 import { parseSSE, type ToolCall } from '@nobot/shared'
 import { type Json, request, upstreamError } from '../common'
+import { toolImageFallback } from '../tool-images'
 import type { CompletionRequest, StreamChunk } from '../types'
 import { contentParts } from './anthropic'
 
@@ -8,7 +9,7 @@ export function googleBody(body: Json, vertex = false): Json {
   const contents: { role: string; parts: Json[] }[] = []
   const names = new Map<string, string>()
   let leading = true
-  for (const message of (body.messages ?? []) as Json[]) {
+  for (const message of toolImageFallback(body.messages ?? []) as Json[]) {
     if (leading && message.role === 'system') {
       system.push(...contentParts(message.content, true))
       continue

@@ -20,7 +20,7 @@ const extension: ExtensionDTO = {
   enabled: true,
   client: { script: true, style: false },
   permissions: null,
-  detected: { server: false, client: false, routes: false, tools: false, hooks: false },
+  detected: { server: false, client: false, routes: false, tools: false, hooks: false, background: false },
   permissionWarnings: [],
   needsApproval: false,
   git: null,

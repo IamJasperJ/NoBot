@@ -50,6 +50,13 @@
       "when": 1792840418063,
       "tag": "0006_cheerful_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793277314909,
+      "tag": "0007_familiar_korvac",
+      "breakpoints": true
     }
   ]
 }

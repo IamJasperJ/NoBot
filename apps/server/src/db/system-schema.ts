@@ -252,3 +252,15 @@ export const channelRegistry = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.userHandle, t.accountId] })],
 )
+
+/** 无凭据的第三方后台启动索引，用户删除时自动清理。 */
+export const extensionBackgrounds = sqliteTable(
+  'extension_backgrounds',
+  {
+    userHandle: text('user_handle')
+      .notNull()
+      .references(() => users.handle, { onDelete: 'cascade' }),
+    extensionId: text('extension_id').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userHandle, t.extensionId] })],
+)

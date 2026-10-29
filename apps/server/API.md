@@ -236,6 +236,11 @@ Azure 模型就是部署名，因此返回空模型列表。所有聊天、静�
 | PATCH | `/bookmarks/:id` | 重命名书签或存档 | `UpdateBookmarkInput` | `BookmarkDTO` |
 | DELETE | `/bookmarks/:id` | 删除书签或存档 | — | ok |
 
+`GenerateInput` 的 trigger 形式为 `{ mode: 'trigger', speakerId?: string, instruction?: string }`。
+`instruction` 去除两端空白后长度为 1–8000，只作为本次生成的隐藏 system 注入，支持宏展开；
+群聊本轮每位发言者都会收到。它不保存到消息或元数据，不带入后续轮次或静默生成，但会出现在请求日志中。
+房间 `/rooms/:id/turn` 也接受 trigger 输入；隐藏指令仅 owner/GM 可用，玩家返回 403。
+
 ## 消息 `/messages`
 
 | 方法 | 路径 | 说明 | 请求 | 返回 |
@@ -282,6 +287,10 @@ Git 地址仅允许 HTTPS 或 git@host:path，ref 支持分支和标签；预览
 更新和切换拒绝有本地修改的仓库，内置扩展不可替换或卸载，非 Git 本地扩展调用 Git 接口返回 400。
 热重载使用独立版本运行目录，移除旧路由、工具、宏和钩子，并调用可选 dispose 清理函数。
 索引支持数组或 `{ extensions: [...] }`，逐项宽松校验，单源失败不影响其他源；每源 15 秒、2MB 上限。
+权限包含 `background`（默认 false）；后台异常状态 `backgroundError` 只暴露异常类型。
+`ctx.host.trigger(chatId, { speakerId?, instruction? }?)` 返回 void，主动让角色发言。
+当前用户主持的房间以房主身份发起非手动回合（房主不受访客额度限制），广播房间事件，暂停或归档时拒绝；
+普通会话使用 trigger 生成，正在生成时抛出 409 `GENERATING`。
 示例扩展见 `examples/extensions/hello-world`。
 
 ## 扩展自定义接口 `/ext/:id`

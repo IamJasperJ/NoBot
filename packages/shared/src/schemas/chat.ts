@@ -111,7 +111,12 @@ export const generateInput = z.discriminatedUnion('mode', [
   }),
   z.object({ mode: z.literal('regenerate'), targetId: z.string() }),
   z.object({ mode: z.literal('continue'), targetId: z.string() }),
-  z.object({ mode: z.literal('trigger'), speakerId: z.string().optional() }),
+  z.object({
+    mode: z.literal('trigger'),
+    speakerId: z.string().optional(),
+    /** 仅本次生成使用的隐藏系统说明；不保存到消息、不在界面展示，但与其他提示内容一样可见于请求日志。 */
+    instruction: z.string().trim().min(1).max(8000).optional(),
+  }),
 ])
 export type GenerateInput = z.infer<typeof generateInput>
 

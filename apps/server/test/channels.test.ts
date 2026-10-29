@@ -898,6 +898,28 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
         } finally {
           synthesis.mockRestore()
         }
+        // 后台触发没有渠道入站消息，仍由 watchJobs 订阅并投递到绑定聊天。
+        model.setScript(() => ({ text: 'Proactive channel greeting', delayMs: 20 }))
+        const proactiveStart = calls.length
+        host.trigger(plain.id, { instruction: 'Greet the channel proactively.' })
+        await host.waitIdle(plain.id, 5000)
+        for (
+          let i = 0;
+          i < 30 &&
+          !calls.slice(proactiveStart).some((c) => String(c.body.text).includes('Proactive channel greeting'));
+          i++
+        )
+          await Bun.sleep(50)
+        expect(
+          calls
+            .slice(proactiveStart)
+            .some(
+              (c) =>
+                ['sendMessage', 'editMessageText'].includes(c.method) &&
+                c.body.chat_id === '10' &&
+                String(c.body.text).includes('Proactive channel greeting'),
+            ),
+        ).toBe(true)
       } finally {
         model.stop()
       }

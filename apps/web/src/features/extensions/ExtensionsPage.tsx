@@ -229,12 +229,14 @@ export function ExtensionDetail({
               </details>
             </div>
           )}
-          {extension.loadError && (
+          {(extension.loadError || extension.backgroundError) && (
             <div
               role="alert"
               className="rounded-lg border border-red-300 bg-red-50 p-3 whitespace-pre-wrap break-words text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
             >
-              {t('加载失败：{error}', { error: extension.loadError })}
+              {extension.loadError
+                ? t('加载失败：{error}', { error: extension.loadError })
+                : t('后台已停止：{error}。停用后重新启用即可重试', { error: extension.backgroundError ?? 'Error' })}
             </div>
           )}
           {dirty && (

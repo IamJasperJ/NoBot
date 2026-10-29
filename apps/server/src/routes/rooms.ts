@@ -1,5 +1,6 @@
 import {
   createRoomInput,
+  generateInput,
   roomCharacterProposalInput,
   roomInitiativeInput,
   roomInviteInput,
@@ -16,8 +17,9 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { systemDatabase } from '../db/system-client'
 import { roomBans, roomInvites } from '../db/system-schema'
+import { HttpError } from '../errors'
 import { t } from '../i18n'
-import { validate } from '../lib/validate'
+import { validate, validationMessage } from '../lib/validate'
 import * as rooms from '../services/rooms'
 import * as roomCharacters from '../services/rooms/characters'
 import * as extensions from '../services/rooms/extensions'
@@ -130,7 +132,18 @@ export const roomRoutes = new Hono()
     turns.suggest(c.req.param('id'), c.req.param('messageId'))
     return c.json(ok)
   })
-  .post('/:id/turn', (c) => c.json(turns.triggerTurn(c.req.param('id'))))
+  .post('/:id/turn', async (c) => {
+    const body = await c.req.text()
+    let value: unknown = {}
+    try {
+      value = body ? JSON.parse(body) : {}
+    } catch {
+      throw new HttpError(400, 'VALIDATION', t('{field}无效', { field: t('参数') }))
+    }
+    const parsed = generateInput.safeParse(value && typeof value === 'object' ? { ...value, mode: 'trigger' } : value)
+    if (!parsed.success) throw new HttpError(400, 'VALIDATION', validationMessage(parsed.error.issues))
+    return c.json(turns.triggerTurn(c.req.param('id'), undefined, true, parsed.data))
+  })
   .post('/:id/turn/request', (c) => {
     turns.requestTurn(c.req.param('id'))
     return c.json(ok)

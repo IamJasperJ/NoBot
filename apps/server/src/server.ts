@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { app as api } from './app'
 import { env } from './env'
 import { HttpError } from './errors'
-import { ensureUserExtensions, forwardPublicExtension, resumeBuiltinBackgrounds } from './extensions/registry'
+import { ensureUserExtensions, forwardPublicExtension, resumeBackgrounds } from './extensions/registry'
 import { t } from './i18n'
 import { requestLanguage } from './i18n/request-language'
 import { securityHeaders } from './lib/security-headers'
@@ -25,7 +25,7 @@ process.on('unhandledRejection', (error) => logError('unhandledRejection', error
 
 export function createServer() {
   resumeRoomStates()
-  void resumeBuiltinBackgrounds()
+  void resumeBackgrounds()
   const server = new Hono()
   server.use('*', securityHeaders)
   server.onError((err, c) => {

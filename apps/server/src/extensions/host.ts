@@ -1,7 +1,10 @@
-import { eq } from 'drizzle-orm'
+import { generateInput } from '@nobot/shared'
+import { and, eq } from 'drizzle-orm'
 import { decodeTime } from 'ulid'
 import { db, newId } from '../db/client'
 import { characters, chats, groupMembers, messages, personas } from '../db/schema'
+import { systemDatabase } from '../db/system-client'
+import { rooms } from '../db/system-schema'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
 import { readAvatar as avatarFile, avatarUrl } from '../lib/files'
@@ -26,7 +29,9 @@ import { loadGenerationContext } from '../services/generation/context'
 import { abortGeneration, isGenerating, startGeneration, subscribe } from '../services/generation/generation'
 import { complete, quietPrompt } from '../services/generation/quiet-prompt'
 import { insertLog } from '../services/logs'
+import { triggerTurn } from '../services/rooms/turns'
 import { performCheck } from '../services/trpg/trpg'
+import { currentUser } from '../user-context'
 import { transcribe } from './builtin/audio/asr/service'
 import { type AudioContext, synthesizeSpeech } from './builtin/audio/tts/host'
 import type { ExtensionHost, ServerEvent } from './types'
@@ -48,6 +53,22 @@ export function createExtensionHost(
       return ctx ? transcribe(bytes, mime, ctx.settings, opts) : { kind: 'unavailable', reason: 'audio-disabled' }
     },
     generate: startGeneration,
+    trigger(chatId, opts = {}) {
+      // 扩展常把可选文本原样传进来，空白当作没有指令，免得校验报错
+      const instruction = opts.instruction?.trim() || undefined
+      const input = generateInput.parse({ mode: 'trigger', speakerId: opts.speakerId, instruction })
+      const room = systemDatabase()
+        .select()
+        .from(rooms)
+        .where(and(eq(rooms.chatId, chatId), eq(rooms.hostUserId, currentUser().id)))
+        .get()
+      if (room) {
+        triggerTurn(room.id, room.hostUserId, false, input)
+        return
+      }
+      if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', t('这个会话正在生成中，请先等它结束或点停止'))
+      startGeneration(chatId, input)
+    },
     subscribe,
     abort: abortGeneration,
     swipe,
@@ -56,7 +77,7 @@ export function createExtensionHost(
     activateMessage,
     branchChat,
     createChat,
-    listChats,
+    listChats: (filter = {}) => listChats(filter),
     performCheck,
     quietPrompt,
     complete,

@@ -1,5 +1,10 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  后台任务: 'Background tasks',
+  '在后台定时运行（不打开网页也会执行）': 'Runs periodically in the background, even when no page is open',
+  '后台已停止：{error}。停用后重新启用即可重试':
+    'Background stopped: {error}. Disable and re-enable the extension to retry',
+  只对这一轮生效的隐藏指令: 'Hidden instruction for this turn only',
   工具图片消息限制: 'Tool image message limit',
   '最多发送最近多少条工具图片消息，0 表示从不发送；仍受发送图片开关和图片总数限制。':
     'Send images from this many recent tool messages. 0 never sends tool images; the image switch and total image limit still apply.',

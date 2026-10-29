@@ -10,13 +10,19 @@ export function registerBuiltins() {
   if (initialized) return
   initialized = true
   const add = (command: SlashCommand) => registerCommand(command)
-  const plain = (name: string, description: () => string, run: SlashCommand['run'], unnamed?: () => string) =>
+  const plain = (
+    name: string,
+    description: () => string,
+    run: SlashCommand['run'],
+    unnamed?: () => string,
+    args: SlashCommand['args'] = [],
+  ) =>
     add({
       name,
       get description() {
         return description()
       },
-      args: [],
+      args,
       ...(unnamed
         ? {
             get unnamed() {
@@ -61,7 +67,7 @@ export function registerBuiltins() {
   plain(
     'trigger',
     () => t('让角色回复'),
-    async (ctx, _args, text) => {
+    async (ctx, args, text) => {
       const chatId = requireChat(ctx)
       let speakerId: string | undefined
       if (text) {
@@ -73,9 +79,22 @@ export function registerBuiltins() {
         const match = matches[0]!
         speakerId = 'characterId' in match ? match.characterId : match.id
       }
-      await ctx.generate(chatId, { mode: 'trigger', ...(speakerId ? { speakerId } : {}) })
+      await ctx.generate(chatId, {
+        mode: 'trigger',
+        ...(speakerId ? { speakerId } : {}),
+        ...(args.instruction ? { instruction: args.instruction } : {}),
+      })
     },
     () => t('角色名'),
+    [
+      {
+        name: 'instruction',
+        type: 'string',
+        get description() {
+          return t('只对这一轮生效的隐藏指令')
+        },
+      },
+    ],
   )
   for (const name of ['continue', 'regen', 'swipe'] as const) {
     plain(

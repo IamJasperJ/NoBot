@@ -106,6 +106,7 @@ const setLeaf = (chatId: string, leafId: string) =>
 // ---------------------------------------------------------------------------
 
 interface Plan {
+  instruction?: string | undefined
   type: GenerationType
   /** 第一位发言者的回复挂在这条消息下面 */
   parentId: string | null
@@ -216,11 +217,13 @@ export function startGeneration(chatId: string, input: GenerateInput, hooks?: Ge
     }
   }
 
+  plan.instruction = input.mode === 'trigger' ? input.instruction : undefined
   const multiplayer = multiplayerPrompt(chatId, leafId)
   if (multiplayer) plan.speakers = plan.speakers.slice(0, 3)
 
   // 先组装一遍第一位发言者的 Prompt：超长、缺连接等问题在这里就报错，不写入任何东西
   const preflight = assemble(ctx, {
+    instruction: plan.instruction,
     type: plan.type,
     speakerId: plan.speakers[0] ?? firstMember,
     leafId: plan.continueTarget ? plan.continueTarget.id : plan.parentId,
@@ -322,7 +325,14 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
         job.hooks?.beforeMessage?.()
         if (job.controller.signal.aborted) break speakers
         roomMessageCount++
-        const step = await generateOne(job, ctx, { speakerId, parentId, type, continueTarget, userMessage })
+        const step = await generateOne(job, ctx, {
+          speakerId,
+          parentId,
+          type,
+          continueTarget,
+          userMessage,
+          instruction: plan.instruction,
+        })
         if (step.error) finished.push(step.error)
         parentId = step.message.id
         // 出错或被中止：整个任务停下（群聊后面的人也不再发言）
@@ -409,6 +419,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
 }
 
 interface StepInput {
+  instruction?: string | undefined
   speakerId: string
   parentId: string | null
   type: GenerationType
@@ -476,6 +487,7 @@ async function generateOne(
 
   try {
     const assembled = await assembleWithVectors(ctx, {
+      instruction: step.instruction,
       type: step.type,
       speakerId: speaker.id,
       leafId: step.continueTarget ? step.continueTarget.id : step.parentId,

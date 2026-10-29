@@ -92,6 +92,12 @@ export interface ExtensionHost {
   ): Promise<TranscriptionResult>
   /** 房间操作直接调用房间服务，保留真实成员参数，避免以宿主权限绕过房间校验。 */
   generate: typeof import('../services/generation/generation').startGeneration
+  /**
+   * 让角色主动发言（不需要用户消息）。当前用户主持的房间走房间回合，以房主身份、非手动触发，
+   * 房主不受访客额度限制，会广播房间事件；否则等同 generate 的 trigger 模式。正在生成时抛出 409 GENERATING。
+   * instruction 只对这一轮生效、不入库；空白字符串视为没有指令。
+   */
+  trigger(chatId: string, opts?: { speakerId?: string; instruction?: string }): void
   subscribe: typeof import('../services/generation/generation').subscribe
   abort: typeof import('../services/generation/generation').abortGeneration
   swipe: typeof import('../services/chats').swipe
@@ -100,7 +106,9 @@ export interface ExtensionHost {
   activateMessage: typeof import('../services/chats').activateMessage
   branchChat: typeof import('../services/chats').branchChat
   createChat: typeof import('../services/chats').createChat
-  listChats: typeof import('../services/chats').listChats
+  listChats(
+    filter?: Parameters<typeof import('../services/chats').listChats>[0],
+  ): ReturnType<typeof import('../services/chats').listChats>
   performCheck: typeof import('../services/trpg/trpg').performCheck
   listGeneratedImages(
     characterId: string,
@@ -258,7 +266,7 @@ export interface Extension {
    * 升级前自行验证凭据；WS 回调必须捕获 currentUser 并显式 runAsUser，停止时关闭连接。
    */
   publicRoutes?: (app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) => void
-  /** 内置扩展每用户后台生命周期；signal 在关闭用户库、禁用或卸载时先中止。 */
+  /** 每用户后台生命周期；第三方需要 background 权限批准，重载、禁用、卸载或关闭用户库时先中止 signal。 */
   startBackground?: (ctx: Omit<ExtensionContext, 'chatId'>, signal: AbortSignal) => void | Promise<void>
 }
 

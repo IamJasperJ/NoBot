@@ -30,7 +30,7 @@ export const extension: ExtensionDTO = {
   settingsSchema: [],
   settings: { autoMode: 'both', internalLanguage: 'ja' },
   permissions: null,
-  detected: { server: true, client: false, routes: true, tools: false, hooks: true },
+  detected: { server: true, client: false, routes: true, tools: false, hooks: true, background: false },
   permissionWarnings: [],
   needsApproval: false,
   git: null,

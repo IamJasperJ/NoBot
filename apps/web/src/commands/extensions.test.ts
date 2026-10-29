@@ -30,7 +30,7 @@ test('后端扩展命令自动注册、别名调用、重载和停用清理', as
     author: '',
     client: { script: false, style: false },
     permissions: null,
-    detected: { server: false, client: false, routes: false, tools: false, hooks: false },
+    detected: { server: false, client: false, routes: false, tools: false, hooks: false, background: false },
     permissionWarnings: [],
     needsApproval: false,
     git: null,

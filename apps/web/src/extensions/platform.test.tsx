@@ -66,7 +66,7 @@ test('内置前端共用激活与清理，并将设置插槽限制为扩展自�
     author: '',
     client: { script: false, style: false },
     permissions: null,
-    detected: { server: false, client: false, routes: false, tools: false, hooks: false },
+    detected: { server: false, client: false, routes: false, tools: false, hooks: false, background: false },
     permissionWarnings: [],
     needsApproval: false,
     git: null,

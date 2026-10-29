@@ -144,3 +144,17 @@ describe('注册和执行', () => {
     await expect(runCommandLine('/delay -1', ctx)).rejects.toThrow('/delay:')
   })
 })
+
+test('/trigger 的隐藏指令命名参数传给本次生成', async () => {
+  registerBuiltins()
+  const requests: unknown[] = []
+  await runCommandLine(
+    '/trigger instruction="Say hello quietly"',
+    context({
+      generate: async (_chatId, input) => {
+        requests.push(input)
+      },
+    }),
+  )
+  expect(requests).toEqual([{ mode: 'trigger', instruction: 'Say hello quietly' }])
+})

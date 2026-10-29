@@ -4,7 +4,7 @@ import { createUserInput, updateUserInput } from '@nobot/shared'
 import { and, eq } from 'drizzle-orm'
 import { Hono } from 'hono'
 import { systemDatabase } from '../db/system-client'
-import { sessions, users } from '../db/system-schema'
+import { extensionBackgrounds, sessions, users } from '../db/system-schema'
 import { env } from '../env'
 import { HttpError, notFound } from '../errors'
 import { unloadUserExtensions } from '../extensions/registry'
@@ -66,7 +66,14 @@ export const adminRoutes = new Hono()
       return updated
     })
     if (input.disabled === true || passwordHash) liveHub.closeUser(id)
-    if (input.disabled === true) await runAsUser(result, unloadUserExtensions)
+    if (input.disabled === true) {
+      try {
+        await runAsUser(result, unloadUserExtensions)
+      } finally {
+        // 等待懒加载结束后再清索引，避免加载期间重新登记后台。
+        db.delete(extensionBackgrounds).where(eq(extensionBackgrounds.userHandle, result.handle)).run()
+      }
+    }
     return c.json(userDTO(result))
   })
   .delete('/users/:id', async (c) => {

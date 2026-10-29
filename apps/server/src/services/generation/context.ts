@@ -307,6 +307,8 @@ export function toHistory(ctx: GenerationContext, leafId: string | null, plainHi
 }
 
 export interface AssembleOptions {
+  /** 只随当前生成传递，不写入历史。 */
+  instruction?: string | undefined
   type: GenerationType
   speakerId: string
   /** 历史的最后一条（新回复挂在它下面；续写时就是被续写的消息） */
@@ -479,6 +481,17 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
       position: 'after_char',
       role: 'system',
       content: multiplayer.note,
+    })
+  }
+  if (opts.instruction && !opts.quiet) {
+    input.injections ??= []
+    input.injections.push({
+      id: 'trigger-instruction',
+      label: 'Trigger instruction',
+      content: opts.instruction,
+      position: 'depth',
+      depth: 0,
+      role: 'system',
     })
   }
   input = runBeforePrompt(input)

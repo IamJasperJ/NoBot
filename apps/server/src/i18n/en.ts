@@ -8,6 +8,7 @@ export const en: Record<string, string> = {
   '当前房间不是群聊，无法撤回角色': 'Characters cannot be withdrawn from a room that is not a group chat',
   '所选附件不可用，请重新上传': 'The selected attachment is unavailable; please upload it again',
   所选发言角色不在房间中或已静音: 'The selected speaker is not in the room or is muted',
+  只有房主和主持可以附带隐藏指令: 'Only the owner and GMs can attach a hidden instruction',
   '此消息已收到回复或不在当前分支，无法编辑或撤回':
     'This message has received a reply or is outside the current branch and cannot be edited or withdrawn',
   只能对模型回复提出建议: 'Suggestions can only be made on AI replies',

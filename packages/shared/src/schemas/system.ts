@@ -116,6 +116,8 @@ export interface ExtensionDTO {
   hasRoutes: boolean
   /** 加载失败时的错误 */
   loadError?: string
+  /** 后台停止时仅暴露异常类型，不包含凭据或异常消息 */
+  backgroundError?: string | null
   /**
    * manifest 声明的权限；null 表示没有声明（旧扩展），此时按检测到的能力请用户确认，并给出警告。
    * 内置扩展等于检测到的能力
@@ -145,6 +147,8 @@ export interface ExtensionPermissions {
   tools: boolean
   /** 介入提示词组装、输入输出改写等钩子 */
   hooks: boolean
+  /** 在后台定时运行 */
+  background: boolean
   /** 会访问的外部域名，仅声明，做不到强制 */
   network: string[]
 }
@@ -155,6 +159,7 @@ export const extensionPermissionsSchema = z.object({
   routes: z.boolean().default(false),
   tools: z.boolean().default(false),
   hooks: z.boolean().default(false),
+  background: z.boolean().default(false),
   network: z.array(z.string().trim().min(1)).default([]),
 })
 

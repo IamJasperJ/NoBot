@@ -2,10 +2,11 @@ import type { ExtensionPermissions } from '@nobot/shared'
 import { t } from '../i18n'
 import type { Extension, ExtensionManifest } from './types'
 
-export const capabilities = ['server', 'client', 'routes', 'tools', 'hooks'] as const
+export const capabilities = ['server', 'client', 'routes', 'tools', 'hooks', 'background'] as const
 
 export function detectPermissions(extension: Extension, manifest?: ExtensionManifest, server = false) {
   return {
+    background: typeof extension.startBackground === 'function',
     server,
     client: !!(manifest?.client || manifest?.style),
     routes: !!extension.routes || !!extension.publicRoutes || !!extension.commands?.length,

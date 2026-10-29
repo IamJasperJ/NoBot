@@ -100,7 +100,7 @@ test('前端扩展：注册排序、页面、事件、变换、失败隔离与�
     enabled: true,
     client: { script: true, style: true },
     permissions: null,
-    detected: { server: false, client: false, routes: false, tools: false, hooks: false },
+    detected: { server: false, client: false, routes: false, tools: false, hooks: false, background: false },
     permissionWarnings: [],
     needsApproval: false,
     git: null,

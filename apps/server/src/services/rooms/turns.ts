@@ -379,6 +379,8 @@ export function triggerTurn(
   )
     throw new HttpError(400, 'ROOM_SPEAKER_UNAVAILABLE', t('所选发言角色不在房间中或已静音'))
   checkWritable(room, actorId)
+  if (input.mode === 'trigger' && input.instruction && !['owner', 'gm'].includes(member.role))
+    throw new HttpError(403, 'TRIGGER_INSTRUCTION_FORBIDDEN', t('只有房主和主持可以附带隐藏指令'))
   if (manual && member.role === 'player') throw refused()
   return asHost(room, () => {
     const s = turnState(id)

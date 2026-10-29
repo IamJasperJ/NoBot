@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { db, getSetting, setSetting } from '../db/client'
 import { chats, messages, settings } from '../db/schema'
 import { systemDatabase } from '../db/system-client'
-import { channelRegistry, users } from '../db/system-schema'
+import { channelRegistry, extensionBackgrounds, users } from '../db/system-schema'
 import { paths } from '../env'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
@@ -88,15 +88,18 @@ export async function ensureUserExtensions() {
     loading.set(handle, pending)
   }
   await pending
-  startBuiltinBackgrounds()
+  startBackgrounds()
 }
 export async function unloadUserExtensions() {
   const handle = currentUser().handle
-  stopBuiltinBackgrounds(handle)
+  stopBackgrounds(handle)
   await loading.get(handle)
-  for (const entry of [...localExtensions()]) await unloadExtension(entry.extension.id)
+  stopBackgrounds(handle)
+  for (const entry of [...localExtensions()]) await unloadExtension(entry.extension.id, true)
   userExtensions.delete(handle)
   loading.delete(handle)
+  // 停用用户会在卸载后清空索引；下次加载必须重新读取，普通卸载仍保留数据库记录。
+  backgroundIndex.delete(handle)
 }
 const requestChat = profileChatScope
 // 配置组编辑草稿必须从扩展原始设置起步，不能继承当前会话已经合并的配置组。
@@ -197,10 +200,12 @@ registerBuiltinExtension(audio)
 registerBuiltinExtension(translate)
 
 /** 注销在注册表中的旧对象，之后的请求不能再找到旧路由、命令和钩子。 */
-export async function unloadExtension(id: string) {
+export async function unloadExtension(id: string, preserveBackgroundIndex = false) {
   const index = localExtensions().findIndex((entry) => entry.extension.id === id)
   if (index < 0) return
   const [entry] = localExtensions().splice(index, 1)
+  stopBackgrounds(currentUser().handle, id)
+  if (!preserveBackgroundIndex) removeBackgroundIndex(id)
   try {
     await entry?.extension.dispose?.()
   } catch (error) {
@@ -234,6 +239,7 @@ export async function reloadExtension(id: string, directory: string) {
   }
   if (old >= 0) localExtensions().splice(Math.min(old, localExtensions().length), 0, entry)
   else localExtensions().push(entry)
+  startBackgrounds()
   return toDTO(entry)
 }
 
@@ -468,6 +474,7 @@ function toDTO(l: Loaded): ExtensionDTO {
     settingsSchema: translateSettingsSchema(e.settingsSchema ?? []),
     settings: maskedSettingsOf(e),
     ...(l.loadError ? { loadError: l.loadError } : {}),
+    backgroundError: backgroundErrors.get(currentUser().handle)?.get(e.id) ?? null,
   }
 }
 
@@ -488,6 +495,13 @@ export function updateExtension(
   if (!l) throw notFound(t('扩展'))
   if (patch.enabled && needsApproval(l) && !patch.approvePermissions)
     throw new HttpError(409, 'NEEDS_APPROVAL', t('启用扩展前需要确认权限'))
+  if (patch.approvePermissions === false && l.source === 'local') {
+    const approved = { ...getSetting<Record<string, string>>('extensionsApproved') }
+    delete approved[id]
+    setSetting('extensionsApproved', approved)
+    l.app = undefined
+    stopBackgrounds(currentUser().handle, id)
+  }
   if (patch.approvePermissions) {
     setSetting('extensionsApproved', {
       ...getSetting<Record<string, string>>('extensionsApproved'),
@@ -498,14 +512,14 @@ export function updateExtension(
     })
     l.app ??= createApp(l.extension)
   }
-  if (patch.enabled === false) stopBuiltinBackgrounds(currentUser().handle, id)
+  if (patch.enabled === false) stopBackgrounds(currentUser().handle, id)
   if (patch.enabled !== undefined) setSetting(SETTING_KEYS.extensionsEnabled, { ...enabledMap(), [id]: patch.enabled })
   // 前端传回的密钥如果还是占位串，表示没改，保留原值
   if (patch.settings) {
     setSetting(SETTING_KEYS.extensionSettings(id), restoreSecrets(patch.settings, settingsOf(l.extension)))
     if (id === 'audio') fishClient.clearCache()
   }
-  startBuiltinBackgrounds()
+  startBackgrounds()
   return toDTO(l)
 }
 
@@ -628,44 +642,112 @@ export function imageGenerationContext(chatId = '', characterId?: string): Exten
 }
 
 const backgroundControllers = new Map<string, Map<string, AbortController>>()
-function stopBuiltinBackgrounds(handle: string, id?: string) {
+const backgroundErrors = new Map<string, Map<string, string>>()
+const backgroundIndex = new Map<string, Set<string>>()
+function backgroundIndexOf(handle: string) {
+  let ids = backgroundIndex.get(handle)
+  if (!ids) {
+    ids = new Set(
+      systemDatabase()
+        .select({ id: extensionBackgrounds.extensionId })
+        .from(extensionBackgrounds)
+        .where(eq(extensionBackgrounds.userHandle, handle))
+        .all()
+        .map((row) => row.id),
+    )
+    backgroundIndex.set(handle, ids)
+  }
+  return ids
+}
+function removeBackgroundIndex(id: string) {
+  const handle = currentUser().handle
+  const ids = backgroundIndexOf(handle)
+  if (!ids.has(id)) return
+  systemDatabase()
+    .delete(extensionBackgrounds)
+    .where(and(eq(extensionBackgrounds.userHandle, handle), eq(extensionBackgrounds.extensionId, id)))
+    .run()
+  ids.delete(id)
+}
+function stopBackgrounds(handle: string, id?: string) {
   const entries = backgroundControllers.get(handle)
-  if (!entries) return
-  for (const [key, controller] of entries) {
+  for (const [key, controller] of entries ?? []) {
     if (id && id !== key) continue
     controller.abort()
-    entries.delete(key)
+    entries?.delete(key)
   }
-  if (!entries.size) backgroundControllers.delete(handle)
+  if (!entries?.size) backgroundControllers.delete(handle)
+  if (id) backgroundErrors.get(handle)?.delete(id)
+  else backgroundErrors.delete(handle)
 }
-onUserDatabaseClose(stopBuiltinBackgrounds)
-function startBuiltinBackgrounds() {
-  const handle = currentUser().handle
+onUserDatabaseClose((handle) => {
+  stopBackgrounds(handle)
+  backgroundIndex.delete(handle)
+})
+function startBackgrounds() {
+  const user = currentUser()
+  const handle = user.handle
   let entries = backgroundControllers.get(handle)
   if (!entries) {
     entries = new Map()
     backgroundControllers.set(handle, entries)
   }
-  for (const entry of builtins) {
+  for (const entry of visibleExtensions()) {
     const extension = entry.extension
-    if (!isEnabled(entry) || !extension.startBackground || entries.has(extension.id)) continue
+    const enabled = isEnabled(entry) && !!extension.startBackground
+    if (entry.source === 'local') {
+      const ids = backgroundIndexOf(handle)
+      // 中间件每次请求都会进入这里，只有期望状态改变时才写系统库。
+      if (enabled && !ids.has(extension.id)) {
+        systemDatabase()
+          .insert(extensionBackgrounds)
+          .values({
+            userHandle: handle,
+            extensionId: extension.id,
+          })
+          .onConflictDoNothing()
+          .run()
+        ids.add(extension.id)
+      } else if (!enabled) removeBackgroundIndex(extension.id)
+    }
+    if (!enabled) {
+      stopBackgrounds(handle, extension.id)
+      continue
+    }
+    // 异常停止后不因普通请求反复重试；显式禁用或重载才清除状态。
+    if (entries.has(extension.id) || backgroundErrors.get(handle)?.has(extension.id)) continue
     const controller = new AbortController()
     entries.set(extension.id, controller)
-    const { chatId: _, ...ctx } = contextOf(extension, '')
-    try {
-      Promise.resolve(extension.startBackground(ctx, controller.signal)).catch(() => {
-        // 不打印第三方异常，避免后台连接 URL 中的凭据进入日志。
-        if (entries?.get(extension.id) === controller) entries.delete(extension.id)
-        controller.abort()
-      })
-    } catch {
+    backgroundControllers.set(handle, entries)
+    const ctx = {
+      get settings() {
+        return contextOf(extension, '').settings
+      },
+      storage: storageOf(extension.id),
+      host,
+    }
+    const failed = (error: unknown) => {
+      if (entries.get(extension.id) !== controller || controller.signal.aborted) return
+      // 不读取异常消息，也不记录原始异常，避免凭据进入日志或界面。
+      const name = error instanceof Error && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name) ? error.name : 'Error'
+      let errors = backgroundErrors.get(handle)
+      if (!errors) {
+        errors = new Map()
+        backgroundErrors.set(handle, errors)
+      }
+      errors.set(extension.id, name)
       entries.delete(extension.id)
       controller.abort()
+    }
+    try {
+      Promise.resolve(runAsUser(user, () => extension.startBackground?.(ctx, controller.signal))).catch(failed)
+    } catch (error) {
+      failed(error)
     }
   }
 }
 /** 启动仅枚举无凭据索引；停用用户及扩展均不恢复连接。 */
-export async function resumeBuiltinBackgrounds() {
+export async function resumeBackgrounds() {
   const db = systemDatabase()
   const handles = new Set(
     db
@@ -675,6 +757,7 @@ export async function resumeBuiltinBackgrounds() {
       .all()
       .map((r) => r.userHandle),
   )
+  for (const row of db.select().from(extensionBackgrounds).all()) handles.add(row.userHandle)
   for (const handle of handles) {
     const user = db
       .select()

@@ -5,7 +5,7 @@
 // 规则：最后一条消息是背景起名请求（Output only JSON: {"name"…）时，回答固定的 {"name":"模拟背景",…}；
 //      system 提示词是情绪判断（含 following labels:）时，回答被判断消息里出现的标签；
 //      最后一条用户消息含「VN」时，回复一段带舞台指令（场景、上台、台词速记、<state>、<choices>）的内容，
-//      说话人固定是「艾莉丝」；
+//      说话人固定是「艾莉丝」，流式时先分几段输出思考内容（reasoning_content）；
 //      请求带 tools 且最后一条用户消息含「掷骰」、还没有工具结果时，返回一次 roll_dice 调用；
 //      含「检定」且提供 ability_check 工具、没有工具结果时，返回玩家隐匿 DC13 检定；
 //      含「结束战斗」「下一回合」「战斗」时分别回复结束、推进、开始战斗指令及旁白；
@@ -219,7 +219,19 @@ const mockServer = {
           send({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: args.slice(half) } }] } }] })
           send({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })
         } else {
-          send({ choices: [{ delta: { reasoning_content: '思考中…' } }] })
+          // VN 回复：分几段流式输出思考内容，用来看 VN 的思考气泡；其他回复只给一小段
+          if (reply === vnReply) {
+            for (const part of [
+              '先看看场景：',
+              '玩家想看 VN 演出。\n\n',
+              '让艾莉丝上台打招呼，',
+              '再给两个选项。\n\n',
+              '语气要轻快一点。',
+            ]) {
+              send({ choices: [{ delta: { reasoning_content: part } }] })
+              await Bun.sleep(Number(process.env.DELAY ?? 20) * 10)
+            }
+          } else send({ choices: [{ delta: { reasoning_content: '思考中…' } }] })
           for (const w of reply.split('')) {
             send({ choices: [{ delta: { content: w } }] })
             await Bun.sleep(Number(process.env.DELAY ?? 20))

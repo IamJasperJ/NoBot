@@ -586,6 +586,17 @@ export function PlayPresetEditor({
           onChange={(v) => set('dialog', 'skipReadOnly', v)}
         />
         <SelectField
+          label={t('思考气泡')}
+          hint={t('模型有思考内容（如 DeepSeek 的推理）时，在画面左上方用气泡显示；一直保留时演出中按进度分段浮现')}
+          value={dialog.reasoning}
+          onChange={(v) => set('dialog', 'reasoning', v)}
+          options={[
+            { value: 'off', label: t('关闭') },
+            { value: 'generating', label: t('只在生成时显示') },
+            { value: 'always', label: t('一直保留') },
+          ]}
+        />
+        <SelectField
           label={t('未知角色')}
           hint={t('模型写了没有立绘也没有角色卡的人（临时 NPC）时怎么显示')}
           value={stage.unknownActor}

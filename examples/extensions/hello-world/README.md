@@ -5,6 +5,7 @@
 
 - `extensions.settings.footer`：收到 `{ extensionId, settings }`，显示在设置表单下方；只显示当前扩展自己的贡献。settings 是尚未保存的草稿。
 - `chat.message.media`：收到 `{ chatId, message }`，位于图片区域下方，工具消息也会显示，可放重试等按钮。
+- `vn.stage.overlay`、`vn.hud.items`、`vn.dialog.footer`：VN 画面上的叠加层、状态栏项和对话框底部控件，收到当前演出位置（message、beatIndex、speaker、text、reasoning 等）；示例在叠加层显示说话人、在状态栏显示拍数，并订阅 `vn:line` / `vn:directive` 打印到控制台。
 - 原有 `chat.header.actions`、`chat.composer.menu`、`chat.message.actions`、`chat.message.footer`、`sidebar.footer` 继续可用。
 
 后端钩子和工具通过 `ctx.host` 使用宿主；路由注册上下文也包含 host：

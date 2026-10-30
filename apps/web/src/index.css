@@ -355,6 +355,27 @@ body {
     transform: translateX(12px);
   }
 }
+/* VN 思考气泡：云朵似的半透明白底，和深色 HUD 区分开；新浮现的段落淡入 */
+.vn-thought {
+  background: rgb(255 255 255 / 82%);
+  color: rgb(63 63 70);
+  border: 1px solid rgb(255 255 255 / 60%);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+  backdrop-filter: blur(6px);
+}
+.vn-thought-dot {
+  background: rgb(255 255 255 / 82%);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+}
+.vn-thought-in {
+  animation: vn-thought-in 500ms ease-out;
+}
+@keyframes vn-thought-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
 /* VN 里的输入框：去掉聊天视图的底色，浮在画面上 */
 .vn-composer .composer-bar {
   background: transparent;

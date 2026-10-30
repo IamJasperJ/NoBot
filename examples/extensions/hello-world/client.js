@@ -82,7 +82,31 @@ export default function activate(api) {
   }
   api.registerPage({ id: 'hello', label: 'Hello', icon: '👋', render: () => h(HelloPage) })
   api.registerMessageTransform((text) => text.replaceAll('[[闪光]]', '✨'))
-  const unsubscribe = api.on('generation:complete', (event) => console.log('生成结束：', event.chatId))
+  // VN：舞台叠加层不拦点击，需要点击的元素自己加 pointer-events: auto；思考内容在 reasoning 里
+  api.registerSlot('vn.stage.overlay', {
+    id: 'speaker',
+    render: ({ speaker, reasoning }) =>
+      speaker || reasoning
+        ? h(
+            'div',
+            { className: 'hello-vn-tag' },
+            speaker ? `正在说话：${speaker}` : '',
+            reasoning ? `（思考 ${Array.from(reasoning.text).length} 字）` : '',
+          )
+        : null,
+  })
+  api.registerSlot('vn.hud.items', {
+    id: 'line',
+    render: ({ beatIndex }) =>
+      h('span', { className: 'vn-chip rounded-full px-3 py-1 text-xs' }, `第 ${(beatIndex ?? 0) + 1} 拍`),
+  })
+  const offs = [
+    api.on('generation:complete', (event) => console.log('生成结束：', event.chatId)),
+    api.on('vn:line', (event) => console.log('VN 台词：', event.speaker ?? '旁白', event.text)),
+    api.on('vn:directive', (event) => console.log('VN 指令：', event.directive.op, event.directive)),
+  ]
   // 宿主会移除所有注册项；额外的计时器、DOM 或全局监听器应由这里清理。
-  return () => unsubscribe()
+  return () => {
+    for (const off of offs) off()
+  }
 }

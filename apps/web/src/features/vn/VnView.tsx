@@ -1,15 +1,19 @@
 import type { ChoiceOption, GroupDTO, MessageDTO, PlayPresetData, StateSchema } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { refreshChatState } from '../../api/queries'
 import { useRoomForChat } from '../../api/rooms'
+import { useShownReasoning } from '../../api/translation'
 import { useFreshDice, usePickChoice, useTrpgSettings } from '../../api/trpg'
 import { ChevronRightIcon } from '../../components/icons'
 import { cx } from '../../components/ui'
+import { useExtensionsRuntime } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
+import type { VnBeatProps } from '../../extensions/types'
 import { useMobile } from '../../hooks/useMobile'
 import { t } from '../../i18n'
+import { useStreaming } from '../../stores/streaming'
 import { errorMessage, toast } from '../../stores/toast'
 import { useCinema } from '../../stores/vn'
 import { Composer } from '../chat/Composer'
@@ -19,7 +23,7 @@ import { RoomChoiceStatus, useChoiceGate } from '../rooms/RoomChoiceStatus'
 import { CheckCard, DiceCard } from '../trpg/DiceCard'
 import { InitiativeBar } from '../trpg/InitiativeBar'
 import { useCgRefresh } from './useCgRefresh'
-import { useVnPlayer } from './useVnPlayer'
+import { beatText, useVnPlayer } from './useVnPlayer'
 import { VnBacklog } from './VnBacklog'
 import { VnDialogBox } from './VnDialogBox'
 import { VnHud } from './VnHud'
@@ -27,7 +31,9 @@ import { useVnImages, VnImageCard } from './VnImages'
 import { AdjustBar, Caret, VnCg, VnChoices } from './VnParts'
 import { VnSaves } from './VnSaves'
 import { VnStage } from './VnStage'
+import { VnThought } from './VnThought'
 import { VnToolbar } from './VnToolbar'
+import { useVnEvents } from './vnEvents'
 
 /**
  * VN 视图（VN3）：同一条聊天的「舞台视图」。背景沿用应用底层的背景层，这里画立绘、对话框和操作。
@@ -80,6 +86,16 @@ export function VnView({
   // 调整立绘：拖动位置、缩放（玩法预设「允许拖动立绘」开着时才有这个入口）
   const [adjusting, setAdjusting] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
+  // 顶部区域（操作栏 + 状态栏 + 扩展的状态项）的实际高度：思考气泡贴在它下面，不和状态栏叠在一起
+  const topRef = useRef<HTMLDivElement>(null)
+  const [topHeight, setTopHeight] = useState(0)
+  useEffect(() => {
+    const el = topRef.current
+    if (!el) return
+    const observer = new ResizeObserver(() => setTopHeight(el.offsetHeight))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   // HUD 的变量：跟着最新回复且演完了，就是会话当前的变量；
   // 正在演（或重演旧回复）时是这条回复之前的变量，演完再加上这条的补丁——好感 +3 在回复演完时飘出来
@@ -97,9 +113,11 @@ export function VnView({
     return vars
   }, [player.pinned, ended, liveVars, player.varsBefore, current])
   const showHud = play.interaction.hud && Object.keys(stateSchema).length > 0
+  // 扩展往状态栏里加的项：没有状态定义时也显示
+  const hudItems = useExtensionsRuntime((s) => s.slots.some((entry) => entry.slot === 'vn.hud.items'))
   const hudBar = mobile || play.interaction.hudPosition === 'top-bar'
   // 宽屏的状态面板收成操作栏里的一枚胶囊；存档、回想、电影模式时不显示
-  const inlineHud = showHud && !hudBar && !cinema && !saves && !backlog
+  const inlineHud = (showHud || hudItems) && !hudBar && !cinema && !saves && !backlog
   const editVar = async (key: string, value: unknown) => {
     try {
       await api.setVars(chatId, { [key]: value })
@@ -181,7 +199,51 @@ export function VnView({
 
   const said = player.said
   const speakerName = said?.kind === 'line' ? said.speaker : null
-  const text = displayMacros(player.revealedText, { char: speakerName ?? cast.fallback.name, user: cast.user.name })
+  const format = (value: string, speaker: string | null) =>
+    displayMacros(value, { char: speaker ?? cast.fallback.name, user: cast.user.name })
+  const text = format(player.revealedText, speakerName)
+
+  // 思考内容：生成中用流里实时累计的，定稿后用保存的（显示译文时用译文）
+  const liveReasoning = useStreaming((s) => {
+    const live = s.streams[chatId] ?? (s.chatId === chatId ? s : undefined)
+    return current && live?.messageId === current.id ? live.reasoning : null
+  })
+  const savedReasoning = useShownReasoning(current)
+  const reasoningText = liveReasoning || savedReasoning || ''
+  const reasoning = reasoningText.trim() ? { text: reasoningText, live: player.streaming } : null
+
+  // VN 画面上几个扩展插槽共用的参数
+  const beatProps: VnBeatProps = {
+    chatId,
+    message: current,
+    beatIndex: player.beatIndex,
+    beat,
+    speaker: speakerName,
+    text: said ? format(beatText(said), speakerName) : '',
+    stage: player.stage,
+    streaming: player.streaming,
+    ended,
+    reasoning,
+    play,
+  }
+  useVnEvents({
+    chatId,
+    messageId: current?.id,
+    playKey: player.playKey,
+    beats: player.beats,
+    beatIndex: player.beatIndex,
+    firstShown: player.firstShown,
+    skipping: player.skip,
+    format,
+  })
+  // 状态栏：变量 HUD + 扩展追加的项
+  const hudExtras = hudItems && <Slot name="vn.hud.items" props={{ ...beatProps, vars: hudVars }} />
+  const hudArea = (
+    <div className="pointer-events-auto flex min-w-0 items-center gap-2">
+      {showHud && hud}
+      {hudExtras}
+    </div>
+  )
 
   return (
     <div
@@ -234,7 +296,7 @@ export function VnView({
 
       {/* 顶部：场景信息 + 操作 */}
       {/* 联机房间里房间条在右上角，VN 顶部的操作栏和状态栏整体下移让开 */}
-      <div style={{ paddingTop: 'var(--room-bar-h, 0px)' }} className="relative z-10">
+      <div ref={topRef} style={{ paddingTop: 'var(--room-bar-h, 0px)' }} className="relative z-10">
         {!hidden && (
           <VnToolbar
             chatId={chatId}
@@ -243,8 +305,8 @@ export function VnView({
             images={images}
             scene={player.stage.scene}
             cinema={cinema}
-            hudLeft={inlineHud && play.interaction.hudPosition === 'top-left' ? hud : undefined}
-            hudRight={inlineHud && play.interaction.hudPosition !== 'top-left' ? hud : undefined}
+            hudLeft={inlineHud && play.interaction.hudPosition === 'top-left' ? hudArea : undefined}
+            hudRight={inlineHud && play.interaction.hudPosition !== 'top-left' ? hudArea : undefined}
             tools={{ on: toolsOpen, set: setToolsOpen }}
             adjusting={{ on: adjusting, set: setAdjusting }}
             saves={{ on: saves, set: setSaves }}
@@ -254,7 +316,12 @@ export function VnView({
         )}
 
         {/* 状态面板：手机 / 「顶部一行」是画面上方的一行摘要；宽屏的在顶部操作栏里 */}
-        {!hidden && !cinema && showHud && hudBar && !saves && !backlog && hud}
+        {!hidden && !cinema && hudBar && !saves && !backlog && (
+          <>
+            {showHud && hud}
+            {hudExtras && <div className="pointer-events-auto mt-1.5 flex flex-wrap gap-2 px-3">{hudExtras}</div>}
+          </>
+        )}
       </div>
 
       {/* 战斗：顶部居中的先攻条 */}
@@ -283,6 +350,21 @@ export function VnView({
         </div>
       )}
 
+      {/* 舞台叠加层：立绘之上、对话框之下；层本身不拦点击，思考气泡和扩展贡献自己接收点击 */}
+      {!hidden && (
+        <div className="pointer-events-none absolute inset-0 z-[6]">
+          <VnThought
+            mode={play.dialog.reasoning}
+            reasoning={reasoning}
+            index={player.index}
+            count={player.shownCount}
+            ended={ended}
+            top={topHeight}
+          />
+          <Slot name="vn.stage.overlay" props={beatProps} />
+        </div>
+      )}
+
       {/* CG：盖住立绘和背景，点画面继续（推进按钮在最底层，CG 层不拦点击） */}
       {player.cg && <VnCg cg={player.cg} />}
 
@@ -301,7 +383,7 @@ export function VnView({
           message={images.latest}
           mobile={mobile}
           // HUD 在右上角时，图片卡片挪到左边，两个不叠在一起
-          side={showHud && !hudBar && play.interaction.hudPosition === 'top-right' ? 'left' : 'right'}
+          side={(showHud || hudItems) && !hudBar && play.interaction.hudPosition === 'top-right' ? 'left' : 'right'}
           onClose={images.close}
         />
       )}
@@ -353,6 +435,7 @@ export function VnView({
           cinema={cinema}
           speakerName={speakerName}
           text={text}
+          slotProps={beatProps}
         />
       )}
 

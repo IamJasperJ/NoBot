@@ -1,4 +1,4 @@
-import type { Beat, CharacterDTO, MessageDTO, PlayPresetData, StageState } from '@nobot/shared'
+import type { Beat, CharacterDTO, ChoiceOption, MessageDTO, PlayPresetData, StageOp, StageState } from '@nobot/shared'
 import type { QueryClient } from '@tanstack/react-query'
 import type * as ReactNS from 'react'
 import type { ReactNode } from 'react'
@@ -18,6 +18,34 @@ import type { View } from '../stores/ui'
  * 扩展拿不到 import 'react'（没有打包），所以 React、查询客户端等都通过 api 传进去，
  * 写界面用 api.React.createElement（或者自己用 htm 这类库在扩展里打包好）。
  */
+
+/** VN 演出中的当前位置，VN 画面上的几个插槽共用 */
+export interface VnBeatProps {
+  chatId: string
+  /** 正在演出的消息；还没有角色回复时为 null */
+  message: MessageDTO | null
+  /** 当前拍在 meta.stage.beats 里的序号（和 vn:line、vn:directive 事件里的一致） */
+  beatIndex: number | undefined
+  beat: Beat | undefined
+  /** 当前这句的说话人；旁白、选项、CG 拍为 null */
+  speaker: string | null
+  /** 当前这句的完整文字（已替换 {{char}} / {{user}}） */
+  text: string
+  stage: StageState
+  /** 当前消息还在生成 */
+  streaming: boolean
+  /** 当前消息已演完 */
+  ended: boolean
+  /**
+   * 当前消息的思考内容：生成时是实时累计的，定稿后是保存的（显示译文时用译文）。
+   * 没有思考内容时为 null。和「思考气泡」设置无关，扩展可以自己决定怎么显示
+   */
+  reasoning: { text: string; live: boolean } | null
+  play: PlayPresetData
+}
+
+/** VN 舞台指令事件里的指令：舞台操作原样给出，选项和 CG 拍单独列出 */
+export type VnDirective = StageOp | { op: 'choices'; options: ChoiceOption[] } | { op: 'cg'; prompt: string }
 
 /** 界面上的扩展插槽，以及每个插槽渲染时收到的参数 */
 export interface SlotProps {
@@ -42,6 +70,15 @@ export interface SlotProps {
   }
   /** VN 顶部工具栏按钮区。 */
   'vn.toolbar': { chatId: string; play: PlayPresetData }
+  /**
+   * VN 舞台叠加层：盖在立绘之上、对话框之下的全屏层（思考气泡、飘字、状态贴纸等）。
+   * 层本身不拦点击（点画面照常推进），贡献里要接收点击的元素自己加 pointer-events: auto
+   */
+  'vn.stage.overlay': VnBeatProps
+  /** VN 状态栏里追加的项（和变量 HUD 排在一起；没有状态定义时也会显示） */
+  'vn.hud.items': VnBeatProps & { vars: Record<string, unknown> }
+  /** VN 对话框底部的小控件区（进度数字左边）；电影模式下不显示 */
+  'vn.dialog.footer': VnBeatProps
 
   'character.editor.sections': {
     character: CharacterDTO
@@ -118,6 +155,25 @@ export type ClientEvent =
   | { type: 'generation:start'; chatId: string }
   | { type: 'generation:complete'; chatId: string }
   | { type: 'message:sent'; chatId: string; text: string }
+  /** VN 开始演出某一句（台词或旁白）；快进时 skipping 为 true */
+  | {
+      type: 'vn:line'
+      chatId: string
+      messageId: string
+      beatIndex: number
+      speaker: string | null
+      text: string
+      skipping: boolean
+    }
+  /** VN 执行了一条舞台指令（演到这一拍时触发，一拍里有多条操作就触发多次） */
+  | {
+      type: 'vn:directive'
+      chatId: string
+      messageId: string
+      beatIndex: number
+      directive: VnDirective
+      skipping: boolean
+    }
 
 export interface ClientExtensionAPI {
   registerCommand: (command: SlashCommand) => void

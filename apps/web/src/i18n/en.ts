@@ -1,5 +1,14 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  思考气泡: 'Thought bubble',
+  '模型有思考内容（如 DeepSeek 的推理）时，在画面左上方用气泡显示；一直保留时演出中按进度分段浮现':
+    'Shows the model reasoning (such as DeepSeek reasoning) in a bubble at the top left. When kept, it fades in step by step during playback',
+  只在生成时显示: 'Only while generating',
+  一直保留: 'Always keep',
+  '正在思考…': 'Thinking…',
+  展开思考内容: 'Show reasoning',
+  收起思考内容: 'Hide reasoning',
+  思考: 'Thoughts',
   后台任务: 'Background tasks',
   '在后台定时运行（不打开网页也会执行）': 'Runs periodically in the background, even when no page is open',
   '后台已停止：{error}。停用后重新启用即可重试':

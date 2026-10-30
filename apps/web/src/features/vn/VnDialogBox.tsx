@@ -3,6 +3,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import { resetChat } from '../../api/queries'
 import { ChevronLeftIcon, ChevronRightIcon, RefreshIcon } from '../../components/icons'
+import { Slot } from '../../extensions/Slot'
+import type { VnBeatProps } from '../../extensions/types'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { runGeneration } from '../chat/generate'
@@ -21,6 +23,7 @@ export function VnDialogBox({
   cinema,
   speakerName,
   text,
+  slotProps,
 }: {
   chatId: string
   messages: MessageDTO[]
@@ -31,6 +34,8 @@ export function VnDialogBox({
   speakerName: string | null
   /** 这一句已经显示出来的文字（打字机进度） */
   text: string
+  /** 对话框底部扩展插槽的参数 */
+  slotProps: VnBeatProps
 }) {
   const qc = useQueryClient()
   const { current, said } = player
@@ -123,6 +128,9 @@ export function VnDialogBox({
           </div>
         )}
         <div className="absolute right-4 bottom-2 flex items-center gap-2 text-[11px] opacity-60">
+          <span className="pointer-events-auto flex items-center gap-1 empty:hidden">
+            <Slot name="vn.dialog.footer" props={slotProps} />
+          </span>
           {player.streaming && <span>{t('生成中…')}</span>}
           {player.canBack && (
             <button

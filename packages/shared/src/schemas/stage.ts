@@ -295,6 +295,8 @@ const dialogSchema = z.object({
   fontSize: z.number().int().min(12).max(32).default(16),
   nameplate: z.boolean().default(true),
   streamPlay: z.boolean().default(true),
+  /** 思考气泡：关闭 / 只在生成时显示 / 一直保留（演出时分段浮现） */
+  reasoning: z.enum(['off', 'generating', 'always']).default('off'),
 })
 
 const interactionSchema = z.object({

@@ -122,6 +122,22 @@ export function useTranslationView(message: MessageDTO): {
 }
 
 /** 输入框的「翻译」按钮：把文本翻成模型语言（扩展设置的 internalLanguage），返回译文 */
+/**
+ * 消息当前应该显示的思考过程（和 useTranslationView 的 reasoning 规则一样），允许传 null。
+ * 给 VN 用：VN 不显示正文的译文切换，不需要算正文哈希
+ */
+export function useShownReasoning(message: MessageDTO | null): string | undefined {
+  const id = message?.id
+  const showTranslation = useSyncExternalStore(
+    subscribeView,
+    () => (id ? readView(id) : false),
+    () => (id ? readView(id) : false),
+  )
+  if (!message) return undefined
+  const translation = message.meta.translation
+  return translation && showTranslation ? (translation.reasoning ?? message.meta.reasoning) : message.meta.reasoning
+}
+
 export function useTranslateText(): { translate: (text: string) => Promise<string>; busy: boolean } {
   const extension = useExtensions().data?.find((item) => item.id === 'translate')
   const lang =

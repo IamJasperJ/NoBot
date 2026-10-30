@@ -2,3 +2,14 @@
 .hello-word-count {
   color: #8b5cf6;
 }
+/* VN 舞台叠加层里的小标签：贴在画面右侧中间，不挡对话框和选项 */
+.hello-vn-tag {
+  position: absolute;
+  right: 1.5rem;
+  top: 40%;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  background: rgb(139 92 246 / 85%);
+  color: white;
+  font-size: 12px;
+}

@@ -12,7 +12,7 @@ import {
   useUpdateChannelActor,
   useUpdateChannelBinding,
 } from '../../api/channels'
-import { useCharacters, usePersonas } from '../../api/queries'
+import { useCharacters, useChats, useGroups, usePersonas } from '../../api/queries'
 import { useRooms } from '../../api/rooms'
 import { SelectField, Tabs } from '../../components/form'
 import { PlusIcon, TrashIcon } from '../../components/icons'
@@ -124,6 +124,18 @@ function SessionTab({
   onClose: () => void
 }) {
   const rooms = (useRooms().data ?? []).filter((r) => r.myRole === 'owner')
+  const characters = useCharacters().data ?? []
+  const groups = useGroups().data ?? []
+  // 接到已有会话：先选角色或群组，再选它的某个会话；房间也是会话，这里一并能选到
+  const [owner, setOwner] = useState('')
+  const chats =
+    useChats(
+      owner.startsWith('c:')
+        ? { characterId: owner.slice(2) }
+        : owner.startsWith('g:')
+          ? { groupId: owner.slice(2) }
+          : null,
+    ).data ?? []
   const disable = useDisableChannelBinding()
   const leave = useLeaveChannelBinding()
   const [confirmLeave, setConfirmLeave] = useState(false)
@@ -159,21 +171,48 @@ function SessionTab({
           onChange={(source) => patch({ source })}
           options={[
             { value: 'new', label: t('单独的会话（新建）') },
-            { value: 'attached', label: t('接到我已有的房间') },
+            { value: 'attached', label: t('接到我已有的会话') },
             { value: 'account-shared', label: t('和这个 bot 的所有地方共用一个会话') },
           ]}
         />
         {binding.source === 'attached' && (
-          <SelectField
-            label={t('房间')}
-            hint={t('网页上的成员和这里的人会在同一个房间里一起玩')}
-            value={binding.roomId ?? ''}
-            onChange={(id) => {
-              const room = rooms.find((r) => r.id === id)
-              if (room) patch({ roomId: room.id, chatId: room.chatId })
-            }}
-            options={[{ value: '', label: t('选择房间') }, ...rooms.map((r) => ({ value: r.id, label: r.name }))]}
-          />
+          <>
+            <SelectField
+              label={t('会话属于')}
+              hint={t('选一个角色或群组，再选它已有的会话；这里的人会接着那个会话聊下去')}
+              value={owner}
+              onChange={setOwner}
+              options={[
+                { value: '', label: t('选择角色或群组') },
+                ...characters.map((c) => ({ value: `c:${c.id}`, label: c.name })),
+                ...groups.map((g) => ({ value: `g:${g.id}`, label: `${t('群组')} · ${g.name}` })),
+              ]}
+            />
+            {owner && (
+              <SelectField
+                label={t('会话')}
+                value={chats.some((c) => c.id === binding.chatId) ? binding.chatId : ''}
+                // 房间由服务端按会话找到或新建，这里只换会话
+                onChange={(id) => id && patch({ chatId: id, roomId: null })}
+                options={[
+                  { value: '', label: chats.length ? t('选择会话') : t('这个角色还没有会话') },
+                  ...chats.map((c) => ({ value: c.id, label: c.title || t('未命名会话') })),
+                ]}
+              />
+            )}
+            {rooms.length > 0 && (
+              <SelectField
+                label={t('或者接到我的房间')}
+                hint={t('网页上的成员和这里的人会在同一个房间里一起玩')}
+                value={rooms.some((r) => r.id === binding.roomId) ? (binding.roomId ?? '') : ''}
+                onChange={(id) => {
+                  const room = rooms.find((r) => r.id === id)
+                  if (room) patch({ roomId: room.id, chatId: room.chatId })
+                }}
+                options={[{ value: '', label: t('选择房间') }, ...rooms.map((r) => ({ value: r.id, label: r.name }))]}
+              />
+            )}
+          </>
         )}
         {binding.source === 'account-shared' && (
           <p className="text-xs leading-relaxed text-amber-600">

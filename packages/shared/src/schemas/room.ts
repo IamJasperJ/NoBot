@@ -5,7 +5,7 @@ export const roomSettingsInput = z.object({
   description: z.string().max(4000).default(''),
   coverAsset: z.string().max(4000).nullable().default(null),
   mode: z.enum(['chat', 'trpg', 'custom']).default('chat'),
-  turnMode: z.enum(['smart', 'auto', 'mention', 'host', 'initiative']).default('smart'),
+  turnMode: z.enum(['smart', 'every', 'auto', 'mention', 'host', 'initiative']).default('smart'),
   contentRating: z.enum(['general', 'mature', 'explicit']).default('general'),
   contentNotes: z.string().max(4000).default(''),
   rules: z.string().max(8000).default(''),

@@ -409,7 +409,7 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
       const idle = async (chatId: string) => {
         while (owner(() => generation.isGenerating(chatId))) await Bun.sleep(5)
       }
-      const makeTurnRoom = (turnMode: 'auto' | 'mention' | 'smart') =>
+      const makeTurnRoom = (turnMode: 'auto' | 'mention' | 'smart' | 'every') =>
         owner(() =>
           r.createRoom(
             createRoomInput.parse({ chatId: createChat({ characterId: a.characterId }).id, name: turnMode, turnMode }),
@@ -490,10 +490,13 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
           }
           db.update(chats).set({ activeLeafId: parentId }).where(eq(chats.id, cappedSmart.chatId)).run()
         })
+        // 智能接话不再有「最近 AI 说太多就闭嘴」的上限：叫到名字照样很快回应
         const beforeShare = model.requests.length
         send(cappedSmart.id, 'Alice AI please answer')
         await advance(1500)
-        expect(model.requests.length).toBe(beforeShare)
+        await idle(cappedSmart.chatId)
+        expect(model.requests.length).toBe(beforeShare + 1)
+        // 刚回完话有 3 秒冷却：期间叫到 AI 会顺延到冷却结束，而不是被丢掉
         const smart = makeTurnRoom('smart')
         send(smart.id, 'Alice AI, hello')
         await advance(1500)
@@ -502,15 +505,56 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
         send(smart.id, 'Alice AI again')
         await advance(1500)
         expect(model.requests.length).toBe(afterSmart)
+        await advance(1500)
+        await idle(smart.chatId)
+        expect(model.requests.length).toBe(afterSmart + 1)
+        // 带问号的提问不用点名也算叫到，1.5 秒内接话、不走判断
+        const asked = makeTurnRoom('smart')
+        const beforeAsk = model.requests.length
+        send(asked.id, 'Anyone know the way out？')
+        await advance(1500)
+        await idle(asked.chatId)
+        expect(model.requests.length).toBe(beforeAsk + 1)
+        expect(model.requests.at(-1)?.messages.at(-1)?.content).not.toContain('strict JSON')
+        // 没叫到时等大家安静 4 秒再判断；判断结果解析不了时宁可接话
         const undecided = makeTurnRoom('smart')
-        model.setScript(() => ({ text: 'garbage' }))
+        model.setScript((body) => ({
+          text: body.messages.at(-1)?.content.includes('Decide whether') ? 'garbage' : 'A reply',
+        }))
         send(undecided.id, 'A puzzling scene')
         send(undecided.id, 'Another observation')
-        send(undecided.id, 'What happens next?')
-        await advance(1500)
-        await Bun.sleep(10)
+        await advance(3999)
         expect(owner(() => r.usage(undecided.id))).toHaveLength(0)
-        expect(model.requests.at(-1)?.messages.at(-1)?.content).toContain('strict JSON')
+        await advance(1)
+        await Bun.sleep(10)
+        await idle(undecided.chatId)
+        expect(owner(() => r.usage(undecided.id))).toHaveLength(1)
+        expect(model.requests.at(-2)?.messages.at(-1)?.content).toContain('strict JSON')
+        // 包在代码框里的「不接话」也能读懂
+        const declined = makeTurnRoom('smart')
+        model.setScript(() => ({
+          text: '```json\n{"respond":false,"speaker":null,"replyTo":null,"reason":"side talk"}\n```',
+        }))
+        send(declined.id, 'Bob, I will meet you later')
+        await advance(4000)
+        await Bun.sleep(10)
+        expect(owner(() => r.usage(declined.id))).toHaveLength(0)
+        // 每条都接：没点名、没问号也在 1 秒后回应，不发判断请求；刚回完话也不等冷却
+        const every = makeTurnRoom('every')
+        model.setScript(() => ({ text: 'Every reply' }))
+        const beforeEvery = model.requests.length
+        send(every.id, 'Just chatting')
+        await advance(999)
+        expect(model.requests.length).toBe(beforeEvery)
+        await advance(1)
+        await idle(every.chatId)
+        expect(model.requests.length).toBe(beforeEvery + 1)
+        expect(model.requests.at(-1)?.messages.at(-1)?.content).not.toContain('strict JSON')
+        send(every.id, 'Still chatting')
+        await advance(1000)
+        await idle(every.chatId)
+        expect(model.requests.length).toBe(beforeEvery + 2)
+        expect(owner(() => r.usage(every.id))).toHaveLength(2)
         const { createGroup } = await import('../src/services/groups')
         const forcedId = newId()
         const groupRoom = owner(() => {
@@ -534,8 +578,8 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
         }))
         send(groupRoom.id, 'The door opens')
         send(groupRoom.id, 'A shadow moves')
-        send(groupRoom.id, 'What will happen?')
-        await advance(1500)
+        send(groupRoom.id, 'Footsteps echo')
+        await advance(4000)
         await Bun.sleep(10)
         await idle(groupRoom.chatId)
         const groupPath = owner(() => loadPath(getChatRow(groupRoom.chatId).activeLeafId))
@@ -644,11 +688,14 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
         expect(p[k]).toBe(role !== 'player')
     }
     expect(turns.mentions('Hi @ALICE AI', ['Alice AI'])).toBe(true)
-    expect(turns.parseDecision('{"respond":true,"speaker":null,"replyTo":"Bob","reason":"question"}').respond).toBe(
+    expect(turns.parseDecision('{"respond":true,"speaker":null,"replyTo":"Bob","reason":"question"}')?.respond).toBe(
       true,
     )
-    for (const bad of ['garbage', '```json\n{}\n```', '{"respond":"true"}', 'null'])
-      expect(turns.parseDecision(bad).respond).toBe(false)
+    expect(
+      turns.parseDecision('Sure:\n```json\n{"respond":true,"speaker":null,"replyTo":null,"reason":"x"}\n```')?.respond,
+    ).toBe(true)
+    for (const bad of ['```json\n{}\n```', '{"respond":"true"}']) expect(turns.parseDecision(bad)?.respond).toBe(false)
+    for (const broken of ['garbage', 'null', '{"respond": tr']) expect(turns.parseDecision(broken)).toBeNull()
     // HTTP 层使用真实会话，确认 scope 不能越过中间件或通过其他人的 connectionId 订阅。
     const token = 'b'.repeat(64)
     systemDatabase()

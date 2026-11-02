@@ -70,7 +70,7 @@ function CreateRoomDialog({ chatId }: { chatId: string }) {
           hint={turnModeHint()[form.turnMode]}
           value={form.turnMode}
           onChange={(turnMode) => set({ turnMode })}
-          options={(['smart', 'auto', 'mention', 'host', 'initiative'] as const).map((v) => ({
+          options={(['smart', 'every', 'auto', 'mention', 'host', 'initiative'] as const).map((v) => ({
             value: v,
             label: turnModeLabel()[v],
           }))}

@@ -38,13 +38,15 @@ export const roleLabel = (): Record<RoomRole, string> => ({
 })
 export const turnModeLabel = (): Record<RoomDTO['turnMode'], string> => ({
   smart: t('智能接话'),
+  every: t('每条都接'),
   auto: t('自动回应'),
   mention: t('点名才回'),
   host: t('主持收束'),
   initiative: t('先攻顺序'),
 })
 export const turnModeHint = (): Record<RoomDTO['turnMode'], string> => ({
-  smart: t('被叫到、被提问时马上接话；大家聊得热闹时不插嘴，冷场或话题相关时再开口'),
+  smart: t('尽量多接话：被叫到、被提问时马上回应，其他发言等大家停下几秒后接上，只有玩家之间明显在私聊时才不插嘴'),
+  every: t('每条发言都回应，不做判断；AI 生成时收到的发言等这条说完后一起回应'),
   auto: t('有人发言后安静几秒，AI 把这几秒里所有人的话一起回应'),
   mention: t('只有 @ 或叫到角色名字时才回应'),
   host: t('大家自由发言，由房主或主持点「让 AI 回应」'),

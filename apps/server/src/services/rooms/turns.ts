@@ -53,9 +53,10 @@ interface TurnState {
   typingUntil: number
   replyTo?: string
   speakerId?: string
-  classified: number
   inputPlayers?: string[]
   deciding?: boolean
+  /** 定时器预计触发的时间，给前端显示「等待中」 */
+  dueAt?: number
 }
 const states = new Map<string, TurnState>()
 export function turnState(id: string) {
@@ -69,7 +70,6 @@ export function turnState(id: string) {
       running: false,
       cooldownUntil: 0,
       typingUntil: 0,
-      classified: 0,
     }
     const room = roomRow(id)
     const saved = asHost(room, () => getSetting<Omit<TurnState, 'timer'>>(`room-turn:${id}`))
@@ -129,7 +129,7 @@ export function broadcastTurn(room: Room) {
   ephemeral(room, 'room.turn', s.actorId, {
     running: s.running,
     pendingCount: s.pending.length,
-    waitingUntil: s.timer ? Math.min(s.firstAt + 15000, Date.now() + 4000) : null,
+    waitingUntil: s.timer ? (s.dueAt ?? null) : null,
     cooldownUntil: s.cooldownUntil,
   })
 }
@@ -230,14 +230,21 @@ export function sendRoomMessage(
 export function mentions(text: string, names: string[]) {
   return names.some((name) => name.trim() && text.toLocaleLowerCase().includes(name.toLocaleLowerCase()))
 }
+/**
+ * 解析「该不该接话」的判断。模型常把 JSON 包进代码框或在前后加说明，这里取第一个 {...} 再解析。
+ * 找不到 JSON 或解析失败返回 null（交给调用方决定默认行为）；JSON 字段不合格时按不接话处理
+ */
 export function parseDecision(text: string): {
   respond: boolean
   speaker: string | null
   replyTo: string | null
   reason: string
-} {
+} | null {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end < start) return null
   try {
-    const v: unknown = JSON.parse(text)
+    const v: unknown = JSON.parse(text.slice(start, end + 1))
     if (
       v &&
       typeof v === 'object' &&
@@ -252,10 +259,11 @@ export function parseDecision(text: string): {
     )
       return { respond: v.respond, speaker: v.speaker, replyTo: v.replyTo, reason: v.reason }
   } catch {
-    /* 非严格 JSON 一律不触发，避免模型错误引起刷屏。 */
+    return null
   }
   return { respond: false, speaker: null, replyTo: null, reason: '' }
 }
+/** 待回应的消息里有没有叫到 AI：点了角色名、回复了 AI 的消息；智能接话里带问号的提问也算 */
 function addressed(room: Room, s: TurnState) {
   const ai = charactersForRoom(room, false)
   return s.pending.some((id) => {
@@ -265,9 +273,14 @@ function addressed(room: Room, s: TurnState) {
         m.content,
         ai.map((c) => c.name),
       ) ||
-      (m.meta.replyTo && loadMessage(m.meta.replyTo).role === 'assistant')
+      (m.meta.replyTo && loadMessage(m.meta.replyTo).role === 'assistant') ||
+      (room.turnMode === 'smart' && /[?？]/.test(m.content))
     )
   })
+}
+/** 自动回应和智能接话共用的「安静几秒」：最后一次发言或输入后 4 秒，最多从第一条算起等 15 秒 */
+function quietDelay(s: TurnState) {
+  return Math.min(s.firstAt + 15000, Math.max(Date.now() + 4000, s.typingUntil)) - Date.now()
 }
 function schedule(room: Room) {
   const s = turnState(room.id)
@@ -282,16 +295,23 @@ function schedule(room: Room) {
   )
     return
   if (room.turnMode === 'mention' && !addressed(room, s)) return
-  const delay =
-    room.turnMode === 'auto'
-      ? Math.max(0, Math.min(s.firstAt + 15000, Math.max(Date.now() + 4000, s.typingUntil)) - Date.now())
-      : addressed(room, s)
-        ? 1500
-        : s.pending.length - s.classified >= 3
+  // 智能接话尽量多接：叫到、提问时很快回应，其余等大家安静几秒再判断；刚回完话的短冷却只推迟、不丢弃
+  // 每条都接：不判断，只留 1 秒把连着发的几句合成一轮
+  const wait =
+    room.turnMode === 'every'
+      ? 1000
+      : room.turnMode === 'auto'
+        ? quietDelay(s)
+        : addressed(room, s)
           ? 1500
-          : 20000
+          : room.turnMode === 'smart'
+            ? quietDelay(s)
+            : 0
+  const delay = Math.max(0, wait, room.turnMode === 'smart' ? s.cooldownUntil - Date.now() : 0)
+  s.dueAt = Date.now() + delay
   s.timer = setTimeout(() => {
     s.timer = undefined
+    s.dueAt = undefined
     const evaluated = s.pending.length
     s.deciding = true
     void Promise.resolve()
@@ -303,31 +323,19 @@ function schedule(room: Room) {
             if (latest.status !== 'active' || ['host', 'initiative'].includes(latest.turnMode) || !s.pending.length)
               return
             if (latest.turnMode === 'mention' && !addressed(latest, s)) return
-            if (latest.turnMode === 'smart') {
-              const history = loadPath(getChatRow(room.chatId).activeLeafId)
-                .filter((m) => !m.meta.excluded)
-                .slice(-12)
-              if (Date.now() < s.cooldownUntil || history.filter((m) => m.role === 'assistant').length >= 4) return
-              if (!addressed(room, s)) {
-                const players = members(room.id).filter((m) => m.role !== 'spectator')
-                const latestMessage = loadMessage(s.pending.at(-1)!)
-                if (
-                  mentions(
-                    latestMessage.content,
-                    players.filter((m) => m.userId !== latestMessage.meta.author?.userId).map((m) => m.personaName),
-                  )
-                )
-                  return
-                s.classified = s.pending.length
-                const answer = await quietPrompt({
-                  chatId: room.chatId,
-                  instruction:
-                    'Decide whether an AI character should respond in this multiplayer scene. Human players may be talking to each other. Respect each character\'s talkativeness. Return only strict JSON: {"respond": boolean, "speaker": "character name or null", "replyTo": "player name or null", "reason": "short reason"}. Use JSON null for missing names. Do not write dialogue. Write the reason in the same language as the conversation.',
-                  maxTokens: 150,
-                })
-                if (!findRoom(room.id)) return
-                const decision = parseDecision(answer)
-                if (!decision.respond) return
+            if (latest.turnMode === 'smart' && !addressed(latest, s)) {
+              const players = members(room.id).filter((m) => m.role !== 'spectator')
+              const answer = await quietPrompt({
+                chatId: room.chatId,
+                instruction:
+                  'Decide whether an AI character should respond in this multiplayer scene. The players want the AI characters to join in as often as possible, so lean strongly towards responding. Only answer false when the latest messages are clearly a private exchange between human players that a character would not take part in. Pick a speaker who fits the topic and respect each character\'s talkativeness. Return only strict JSON: {"respond": boolean, "speaker": "character name or null", "replyTo": "player name or null", "reason": "short reason"}. Use JSON null for missing names. Do not write dialogue. Write the reason in the same language as the conversation.',
+                maxTokens: 300,
+              })
+              if (!findRoom(room.id)) return
+              // AI 只回应玩家的新消息、不会自己接自己，判断失败时宁可接话也不冷场
+              const decision = parseDecision(answer)
+              if (decision && !decision.respond) return
+              if (decision) {
                 s.speakerId = charactersForRoom(room, false).find(
                   (c) => c.name === decision.speaker && c.talkativeness > 0,
                 )?.id
@@ -362,7 +370,9 @@ export function typing(id: string) {
   typingTimes.set(key, now)
   s.typingUntil = now + 5000
   ephemeral(room, 'room.typing', actor, { userId: actor, expiresAt: now + 5000 })
-  if (room.turnMode === 'auto') asHost(room, () => schedule(room))
+  // 还在等大家安静下来时，有人在输入就顺延；已经叫到 AI 的不再推迟
+  if (room.turnMode === 'auto' || (room.turnMode === 'smart' && s.timer && !asHost(room, () => addressed(room, s))))
+    asHost(room, () => schedule(room))
 }
 const typingTimes = new Map<string, number>()
 export function triggerTurn(
@@ -396,7 +406,6 @@ export function triggerTurn(
     ]
     s.pending = []
     s.firstAt = 0
-    s.classified = 0
     s.actorId = actorId
     persistTurn(id, s)
     let releaseUsage: (() => void) | undefined
@@ -486,7 +495,8 @@ export function triggerTurn(
           })
         s.running = false
         s.queued = []
-        s.cooldownUntil = Date.now() + 20000
+        // 刚回完话的短冷却：避免连发两条，期间的新消息顺延到冷却结束
+        s.cooldownUntil = Date.now() + 3000
         s.replyTo = undefined
         s.speakerId = undefined
         s.inputPlayers = undefined

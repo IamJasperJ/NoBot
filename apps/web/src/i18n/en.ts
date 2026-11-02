@@ -2497,11 +2497,14 @@ export const en: Record<string, string> = {
   主持: 'GM',
   玩家: 'Player',
   智能接话: 'Smart replies',
+  每条都接: 'Reply to every message',
   自动回应: 'Auto reply',
   点名才回: 'Only when named',
   主持收束: 'GM decides',
-  '被叫到、被提问时马上接话；大家聊得热闹时不插嘴，冷场或话题相关时再开口':
-    'Replies right away when named or asked. Stays quiet while people chat among themselves and speaks up when things go quiet or the topic fits.',
+  '尽量多接话：被叫到、被提问时马上回应，其他发言等大家停下几秒后接上，只有玩家之间明显在私聊时才不插嘴':
+    'Joins in as often as possible: answers right away when named or asked, picks up other messages once everyone pauses for a few seconds, and stays out only of clear side talk between players.',
+  '每条发言都回应，不做判断；AI 生成时收到的发言等这条说完后一起回应':
+    'Replies to every message without deciding first. Messages sent while the AI is still replying are answered together once it finishes.',
   '有人发言后安静几秒，AI 把这几秒里所有人的话一起回应':
     'After a few quiet seconds, the AI replies to everything said in that window',
   '只有 @ 或叫到角色名字时才回应': 'Replies only when a character is @mentioned or named',

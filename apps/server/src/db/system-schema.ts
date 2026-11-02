@@ -101,7 +101,7 @@ export const rooms = sqliteTable(
     mode: text('mode', { enum: ['chat', 'trpg', 'custom'] })
       .notNull()
       .default('chat'),
-    turnMode: text('turn_mode', { enum: ['smart', 'auto', 'mention', 'host', 'initiative'] })
+    turnMode: text('turn_mode', { enum: ['smart', 'every', 'auto', 'mention', 'host', 'initiative'] })
       .notNull()
       .default('smart'),
     contentRating: text('content_rating', { enum: ['general', 'mature', 'explicit'] })

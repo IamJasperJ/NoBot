@@ -474,7 +474,7 @@ function Settings({ room, onDeleted }: { room: RoomDTO; onDeleted: () => void })
         hint={turnModeHint()[value.turnMode]}
         value={value.turnMode}
         onChange={(turnMode) => set({ turnMode })}
-        options={(['smart', 'auto', 'mention', 'host', 'initiative'] as const).map((v) => ({
+        options={(['smart', 'every', 'auto', 'mention', 'host', 'initiative'] as const).map((v) => ({
           value: v,
           label: turnModeLabel()[v],
         }))}

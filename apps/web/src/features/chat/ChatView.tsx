@@ -136,7 +136,8 @@ export function ChatView({ chatId }: { chatId: string }) {
         <MenuIcon />
       </IconButton>
 
-      {roomScope && <RoomBar room={roomScope.room} />}
+      {/* VN 里房间条并进 VN 顶栏那一行，这里只管聊天视图 */}
+      {roomScope && !(vn && play) && <RoomBar room={roomScope.room} />}
       <OutfitPicker chatId={chatId} cast={cast} stage={firstPage?.stage ?? null} />
       {vn && play ? (
         <VnView

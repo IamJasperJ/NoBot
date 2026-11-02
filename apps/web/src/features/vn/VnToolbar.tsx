@@ -37,6 +37,7 @@ export function VnToolbar({
   cinema,
   hudLeft,
   hudRight,
+  room,
   tools,
   adjusting,
   saves,
@@ -52,6 +53,8 @@ export function VnToolbar({
   /** 宽屏状态面板放在左上角 / 操作栏前面时的胶囊 */
   hudLeft?: ReactNode
   hudRight?: ReactNode
+  /** 联机房间条：和操作栏同一行，放在最前面 */
+  room?: ReactNode
   /** 操作栏展开状态放在父组件：点画面时要收起它 */
   tools: Toggle
   adjusting: Toggle
@@ -94,6 +97,7 @@ export function VnToolbar({
           if (showTools) armCollapse()
         }}
       >
+        {room}
         {hudRight}
         <VnButton
           label={showTools ? t('收起操作栏') : t('展开操作栏')}

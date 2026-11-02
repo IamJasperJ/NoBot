@@ -19,6 +19,7 @@ import { useCinema } from '../../stores/vn'
 import { Composer } from '../chat/Composer'
 import { displayMacros } from '../chat/format'
 import type { ChatCast } from '../chat/MessageItem'
+import { RoomBar } from '../rooms/RoomBar'
 import { RoomChoiceStatus, useChoiceGate } from '../rooms/RoomChoiceStatus'
 import { CheckCard, DiceCard } from '../trpg/DiceCard'
 import { InitiativeBar } from '../trpg/InitiativeBar'
@@ -68,7 +69,8 @@ export function VnView({
 }) {
   const mobile = useMobile()
   const qc = useQueryClient()
-  const spectator = !!useRoomForChat(chatId)?.permissions.isSpectator
+  const roomScope = useRoomForChat(chatId)
+  const spectator = !!roomScope?.permissions.isSpectator
   const knownNames = cast.stage?.knownNames ?? Object.values(cast.speakers).map((s) => s.name)
   const members = useMemo(() => Object.entries(cast.speakers).map(([id, s]) => ({ id, name: s.name })), [cast.speakers])
   const player = useVnPlayer({ chatId, messages, play, knownNames, members })
@@ -295,8 +297,7 @@ export function VnView({
       </div>
 
       {/* 顶部：场景信息 + 操作 */}
-      {/* 联机房间里房间条在右上角，VN 顶部的操作栏和状态栏整体下移让开 */}
-      <div ref={topRef} style={{ paddingTop: 'var(--room-bar-h, 0px)' }} className="relative z-10">
+      <div ref={topRef} className="relative z-10">
         {!hidden && (
           <VnToolbar
             chatId={chatId}
@@ -307,6 +308,7 @@ export function VnView({
             cinema={cinema}
             hudLeft={inlineHud && play.interaction.hudPosition === 'top-left' ? hudArea : undefined}
             hudRight={inlineHud && play.interaction.hudPosition !== 'top-left' ? hudArea : undefined}
+            room={roomScope && <RoomBar room={roomScope.room} inline />}
             tools={{ on: toolsOpen, set: setToolsOpen }}
             adjusting={{ on: adjusting, set: setAdjusting }}
             saves={{ on: saves, set: setSaves }}
@@ -328,7 +330,7 @@ export function VnView({
       {!hidden && !cinema && combat && trpg.initiativeBar && (
         <div
           className="pointer-events-none absolute inset-x-0 z-[7] flex justify-center px-4"
-          style={{ top: 'calc(3.5rem + var(--room-bar-h, 0px))' }}
+          style={{ top: '3.5rem' }}
         >
           <InitiativeBar combat={combat} vars={hudVars} avatarOf={avatarOf} playerName={cast.user.name} />
         </div>

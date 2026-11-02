@@ -5,6 +5,7 @@ import { ChevronDownIcon, PlusIcon, TrashIcon, UploadIcon } from '../../componen
 import { DetailHeader, ListItem } from '../../components/layout'
 import { Button, badgeClass, controlClass, cx, IconButton } from '../../components/ui'
 import { t } from '../../i18n'
+import { randomId } from '../../lib/id'
 import { useQuickReplyMutations, useQuickReplySets } from '../../quick-replies/hooks'
 import { importQuickReplySet } from '../../quick-replies/logic'
 import { errorMessage, toast } from '../../stores/toast'
@@ -22,7 +23,7 @@ const EVENT_LABELS = (): Record<(typeof quickReplyEvents)[number], string> => ({
 })
 
 const newButton = (): QuickReply => ({
-  id: crypto.randomUUID(),
+  id: randomId(),
   label: t('新按钮'),
   title: '',
   message: '',

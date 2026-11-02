@@ -94,6 +94,8 @@ export function useTranslationView(message: MessageDTO): {
   const hash = useQuery({
     queryKey: ['translationHash', message.content],
     queryFn: async () => {
+      // crypto.subtle 只在安全上下文里有；http + IP 访问时算不了哈希，就不判断译文是否过期
+      if (!crypto.subtle) return null
       const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(message.content))
       return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
     },
@@ -117,7 +119,7 @@ export function useTranslationView(message: MessageDTO): {
     text: translation && showTranslation ? translation.text : message.content,
     reasoning:
       translation && showTranslation ? (translation.reasoning ?? message.meta.reasoning) : message.meta.reasoning,
-    stale: !!translation && hash !== undefined && translation.sourceHash !== hash,
+    stale: !!translation && typeof hash === 'string' && translation.sourceHash !== hash,
   }
 }
 

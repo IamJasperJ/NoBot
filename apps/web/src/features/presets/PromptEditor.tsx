@@ -11,6 +11,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from '../../components/icons'
 import { Button, IconButton } from '../../components/ui'
 import { t } from '../../i18n'
 import { builtinPromptNames, generationTypeLabels } from '../../i18n-labels'
+import { randomId } from '../../lib/id'
 import { movePrompt } from './presetEditor'
 
 function builtin(id: string) {
@@ -222,7 +223,7 @@ export function PromptEditor({ value, onChange }: { value: PromptBlock[]; onChan
       })}
       <Button
         onClick={() => {
-          const block = promptBlockSchema.parse({ id: crypto.randomUUID(), name: t('自定义条目') })
+          const block = promptBlockSchema.parse({ id: randomId(), name: t('自定义条目') })
           onChange([...value, block])
           setExpanded(block.id)
         }}

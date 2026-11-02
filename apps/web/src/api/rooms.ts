@@ -32,6 +32,7 @@ import type {
 import { type InfiniteData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { t } from '../i18n'
+import { randomId } from '../lib/id'
 import { isMiniApp } from '../miniapp/context'
 import { useRoomLive } from '../stores/room'
 import { useStreaming } from '../stores/streaming'
@@ -255,7 +256,7 @@ export const useRequestRoomTurn = () => useRoomMutation(roomsApi.requestTurn)
 export const useSuggestRegenerate = () => useRoomMutation(roomsApi.suggest)
 export const useReadRoom = () => useRoomMutation(roomsApi.read)
 export function clientMessageId() {
-  return crypto.randomUUID()
+  return randomId()
 }
 export function useSendRoomMessage() {
   return useMutation({

@@ -14,6 +14,7 @@ import { useCommandInput } from '../../hooks/useCommandInput'
 import { useMobile } from '../../hooks/useMobile'
 import { useVoiceRecorder } from '../../hooks/useVoiceRecorder'
 import { t } from '../../i18n'
+import { randomId } from '../../lib/id'
 import { useChatOps } from '../../stores/chatOps'
 import { useCommandDrafts } from '../../stores/commandInput'
 import { errorMessage, toast } from '../../stores/toast'
@@ -84,7 +85,7 @@ export function Composer({
     const available = 10 - imagesRef.current.length
     if (files.length > available) toast.info(t('每次最多附加 10 张图片'))
     for (const file of files.slice(0, available)) {
-      const key = crypto.randomUUID()
+      const key = randomId()
       updateImages([...imagesRef.current, { key }])
       void api
         .uploadAttachment(file)

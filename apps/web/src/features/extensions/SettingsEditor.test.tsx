@@ -151,8 +151,9 @@ function editorHarness(initial: React.ComponentProps<typeof SettingsEditor>) {
       return refs.get(key)
     }) as typeof React.useRef),
     spyOn(React, 'useId').mockImplementation(() => `${owner}:${slot++}`),
-    // 测试只渲染扩展设置表单，它总在紧凑排版里
-    spyOn(React, 'useContext').mockImplementation((() => true) as typeof React.useContext),
+    // 测试只渲染扩展设置表单，它总在紧凑排版里；其他上下文（比如设置项依赖）用默认值
+    spyOn(React, 'useContext').mockImplementation(((context: { _currentValue: unknown }) =>
+      typeof context._currentValue === 'boolean' ? true : context._currentValue) as unknown as typeof React.useContext),
     spyOn(React, 'useEffect').mockImplementation((callback) => {
       effects.push(callback)
     }),

@@ -13,7 +13,9 @@ import { useConnections } from '../../api/queries'
 import {
   CheckGroupField,
   DenseRow,
+  Needs,
   NumberField,
+  type Requirement,
   Section,
   SelectField,
   SwitchField,
@@ -49,6 +51,7 @@ const LIST_OPTIONS = (): { value: PromptList; label: string }[] => [
 ]
 
 const RULE_LABELS = (): Record<RuleSystem, string> => ({
+  none: t('不用规则'),
   dnd5e: 'D&D 5e',
   coc7: t('克苏鲁的呼唤 7 版'),
   pf2e: 'Pathfinder 2e',
@@ -70,8 +73,30 @@ export function PlayPresetEditor({
   const set = <G extends Group, K extends keyof PlayPresetData[G]>(group: G, key: K, v: PlayPresetData[G][K]) =>
     onChange({ ...value, [group]: { ...value[group], [key]: v } })
   const { basic, directives, state, sprites, stage, dialog, interaction, trpg, audio } = value
-  const off = !directives.enabled
   const schema = validateSchema(state.schema)
+  // 设置项之间的依赖（见 Needs）：前提没满足时那一项不可用，并提示缺哪一项、点一下跳过去
+  const dir: Requirement = { label: t('启用舞台指令'), met: directives.enabled }
+  // 指令分组里的其他项紧挨着总开关，不再逐行提示
+  const dirAll: Requirement = { ...dir, section: true }
+  const kind = (k: DirectiveKind): Requirement => ({
+    label: t('「{kind}」指令', { kind: directiveKindLabels()[k] }),
+    target: t('启用的指令'),
+    met: directives.kinds.includes(k),
+  })
+  const inject: Requirement = { label: t('注入指令说明'), met: directives.inject }
+  const reminder: Requirement = { label: t('末尾再提醒一次'), met: directives.reminder }
+  const keep: Requirement = { label: t('历史中保留指令'), met: directives.keepInHistory }
+  const rules: Requirement = {
+    label: t('选一个规则系统'),
+    target: t('规则系统'),
+    met: IMPLEMENTED_RULE_SYSTEMS.includes(trpg.ruleSystem),
+  }
+  const dice: Requirement = { label: t('骰子动画'), met: trpg.diceAnimation }
+  const classify: Requirement = { label: t('兜底情绪判断'), met: sprites.classify !== 'off' }
+  const focus: Requirement = { label: t('焦点模式'), met: stage.focus }
+  const transition: Requirement = { label: t('转场效果'), met: stage.transition !== 'none' }
+  const choices: Requirement = { label: t('显示选项'), met: interaction.choices }
+  const hud: Requirement = { label: t('显示 HUD'), met: interaction.hud }
 
   return (
     <div className="space-y-2">
@@ -86,167 +111,167 @@ export function PlayPresetEditor({
           checked={directives.enabled}
           onChange={(v) => set('directives', 'enabled', v)}
         />
-        <SelectField
-          label={t('指令风格')}
-          hint={t('教模型写哪一种。两种写法都能被识别，这里只决定指令说明里怎么教')}
-          disabled={off}
-          value={directives.style}
-          onChange={(v) => set('directives', 'style', v)}
-          options={[
-            { value: 'shorthand', label: t('速记 + XML（省 token）') },
-            { value: 'xml', label: t('全 XML（更规整）') },
-          ]}
-        />
-        <SwitchField
-          label={t('注入指令说明')}
-          hint={t('往 Prompt 里加一段说明，告诉模型怎么写指令。关掉后需要你在角色卡或预设里自己写')}
-          disabled={off}
-          checked={directives.inject}
-          onChange={(v) => set('directives', 'inject', v)}
-        />
-        <SwitchField
-          label={t('末尾再提醒一次')}
-          hint={t(
-            '在整个 Prompt 最后（预设的结尾指令之后）加一段简短的格式要求。很多预设结尾会要求「只写正文、不给选项」，不提醒的话模型常常不写指令',
-          )}
-          disabled={off || !directives.inject}
-          checked={directives.reminder}
-          onChange={(v) => set('directives', 'reminder', v)}
-        />
-        <SelectField
-          label={t('提醒的身份')}
-          hint={t('有些接口（比如部分 Gemini 中转）会把中途的 system 消息挪走，提醒不起作用时改成「用户」试试')}
-          disabled={off || !directives.inject || !directives.reminder}
-          value={directives.reminderRole}
-          onChange={(v) => set('directives', 'reminderRole', v)}
-          options={[
-            { value: 'system', label: t('系统') },
-            { value: 'user', label: t('用户') },
-          ]}
-        />
-        <SelectField
-          label={t('什么时候给选项')}
-          hint={t('需要勾选「选项」指令')}
-          disabled={off || !directives.kinds.includes('choices')}
-          value={directives.choicesMode}
-          onChange={(v) => set('directives', 'choicesMode', v)}
-          options={[
-            { value: 'always', label: t('每条回复都给') },
-            { value: 'auto', label: t('需要玩家做决定时') },
-          ]}
-        />
-        <CheckGroupField
-          label={t('启用的指令')}
-          hint={t('只教模型写勾选的指令。没勾的指令写了也会被隐藏')}
-          disabled={off}
-          value={directives.kinds}
-          onChange={(v) => set('directives', 'kinds', v)}
-          options={KIND_OPTIONS()}
-        />
-        <SelectField
-          label={t('注入位置')}
-          disabled={off || !directives.inject}
-          value={directives.position}
-          onChange={(v) => set('directives', 'position', v)}
-          options={[
-            { value: 'after_char', label: t('角色设定之后') },
-            { value: 'author_note', label: t('和作者注释同一深度') },
-            { value: 'depth', label: t('指定深度') },
-          ]}
-        />
-        {directives.position === 'depth' && (
-          <NumberField
-            label={t('注入深度')}
-            hint={t('0 表示放在最后一条消息之后')}
-            disabled={off || !directives.inject}
-            min={0}
-            max={1000}
-            slider={false}
-            value={directives.depth}
-            onChange={(v) => set('directives', 'depth', Math.round(v))}
+        <Needs on={[dirAll]}>
+          <SelectField
+            label={t('指令风格')}
+            hint={t('教模型写哪一种。两种写法都能被识别，这里只决定指令说明里怎么教')}
+            value={directives.style}
+            onChange={(v) => set('directives', 'style', v)}
+            options={[
+              { value: 'shorthand', label: t('速记 + XML（省 token）') },
+              { value: 'xml', label: t('全 XML（更规整）') },
+            ]}
           />
-        )}
-        <CheckGroupField
-          label={t('附带的清单')}
-          hint={t('在指令说明里列出可用的名字，模型就不容易写错')}
-          disabled={off || !directives.inject}
-          value={directives.lists}
-          onChange={(v) => set('directives', 'lists', v)}
-          options={LIST_OPTIONS()}
-        />
-        <SwitchField
-          label={t('历史中保留指令')}
-          hint={t('发给模型的聊天记录里保留指令原文，模型会照着之前的写法写，更稳定')}
-          disabled={off}
-          checked={directives.keepInHistory}
-          onChange={(v) => set('directives', 'keepInHistory', v)}
-        />
-        <NumberField
-          label={t('只保留最近 N 条')}
-          hint={t('更早消息里的指令换成纯文本，省 token。0 表示不限')}
-          disabled={off || !directives.keepInHistory}
-          min={0}
-          max={1000}
-          slider={false}
-          value={directives.keepRecent}
-          onChange={(v) => set('directives', 'keepRecent', Math.round(v))}
-        />
-        <SwitchField
-          label={t('聊天中显示说话人')}
-          hint={t('普通聊天视图里，台词显示成「名字：台词」；关闭后只显示台词')}
-          disabled={off}
-          checked={directives.showSpeaker}
-          onChange={(v) => set('directives', 'showSpeaker', v)}
-        />
-        <TemplateField
-          kind="template"
-          disabled={off || !directives.inject}
-          value={directives.template}
-          style={directives.style}
-          onChange={(v) => set('directives', 'template', v)}
-        />
-        <TemplateField
-          kind="reminder"
-          disabled={off || !directives.inject || !directives.reminder}
-          value={directives.reminderTemplate}
-          style={directives.style}
-          onChange={(v) => set('directives', 'reminderTemplate', v)}
-        />
+          <CheckGroupField
+            label={t('启用的指令')}
+            hint={t('只教模型写勾选的指令。没勾的指令写了也会被隐藏')}
+            value={directives.kinds}
+            onChange={(v) => set('directives', 'kinds', v)}
+            options={KIND_OPTIONS()}
+          />
+          <Needs on={[kind('choices')]}>
+            <SelectField
+              label={t('什么时候给选项')}
+              hint={t('需要勾选「选项」指令')}
+              value={directives.choicesMode}
+              onChange={(v) => set('directives', 'choicesMode', v)}
+              options={[
+                { value: 'always', label: t('每条回复都给') },
+                { value: 'auto', label: t('需要玩家做决定时') },
+              ]}
+            />
+          </Needs>
+          <SwitchField
+            label={t('聊天中显示说话人')}
+            hint={t('普通聊天视图里，台词显示成「名字：台词」；关闭后只显示台词')}
+            checked={directives.showSpeaker}
+            onChange={(v) => set('directives', 'showSpeaker', v)}
+          />
+          <SwitchField
+            label={t('历史中保留指令')}
+            hint={t('发给模型的聊天记录里保留指令原文，模型会照着之前的写法写，更稳定')}
+            checked={directives.keepInHistory}
+            onChange={(v) => set('directives', 'keepInHistory', v)}
+          />
+          <Needs on={[keep]}>
+            <NumberField
+              label={t('只保留最近 N 条')}
+              hint={t('更早消息里的指令换成纯文本，省 token。0 表示不限')}
+              min={0}
+              max={1000}
+              slider={false}
+              value={directives.keepRecent}
+              onChange={(v) => set('directives', 'keepRecent', Math.round(v))}
+            />
+          </Needs>
+          <SwitchField
+            label={t('注入指令说明')}
+            hint={t('往 Prompt 里加一段说明，告诉模型怎么写指令。关掉后需要你在角色卡或预设里自己写')}
+            checked={directives.inject}
+            onChange={(v) => set('directives', 'inject', v)}
+          />
+          <Needs on={[inject]}>
+            <SelectField
+              label={t('注入位置')}
+              value={directives.position}
+              onChange={(v) => set('directives', 'position', v)}
+              options={[
+                { value: 'after_char', label: t('角色设定之后') },
+                { value: 'author_note', label: t('和作者注释同一深度') },
+                { value: 'depth', label: t('指定深度') },
+              ]}
+            />
+            {directives.position === 'depth' && (
+              <NumberField
+                label={t('注入深度')}
+                hint={t('0 表示放在最后一条消息之后')}
+                min={0}
+                max={1000}
+                slider={false}
+                value={directives.depth}
+                onChange={(v) => set('directives', 'depth', Math.round(v))}
+              />
+            )}
+            <CheckGroupField
+              label={t('附带的清单')}
+              hint={t('在指令说明里列出可用的名字，模型就不容易写错')}
+              value={directives.lists}
+              onChange={(v) => set('directives', 'lists', v)}
+              options={LIST_OPTIONS()}
+            />
+            <TemplateField
+              kind="template"
+              disabled={!directives.enabled || !directives.inject}
+              value={directives.template}
+              style={directives.style}
+              onChange={(v) => set('directives', 'template', v)}
+            />
+            <SwitchField
+              label={t('末尾再提醒一次')}
+              hint={t(
+                '在整个 Prompt 最后（预设的结尾指令之后）加一段简短的格式要求。很多预设结尾会要求「只写正文、不给选项」，不提醒的话模型常常不写指令',
+              )}
+              checked={directives.reminder}
+              onChange={(v) => set('directives', 'reminder', v)}
+            />
+            <Needs on={[reminder]}>
+              <SelectField
+                label={t('提醒的身份')}
+                hint={t('有些接口（比如部分 Gemini 中转）会把中途的 system 消息挪走，提醒不起作用时改成「用户」试试')}
+                value={directives.reminderRole}
+                onChange={(v) => set('directives', 'reminderRole', v)}
+                options={[
+                  { value: 'system', label: t('系统') },
+                  { value: 'user', label: t('用户') },
+                ]}
+              />
+              <TemplateField
+                kind="reminder"
+                disabled={!directives.enabled || !directives.inject || !directives.reminder}
+                value={directives.reminderTemplate}
+                style={directives.style}
+                onChange={(v) => set('directives', 'reminderTemplate', v)}
+              />
+            </Needs>
+          </Needs>
+        </Needs>
       </Section>
 
-      <Section dense title={t('变量')} description={t('好感度、HP、背包这类需要一直记住的数值，HUD 和指令说明都靠它')}>
+      <Section
+        dense
+        requires={[dir]}
+        title={t('变量')}
+        description={t('好感度、HP、背包这类需要一直记住的数值，HUD 和指令说明都靠它')}
+      >
         <SwitchField
           label={t('正文 <state> 更新变量')}
           hint={t('模型在回复末尾写 <state> 块来改变量，不需要工具调用')}
-          disabled={off}
           checked={state.inline}
           onChange={(v) => set('state', 'inline', v)}
         />
         <SwitchField
           label={t('兼容 MVU 语法')}
           hint={t("识别酒馆 MVU 变量框架的 _.set('路径', 旧值, 新值)，方便直接用现成的状态栏卡")}
-          disabled={off}
           checked={state.mvu}
           onChange={(v) => set('state', 'mvu', v)}
         />
         <SwitchField
           label={t('读取 [InitVar] 条目')}
           hint={t('开局时把世界书里备注带 [InitVar] 的条目（关闭的也算）作为变量初始值，MVU 卡的写法')}
-          disabled={off}
           checked={state.initVar}
           onChange={(v) => set('state', 'initVar', v)}
         />
-        <SwitchField
-          label={t('说明里附当前值')}
-          hint={t('指令说明里写上每个变量的当前值，模型更新时不容易算错')}
-          disabled={off}
-          checked={state.valuesInPrompt}
-          onChange={(v) => set('state', 'valuesInPrompt', v)}
-        />
+        <Needs on={[inject]}>
+          <SwitchField
+            label={t('说明里附当前值')}
+            hint={t('指令说明里写上每个变量的当前值，模型更新时不容易算错')}
+            checked={state.valuesInPrompt}
+            onChange={(v) => set('state', 'valuesInPrompt', v)}
+          />
+        </Needs>
         <SelectField
           label={t('状态定义来源')}
           hint={t('角色卡可以自带状态定义（扩展字段 nobot_vn.schema）')}
-          disabled={off}
           value={state.schemaSource}
           onChange={(v) => set('state', 'schemaSource', v)}
           options={[
@@ -260,7 +285,6 @@ export function PlayPresetEditor({
           hint={t(
             '键是变量路径，值是 { type, label, init, min, max, stages, rule, pin }。type 可选 meter / number / text / list / badge；init 是开局初始值；rule 会写进指令说明',
           )}
-          disabled={off}
           mono
           rows={8}
           placeholder={`{\n  "${t('好感')}": { "type": "meter", "min": 0, "max": 100, "init": 30, "rule": "${t('温柔互动 +1~3')}" }\n}`}
@@ -276,18 +300,19 @@ export function PlayPresetEditor({
         </p>
       </Section>
 
-      <Section dense title={t('跑团')} description={t('规则系统、骰子和旁白')}>
+      <Section dense requires={[dir]} title={t('跑团')} description={t('规则系统、骰子和旁白')}>
         <SelectField
           label={t('规则系统')}
-          hint={t('检定、先攻和角色属性按这里的规则；目前只有 D&D 5e，其他规则先占位')}
+          hint={t('检定、先攻和角色属性按这里的规则；不跑团的玩法选「不用规则」。目前只有 D&D 5e，其他规则先占位')}
           value={trpg.ruleSystem}
           onChange={(v) => set('trpg', 'ruleSystem', v)}
           options={(Object.keys(RULE_LABELS()) as RuleSystem[]).map((v) => ({
             value: v,
-            label: IMPLEMENTED_RULE_SYSTEMS.includes(v)
-              ? RULE_LABELS()[v]
-              : t('{label}（未实现）', { label: RULE_LABELS()[v] }),
-            disabled: !IMPLEMENTED_RULE_SYSTEMS.includes(v),
+            label:
+              v === 'none' || IMPLEMENTED_RULE_SYSTEMS.includes(v)
+                ? RULE_LABELS()[v]
+                : t('{label}（未实现）', { label: RULE_LABELS()[v] }),
+            disabled: v !== 'none' && !IMPLEMENTED_RULE_SYSTEMS.includes(v),
           }))}
         />
         <TextField
@@ -309,90 +334,110 @@ export function PlayPresetEditor({
           checked={trpg.diceAnimation}
           onChange={(v) => set('trpg', 'diceAnimation', v)}
         />
-        <NumberField
-          label={t('动画时长（毫秒）')}
-          hint={t('骰子动画的时长')}
-          min={0}
-          max={5000}
-          slider={false}
-          value={trpg.diceMs}
-          onChange={(v) => set('trpg', 'diceMs', Math.round(v))}
-        />
-        <SwitchField
-          label={t('选项检定由前端掷骰')}
-          hint={t('点带检定的选项时，由我们先掷骰再把结果发给模型，模型没法改结果')}
-          checked={trpg.choiceRollClient}
-          onChange={(v) => set('trpg', 'choiceRollClient', v)}
-        />
-        <SwitchField
-          label={t('公开 DC')}
-          hint={t('在选项和检定卡片上显示检定难度')}
-          checked={trpg.showDc}
-          onChange={(v) => set('trpg', 'showDc', v)}
-        />
-        <SwitchField
-          label={t('大成功 / 大失败')}
-          hint={t('d20 掷出 20 / 1 时自动成功 / 失败')}
-          checked={trpg.critRules}
-          onChange={(v) => set('trpg', 'critRules', v)}
-        />
-        <SwitchField
-          label={t('战斗时显示先攻条')}
-          hint={t('战斗开始后在顶部显示行动顺序')}
-          checked={trpg.initiativeBar}
-          onChange={(v) => set('trpg', 'initiativeBar', v)}
-        />
+        <Needs on={[dice]}>
+          <NumberField
+            label={t('动画时长（毫秒）')}
+            hint={t('骰子动画的时长')}
+            min={0}
+            max={5000}
+            slider={false}
+            value={trpg.diceMs}
+            onChange={(v) => set('trpg', 'diceMs', Math.round(v))}
+          />
+        </Needs>
+        <Needs on={[rules]}>
+          <SwitchField
+            label={t('选项检定由前端掷骰')}
+            hint={t('点带检定的选项时，由我们先掷骰再把结果发给模型，模型没法改结果')}
+            checked={trpg.choiceRollClient}
+            onChange={(v) => set('trpg', 'choiceRollClient', v)}
+          />
+          <SwitchField
+            label={t('公开 DC')}
+            hint={t('在选项和检定卡片上显示检定难度')}
+            checked={trpg.showDc}
+            onChange={(v) => set('trpg', 'showDc', v)}
+          />
+          <SwitchField
+            label={t('大成功 / 大失败')}
+            hint={t('d20 掷出 20 / 1 时自动成功 / 失败')}
+            checked={trpg.critRules}
+            onChange={(v) => set('trpg', 'critRules', v)}
+          />
+        </Needs>
+        <Needs on={[kind('combat')]}>
+          <SwitchField
+            label={t('战斗时显示先攻条')}
+            hint={t('战斗开始后在顶部显示行动顺序')}
+            checked={trpg.initiativeBar}
+            onChange={(v) => set('trpg', 'initiativeBar', v)}
+          />
+        </Needs>
       </Section>
 
       <Section
         dense
+        requires={[dir]}
         title={t('表情与立绘')}
         description={t('立绘在角色编辑页上传；模型没写表情时可以再调一次模型判断')}
       >
-        <SelectField
-          label={t('兜底表情')}
-          hint={t('模型写了没有立绘的表情时显示哪一个')}
-          value={sprites.fallback}
-          onChange={(v) => set('sprites', 'fallback', v)}
-          options={[{ value: '', label: t('不显示') }, ...EXPRESSIONS.map((e) => ({ value: e, label: e }))]}
-        />
-        <SelectField
-          label={t('兜底情绪判断')}
-          hint={t('模型没写表情时，再调一次模型判断这条回复的情绪')}
-          value={sprites.classify}
-          onChange={(v) => set('sprites', 'classify', v)}
-          options={[
-            { value: 'missing', label: t('只在没写表情时') },
-            { value: 'always', label: t('总是') },
-            { value: 'off', label: t('禁用') },
-          ]}
-        />
-        <SelectField
-          label={t('判断用的连接')}
-          hint={t('可以选一个便宜的模型来判断情绪')}
-          value={sprites.classifyConnectionId ?? ''}
-          onChange={(v) => set('sprites', 'classifyConnectionId', v || null)}
-          options={[
-            { value: '', label: t('跟随会话') },
-            ...(connections.data ?? []).map((c) => ({ value: c.id, label: `${c.name}（${c.model}）` })),
-          ]}
-        />
-        <TextField
-          label={t('判断用的模型')}
-          hint={t('留空则用连接里的模型')}
-          value={sprites.classifyModel}
-          onChange={(v) => set('sprites', 'classifyModel', v)}
-        />
-        <SelectField
-          label={t('判断上下文')}
-          hint={t('只看最后一条更快更省；完整上下文更准')}
-          value={sprites.classifyContext}
-          onChange={(v) => set('sprites', 'classifyContext', v)}
-          options={[
-            { value: 'last', label: t('只看最后一条') },
-            { value: 'full', label: t('完整上下文') },
-          ]}
-        />
+        <Needs on={[kind('expression')]}>
+          <SelectField
+            label={t('兜底表情')}
+            hint={t('模型写了没有立绘的表情时显示哪一个')}
+            value={sprites.fallback}
+            onChange={(v) => set('sprites', 'fallback', v)}
+            options={[{ value: '', label: t('不显示') }, ...EXPRESSIONS.map((e) => ({ value: e, label: e }))]}
+          />
+          <SelectField
+            label={t('兜底情绪判断')}
+            hint={t('模型没写表情时，再调一次模型判断这条回复的情绪')}
+            value={sprites.classify}
+            onChange={(v) => set('sprites', 'classify', v)}
+            options={[
+              { value: 'missing', label: t('只在没写表情时') },
+              { value: 'always', label: t('总是') },
+              { value: 'off', label: t('禁用') },
+            ]}
+          />
+          <Needs on={[classify]}>
+            <SelectField
+              label={t('判断用的连接')}
+              hint={t('可以选一个便宜的模型来判断情绪')}
+              value={sprites.classifyConnectionId ?? ''}
+              onChange={(v) => set('sprites', 'classifyConnectionId', v || null)}
+              options={[
+                { value: '', label: t('跟随会话') },
+                ...(connections.data ?? []).map((c) => ({ value: c.id, label: `${c.name}（${c.model}）` })),
+              ]}
+            />
+            <TextField
+              label={t('判断用的模型')}
+              hint={t('留空则用连接里的模型')}
+              value={sprites.classifyModel}
+              onChange={(v) => set('sprites', 'classifyModel', v)}
+            />
+            <SelectField
+              label={t('判断上下文')}
+              hint={t('只看最后一条更快更省；完整上下文更准')}
+              value={sprites.classifyContext}
+              onChange={(v) => set('sprites', 'classifyContext', v)}
+              options={[
+                { value: 'last', label: t('只看最后一条') },
+                { value: 'full', label: t('完整上下文') },
+              ]}
+            />
+            <TextAreaField
+              label={t('判断提示词')}
+              hint={t('留空则用酒馆的默认提示词，{{labels}} 会替换成表情列表')}
+              mono
+              rows={3}
+              placeholder="Classify the emotion of the last message. Output just one word… {{labels}}"
+              value={sprites.classifyPrompt}
+              onChange={(v) => set('sprites', 'classifyPrompt', v)}
+            />
+          </Needs>
+        </Needs>
         <SelectField
           label={t('聊天中的侧边立绘')}
           hint={t('不进 VN 视图时，在聊天区旁边显示当前说话人的立绘')}
@@ -435,18 +480,9 @@ export function PlayPresetEditor({
             />
           </div>
         </DenseRow>
-        <TextAreaField
-          label={t('判断提示词')}
-          hint={t('留空则用酒馆的默认提示词，{{labels}} 会替换成表情列表')}
-          mono
-          rows={3}
-          placeholder="Classify the emotion of the last message. Output just one word… {{labels}}"
-          value={sprites.classifyPrompt}
-          onChange={(v) => set('sprites', 'classifyPrompt', v)}
-        />
       </Section>
 
-      <Section dense title={t('VN 视图')} description={t('版式、舞台和对话框')}>
+      <Section dense requires={[dir]} title={t('VN 视图')} description={t('版式、舞台和对话框')}>
         <SwitchField
           label={t('默认以 VN 视图打开')}
           hint={t('用这个预设的新会话一打开就是 VN 视图')}
@@ -533,34 +569,22 @@ export function PlayPresetEditor({
           value={stage.spriteScale}
           onChange={(v) => set('stage', 'spriteScale', Math.round(v))}
         />
-        <NumberField
-          label={t('非说话人变暗（%）')}
-          hint={t('焦点模式下，不说话的人变暗的程度')}
-          min={0}
-          max={90}
-          value={stage.dim}
-          onChange={(v) => set('stage', 'dim', Math.round(v))}
-        />
         <SwitchField
           label={t('焦点模式')}
           hint={t('正在说话的人在最上层、正常亮度，其他人变暗')}
           checked={stage.focus}
           onChange={(v) => set('stage', 'focus', v)}
         />
-        <SwitchField
-          label={t('自动生成缺少的背景')}
-          hint={t(
-            '模型换到背景库里没有的场景时，用图片生成扩展画一张，并用模型写的场景名命名（需要启用并配置图片生成）',
-          )}
-          checked={stage.autoBackground}
-          onChange={(v) => set('stage', 'autoBackground', v)}
-        />
-        <SwitchField
-          label={t('允许调整立绘')}
-          hint={t('VN 视图和聊天视图的侧边立绘可以拖动位置、缩放大小（只保存在这台设备上）')}
-          checked={stage.draggable}
-          onChange={(v) => set('stage', 'draggable', v)}
-        />
+        <Needs on={[focus]}>
+          <NumberField
+            label={t('非说话人变暗（%）')}
+            hint={t('焦点模式下，不说话的人变暗的程度')}
+            min={0}
+            max={90}
+            value={stage.dim}
+            onChange={(v) => set('stage', 'dim', Math.round(v))}
+          />
+        </Needs>
         <SwitchField
           label={t('显示名牌')}
           hint={t('对话框上方显示说话人名字')}
@@ -607,6 +631,12 @@ export function PlayPresetEditor({
             { value: 'hide', label: t('不显示') },
           ]}
         />
+        <SwitchField
+          label={t('允许调整立绘')}
+          hint={t('VN 视图和聊天视图的侧边立绘可以拖动位置、缩放大小（只保存在这台设备上）')}
+          checked={stage.draggable}
+          onChange={(v) => set('stage', 'draggable', v)}
+        />
         <SelectField
           label={t('转场效果')}
           hint={t('换背景、立绘上台和 CG 出现时的过渡。淡入：旧画面先暗下去；溶解：新画面直接叠上来')}
@@ -618,82 +648,104 @@ export function PlayPresetEditor({
             { value: 'none', label: t('无') },
           ]}
         />
-        <NumberField
-          label={t('转场时长（毫秒）')}
-          hint={t('过渡动画的时长')}
-          min={0}
-          max={5000}
-          slider={false}
-          value={stage.transitionMs}
-          onChange={(v) => set('stage', 'transitionMs', Math.round(v))}
-        />
+        <Needs on={[transition]}>
+          <NumberField
+            label={t('转场时长（毫秒）')}
+            hint={t('过渡动画的时长')}
+            min={0}
+            max={5000}
+            slider={false}
+            value={stage.transitionMs}
+            onChange={(v) => set('stage', 'transitionMs', Math.round(v))}
+          />
+        </Needs>
         <SwitchField
           label={t('电影模式')}
           hint={t('默认以电影模式打开：上下黑边，隐藏状态面板，对话变成字幕。VN 视图右上角也可以临时切换')}
           checked={stage.letterbox}
           onChange={(v) => set('stage', 'letterbox', v)}
         />
-        <SwitchField
-          label={t('自动生成 CG')}
-          hint={t('模型写了 <cg> 指令时，用图片生成扩展画出来，播放到这里全屏显示（需要勾选「CG」指令并配置图片生成）')}
-          checked={stage.cgAuto}
-          onChange={(v) => set('stage', 'cgAuto', v)}
-        />
+        <Needs on={[kind('scene')]}>
+          <SwitchField
+            label={t('自动生成缺少的背景')}
+            hint={t(
+              '模型换到背景库里没有的场景时，用图片生成扩展画一张，并用模型写的场景名命名（需要启用并配置图片生成）',
+            )}
+            checked={stage.autoBackground}
+            onChange={(v) => set('stage', 'autoBackground', v)}
+          />
+        </Needs>
+        <Needs on={[kind('cg')]}>
+          <SwitchField
+            label={t('自动生成 CG')}
+            hint={t(
+              '模型写了 <cg> 指令时，用图片生成扩展画出来，播放到这里全屏显示（需要勾选「CG」指令并配置图片生成）',
+            )}
+            checked={stage.cgAuto}
+            onChange={(v) => set('stage', 'cgAuto', v)}
+          />
+        </Needs>
       </Section>
 
-      <Section dense title={t('互动')} description={t('选项、状态面板和存档')}>
-        <SwitchField
-          label={t('显示选项')}
-          hint={t('模型给出的 <choices> 显示成按钮，点一下就发出去')}
-          checked={interaction.choices}
-          onChange={(v) => set('interaction', 'choices', v)}
-        />
-        <SwitchField
-          label={t('有选项时仍显示输入框')}
-          hint={t('VN 视图里有选项时，是否还能自由输入')}
-          checked={interaction.inputWithChoices}
-          onChange={(v) => set('interaction', 'inputWithChoices', v)}
-        />
-        <SelectField
-          label={t('选项排列')}
-          hint={t('VN 视图里选项按钮的排法')}
-          value={interaction.choiceLayout}
-          onChange={(v) => set('interaction', 'choiceLayout', v)}
-          options={[
-            { value: 'auto', label: t('自动') },
-            { value: 'row', label: t('横排') },
-            { value: 'column', label: t('竖排') },
-          ]}
-        />
+      <Section dense requires={[dir]} title={t('互动')} description={t('选项、状态面板和存档')}>
+        <Needs on={[kind('choices')]}>
+          <SwitchField
+            label={t('显示选项')}
+            hint={t('模型给出的 <choices> 显示成按钮，点一下就发出去')}
+            checked={interaction.choices}
+            onChange={(v) => set('interaction', 'choices', v)}
+          />
+          <Needs on={[choices]}>
+            <SwitchField
+              label={t('有选项时仍显示输入框')}
+              hint={t('VN 视图里有选项时，是否还能自由输入')}
+              checked={interaction.inputWithChoices}
+              onChange={(v) => set('interaction', 'inputWithChoices', v)}
+            />
+            <SelectField
+              label={t('选项排列')}
+              hint={t('VN 视图里选项按钮的排法')}
+              value={interaction.choiceLayout}
+              onChange={(v) => set('interaction', 'choiceLayout', v)}
+              options={[
+                { value: 'auto', label: t('自动') },
+                { value: 'row', label: t('横排') },
+                { value: 'column', label: t('竖排') },
+              ]}
+            />
+          </Needs>
+        </Needs>
         <SwitchField
           label={t('显示 HUD')}
           hint={t('在画面上显示状态面板（好感、HP……）')}
           checked={interaction.hud}
           onChange={(v) => set('interaction', 'hud', v)}
         />
-        <SwitchField
-          label={t('允许修改数值')}
-          hint={t('玩家可以在状态面板里直接改数值（好感、HP……）；关掉后只能由剧情改变')}
-          checked={interaction.varEdit}
-          onChange={(v) => set('interaction', 'varEdit', v)}
-        />
-        <SelectField
-          label={t('HUD 位置')}
-          hint={t('手机上总是顶部一行')}
-          value={interaction.hudPosition}
-          onChange={(v) => set('interaction', 'hudPosition', v)}
-          options={[
-            { value: 'top-right', label: t('右上') },
-            { value: 'top-left', label: t('左上') },
-            { value: 'top-bar', label: t('顶部一行') },
-          ]}
-        />
-        <SwitchField
-          label={t('数值变化飘字')}
-          hint={t('变量变化时显示 +2 / −5')}
-          checked={interaction.floatDelta}
-          onChange={(v) => set('interaction', 'floatDelta', v)}
-        />
+        <Needs on={[hud]}>
+          <SwitchField
+            label={t('允许修改数值')}
+            hint={t('玩家可以在状态面板里直接改数值（好感、HP……）；关掉后只能由剧情改变')}
+            checked={interaction.varEdit}
+            onChange={(v) => set('interaction', 'varEdit', v)}
+          />
+          <SelectField
+            label={t('HUD 位置')}
+            hint={t('手机上总是顶部一行')}
+            value={interaction.hudPosition}
+            onChange={(v) => set('interaction', 'hudPosition', v)}
+            options={[
+              { value: 'top-right', label: t('右上') },
+              { value: 'top-left', label: t('左上') },
+              { value: 'top-bar', label: t('顶部一行') },
+            ]}
+          />
+          <SwitchField
+            label={t('数值变化飘字')}
+            hint={t('变量变化时显示 +2 / −5')}
+            checked={interaction.floatDelta}
+            onChange={(v) => set('interaction', 'floatDelta', v)}
+          />
+        </Needs>
         <SwitchField
           label={t('阶段变化触发世界书')}
           hint={t(
@@ -712,6 +764,7 @@ export function PlayPresetEditor({
 
       <Section
         dense
+        requires={[dir, kind('audio')]}
         title={t('音频')}
         description={t('需要启用「音频」扩展；曲目在扩展页的「音频库」里管理。音量设为 0 即关闭这一路')}
         defaultOpen={false}

@@ -2119,8 +2119,15 @@ export const en: Record<string, string> = {
   '后点刷新按钮加载。扩展代码在后端和浏览器中运行，只安装你信任的扩展。':
     ' and click refresh to load it. Extension code runs on the server and in the browser; only install extensions you trust.',
   // 跑团与翻译
-  '检定、先攻和角色属性按这里的规则；目前只有 D&D 5e，其他规则先占位':
-    'Checks, initiative and character sheets follow this rule system; only D&D 5e for now, the others are placeholders',
+  '检定、先攻和角色属性按这里的规则；不跑团的玩法选「不用规则」。目前只有 D&D 5e，其他规则先占位':
+    'Checks, initiative and character stats follow these rules; pick "No rules" for play styles without tabletop mechanics. Only D&D 5e works so far; the others are placeholders.',
+  不用规则: 'No rules',
+  '「{kind}」指令': 'the "{kind}" directive',
+  选一个规则系统: 'pick a rule system',
+  '依赖：{names}': 'Depends on: {names}',
+  '跳到「{label}」': 'Go to "{label}"',
+  '前提：{label}': 'Requires: {label}',
+  '这一组的前提：{label}': 'This group requires: {label}',
   '刚掷出的骰子播放翻滚动画；关闭后直接显示结果':
     'Play a tumbling animation for new rolls; when off, results show immediately',
   在选项和检定卡片上显示检定难度: 'Show the DC on choices and check cards',

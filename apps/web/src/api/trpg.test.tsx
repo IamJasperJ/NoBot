@@ -22,7 +22,10 @@ test('跑团 hooks：预设开关、检定等待、透传、新消息与错误�
     return
   }
   const { qc, render, page } = setupHooks()
-  const play = playPresetDataSchema.parse({ directives: { enabled: true }, trpg: { diceAnimation: false } })
+  const play = playPresetDataSchema.parse({
+    directives: { enabled: true },
+    trpg: { ruleSystem: 'dnd5e', diceAnimation: false },
+  })
   const preset = () => qc.setQueryData(keys.playPresets, [{ id: 'play', data: play }])
   const check: CheckResult = {
     who: '玩家',

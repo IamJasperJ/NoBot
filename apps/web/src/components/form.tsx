@@ -17,6 +17,38 @@ import { controlClass, cx, inputClass, selectClass } from './ui'
 
 const DenseContext = createContext(false)
 
+/**
+ * 设置项之间的依赖：某一项要在另一项打开之后才起作用。
+ * label 是显示给用户的前提（「注入指令说明」「「选项」指令」……）；target 是要跳到的那一项的标签，默认同 label。
+ * section 为 true 表示整个分组的前提（分组标题上已经提示过，行里不再重复）
+ */
+export interface Requirement {
+  label: string
+  met: boolean
+  target?: string
+  section?: boolean
+}
+const RequiresContext = createContext<Requirement[]>([])
+
+/**
+ * 给里面的设置项加前提：前提没满足时控件不可用，行下方提示「前提：X」，点一下跳过去；
+ * 满足时标签前有一个 ↳，说明里列出它依赖谁。可以嵌套，前提会叠加
+ */
+export function Needs({ on, children }: { on: Requirement[]; children: ReactNode }) {
+  const parent = useContext(RequiresContext)
+  return <RequiresContext.Provider value={[...parent, ...on]}>{children}</RequiresContext.Provider>
+}
+
+/** 跳到某个设置项并闪一下，让人看出它和当前这一项的关系 */
+function jumpTo(label: string) {
+  const el = document.querySelector<HTMLElement>(`[data-setting="${CSS.escape(label)}"]`)
+  if (!el) return
+  el.closest('details')?.setAttribute('open', '')
+  el.scrollIntoView({ block: 'center' })
+  el.classList.add('setting-flash')
+  setTimeout(() => el.classList.remove('setting-flash'), 1600)
+}
+
 /** 当前是否处在紧凑排版里（扩展的自定义控件也可以用它决定怎么排） */
 export const useDense = () => useContext(DenseContext)
 
@@ -88,8 +120,22 @@ export function DenseRow({
   children: ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const requires = useContext(RequiresContext)
+  const unmet = requires.find((r) => !r.met)
+  // 行自己的前提（分组级的前提在分组标题上提示）
+  const own = requires.filter((r) => !r.section)
+  const blocked = !!unmet
   const title = (
     <span className={cx('flex min-w-0 items-center gap-0.5', !stack && denseLabelClass, labelClassName)}>
+      {own.length > 0 && (
+        <span
+          aria-hidden="true"
+          title={t('依赖：{names}', { names: own.map((r) => r.label).join('、') })}
+          className="mr-0.5 shrink-0 text-[11px] text-zinc-400"
+        >
+          ↳
+        </span>
+      )}
       {/* 最多两行：英文标签普遍比中文长，单行截断会看不全；两行仍放得进 36px 的行高 */}
       <label
         htmlFor={id}
@@ -102,20 +148,52 @@ export function DenseRow({
       {hint && <HintButton hint={hint} open={open} onToggle={() => setOpen(!open)} />}
     </span>
   )
+  // 前提没满足时用 fieldset 统一禁用里面的控件，各个控件不用分别判断
+  const control = (
+    <fieldset disabled={blocked} className="contents">
+      {children}
+    </fieldset>
+  )
   return (
-    <div className={cx('@container min-w-0', (wide || stack) && 'col-span-full', disabled && 'opacity-60')}>
+    <div
+      data-setting={label}
+      className={cx(
+        '@container min-w-0 rounded-md transition-shadow',
+        (wide || stack) && 'col-span-full',
+        (disabled || blocked) && 'opacity-60',
+      )}
+    >
       {stack ? (
         <div className="space-y-1 py-1">
           <div className="flex min-h-6 items-center">{title}</div>
-          {children}
+          {control}
         </div>
       ) : (
         <div className="flex min-h-9 min-w-0 items-center gap-2">
           {title}
-          {children}
+          {control}
         </div>
       )}
-      {open && hint && <p className="pb-1.5 text-xs leading-relaxed text-zinc-500">{hint}</p>}
+      {unmet && !unmet.section && (
+        <button
+          type="button"
+          onClick={() => jumpTo(unmet.target ?? unmet.label)}
+          title={t('跳到「{label}」', { label: unmet.target ?? unmet.label })}
+          className="-mt-1 mb-1 block max-w-full truncate text-left text-[11px] text-amber-700 hover:underline dark:text-amber-400"
+        >
+          {t('前提：{label}', { label: unmet.label })}
+        </button>
+      )}
+      {open && hint && (
+        <p className="pb-1.5 text-xs leading-relaxed text-zinc-500">
+          {hint}
+          {own.length > 0 && (
+            <span className="mt-0.5 block text-zinc-400">
+              {t('依赖：{names}', { names: own.map((r) => r.label).join('、') })}
+            </span>
+          )}
+        </p>
+      )}
     </div>
   )
 }
@@ -589,6 +667,7 @@ export function Section({
   children,
   defaultOpen = true,
   dense = false,
+  requires,
 }: {
   title: string
   description?: string
@@ -596,7 +675,19 @@ export function Section({
   defaultOpen?: boolean
   /** 紧凑排版：内容用 DenseGrid，一行一项、宽屏多列 */
   dense?: boolean
+  /** 整个分组的前提（比如都要先启用舞台指令）：没满足时标题上提示，里面的控件都不可用 */
+  requires?: Requirement[]
 }) {
+  const unmet = requires?.find((r) => !r.met)
+  const body = (
+    <Needs on={(requires ?? []).map((r) => ({ ...r, section: true }))}>
+      {dense ? (
+        <DenseGrid className="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">{children}</DenseGrid>
+      ) : (
+        <div className="space-y-5 border-t border-zinc-100 px-4 py-4 dark:border-zinc-800">{children}</div>
+      )}
+    </Needs>
+  )
   return (
     <details
       open={defaultOpen}
@@ -611,14 +702,22 @@ export function Section({
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">{title}</div>
           {description && <div className="mt-0.5 text-xs text-zinc-500">{description}</div>}
+          {unmet && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault()
+                jumpTo(unmet.target ?? unmet.label)
+              }}
+              className="mt-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 hover:underline dark:bg-amber-950/60 dark:text-amber-400"
+            >
+              {t('这一组的前提：{label}', { label: unmet.label })}
+            </button>
+          )}
         </div>
         <ChevronRightIcon className="size-4 shrink-0 text-zinc-400 transition-transform group-open:rotate-90" />
       </summary>
-      {dense ? (
-        <DenseGrid className="border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">{children}</DenseGrid>
-      ) : (
-        <div className="space-y-5 border-t border-zinc-100 px-4 py-4 dark:border-zinc-800">{children}</div>
-      )}
+      {body}
     </details>
   )
 }

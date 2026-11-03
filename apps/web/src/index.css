@@ -412,3 +412,19 @@ body {
     opacity: 1;
   }
 }
+
+/* 设置项依赖：点「前提：X」跳到 X 时闪一下，看出两者的关系 */
+@keyframes setting-flash {
+  0%,
+  60% {
+    box-shadow: 0 0 0 2px rgb(139 92 246 / 0.7);
+    background-color: rgb(139 92 246 / 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 2px rgb(139 92 246 / 0);
+    background-color: transparent;
+  }
+}
+.setting-flash {
+  animation: setting-flash 1.6s ease-out;
+}

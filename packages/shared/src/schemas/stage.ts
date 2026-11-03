@@ -196,7 +196,8 @@ export const DIRECTIVE_KIND_LABELS: Record<DirectiveKind, string> = {
 export const promptListSchema = z.enum(['cast', 'expressions', 'backgrounds', 'vars', 'outfits', 'audio'])
 export type PromptList = z.infer<typeof promptListSchema>
 
-export const ruleSystemSchema = z.enum(['dnd5e', 'coc7', 'pf2e', 'pbta', 'custom'])
+/** none：不用规则，检定、先攻和属性卡换算都不启用（陪伴、恋爱这类不跑团的玩法） */
+export const ruleSystemSchema = z.enum(['none', 'dnd5e', 'coc7', 'pf2e', 'pbta', 'custom'])
 export type RuleSystem = z.infer<typeof ruleSystemSchema>
 
 /** 已实现的规则系统；其余在设置里显示「未实现」且不可选 */
@@ -313,7 +314,7 @@ const interactionSchema = z.object({
 })
 
 const trpgSchema = z.object({
-  ruleSystem: ruleSystemSchema.default('dnd5e'),
+  ruleSystem: ruleSystemSchema.default('none'),
   diceAnimation: z.boolean().default(true),
   diceMs: z.number().int().min(0).max(5000).default(800),
   choiceRollClient: z.boolean().default(true),

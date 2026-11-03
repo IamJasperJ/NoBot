@@ -124,6 +124,8 @@ export const BUILTIN_PLAY_PRESETS: { key: BuiltinPlayPresetKey; name: string; bu
     build: () => {
       const data = story(['expression', 'cast', 'scene', 'state', 'choices'], 'auto', rpg())
       data.interaction.choiceLayout = 'column'
+      // 选项检定按 D&D 5e 掷骰
+      data.trpg.ruleSystem = 'dnd5e'
       return data
     },
   },

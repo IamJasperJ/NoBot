@@ -62,6 +62,7 @@ export function ChatView({ chatId }: { chatId: string }) {
     const speakers: ChatCast['speakers'] = {}
     if (group) for (const m of group.members) speakers[m.characterId] = { name: m.name, avatarUrl: m.avatarUrl }
     if (character.data) speakers[character.data.id] = { name: character.data.name, avatarUrl: character.data.avatarUrl }
+    const knownNames = [...Object.values(speakers).map((s) => s.name), ...(stageCast ?? []).map((m) => m.name)]
     return {
       speakers,
       fallback: {
@@ -72,12 +73,19 @@ export function ChatView({ chatId }: { chatId: string }) {
       // 玩法预设开了舞台指令：消息里的指令要藏起来、台词按速记改写、显示选项
       stage: play?.directives.enabled
         ? {
-            knownNames: [...Object.values(speakers).map((s) => s.name), ...(stageCast ?? []).map((m) => m.name)],
+            knownNames,
             narratorNames: play.trpg.gmName ? [play.trpg.gmName] : [],
             showSpeaker: play.directives.showSpeaker,
             choices: play.interaction.choices,
           }
         : null,
+      // 指令关着时也备一份，给当初开着指令生成的旧回复用；预设设置还在，沿用它的说话人显示和主持名
+      pastStage: {
+        knownNames,
+        narratorNames: play?.trpg.gmName ? [play.trpg.gmName] : [],
+        showSpeaker: play?.directives.showSpeaker ?? true,
+        choices: false,
+      },
     }
   }, [group, character.data, persona, play, stageCast])
 

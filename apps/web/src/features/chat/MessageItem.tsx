@@ -28,6 +28,7 @@ import { MessageActions } from './MessageActions'
 import { MessageEditor } from './MessageEditor'
 import { MessageMedia } from './MessageMedia'
 import { Choices, NarrationMessage, ToolMessage } from './MessageParts'
+import { stageDisplayFor } from './stageDisplay'
 
 /** 会话里出场的人：角色（群聊里是全部成员）和用户人设 */
 export interface ChatCast {
@@ -37,6 +38,13 @@ export interface ChatCast {
   user: { name: string; avatarUrl: string | null }
   /** 玩法预设开了舞台指令时才有：怎么隐藏指令、要不要显示选项 */
   stage?: {
+    knownNames: string[]
+    narratorNames: string[]
+    showSpeaker: boolean
+    choices: boolean
+  } | null
+  /** 没开舞台指令时，给开着指令时生成的旧回复用的显示规则（见 stageDisplayFor） */
+  pastStage?: {
     knownNames: string[]
     narratorNames: string[]
     showSpeaker: boolean
@@ -104,17 +112,18 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
   // 流式时只有原文；定稿后按「显示译文 / 原文」的选择取正文
   const raw = liveText ?? (view.hasTranslation ? view.text : msg.content)
   // 舞台指令只对角色回复生效：隐藏标签、台词速记改写成「**名字**：台词」，流式时连半截标签一起藏
-  const visible =
-    cast.stage && msg.role === 'assistant'
-      ? toDisplayText(raw, {
-          knownNames: cast.stage.knownNames,
-          narratorNames: cast.stage.narratorNames,
-          speaker: cast.stage.showSpeaker ? 'bold' : 'none',
-          streaming: isStreaming,
-        })
-      : raw
+  // 指令关掉后，开着指令时生成的回复仍按当时的样子显示，不退回成原始标签
+  const stage = stageDisplayFor(cast, msg)
+  const visible = stage
+    ? toDisplayText(raw, {
+        knownNames: stage.knownNames,
+        narratorNames: stage.narratorNames,
+        speaker: stage.showSpeaker ? 'bold' : 'none',
+        streaming: isStreaming,
+      })
+    : raw
   const text = transformMessage(displayMacros(visible, { char: charName, user: cast.user.name }), msg, transforms)
-  const choices = cast.stage?.choices && showChoices && !isStreaming ? msg.meta.stage?.choices : undefined
+  const choices = stage?.choices && showChoices && !isStreaming ? msg.meta.stage?.choices : undefined
   const reasoning = liveReasoning || (view.hasTranslation ? view.reasoning : msg.meta.reasoning)
   // 最后一条角色回复可以向右滑出新的回复、可以续写；其他消息只能在已有的 swipe 间切换
   const isReply = msg.role === 'assistant' && msg.parentId !== null

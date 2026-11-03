@@ -3137,6 +3137,20 @@ export const en: Record<string, string> = {
     'Update the message while generating: a typing draft in DMs, periodic edits of one message in groups. Off sends the whole reply at once',
   '流式输出时多久编辑一次消息；太快可能触发平台限流':
     'How often to edit the message while streaming; too fast may hit platform rate limits',
+  拟人分条: 'Human-like bursts',
+  按行: 'By line',
+  按行和句子: 'By line and sentence',
+  最多分几条: 'Max messages',
+  打字速度: 'Typing speed',
+  快: 'Fast',
+  中: 'Medium',
+  慢: 'Slow',
+  '把一条回复拆成几条消息依次发出，条与条之间按字数等一会儿，像真人一条条打字。按行：模型换行的地方分开；按行和句子：一行太长时再按句号拆。开启后不再流式输出，生成完才开始发':
+    'Sends a reply as several messages with a short, length-based pause between them, like a person typing. By line: split where the model starts a new line; by line and sentence: also split long lines at sentence ends. Turns off streaming: sending starts once the reply is done.',
+  '一条回复最多拆成几条，行数更多时把相邻的行合在一起':
+    'The most messages one reply is split into; extra lines are merged with their neighbours.',
+  '条与条之间的等待按字数估算：慢＝每秒约 4 字，中＝约 7 字，快＝约 12 字':
+    'The pause between messages is based on length: slow ≈ 4 characters a second, medium ≈ 7, fast ≈ 12.',
   '模型的思考过程（推理内容）要不要发到平台上；折叠显示时用可展开的引用块':
     "Whether to send the model's reasoning to the platform; folded shows it in an expandable quote",
   '角色还在回复时又有人发消息：排队合并会等这条回完，再把新消息一起回复；打断重来会停掉当前回复，带上新消息重新生成':

@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto'
+import { burstDelays, burstSeed, splitBurst } from '@nobot/core'
 import { parseStageMessage, toDisplayText } from '@nobot/core/stage'
 import {
   type ChannelActorDTO,
@@ -82,6 +83,7 @@ const refused = () => new HttpError(403, 'CHANNEL_REFUSED', t('没有渠道操�
 type MessageEvent = Extract<TelegramEvent, { type: 'message' | 'edit' }>
 export class ChannelService {
   readonly runtime: ChannelRuntime
+  sleep = (ms: number): Promise<void> => Bun.sleep(ms)
   readonly media: OutboundMedia
   private oneBotTurns = new Map<string, MessageDTO[]>()
   private privateDeliveryTails = new Map<string, Promise<unknown>>()
@@ -1553,6 +1555,7 @@ export class ChannelService {
         }
         if (
           event.type === 'start' &&
+          this.settings(binding).values.burst === 'off' &&
           !['only', 'decide'].includes(this.settings(binding).values.voice) &&
           !(
             this.settings(binding).values.voice === 'button' &&
@@ -1874,8 +1877,40 @@ export class ChannelService {
       if (this.deliveryTails.get(key) === pending) this.deliveryTails.delete(key)
     }
   }
+  /**
+   * 分条发送的「还要不要接着发」：绑定仍在用、消息没被删、正文没被改、仍在当前分支上（重新生成或切换备选后就停）。
+   * 只比正文不比整行：翻译、语音等扩展会在发送期间往 meta 里写东西，不能因此中断
+   */
+  private burstGuard(binding: ChannelBindingDTO, message: MessageDTO) {
+    return () => {
+      const current = db.select().from(channelBindings).where(eq(channelBindings.id, binding.id)).get()
+      const row = db.select().from(messages).where(eq(messages.id, message.id)).get()
+      if (current?.state !== 'active' || current.chatId !== binding.chatId || row?.content !== message.content)
+        return false
+      try {
+        return loadPath(getChatRow(binding.chatId).activeLeafId).some((item) => item.id === message.id)
+      } catch {
+        return false
+      }
+    }
+  }
+  /** 每次发送成功立即落库，让删除和撤回能定位已经发出的分页。 */
+  private recordBurst(
+    id: string,
+    binding: ChannelBindingDTO,
+    message: MessageDTO,
+    revision: number,
+    contentHash: string,
+    parts: { accountId: string; externalChat: string; externalId: string }[],
+  ) {
+    db.insert(channelDeliveries)
+      .values({ id, bindingId: binding.id, messageId: message.id, revision, contentHash, parts, status: 'committed' })
+      .onConflictDoUpdate({ target: channelDeliveries.id, set: { parts, contentHash, revision, status: 'committed' } })
+      .run()
+  }
   private async deliverNow(binding: ChannelBindingDTO, message: MessageDTO, stream?: TelegramStream) {
     binding = bindingRow(binding.id)
+    const burstCurrent = this.burstGuard(binding, message)
     let entry = this.runtime.accounts.get(binding.accountId)
     if (!entry || binding.state !== 'active' || message.chatId !== binding.chatId) {
       // 绑定切换会话后，旧生成订阅的迟到结果不能进入新位置。
@@ -2217,6 +2252,31 @@ export class ChannelService {
       segments.length = 0
       if (replacement || rows.length) segments.push(...inlineTelegramSegments(replacement || t('操作')))
     }
+    const burstText = stage?.beats.some((beat) => beat.kind === 'line')
+      ? stage.beats
+          .map((beat) => {
+            if (beat.kind === 'line')
+              return `${settings.personaPrefix && stageMembers(binding.chatId).length > 1 && beat.speaker !== identityName ? `${beat.speaker}: ` : ''}${beat.text}`
+            return beat.kind === 'narration' ? beat.text : ''
+          })
+          .filter(Boolean)
+          .join('\n')
+      : text
+    const burst =
+      settings.burst !== 'off' &&
+      message.role === 'assistant' &&
+      !isImageMessage(message) &&
+      !previous &&
+      replacement === undefined
+        ? splitBurst(burstText, { mode: settings.burst, maxParts: settings.burstMaxParts })
+        : []
+    const bursting = burst.length > 1
+    const deliveryId = previous?.id ?? newId()
+    let burstCancelled = false
+    if (bursting) {
+      stream?.abort()
+      stream = undefined
+    }
     const markup = { inline_keyboard: rows }
     if (stream?.isClosed) stream = undefined
     let ids: number[]
@@ -2227,36 +2287,88 @@ export class ChannelService {
     if (stream) ids = await stream.commit(text, markup, segments)
     else {
       const sender = entry
-      ids = await sender.client.serialized(binding.chat, async () => {
+      const send = async () => {
         const sentIds: number[] = []
-        const pages = renderTelegram(segments)
-        for (const [index, html] of pages.entries()) {
-          const params = {
-            chat_id: binding.chat,
-            message_thread_id: binding.thread || undefined,
-            text: html,
-            parse_mode: 'HTML',
-            reply_markup: index === pages.length - 1 ? markup : undefined,
-          }
-          const old = settings.voice === 'only' ? undefined : previous?.parts[index]
-          if (old) {
-            try {
-              await sender.client.call('editMessageText', { ...params, message_id: Number(old.externalId) })
-              sentIds.push(Number(old.externalId))
-              continue
-            } catch {
-              /* 平台编辑窗口可能已过，改为引用旧版本。 */
+        const delays = burstDelays(burst, { speed: settings.burstSpeed }, burstSeed(message.id))
+        const groups = bursting
+          ? burst.map((part, index) =>
+              renderTelegram([
+                ...(index === 0 && settings.thinking === 'fold' && message.meta.reasoning
+                  ? [{ kind: 'thinking' as const, text: message.meta.reasoning }]
+                  : []),
+                ...inlineTelegramSegments(part),
+              ]),
+            )
+          : [renderTelegram(segments)]
+        for (const [partIndex, pages] of groups.entries()) {
+          if (bursting && partIndex > 0) {
+            if (!burstCurrent()) {
+              burstCancelled = true
+              break
+            }
+            await sender.client
+              .call('sendChatAction', {
+                chat_id: binding.chat,
+                message_thread_id: binding.thread || undefined,
+                action: 'typing',
+              })
+              .catch(() => {})
+            await this.sleep(delays[partIndex]!)
+            if (!burstCurrent()) {
+              burstCancelled = true
+              break
             }
           }
-          const result = await sender.client.call<{ message_id: number }>('sendMessage', {
-            ...params,
-            ...(old ? { reply_parameters: { message_id: Number(old.externalId) } } : {}),
-          })
-          sentIds.push(result.message_id)
+          for (const [index, html] of pages.entries()) {
+            if (bursting && sentIds.length && !burstCurrent()) {
+              burstCancelled = true
+              break
+            }
+
+            const params = {
+              chat_id: binding.chat,
+              message_thread_id: binding.thread || undefined,
+              text: html,
+              parse_mode: 'HTML',
+              reply_markup: partIndex === groups.length - 1 && index === pages.length - 1 ? markup : undefined,
+            }
+            const old = settings.voice === 'only' ? undefined : previous?.parts[index]
+            if (old) {
+              try {
+                await sender.client.call('editMessageText', { ...params, message_id: Number(old.externalId) })
+                sentIds.push(Number(old.externalId))
+                continue
+              } catch {
+                /* 平台编辑窗口可能已过，改为引用旧版本。 */
+              }
+            }
+            const result = await sender.client.call<{ message_id: number }>('sendMessage', {
+              ...params,
+              ...(old ? { reply_parameters: { message_id: Number(old.externalId) } } : {}),
+            })
+            sentIds.push(result.message_id)
+            if (bursting)
+              this.recordBurst(
+                deliveryId,
+                binding,
+                message,
+                revision,
+                contentHash,
+                sentIds.map((id) => ({
+                  accountId: sendingAccountId,
+                  externalChat: binding.chat,
+                  externalId: String(id),
+                })),
+              )
+          }
+          if (burstCancelled) break
         }
         return sentIds
-      })
+      }
+      // 拟人等待仅占用绑定自己的投递队列，同群其他话题仍然可以发送。
+      ids = bursting ? await send() : await sender.client.serialized(binding.chat, send)
     }
+    if (burstCancelled) return
     if (!previous && message.role === 'assistant') {
       const old = deliveries.at(-1)
       if (old)
@@ -2272,7 +2384,7 @@ export class ChannelService {
     }
     db.insert(channelDeliveries)
       .values({
-        id: previous?.id ?? newId(),
+        id: deliveryId,
         bindingId: binding.id,
         messageId: message.id,
         revision,
@@ -2468,6 +2580,7 @@ export class ChannelService {
     }
   }
   private async deliverOneBot(binding: ChannelBindingDTO, message: MessageDTO, client: OneBotClient) {
+    const burstCurrent = this.burstGuard(binding, message)
     const settings = voiceDeliverySettings(binding, message, this.settings(binding).values, (code) =>
       this.runtime.log(binding.accountId, code),
     )
@@ -2547,22 +2660,47 @@ export class ChannelService {
         this.runtime.log(binding.accountId, 'onebot.forward.fallback')
       }
     }
-    if (!forwarded)
-      for (const page of splitOneBot(text, settings.maxMessageLength)) {
-        const trigger = this.triggers.get(binding.id)
-        const sent = await client.send(
-          binding.chat.replace(/^-/, ''),
-          [
-            ...(binding.scope === 'group' && trigger ? [{ type: 'reply', data: { id: String(trigger) } }] : []),
-            { type: 'text', data: { text: page } },
-          ],
-          binding.scope,
-        )
-        parts.push({ accountId: binding.accountId, externalChat: binding.chat, externalId: String(sent.message_id) })
+    const burst =
+      settings.burst !== 'off' &&
+      message.role === 'assistant' &&
+      !isImageMessage(message) &&
+      !previous &&
+      replacement === undefined &&
+      !forwarded
+        ? splitBurst(bodyText, { mode: settings.burst, maxParts: settings.burstMaxParts })
+        : []
+    const bursting = burst.length > 1
+    const deliveryId = previous?.id ?? newId()
+    if (bursting) burst[burst.length - 1] += text.slice(bodyText.length)
+    const delays = burstDelays(burst, { speed: settings.burstSpeed }, burstSeed(message.id))
+    if (!forwarded) {
+      for (const [index, part] of (bursting ? burst : [text]).entries()) {
+        if (bursting && index > 0) {
+          if (!burstCurrent()) return
+          await this.sleep(delays[index]!)
+          if (!burstCurrent()) return
+        }
+        for (const page of splitOneBot(part, settings.maxMessageLength)) {
+          if (bursting && parts.length && !burstCurrent()) return
+          const trigger = this.triggers.get(binding.id)
+          const sent = await client.send(
+            binding.chat.replace(/^-/, ''),
+            [
+              ...(binding.scope === 'group' && trigger && (!bursting || !parts.length)
+                ? [{ type: 'reply', data: { id: String(trigger) } }]
+                : []),
+              { type: 'text', data: { text: page } },
+            ],
+            binding.scope,
+          )
+          parts.push({ accountId: binding.accountId, externalChat: binding.chat, externalId: String(sent.message_id) })
+          if (bursting) this.recordBurst(deliveryId, binding, message, 0, hash, parts)
+        }
       }
+    }
     db.insert(channelDeliveries)
       .values({
-        id: previous?.id ?? newId(),
+        id: deliveryId,
         bindingId: binding.id,
         messageId: message.id,
         revision: (previous?.revision ?? -1) + 1,

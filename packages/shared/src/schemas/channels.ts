@@ -3,6 +3,9 @@ import { z } from 'zod'
 export const channelProvider = z.enum(['telegram', 'onebot11'])
 export type ChannelProvider = z.infer<typeof channelProvider>
 export const channelSettingsSchema = z.object({
+  burst: z.enum(['off', 'lines', 'sentences']).default('off'),
+  burstMaxParts: z.number().int().min(2).max(10).default(4),
+  burstSpeed: z.enum(['fast', 'medium', 'slow']).default('medium'),
   stickerFrequency: z.enum(['off', 'rarely', 'sometimes', 'often']).default('sometimes'),
   stickerCooldownSec: z.number().int().min(0).max(86400).default(30),
   stickerAutoLearn: z.boolean().default(true),

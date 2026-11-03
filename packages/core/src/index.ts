@@ -1,6 +1,7 @@
 export * from './audio'
 export * from './cards/card'
 export * from './cards/png'
+export * from './channels/burst'
 export * from './group'
 export * from './prompt/build'
 export * from './prompt/defaults'

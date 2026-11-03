@@ -102,6 +102,11 @@ const rowHint = (key: keyof ChannelSettings, provider?: ChannelProvider | 'share
   const map: Partial<Record<keyof ChannelSettings, string>> = {
     stream: t('边生成边更新消息：私聊用打字草稿，群里定时编辑同一条消息；关掉则生成完一次性发出'),
     streamIntervalMs: t('流式输出时多久编辑一次消息；太快可能触发平台限流'),
+    burst: t(
+      '把一条回复拆成几条消息依次发出，条与条之间按字数等一会儿，像真人一条条打字。按行：模型换行的地方分开；按行和句子：一行太长时再按句号拆。开启后不再流式输出，生成完才开始发',
+    ),
+    burstMaxParts: t('一条回复最多拆成几条，行数更多时把相邻的行合在一起'),
+    burstSpeed: t('条与条之间的等待按字数估算：慢＝每秒约 4 字，中＝约 7 字，快＝约 12 字'),
     thinking: t('模型的思考过程（推理内容）要不要发到平台上；折叠显示时用可展开的引用块'),
     queueMode: t(
       '角色还在回复时又有人发消息：排队合并会等这条回完，再把新消息一起回复；打断重来会停掉当前回复，带上新消息重新生成',
@@ -178,6 +183,31 @@ export const settingGroups = (provider?: ChannelProvider | 'shared'): { title: s
     rows: [
       { key: 'stream', label: t('流式输出'), kind: { type: 'bool' } },
       { key: 'streamIntervalMs', label: t('更新间隔（毫秒）'), kind: { type: 'number', min: 250, max: 60000 } },
+      {
+        key: 'burst',
+        label: t('拟人分条'),
+        kind: {
+          type: 'select',
+          options: [
+            { value: 'off', label: t('关') },
+            { value: 'lines', label: t('按行') },
+            { value: 'sentences', label: t('按行和句子') },
+          ],
+        },
+      },
+      { key: 'burstMaxParts', label: t('最多分几条'), kind: { type: 'number', min: 2, max: 10 } },
+      {
+        key: 'burstSpeed',
+        label: t('打字速度'),
+        kind: {
+          type: 'select',
+          options: [
+            { value: 'fast', label: t('快') },
+            { value: 'medium', label: t('中') },
+            { value: 'slow', label: t('慢') },
+          ],
+        },
+      },
       {
         key: 'thinking',
         label: t('思考过程'),

@@ -5,6 +5,9 @@ data-old-*/
 *.log
 .DS_Store
 
+# 本地外置扩展，不进公开仓库
+/external-extension/
+
 # 本地协作与设计文档，不进公开仓库
 AGENTS.md
 docs/

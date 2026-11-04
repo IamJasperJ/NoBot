@@ -503,6 +503,7 @@ export const channelBindings = sqliteTable(
     trigger: text('trigger').$type<ChannelBindingDTO['trigger']>().notNull(),
     personaMode: text('persona_mode').$type<ChannelBindingDTO['personaMode']>(),
     settings: text('settings', { mode: 'json' }).$type<ChannelBindingDTO['settings']>().notNull().default({}),
+    takeover: text('takeover', { mode: 'json' }).$type<ChannelBindingDTO['takeover']>(),
     lastActivityAt: integer('last_activity_at').notNull(),
     idleWarnedAt: integer('idle_warned_at'),
     createdBy: text('created_by').notNull(),

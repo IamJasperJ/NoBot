@@ -225,6 +225,11 @@ export const channelBindingInput = z.object({
   trigger: z.enum(['follow-room', 'mention', 'reply', 'command', 'all']).default('follow-room'),
   personaMode: channelPersonaMode.nullable().default(null),
   settings: channelSettingsOverrideSchema.default({}),
+  /**
+   * 主人用 /chats 接手已有会话时选了「接管」：只在 chatId 仍是当前会话时生效。
+   * userId 为 null（私聊会话）表示保持会话原人设、不再同步渠道人设；有值（房间会话）表示以该成员身份发言。
+   */
+  takeover: z.object({ chatId: z.string(), userId: z.string().nullable() }).nullable().default(null),
 })
 export type ChannelBindingInput = z.input<typeof channelBindingInput>
 export interface ChannelBindingDTO extends z.infer<typeof channelBindingInput> {

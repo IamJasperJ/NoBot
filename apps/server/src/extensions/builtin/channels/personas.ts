@@ -8,35 +8,39 @@ import { updateChat } from '../../../services/chats'
 import { createPersona, listPersonas, updatePersona as updateLocalPersona } from '../../../services/personas'
 import { updatePersona } from '../../../services/rooms'
 import { currentUser, runAsUser } from '../../../user-context'
-import { asChannelActor } from './rooms'
+import { activeTakeover, asChannelActor } from './rooms'
 import { accountRow } from './store'
 
-/** 平台昵称跟随改名；显式选择的人设保留，不被下一条平台消息覆盖。 */
+/** 与同步共用解析规则，检查是否出现过时不改动目标会话。 */
+export function actorPersonaId(binding: Pick<ChannelBindingDTO, 'accountId' | 'personaMode'>, actor: ChannelActorDTO) {
+  const config = accountRow(binding.accountId).config
+  const mode = binding.personaMode ?? config.personaMode
+  if (!actor.personaId && (mode === 'platform-name' || actor.personaName)) {
+    const key = `channels:platform-persona:${actor.id}`
+    const id = getSetting<string>(key)
+    const old = id ? db.select().from(personas).where(eq(personas.id, id)).get() : undefined
+    const name = actor.personaName ?? actor.displayName
+    const description = actor.personaDescription ?? ''
+    const persona = old ?? createPersona({ name, description })
+    if (!old) setSetting(key, persona.id)
+    else if (old.name !== name || old.description !== description) updateLocalPersona(old.id, { name, description })
+    return persona.id
+  }
+  return mode === 'global' && config.globalPersonaId && (!actor.personaId || config.personaLocked)
+    ? config.globalPersonaId
+    : actor.personaId
+}
+
+/** 平台昵称跟随改名；接管期间保留会话或成员的人设。 */
 export function syncActorPersona(binding: ChannelBindingDTO, actor: ChannelActorDTO) {
+  if (activeTakeover(binding)) return
   const config = accountRow(binding.accountId).config
   const mode = binding.personaMode ?? config.personaMode
   if (!binding.roomId) {
-    if (
-      actor.linkedUserId === currentUser().id &&
-      !actor.personaId &&
-      (mode === 'platform-name' || actor.personaName)
-    ) {
-      const key = `channels:platform-persona:${actor.id}`
-      const id = getSetting<string>(key)
-      const old = id ? db.select().from(personas).where(eq(personas.id, id)).get() : undefined
-      const name = actor.personaName ?? actor.displayName,
-        description = actor.personaDescription ?? ''
-      const persona = old ?? createPersona({ name, description })
-      if (!old) setSetting(key, persona.id)
-      else if (old.name !== name || old.description !== description) updateLocalPersona(old.id, { name, description })
-      updateChat(binding.chatId, { personaId: persona.id })
-      return
+    if (actor.linkedUserId === currentUser().id) {
+      const personaId = actorPersonaId(binding, actor)
+      if (personaId) updateChat(binding.chatId, { personaId })
     }
-    const personaId =
-      mode === 'global' && config.globalPersonaId && (!actor.personaId || config.personaLocked)
-        ? config.globalPersonaId
-        : actor.personaId
-    if (personaId && actor.linkedUserId === currentUser().id) updateChat(binding.chatId, { personaId })
     return
   }
   const userId = actor.linkedUserId ?? actor.externalUserId

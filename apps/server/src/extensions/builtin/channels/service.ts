@@ -9,7 +9,7 @@ import {
   type GenerateInput,
   type MessageDTO,
 } from '@nobot/shared'
-import { and, eq, isNull, lt } from 'drizzle-orm'
+import { and, desc, eq, isNull, lt } from 'drizzle-orm'
 import { db, newId } from '../../../db/client'
 import {
   channelActions,
@@ -25,9 +25,10 @@ import {
   groupMembers,
   groups,
   messages,
+  personas,
 } from '../../../db/schema'
 import { systemDatabase } from '../../../db/system-client'
-import { rooms } from '../../../db/system-schema'
+import { roomMembers, rooms, users } from '../../../db/system-schema'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { stripBidi } from '../../../lib/input-text'
@@ -66,10 +67,10 @@ import { imagineLabel, imagineModes, parseImagine } from './imagine'
 import { receiveManagedBot } from './managed-bots'
 import { type MiniAppButton, miniAppButton, oneTimeStageUrl } from './miniapp'
 import { OutboundMedia } from './outbound-media'
-import { chooseActorPersona, syncActorPersona } from './personas'
+import { actorPersonaId, chooseActorPersona, syncActorPersona } from './personas'
 import { checkIdle, groupAdded, markLeft, requestLocation } from './policies'
 import { reactToMessage } from './reactions'
-import { addChannelMember, asChannelActor } from './rooms'
+import { activeTakeover, addChannelMember, asChannelActor } from './rooms'
 import { ChannelRuntime } from './runtime'
 import { locationKey, matchChannelBinding, resolveChannelSettings } from './settings'
 import { omitSpeakerPrefix } from './speaker-prefix'
@@ -463,7 +464,7 @@ export class ChannelService {
                   ? item.action === 'imagine'
                   : event.command && ['char', 'group'].includes(event.command.name)
                     ? item.action === 'picker'
-                    : ['picker', 'imagine'].includes(item.action)) &&
+                    : ['picker', 'imagine', 'chat', 'chat-enter', 'chat-list'].includes(item.action)) &&
                 item.args.accountId === id &&
                 item.allowedActor === actor.externalId &&
                 item.expiresAt > Date.now() &&
@@ -492,6 +493,15 @@ export class ChannelService {
       }
       if (event.command && ['char', 'group'].includes(event.command.name)) {
         await this.pickerCommand(id, actor, event, rateBinding)
+        return
+      }
+      if (
+        event.command?.name === 'chats' &&
+        actor.role === 'owner' &&
+        actor.linkedUserId === currentUser().id &&
+        (rateBinding || event.chat.type === 'private')
+      ) {
+        await this.showChats(id, actor, event, rateBinding, Math.max(0, Number(event.command.args || 1) - 1))
         return
       }
       const binding = await this.resolveBinding(id, event, actor)
@@ -549,6 +559,9 @@ export class ChannelService {
         .where(eq(channelBindings.id, bindingId))
         .run()
       if (event.type === 'edit') {
+        const authorId = binding.roomId
+          ? asChannelActor(binding, actor, () => currentUser().id)
+          : (actor.linkedUserId ?? actor.externalUserId)
         // 入站作者和外部消息 id 共同定位，不能编辑其他成员的消息。
         const original = this.host
           .getChatInfo(binding.chatId, 1000)
@@ -556,7 +569,7 @@ export class ChannelService {
             (m) =>
               m.meta.clientMessageId ===
                 `${accountRow(binding.accountId).config.provider}:${event.chat.id}:${event.message_id}` &&
-              m.meta.author?.userId === (actor.linkedUserId ?? actor.externalUserId),
+              m.meta.author?.userId === authorId,
           )
         if (original && binding.roomId)
           asChannelActor(binding, actor, () => editRoomMessage(binding.roomId!, original.id, event.text))
@@ -694,8 +707,6 @@ export class ChannelService {
     if (binding.roomId) {
       // 渠道无有效正文时静默丢弃，避免写入空消息或向平台发送校验错误。
       if (!stripBidi(event.text).trim() && !images.length) return
-      const memberId = actor.linkedUserId ?? actor.externalUserId
-      if (!memberId) throw refused()
       let replyTo: string | undefined
       if (event.reply_to_message || event.mentionsBot) {
         const history = this.host.getChatInfo(binding.chatId, 1000).messages
@@ -737,7 +748,7 @@ export class ChannelService {
             replyTo,
           },
           {},
-          memberId,
+          currentUser().id,
           binding.trigger === 'follow-room' || this.triggered(binding, event),
         )
       asChannelActor(binding, actor, send)
@@ -816,6 +827,192 @@ export class ChannelService {
       throw refused()
     if (binding?.roomId) asChannelActor(binding, actor, () => requireRole(binding.roomId!, ['owner', 'gm']))
     else if (!owner && (binding || event.chat.type !== 'private' || actor.role !== 'player')) throw refused()
+  }
+  /** 菜单携带位置而非绑定快照，点击时重新校验绑定，防止旧菜单覆盖后续切换。 */
+  private async chatMenu(
+    accountId: string,
+    actor: ChannelActorDTO,
+    event: MessageEvent,
+    binding: ChannelBindingDTO | undefined,
+    text: string,
+    items: { text: string; action: string; args: Record<string, unknown> }[],
+  ) {
+    const client = this.runtime.accounts.get(accountId)?.client
+    if (!client) return
+    for (const old of db.select().from(channelActions).all()) {
+      const original = old.args.event as MessageEvent | undefined
+      if (
+        ['chat', 'chat-enter', 'chat-list', 'picker'].includes(old.action) &&
+        old.allowedActor === actor.externalId &&
+        old.args.accountId === accountId &&
+        original?.chat.id === event.chat.id &&
+        original?.message_thread_id === event.message_thread_id
+      )
+        db.delete(channelActions).where(eq(channelActions.token, old.token)).run()
+    }
+    const rows = items.map((item, index) => {
+      const token = randomBytes(18).toString('base64url')
+      db.insert(channelActions)
+        .values({
+          token,
+          bindingId: binding?.id ?? null,
+          action: item.action,
+          args: { accountId, event: { ...event, text: '', command: null }, number: index + 1, ...item.args },
+          revision: 0,
+          allowedActor: actor.externalId,
+          expiresAt: Date.now() + 600000,
+        })
+        .run()
+      return [{ text: item.text, callback_data: token }]
+    })
+    if (client instanceof OneBotClient)
+      return this.send(
+        accountId,
+        String(event.chat.id),
+        `${text}\n${t('回复数字选择')}\n${items.map((item, i) => `${i + 1}. ${item.text}`).join('\n')}`,
+        String(event.message_thread_id ?? ''),
+      )
+    await client.call('sendMessage', {
+      chat_id: String(event.chat.id),
+      message_thread_id: event.message_thread_id,
+      text,
+      reply_markup: { inline_keyboard: rows },
+    })
+  }
+  private async showChats(
+    accountId: string,
+    actor: ChannelActorDTO,
+    event: MessageEvent,
+    binding?: ChannelBindingDTO,
+    page = 0,
+  ) {
+    const all = db.select().from(chats).orderBy(desc(chats.updatedAt)).all()
+    const currentIndex = all.findIndex((chat) => chat.id === binding?.chatId)
+    if (currentIndex > 0) all.unshift(...all.splice(currentIndex, 1))
+    const current = Math.max(
+      0,
+      Math.min(Number.isFinite(page) ? Math.floor(page) : 0, Math.max(0, Math.ceil(all.length / 8) - 1)),
+    )
+    const items = all.slice(current * 8, current * 8 + 8).map((chat) => ({
+      text: `${chat.id === binding?.chatId ? '✅ ' : ''}${systemDatabase().select().from(rooms).where(eq(rooms.chatId, chat.id)).get() ? '👥 ' : ''}${chat.title}`,
+      action: 'chat',
+      args: { chatId: chat.id } as Record<string, unknown>,
+    }))
+    if (current > 0) items.push({ text: `◀ ${t('上一页')}`, action: 'chat-list', args: { page: current - 1 } })
+    if ((current + 1) * 8 < all.length)
+      items.push({ text: `▶ ${t('下一页')}`, action: 'chat-list', args: { page: current + 1 } })
+    items.push({ text: t('新对话'), action: 'chat-list', args: { newChat: true } })
+    return this.chatMenu(accountId, actor, event, binding, t('选择会话'), items)
+  }
+  private takeoverMembers(chatId: string, roomId: string, actor: ChannelActorDTO) {
+    const authors = new Set(
+      db
+        .select()
+        .from(messages)
+        .where(eq(messages.chatId, chatId))
+        .all()
+        .map((message) => message.meta.author?.userId),
+    )
+    return systemDatabase()
+      .select({ member: roomMembers, user: users })
+      .from(roomMembers)
+      .innerJoin(users, eq(users.id, roomMembers.userId))
+      .where(eq(roomMembers.roomId, roomId))
+      .all()
+      .filter(
+        ({ member, user }) =>
+          authors.has(user.id) &&
+          user.id !== (actor.linkedUserId ?? actor.externalUserId) &&
+          !user.disabled &&
+          member.state === 'active' &&
+          member.role !== 'spectator',
+      )
+  }
+  private async enterChat(
+    accountId: string,
+    actor: ChannelActorDTO,
+    event: MessageEvent,
+    binding: ChannelBindingDTO | undefined,
+    chatId: string,
+    userId?: string | null,
+    confirmed = false,
+  ) {
+    const chat = getChatRow(chatId)
+    if (binding?.chatId === chatId)
+      return this.send(
+        accountId,
+        String(event.chat.id),
+        t('已切换到：{title}', { title: chat.title }),
+        String(event.message_thread_id ?? ''),
+      )
+    const room = systemDatabase().select().from(rooms).where(eq(rooms.chatId, chatId)).get()
+    const appeared = room
+      ? db
+          .select()
+          .from(messages)
+          .where(eq(messages.chatId, chatId))
+          .all()
+          .some((message) => message.meta.author?.userId === (actor.linkedUserId ?? actor.externalUserId))
+      : !!chat.personaId && chat.personaId === actorPersonaId(binding ?? { accountId, personaMode: null }, actor)
+    if (!appeared && !confirmed) {
+      const items: { text: string; action: string; args: Record<string, unknown> }[] = [
+        { text: t('以渠道人设进入'), action: 'chat-enter', args: { chatId } },
+      ]
+      if (room) {
+        for (const { member, user } of this.takeoverMembers(chatId, room.id, actor))
+          items.push({
+            text: t('接管：{name}', { name: member.personaName || user.name }),
+            action: 'chat-enter',
+            args: { chatId, userId: user.id },
+          })
+      } else if (chat.personaId) {
+        const persona = db.select().from(personas).where(eq(personas.id, chat.personaId)).get()
+        if (persona)
+          items.push({
+            text: t('接管人设：{name}', { name: persona.name }),
+            action: 'chat-enter',
+            args: { chatId, userId: null },
+          })
+      }
+      return this.chatMenu(accountId, actor, event, binding, t('你还没有在这个会话里出现过，选择进入方式'), items)
+    }
+    if (userId !== undefined) {
+      if (
+        room
+          ? !this.takeoverMembers(chatId, room.id, actor).some(({ user }) => user.id === userId)
+          : userId !== null || !chat.personaId
+      )
+        throw refused()
+    }
+    const takeover = userId === undefined ? null : { chatId, userId }
+    if (binding) this.saveBinding({ ...binding, chatId, roomId: room?.id ?? null, takeover })
+    else {
+      if (event.chat.type !== 'private') throw refused()
+      this.saveBinding({
+        ...channelBindingInput.parse({
+          accountId,
+          chatId,
+          roomId: room?.id ?? null,
+          chat: String(event.chat.id),
+          source: 'attached',
+          scope: 'private',
+          isolation: 'dm',
+          trigger: 'all',
+          state: 'active',
+          takeover,
+        }),
+        id: newId(),
+        createdBy: currentUser().id,
+        lastActivityAt: Date.now(),
+        idleWarnedAt: null,
+      })
+    }
+    return this.send(
+      accountId,
+      String(event.chat.id),
+      t('已切换到：{title}', { title: chat.title }),
+      String(event.message_thread_id ?? ''),
+    )
   }
   private async showPicker(
     accountId: string,
@@ -1010,7 +1207,7 @@ export class ChannelService {
       if (found.source === 'account-shared' && (actor.role !== 'owner' || actor.linkedUserId !== currentUser().id))
         throw refused()
       if (!found.roomId && !pairedOwner) throw refused()
-      if (found.roomId && found.state === 'active') {
+      if (found.roomId && found.state === 'active' && !(pairedOwner && activeTakeover(found)?.userId)) {
         let userId: string
         try {
           userId = addChannelMember(
@@ -1141,13 +1338,14 @@ export class ChannelService {
     return bindingRow(binding.id)
   }
   saveBinding(binding: Omit<ChannelBindingDTO, 'memberCount' | 'chatTitle'>, topicTitle?: string) {
-    if (binding.source === 'new')
+    if (binding.source === 'new' && !db.select().from(channelBindings).where(eq(channelBindings.id, binding.id)).get())
       db.update(chats)
         .set({ sourceProvider: accountRow(binding.accountId).config.provider })
         .where(eq(chats.id, binding.chatId))
         .run()
     const { id, accountId, ...input } = binding
     const data = channelBindingInput.omit({ accountId: true }).parse(input)
+    if (data.takeover?.chatId !== data.chatId) data.takeover = null
     const metadata = {
       lastActivityAt: binding.lastActivityAt,
       idleWarnedAt: binding.idleWarnedAt,
@@ -1213,7 +1411,7 @@ export class ChannelService {
         if (binding.roomId) {
           const detail = roomDetail(binding.roomId)
           if (!detail.permissions.canGenerateImages) throw refused()
-          checkQuota(roomRow(binding.roomId), actor.linkedUserId ?? actor.externalUserId!)
+          checkQuota(roomRow(binding.roomId), currentUser().id)
         }
       })
       const names = this.host.getChatInfo(binding.chatId, 0).characters.map((c) => c.name)
@@ -1459,6 +1657,8 @@ export class ChannelService {
       const selected = chooseActorPersona(binding, actor, command.args)
       if (typeof selected === 'string') return reply(selected)
       if (!selected) throw refused()
+      if (actor.role === 'owner' && actor.linkedUserId === currentUser().id)
+        this.saveBinding({ ...binding, takeover: null })
       return selected
     }
     if (['regen', 'continue'].includes(command.name)) {
@@ -1717,7 +1917,10 @@ export class ChannelService {
       (action.allowedActor && action.allowedActor !== String(event.from.id))
     )
       throw refused()
-    if (action.action === 'picker') {
+    if (
+      ['picker', 'chat-list', 'chat-enter'].includes(action.action) ||
+      (action.action === 'chat' && action.args.event)
+    ) {
       const original = action.args.event as MessageEvent
       if (
         action.args.accountId !== accountId ||
@@ -1743,6 +1946,35 @@ export class ChannelService {
         actor: actor.externalId,
       })
       if ((binding?.id ?? null) !== action.bindingId) throw refused()
+      if (action.action !== 'picker') {
+        if (actor.role !== 'owner' || actor.linkedUserId !== currentUser().id) throw refused()
+        if (binding && binding.state !== 'active') throw refused()
+        // 同一份菜单只能用一次：其余选项一并作废，免得之后单独回复数字又被当成菜单选择
+        for (const old of db.select().from(channelActions).all()) {
+          const sibling = old.args.event as MessageEvent | undefined
+          if (
+            ['chat', 'chat-enter', 'chat-list'].includes(old.action) &&
+            old.allowedActor === action.allowedActor &&
+            old.args.accountId === accountId &&
+            sibling?.chat.id === original.chat.id &&
+            sibling?.message_thread_id === original.message_thread_id
+          )
+            db.delete(channelActions).where(eq(channelActions.token, old.token)).run()
+        }
+        if (action.action === 'chat-list') {
+          if (action.args.newChat) return this.showPicker(accountId, actor, original, binding)
+          return this.showChats(accountId, actor, original, binding, Number(action.args.page ?? 0))
+        }
+        return this.enterChat(
+          accountId,
+          actor,
+          original,
+          binding,
+          String(action.args.chatId),
+          action.action === 'chat-enter' ? (action.args.userId as string | null | undefined) : undefined,
+          action.action === 'chat-enter',
+        )
+      }
       if (typeof action.args.page === 'number')
         return this.showPicker(
           accountId,
@@ -1797,6 +2029,30 @@ export class ChannelService {
     }
     if (action.action === 'chat') {
       const target = String(action.args.chatId ?? '')
+      if (actor.role === 'owner' && actor.linkedUserId === currentUser().id) {
+        if (String(event.message?.message_thread_id ?? '') !== binding.thread) throw refused()
+        return this.enterChat(
+          accountId,
+          actor,
+          {
+            type: 'message',
+            dedupeKey: event.dedupeKey,
+            from: event.from,
+            chat: event.message!.chat,
+            message_id: event.message!.message_id,
+            message_thread_id: event.message?.message_thread_id,
+            displayName: actor.displayName,
+            text: '',
+            entities: [],
+            command: null,
+            mentionsBot: false,
+            repliesToBot: false,
+            unsupportedMedia: false,
+          },
+          binding,
+          target,
+        )
+      }
       if (
         !db
           .select()
@@ -1808,7 +2064,8 @@ export class ChannelService {
       if (binding.roomId) asChannelActor(binding, actor, () => requireRole(binding.roomId!, ['owner', 'gm']))
       else asChannelActor(binding, actor, () => {})
       const room = systemDatabase().select().from(rooms).where(eq(rooms.chatId, target)).get()
-      this.saveBinding({ ...binding, chatId: target, roomId: room?.id ?? null })
+      getChatRow(target)
+      this.saveBinding({ ...binding, chatId: target, roomId: room?.id ?? null, takeover: null })
       return
     }
     const last = db

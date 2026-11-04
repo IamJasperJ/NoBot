@@ -73,8 +73,14 @@ export function addChannelMember(roomId: string, actor: ChannelActorDTO, accepte
   appendInitiativeMember(room, id)
   return id
 }
+export function activeTakeover(binding: ChannelBindingDTO) {
+  return binding.takeover?.chatId === binding.chatId ? binding.takeover : null
+}
+
 export function asChannelActor<T>(binding: ChannelBindingDTO, actor: ChannelActorDTO, fn: () => T): T {
-  const id = actor.linkedUserId ?? actor.externalUserId
+  const takeover = activeTakeover(binding)
+  const pairedOwner = actor.role === 'owner' && actor.linkedUserId === currentUser().id
+  const id = (pairedOwner && takeover?.userId) || actor.linkedUserId || actor.externalUserId
   if (!id || actor.role === 'blocked') throw refused()
   const user = systemDatabase()
     .select()

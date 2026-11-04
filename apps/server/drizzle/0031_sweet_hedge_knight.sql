@@ -1,0 +1,1 @@
+ALTER TABLE `channel_bindings` ADD `takeover` text;

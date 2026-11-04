@@ -12,6 +12,7 @@ import type { ScanEntry } from '../worldinfo'
 import {
   type BuildInput,
   buildPrompt,
+  compactToolResults,
   filterToolHistory,
   type HistoryMessage,
   PromptBudgetError,
@@ -871,4 +872,18 @@ test('片段携带稳定代码，预设名称保持原样，系统历史不会�
   expect(result.report.segments[0]).toMatchObject({ label: '自定主提示词', labelCode: 'preset:main' })
   expect(result.report.segments.at(-1)).toMatchObject({ labelCode: 'history', role: 'system' })
   expect(result.messages.at(-1)).toEqual({ role: 'system', content: '2d1+3 = 5' })
+})
+
+test('较早的长工具结果被截短，最近两条保留全文', () => {
+  const long = 'x'.repeat(1000)
+  const value = [1, 2, 3, 4].flatMap((n) => [
+    { ...history(`调用${n}`, 'assistant', ''), toolCalls: [{ id: `c${n}`, name: 'search', arguments: '{}' }] },
+    { ...history(`结果${n}`, 'tool', n === 1 ? '短结果' : long), toolCallId: `c${n}` },
+  ])
+  const tools = compactToolResults(value).filter((m) => m.role === 'tool')
+  expect(tools[0]?.content).toBe('短结果')
+  expect(tools[1]?.content).toBe(`${'x'.repeat(300)}\n[Older tool result truncated: 700 more characters omitted.]`)
+  expect(tools[2]?.content).toBe(long)
+  expect(tools[3]?.content).toBe(long)
+  expect(value[3]?.content).toBe(long)
 })

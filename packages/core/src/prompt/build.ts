@@ -212,7 +212,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   // 【0】所有外部状态都从参数取得；预算按发送正文和每条消息的固定开销计算。
   const { preset, speaker, group } = input
   const filtered = filterToolHistory(input.history, input.enabledTools)
-  const promptHistory = filtered.history
+  const promptHistory = compactToolResults(filtered.history)
   const { behavior, utility } = preset
   const budget = Math.floor((preset.samplers.contextSize - preset.samplers.maxTokens) * 0.95)
   const context: MacroContext = {
@@ -665,6 +665,34 @@ export function splitExamples(mesExample: string): string[] {
     .split(/<START>/i)
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
+}
+
+/** 最近几条工具结果保留原文，更早的截短，避免屏幕节点这类大段结果一直堆在历史里 */
+const TOOL_RESULTS_KEPT = 2
+const OLD_TOOL_RESULT_CHARS = 300
+
+/**
+ * 截短较早的工具结果：只有最近 keep 条保留全文，其余超过 maxChars 的只留开头并注明省略了多少。
+ * 模型做多步操作时只需要最新的观察，旧结果全文留着既费 token 又容易让模型分心。
+ */
+export function compactToolResults(
+  history: HistoryMessage[],
+  keep = TOOL_RESULTS_KEPT,
+  maxChars = OLD_TOOL_RESULT_CHARS,
+) {
+  let seen = 0
+  const result = [...history]
+  for (let i = result.length - 1; i >= 0; i--) {
+    const message = result[i]!
+    if (message.role !== 'tool') continue
+    if (++seen <= keep || message.content.length <= maxChars) continue
+    const omitted = message.content.length - maxChars
+    result[i] = {
+      ...message,
+      content: `${message.content.slice(0, maxChars)}\n[Older tool result truncated: ${omitted} more characters omitted.]`,
+    }
+  }
+  return result
 }
 
 /** 仅保留启用且在紧随结果区间内恰好配对的调用，避免分支残缺历史破坏接口协议。 */

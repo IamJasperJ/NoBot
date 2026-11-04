@@ -445,7 +445,7 @@ test('渠道原生表情：导入、学习、管理、工具、冷却、投递�
       const imageFetch = async (_input?: RequestInfo | URL, init?: RequestInit) => {
         downloadSignal = init?.signal ?? undefined
         byteFetches++
-        return new Response(new Uint8Array([1, 2, 3]))
+        return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/png' } })
       }
       expect(
         (await app.request(`/api/ext/channels/accounts/${qq.id}/stickers/refresh`, { method: 'POST' })).status,
@@ -485,6 +485,158 @@ test('渠道原生表情：导入、学习、管理、工具、冷却、投递�
         }),
       ).toBe('开心, 微笑')
       expect(JSON.stringify(stickers.listStickers(qq.id))).not.toContain('base64')
+      // 模拟临时鉴权过期：学习后预览、标注和发送都必须继续使用原始缓存字节。
+      const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
+      let expired = false
+      let cachedFetches = 0
+      const cachedFetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+        cachedFetches++
+        expect(init?.redirect).toBe('error')
+        expect(init?.signal).toBeInstanceOf(AbortSignal)
+        return expired
+          ? new Response(null, { status: 400 })
+          : new Response(gif, {
+              headers: { 'Content-Type': 'image/gif' },
+            })
+      }
+      const genericImage = {
+        type: 'image',
+        data: { url: 'https://example.test/download?fileid=cached&rkey=old', sub_type: 2, summary: '[动画表情]' },
+      }
+      const cachedEntry = stickers.learnQqSticker(qq.id, genericImage, { fetcher: cachedFetch, host })!
+      expect(cachedEntry.meanings).toEqual([])
+      // 等待学习启动的缓存，不允许第二次下载；重复缓存调用只检查已有文件。
+      await stickers.cacheQqSticker(cachedEntry, cachedFetch)
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (
+          db.select().from(schema.channelStickers).where(eq(schema.channelStickers.id, cachedEntry.id)).get()?.meanings
+            .length
+        )
+          break
+        await Bun.sleep(10)
+      }
+      expect(cachedFetches).toBe(1)
+      expect(visionCalls).toBe(2)
+      expired = true
+      const cachedRow = () =>
+        db.select().from(schema.channelStickers).where(eq(schema.channelStickers.id, cachedEntry.id)).get()!
+      expect(cachedRow().meanings).toEqual(['开心', '微笑'])
+      const cachedDto = () =>
+        stickers
+          .listStickers(qq.id)
+          .groups.flatMap((group) => group.entries)
+          .find((item) => item.id === cachedEntry.id)!
+      expect(cachedDto().previewUrl).toBe(`/api/ext/channels/accounts/${qq.id}/stickers/${cachedEntry.id}/preview`)
+      const preview = await app.request(cachedDto().previewUrl!)
+      expect(preview.status).toBe(200)
+      expect(preview.headers.get('content-type')).toBe('image/gif')
+      expect(Buffer.from(await preview.arrayBuffer())).toEqual(gif)
+      expect(
+        (await app.request(`/api/ext/channels/accounts/${account.id}/stickers/${cachedEntry.id}/preview`)).status,
+      ).toBe(404)
+      // 旧版把通用 summary 当含义且已尝试过标注，列表清理后仍允许刷新补标注。
+      db.update(schema.channelStickers)
+        .set({ meanings: ['动画表情'], labelAttempted: true })
+        .where(eq(schema.channelStickers.id, cachedEntry.id))
+        .run()
+      expect(cachedDto().meanings).toEqual([])
+      expect(cachedRow().labelAttempted).toBe(false)
+      const beforeLegacy = byteFetches
+      await stickers.refreshQqFaces(qq.id, qqClient, host, imageFetch)
+      expect(cachedRow().meanings).toEqual(['开心', '微笑'])
+      expect(visionCalls).toBe(3)
+      expect(byteFetches).toBe(beforeLegacy)
+      expect(cachedFetches).toBe(1)
+
+      // 缓存失败不能丢失引用；相同身份再收到新 URL 时更新引用并补缓存。
+      const failedImage = {
+        type: 'image',
+        data: { url: 'https://example.test/download?fileid=retry&rkey=old', sub_type: 1, summary: '得意' },
+      }
+      let retryFetches = 0
+      const retryFetch = async (input: RequestInfo | URL) => {
+        retryFetches++
+        return String(input).includes('rkey=new')
+          ? new Response(gif, { headers: { 'Content-Type': 'image/gif' } })
+          : new Response(null, { status: 400 })
+      }
+      const failed = stickers.learnQqSticker(qq.id, failedImage, { fetcher: retryFetch, host })!
+      await stickers.cacheQqSticker(failed, retryFetch)
+      const failedDto = () =>
+        stickers
+          .listStickers(qq.id)
+          .groups.flatMap((group) => group.entries)
+          .find((item) => item.id === failed.id)!
+      expect(failedDto().previewUrl).toBe(failedImage.data.url)
+      const sendCached = spyOn(qqClient, 'send').mockImplementation(async () => ({ message_id: 501 }))
+      const cacheBinding = { ...bindingRow(bindingId), id: 'qq-cache-binding', accountId: qq.id }
+      const sendEntry = async (id: string, ref: typeof failed.ref) =>
+        sendMessageStickers(
+          cacheBinding,
+          { ...native, id, meta: { stickers: [{ platform: 'onebot11', mood: 'happy', ref }] } },
+          qqClient,
+        )
+      await sendEntry('qq-cache-fallback', failedDto().ref)
+      expect(sendCached.mock.calls[0]?.[1]).toEqual([
+        { type: 'image', data: { file: failedImage.data.url, sub_type: 1, summary: '得意' } },
+      ])
+      await sendEntry('qq-cache-local', cachedDto().ref)
+      expect(sendCached.mock.calls[1]?.[1]).toEqual([
+        { type: 'image', data: { file: `base64://${gif.toString('base64')}`, sub_type: 2, summary: '[动画表情]' } },
+      ])
+      sendCached.mockRestore()
+      const retried = stickers.learnQqSticker(
+        qq.id,
+        { ...failedImage, data: { ...failedImage.data, url: failedImage.data.url.replace('rkey=old', 'rkey=new') } },
+        { fetcher: retryFetch, host },
+      )!
+      expect(retried.id).toBe(failed.id)
+      expect(retried.ref.kind === 'image' && retried.ref.url).toContain('rkey=new')
+      await stickers.cacheQqSticker(retried, retryFetch)
+      expect(failedDto().previewUrl).toContain(`/stickers/${failed.id}/preview`)
+      expect(retryFetches).toBe(3)
+
+      // 下载声明和实际字节都限制在 5MB 内，拒绝非图片和重定向错误。
+      for (const [name, response] of [
+        ['mime', () => new Response('text', { headers: { 'Content-Type': 'text/plain' } })],
+        [
+          'declared-size',
+          () =>
+            new Response(gif, {
+              headers: { 'Content-Type': 'image/gif', 'Content-Length': String(5 * 1024 * 1024 + 1) },
+            }),
+        ],
+        [
+          'stream-size',
+          () => new Response(new Uint8Array(5 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'image/gif' } }),
+        ],
+        [
+          'redirect',
+          () => {
+            throw new TypeError('redirect')
+          },
+        ],
+      ] as const) {
+        const segment = { type: 'image', data: { ...failedImage.data, url: `https://example.test/${name}` } }
+        const entry = stickers.learnQqSticker(qq.id, segment, { fetcher: async () => response(), host })!
+        await stickers.cacheQqSticker(entry, async () => response())
+        expect(
+          stickers
+            .listStickers(qq.id)
+            .groups.flatMap((group) => group.entries)
+            .find((item) => item.id === entry.id)?.previewUrl,
+        ).toBe(segment.data.url)
+      }
+      // 英文和中文占位都不进入情绪含义；保留主人输入的真实标签。
+      for (const [index, summary] of ['[表情]', '[图片]', '[Animated Sticker]', '[Emoji]', '[image]'].entries()) {
+        const entry = stickers.learnQqSticker(
+          qq.id,
+          { type: 'image', data: { ...failedImage.data, url: `https://example.test/generic-${index}`, summary } },
+          { fetcher: async () => new Response(null, { status: 400 }), host },
+        )!
+        expect(entry.meanings).toEqual([])
+        await stickers.cacheQqSticker(entry, async () => new Response(null, { status: 400 }))
+      }
       completion.mockRestore()
       action.mockRestore()
       const mface = {

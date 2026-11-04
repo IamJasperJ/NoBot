@@ -1,13 +1,17 @@
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { supportsVision } from '@nobot/core'
 import type { ChannelStickerDTO, ChannelStickerGroupDTO, ChannelStickerRef, ChannelStickersDTO } from '@nobot/shared'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db, getSetting, newId } from '../../../db/client'
 import { channelStickers as entries, channelStickerGroups as groups } from '../../../db/schema'
+import { paths } from '../../../env'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { resolveApiPreset } from '../../../services/connections'
+import { complete } from '../../../services/generation/quiet-prompt'
 import { getLanguage } from '../../../services/settings'
 import type { ExtensionHost } from '../../types'
 import type { TelegramFetch } from './adapters/telegram/client'
@@ -21,6 +25,114 @@ export { telegramStickerSchema } from './sticker-types'
 import { isQqMarketFace, isQqStickerSubtype, type TelegramSticker, telegramStickerSchema } from './sticker-types'
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
+
+type StickerEntry = typeof entries.$inferSelect
+type StickerLabeler = Pick<ExtensionHost, 'complete'>
+
+// 平台通用占位不是情绪标签；统一去掉外层括号后也用于清理历史数据。
+const genericSummaries = new Set([
+  '动画表情',
+  '表情',
+  '图片',
+  '表情包',
+  '动态表情',
+  '贴纸',
+  'animated sticker',
+  'animated emoji',
+  'animated emoticon',
+  'animation',
+  'sticker',
+  'emoji',
+  'emoticon',
+  'image',
+  'picture',
+  'photo',
+])
+const summaryMeaning = (value: string) =>
+  value
+    .trim()
+    .replace(/^[[【]|[\]】]$/g, '')
+    .trim()
+const isGenericSummary = (value: string) => genericSummaries.has(summaryMeaning(value).toLowerCase())
+
+function normalizeQqMeanings(entry: StickerEntry): StickerEntry {
+  if (entry.ref.kind !== 'image' && entry.ref.kind !== 'mface') return entry
+  const meanings = entry.meanings.filter((value) => !isGenericSummary(value))
+  if (meanings.length === entry.meanings.length) return entry
+  return db.update(entries).set({ meanings, labelAttempted: false }).where(eq(entries.id, entry.id)).returning().get()
+}
+
+/** 使用现有附件目录保存原始字节；saveAttachment 会转成静态 WebP，丢失表情动画。 */
+export function cachedStickerFile(entry: StickerEntry) {
+  if (!entry.cachedMime) return
+  const file = join(paths.attachments, `${entry.id}.sticker`)
+  return existsSync(file) ? Bun.file(file) : undefined
+}
+
+async function downloadSticker(url: string, fetcher: TelegramFetch, signal?: AbortSignal) {
+  const response = await fetcher(url, {
+    signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(15000)]),
+    redirect: 'error',
+  })
+  const mime = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()
+  const reader = response.body?.getReader()
+  if (!reader) return
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    if (
+      !response.ok ||
+      !mime?.startsWith('image/') ||
+      Number(response.headers.get('content-length') ?? 0) > 5 * 1024 * 1024
+    )
+      return
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.length
+      if (size > 5 * 1024 * 1024) return
+      chunks.push(value)
+    }
+    if (size) return { bytes: Buffer.concat(chunks), mime }
+  } finally {
+    await reader.cancel().catch(() => {})
+  }
+}
+
+const caching = new Map<string, Promise<void>>()
+
+/** QQ URL 带临时鉴权，几小时后会过期，因此收到时就缓存，不能等到预览或发送时再下载。 */
+export async function cacheQqSticker(entry: StickerEntry, fetcher: TelegramFetch = fetch, signal?: AbortSignal) {
+  const key = join(paths.attachments, entry.id)
+  // 相同表情并发入站时串行检查；上一次失败后仍用数据库里的最新 URL 重试。
+  const previous = caching.get(key)
+  const task = (async () => {
+    await previous
+    const current = db.select().from(entries).where(eq(entries.id, entry.id)).get()
+    if (
+      !current ||
+      cachedStickerFile(current) ||
+      (current.ref.kind !== 'image' && current.ref.kind !== 'mface') ||
+      !current.ref.url
+    )
+      return
+    try {
+      const image = await downloadSticker(current.ref.url, fetcher, signal)
+      if (!image) return
+      await Bun.write(join(paths.attachments, `${current.id}.sticker`), image.bytes)
+      db.update(entries).set({ cachedMime: image.mime }).where(eq(entries.id, current.id)).run()
+    } catch {
+      /* 缓存失败仍保留引用，下次收到新鉴权地址时重试。 */
+    }
+  })()
+  caching.set(key, task)
+  try {
+    await task
+  } finally {
+    if (caching.get(key) === task) caching.delete(key)
+  }
+}
+
 export function platformUrl(value: unknown): string | undefined {
   if (typeof value !== 'string') return
   try {
@@ -68,7 +180,7 @@ export function ensureQqFaces(accountId: string) {
 export function listStickers(accountId: string): ChannelStickersDTO {
   const account = accountRow(accountId)
   if (account.config.provider === 'onebot11') ensureQqFaces(accountId)
-  const all = db.select().from(entries).where(eq(entries.accountId, accountId)).all()
+  const all = db.select().from(entries).where(eq(entries.accountId, accountId)).all().map(normalizeQqMeanings)
   const result = db
     .select()
     .from(groups)
@@ -86,8 +198,9 @@ export function listStickers(accountId: string): ChannelStickersDTO {
           enabled: entry.enabled,
           characters: entry.characters,
           usageCount: entry.usageCount,
-          previewUrl:
-            entry.ref.kind === 'telegram'
+          previewUrl: cachedStickerFile(entry)
+            ? `/api/ext/channels/accounts/${encodeURIComponent(accountId)}/stickers/${encodeURIComponent(entry.id)}/preview`
+            : entry.ref.kind === 'telegram'
               ? entry.ref.thumbnail
                 ? `/api/ext/channels/accounts/${encodeURIComponent(accountId)}/stickers/${encodeURIComponent(entry.id)}/preview`
                 : null
@@ -218,11 +331,13 @@ export async function learnTelegramSticker(accountId: string, sticker: TelegramS
 }
 export async function labelCollectedFace(
   entry: typeof entries.$inferSelect,
-  host: ExtensionHost,
+  host: StickerLabeler,
   fetcher: TelegramFetch = fetch,
   signal?: AbortSignal,
 ) {
-  if (entry.labelAttempted || entry.meanings.length || entry.ref.kind !== 'image') return
+  entry = normalizeQqMeanings(db.select().from(entries).where(eq(entries.id, entry.id)).get() ?? entry)
+  if (entry.labelAttempted || entry.meanings.length || (entry.ref.kind !== 'image' && entry.ref.kind !== 'mface'))
+    return
   signal = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(60_000)])
   signal.throwIfAborted()
   const settings = resolveChannelSettings(
@@ -238,7 +353,7 @@ export async function labelCollectedFace(
     return
   }
   if (!supportsVision(connection.model, connection.vision)) return
-  // 原子占位确保并发刷新也只标注一次；bytes 只存在本次请求内存，不调用附件存储。
+  // 原子占位确保学习与并发刷新也只标注一次，优先复用本地图片。
   const claimed = db
     .update(entries)
     .set({ labelAttempted: true })
@@ -247,26 +362,13 @@ export async function labelCollectedFace(
     .get()
   if (!claimed) return
   try {
-    const response = await fetcher(entry.ref.url, {
-      signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(15000)]),
-      redirect: 'error',
-    })
-    if (!response.ok || Number(response.headers.get('content-length') ?? 0) > 5 * 1024 * 1024) return
-    const reader = response.body?.getReader()
-    if (!reader) return
-    const chunks: Uint8Array[] = []
-    let size = 0
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        size += value.length
-        if (size > 5 * 1024 * 1024) return
-        chunks.push(value)
-      }
-    } finally {
-      await reader.cancel().catch(() => {})
-    }
+    const file = cachedStickerFile(entry)
+    const bytes = file
+      ? Buffer.from(await file.arrayBuffer())
+      : entry.ref.url
+        ? (await downloadSticker(entry.ref.url, fetcher, signal))?.bytes
+        : undefined
+    if (!bytes) return
     const label = await host.complete({
       connectionId: connection.id,
       messages: [
@@ -275,7 +377,7 @@ export async function labelCollectedFace(
           content: `Describe the emotion or meaning of this sticker using 1-3 short keywords, separated by commas. Return only keywords. Write in ${getLanguage() === 'en' ? 'English' : 'Chinese'}.`,
         },
       ],
-      avatar: Buffer.concat(chunks),
+      avatar: bytes,
       summary: t('表情含义标注'),
       maxTokens: 60,
       signal,
@@ -311,10 +413,23 @@ export async function refreshQqFaces(
     const entry = rememberSticker(accountId, group.id, `collected:${id}`, { kind: 'image', id, url, sub_type: 1 }, [])
     await labelCollectedFace(entry, host, fetcher, signal)
   }
+  // 收藏接口不包含普通入站学到的表情，也要让这些条目有机会补标注。
+  for (const entry of db.select().from(entries).where(eq(entries.accountId, accountId)).all()) {
+    await cachePending(entry)
+    await labelCollectedFace(entry, host, fetcher, signal)
+  }
   db.update(groups).set({ fetchedAt: Date.now() }).where(eq(groups.id, group.id)).run()
   return listStickers(accountId)
 }
-export function learnQqSticker(accountId: string, segment: { type: string; data: Record<string, unknown> }) {
+async function cachePending(entry: StickerEntry) {
+  await caching.get(join(paths.attachments, entry.id))
+}
+
+export function learnQqSticker(
+  accountId: string,
+  segment: { type: string; data: Record<string, unknown> },
+  options: { fetcher?: TelegramFetch; host?: StickerLabeler } = {},
+) {
   const { data } = segment
   const settings = resolveChannelSettings(accountRow(accountId).config, undefined, getSetting('ext:channels')).values
   if (!settings.stickerAutoLearn) return
@@ -339,7 +454,19 @@ export function learnQqSticker(accountId: string, segment: { type: string; data:
     key = `image:${id}`
   } else return
   const group = stickerGroup(accountId, 'qq-learned', 'learned', t('收到的表情包'))
-  return rememberSticker(accountId, group.id, key, ref, summary ? [summary.replace(/^\[|\]$/g, '')] : [])
+  const entry = normalizeQqMeanings(
+    rememberSticker(
+      accountId,
+      group.id,
+      key,
+      ref,
+      summary && !isGenericSummary(summary) ? [summaryMeaning(summary)] : [],
+    ),
+  )
+  void cacheQqSticker(entry, options.fetcher)
+    .then(() => labelCollectedFace(entry, options.host ?? { complete }, options.fetcher))
+    .catch(() => {})
+  return entry
 }
 
 /** QQ 临时鉴权参数不参与身份，保留 fileid 等真正区分资源的查询字段。 */
@@ -371,5 +498,9 @@ export function qqStickerMeaning(accountId: string, segment: { type: string; dat
           entry.ref.emoji_id === String(segment.data.emoji_id) &&
           entry.ref.emoji_package_id === String(segment.data.emoji_package_id),
     )
-  return known?.meanings.join(', ') || String(segment.data.summary || t('未标注表情包'))
+  const summary = String(segment.data.summary ?? '')
+  return (
+    known?.meanings.filter((value) => !isGenericSummary(value)).join(', ') ||
+    (summary && !isGenericSummary(summary) ? summary : t('未标注表情包'))
+  )
 }

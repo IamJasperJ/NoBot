@@ -682,6 +682,7 @@ export const channelStickers = sqliteTable(
     characters: text('characters', { mode: 'json' }).$type<string[]>().notNull().default([]),
     usageCount: integer('usage_count').notNull().default(0),
     labelAttempted: integer('label_attempted', { mode: 'boolean' }).notNull().default(false),
+    cachedMime: text('cached_mime'),
   },
   (t) => [uniqueIndex('channel_stickers_platform_idx').on(t.accountId, t.platformKey)],
 )

@@ -8,7 +8,7 @@ import { t } from '../../../i18n'
 import { validate } from '../../../lib/validate'
 import { OneBotClient } from './adapters/onebot11/client'
 import type { ChannelRuntime } from './runtime'
-import { importStickerSet, listStickers, refreshQqFaces } from './stickers'
+import { cachedStickerFile, importStickerSet, listStickers, refreshQqFaces } from './stickers'
 import { accountRow } from './store'
 
 const patch = z
@@ -47,6 +47,11 @@ export function stickerRoutes(app: Hono, runtime: () => ChannelRuntime) {
       .from(channelStickers)
       .where(and(eq(channelStickers.id, c.req.param('stickerId')), eq(channelStickers.accountId, id)))
       .get()
+    const cached = entry ? cachedStickerFile(entry) : undefined
+    if (cached && entry?.cachedMime)
+      return new Response(cached, {
+        headers: { 'Content-Type': entry.cachedMime, 'Cache-Control': 'private, no-cache' },
+      })
     if (entry?.ref.kind !== 'telegram' || !entry.ref.thumbnail) throw new HttpError(404, 'NOT_FOUND', t('贴纸不存在'))
     const sender = client(id)
     const file = await sender.call<{ file_path?: string }>('getFile', { file_id: entry.ref.thumbnail })

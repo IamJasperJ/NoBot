@@ -1,0 +1,1 @@
+ALTER TABLE `channel_stickers` ADD `cached_mime` text;

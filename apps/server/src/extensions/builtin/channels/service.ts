@@ -2673,8 +2673,10 @@ export class ChannelService {
     const deliveryId = previous?.id ?? newId()
     if (bursting) burst[burst.length - 1] += text.slice(bodyText.length)
     const delays = burstDelays(burst, { speed: settings.burstSpeed }, burstSeed(message.id))
+    // 开了分条但只有一条时用整理后的正文：模型留的空行在 QQ 气泡里只是一大片空白
+    const single = burst.length === 1 ? `${burst[0]}${text.slice(bodyText.length)}` : text
     if (!forwarded) {
-      for (const [index, part] of (bursting ? burst : [text]).entries()) {
+      for (const [index, part] of (bursting ? burst : [single]).entries()) {
         if (bursting && index > 0) {
           if (!burstCurrent()) return
           await this.sleep(delays[index]!)

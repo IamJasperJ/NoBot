@@ -4,8 +4,11 @@ const length = (text: string) => Array.from(text).length
 const meaningfulLength = (text: string) => length(text.replace(/[\s\p{P}]/gu, ''))
 
 type Block = { text: string; whole: boolean }
-/** glue 是和前一段相接时用的分隔：不同行之间用换行，同一行拆出的句子按原文直接相连。 */
-type Piece = { text: string; glue: string }
+/**
+ * glue 是和前一段相接时用的分隔：不同行之间用换行，同一行拆出的句子按原文直接相连。
+ * line 是原文第几个块；过短的碎片只并进同一块，模型自己另起一行的短句（「2」「草」）照样单独发。
+ */
+type Piece = { text: string; glue: string; line: number }
 
 const joinPieces = (pieces: Piece[]) => pieces.map((piece, index) => (index ? piece.glue : '') + piece.text).join('')
 
@@ -46,7 +49,7 @@ function sentences(text: string, maxChars: number): Piece[] {
     const last = result.at(-1)
     const separator = /^\s/.test(piece) ? ' ' : ''
     if (last && length(last.text + separator + trimmed) <= maxChars) last.text += separator + trimmed
-    else result.push({ text: trimmed, glue: result.length ? separator : '\n' })
+    else result.push({ text: trimmed, glue: result.length ? separator : '\n', line: 0 })
   }
   return result
 }
@@ -84,24 +87,26 @@ export function splitBurst(
   text: string,
   { mode, maxParts, maxChars = 40 }: { mode: 'lines' | 'sentences'; maxParts: number; maxChars?: number },
 ): string[] {
-  const parts = blocks(text).flatMap((block): Piece[] =>
+  const parts = blocks(text).flatMap((block, line): Piece[] =>
     mode === 'sentences' && !block.whole && length(block.text) > maxChars
-      ? sentences(block.text, maxChars)
-      : [{ text: block.text, glue: '\n' }],
+      ? sentences(block.text, maxChars).map((piece) => ({ ...piece, line }))
+      : [{ text: block.text, glue: '\n', line }],
   )
-  // 过短的碎片并进相邻条；合并后的条仍记着自己的 glue，再次合并时同一行的句子不会被换行隔开。
+  // 按句末切出来的过短碎片并进同一行的相邻条；合并后的条仍记着自己的 glue，再次合并时同一行的句子不会被换行隔开。
   const merged: Piece[] = []
   let leading: Piece[] = []
-  for (const part of parts) {
+  for (const [index, part] of parts.entries()) {
+    const short = meaningfulLength(part.text) <= 3
     const last = merged.at(-1)
-    if (meaningfulLength(part.text) <= 3 && last) last.text += part.glue + part.text
-    else if (meaningfulLength(part.text) <= 3) leading.push(part)
+    if (short && last?.line === part.line) last.text += part.glue + part.text
+    else if (short && parts[index + 1]?.line === part.line) leading.push(part)
     else {
-      merged.push(leading.length ? { text: joinPieces([...leading, part]), glue: leading[0]!.glue } : { ...part })
+      merged.push(
+        leading.length ? { ...part, text: joinPieces([...leading, part]), glue: leading[0]!.glue } : { ...part },
+      )
       leading = []
     }
   }
-  if (leading.length) merged.push({ text: joinPieces(leading), glue: leading[0]!.glue })
   const count = Math.max(1, Math.floor(maxParts))
   return merged.length > count ? balance(merged, count) : merged.map((piece) => piece.text)
 }

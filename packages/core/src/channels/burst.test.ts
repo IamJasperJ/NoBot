@@ -39,13 +39,22 @@ describe('渠道拟人分条', () => {
       '这是第二句话！？』',
     ])
   })
-  test('短碎片按 Unicode 字符忽略空白标点，优先并到前面', () => {
-    expect(splitBurst('嗯\n好\n这是完整内容\n好的！\n另一条完整内容', lines)).toEqual([
-      '嗯\n好\n这是完整内容\n好的！',
-      '另一条完整内容',
+  test('模型自己另起一行的短句单独成条，空行不保留', () => {
+    expect(splitBurst('2\n\n发个1试探什么呢，有事说事', lines)).toEqual(['2', '发个1试探什么呢，有事说事'])
+    expect(splitBurst('草\n这里是完整内容', lines)).toEqual(['草', '这里是完整内容'])
+    expect(splitBurst('只有一句\n\n\n', lines)).toEqual(['只有一句'])
+  })
+  test('按句末切出的短碎片按 Unicode 字符忽略空白标点，只并进同一行', () => {
+    const sentences = { ...lines, mode: 'sentences' as const, maxChars: 12 }
+    expect(splitBurst('好。这一句话本身就已经很长了！还有后面的另一句话呢。', sentences)).toEqual([
+      '好。这一句话本身就已经很长了！',
+      '还有后面的另一句话呢。',
     ])
-    expect(splitBurst('𠮷𠮷𠮷\n这里是完整内容', lines)).toEqual(['𠮷𠮷𠮷\n这里是完整内容'])
-    expect(splitBurst('😀😀😀😀\n这里是完整内容', lines)).toEqual(['😀😀😀😀', '这里是完整内容'])
+    expect(splitBurst('这一句话本身就已经很长了！𠮷𠮷𠮷。', sentences)).toEqual(['这一句话本身就已经很长了！𠮷𠮷𠮷。'])
+    expect(splitBurst('这一句话本身就已经很长了！😀😀😀😀。', sentences)).toEqual([
+      '这一句话本身就已经很长了！',
+      '😀😀😀😀。',
+    ])
   })
   test('超出条数时连续均衡分组', () => {
     const parts = Array.from({ length: 8 }, (_, index) => `${index}这是一句话`)
@@ -66,7 +75,10 @@ describe('渠道拟人分条', () => {
     expect(splitBurst(text, { mode: 'sentences', maxParts: 1 })).toEqual([text])
     // 分到不同条时各自完整，条内也不会出现「……\n就算」这样的断行。
     for (const part of splitBurst(text, { mode: 'sentences', maxParts: 2 })) expect(part).not.toContain('……\n')
-    expect(splitBurst(`好。\n${line}`, { mode: 'sentences', maxParts: 4 })[0]).toBe(`好。\n先说好，无事献殷勤……`)
+    expect(splitBurst(`好。\n${line}`, { mode: 'sentences', maxParts: 4 }).slice(0, 2)).toEqual([
+      '好。',
+      '先说好，无事献殷勤……',
+    ])
   })
   test('代码块含空行、连续列表和引用均作为整体', () => {
     const blocks = [

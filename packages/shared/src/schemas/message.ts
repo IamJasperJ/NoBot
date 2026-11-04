@@ -25,6 +25,8 @@ export interface ToolCall {
 
 /** 消息的附加信息，存成 json */
 export interface MessageMeta {
+  /** 外部来源转进来的消息，这一轮回复不转发到聊天渠道 */
+  noRelay?: boolean
   /** 仅标记当前角色回复的渠道语音意图，不在工具执行时合成。 */
   channelVoice?: {
     bindingIds: string[]

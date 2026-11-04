@@ -81,6 +81,25 @@ import { replyVoiceStyle, updateVoicePreference, voiceDeliverySettings } from '.
 
 const refused = () => new HttpError(403, 'CHANNEL_REFUSED', t('没有渠道操作权限'))
 type MessageEvent = Extract<TelegramEvent, { type: 'message' | 'edit' }>
+/** 沿真实父链找最近的用户消息，避免误用其他分支或更早一轮的来源标记。 */
+export function suppressChannelRelay(
+  message: Pick<MessageDTO, 'id' | 'role' | 'parentId' | 'meta'>,
+  lookup: (id: string) => Pick<MessageDTO, 'id' | 'role' | 'parentId' | 'meta'> | undefined = loadMessage,
+): boolean {
+  if (message.meta.noRelay === true) return true
+  if (message.role === 'user') return false
+  const seen = new Set<string>([message.id])
+  let parentId = message.parentId
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId)
+    const parent = lookup(parentId)
+    if (!parent) return false
+    if (parent.role === 'user') return parent.meta.noRelay === true
+    parentId = parent.parentId
+  }
+  return false
+}
+
 export class ChannelService {
   readonly runtime: ChannelRuntime
   sleep = (ms: number): Promise<void> => Bun.sleep(ms)
@@ -1553,6 +1572,7 @@ export class ChannelService {
           this.generationSubscriptions.delete(key)
           return
         }
+        if (event.type === 'start' && suppressChannelRelay(event.assistantMessage)) return
         if (
           event.type === 'start' &&
           this.settings(binding).values.burst === 'off' &&
@@ -1634,6 +1654,10 @@ export class ChannelService {
         if (event.type === 'done') {
           const state = this.streams.get(streamKey)
           this.streams.delete(streamKey)
+          if (suppressChannelRelay(event.message)) {
+            state?.stream.abort()
+            return
+          }
           if (
             this.runtime.accounts.get(binding.accountId)?.client instanceof OneBotClient &&
             binding.scope === 'group' &&
@@ -1860,6 +1884,10 @@ export class ChannelService {
     throw refused()
   }
   async deliver(binding: ChannelBindingDTO, message: MessageDTO, stream?: TelegramStream) {
+    if (suppressChannelRelay(message)) {
+      stream?.abort()
+      return
+    }
     // OneBot 的多角色转发尚未发出时，先排入前面的正文，再排工具图片。
     if (isImageMessage(message) || message.meta.stickers?.length) {
       const turn = this.oneBotTurns.get(binding.id)
@@ -1909,6 +1937,10 @@ export class ChannelService {
       .run()
   }
   private async deliverNow(binding: ChannelBindingDTO, message: MessageDTO, stream?: TelegramStream) {
+    if (suppressChannelRelay(message)) {
+      stream?.abort()
+      return
+    }
     binding = bindingRow(binding.id)
     const burstCurrent = this.burstGuard(binding, message)
     let entry = this.runtime.accounts.get(binding.accountId)
@@ -2533,6 +2565,8 @@ export class ChannelService {
     }
   }
   private async deliverOneBotTurn(binding: ChannelBindingDTO, turn: MessageDTO[]) {
+    turn = turn.filter((message) => !suppressChannelRelay(message))
+    if (!turn.length) return
     const client = this.runtime.accounts.get(binding.accountId)?.client
     if (!(client instanceof OneBotClient) || bindingRow(binding.id).state !== 'active') return
     if (

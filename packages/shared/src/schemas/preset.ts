@@ -53,6 +53,8 @@ export const samplerSchema = z.object({
   requestReasoning: z.boolean().default(false),
   /** 启用工具调用（function calling） */
   functionCalling: z.boolean().default(false),
+  /** 一次回复里最多连续调用几轮工具，到上限后不再执行模型请求的工具 */
+  maxToolRounds: z.number().int().min(1).max(30).default(5),
   /** 单独关闭的工具（按工具名）。默认全部开启，新装扩展带来的工具也默认开启 */
   disabledTools: z.array(z.string()).default([]),
   /** 接口自带的联网搜索。未实现 */

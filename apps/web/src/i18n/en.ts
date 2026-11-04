@@ -533,6 +533,8 @@ export const en: Record<string, string> = {
   '使用此角色新建会话时，优先选择这个用户人设。': 'Prefer this user persona when starting a chat with this character.',
   使用全局默认人设: 'Use global default persona',
   收起: 'Collapse',
+  展开工具结果: 'Expand tool result',
+  '展开 · {count} 字': 'Expand · {count} chars',
   '更多 {count}': '{count} more',
   清除筛选: 'Clear filters',
   '删除会话「{title}」？所有消息都会被删除。': 'Delete chat “{title}”? All messages will be deleted.',
@@ -1318,6 +1320,9 @@ export const en: Record<string, string> = {
   '通过 OpenRouter 的 include_reasoning 请求模型返回思考过程，需接口支持。':
     "Request reasoning through OpenRouter's include_reasoning; requires API support.",
   工具调用: 'Tool calling',
+  工具调用轮数: 'Tool call rounds',
+  '一次回复里最多连续调用几轮工具，到上限就停下。操作手机这类多步任务可以调大。':
+    'How many rounds of tool calls one reply may chain before stopping. Raise it for multi-step tasks such as phone control.',
   '允许模型调用工具（function calling），需要模型本身支持。下面可以单独开关每个工具。':
     'Allow function calling; requires model support. Toggle individual tools below.',
   '工具列表加载中…': 'Loading tools…',

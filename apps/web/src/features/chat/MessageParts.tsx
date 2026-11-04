@@ -1,5 +1,6 @@
 import type { ChoiceOption, MessageDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { api } from '../../api/client'
 import { resetChat } from '../../api/queries'
 import { useFreshDice, useTrpgSettings } from '../../api/trpg'
@@ -56,12 +57,46 @@ export function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: st
             })}
           </span>
         ) : (
-          <span className="min-w-0 break-words whitespace-pre-wrap">{text}</span>
+          <ToolText text={text} />
         )}
       </div>
       <MessageMedia msg={msg} chatId={chatId} />
       <Slot name="chat.message.footer" props={{ chatId, message: msg }} />
     </div>
+  )
+}
+
+/** 超过这个长度或多于一行的工具结果默认折叠，避免屏幕节点之类的大段 JSON 占满聊天 */
+const TOOL_PREVIEW_CHARS = 120
+
+/** 工具结果正文：短的直接显示；长的先显示一行预览，点开后在限高的框里滚动查看 */
+function ToolText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const long = text.length > TOOL_PREVIEW_CHARS || text.includes('\n')
+  if (!long) return <span className="min-w-0 break-words whitespace-pre-wrap">{text}</span>
+  if (open)
+    return (
+      <span className="flex min-w-0 flex-col items-start gap-1">
+        <span className="max-h-72 w-full overflow-auto font-mono text-xs break-all whitespace-pre-wrap text-zinc-600 dark:text-zinc-300">
+          {text}
+        </span>
+        <button type="button" className="text-xs text-zinc-500 hover:underline" onClick={() => setOpen(false)}>
+          {t('收起')}
+        </button>
+      </span>
+    )
+  return (
+    <button
+      type="button"
+      className="flex min-w-0 items-center gap-2 text-left"
+      onClick={() => setOpen(true)}
+      title={t('展开工具结果')}
+    >
+      <span className="min-w-0 truncate text-zinc-600 dark:text-zinc-300">{text.replace(/\s+/g, ' ')}</span>
+      <span className="shrink-0 text-xs text-zinc-400">
+        {t('展开 · {count} 字', { count: text.length.toLocaleString() })}
+      </span>
+    </button>
   )
 }
 

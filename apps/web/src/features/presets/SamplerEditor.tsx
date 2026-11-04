@@ -178,6 +178,16 @@ export function SamplerEditor({ value, onChange }: { value: SamplerSettings; onC
           checked={value.functionCalling}
           onChange={(v) => set('functionCalling', v)}
         />
+        <NumberField
+          label={t('工具调用轮数')}
+          hint={t('一次回复里最多连续调用几轮工具，到上限就停下。操作手机这类多步任务可以调大。')}
+          disabled={!value.functionCalling}
+          value={value.maxToolRounds}
+          onChange={(v) => set('maxToolRounds', Math.round(v))}
+          min={1}
+          max={30}
+          slider={false}
+        />
         {/* 每个工具单独的开关；总开关关闭时整组变灰 */}
         <div
           className={cx(

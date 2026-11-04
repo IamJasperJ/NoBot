@@ -30,13 +30,12 @@ import { applyStageParse, backfillStage, initialVars } from './stage'
 /**
  * 生成任务。一次任务可能产出多条消息：
  * - 群聊：按发言顺序，每个角色说一条
- * - 工具调用：模型请求调用工具 → 执行 → 插入 tool 消息 → 同一个角色接着写（最多 MAX_TOOL_ROUNDS 轮）
+ * - 工具调用：模型请求调用工具 → 执行 → 插入 tool 消息 → 同一个角色接着写（最多 samplers.maxToolRounds 轮）
  *
  * 任务跑在后端，和浏览器连接解耦：浏览器刷新或断网，任务继续跑，重新连上后能接着看。
  * 内容先进内存，每秒写一次数据库，而不是每个 token 写一次。
  */
 
-const MAX_TOOL_ROUNDS = 5
 const FLUSH_INTERVAL_MS = 1000
 
 interface GenerationHooks {
@@ -337,7 +336,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
         parentId = step.message.id
         // 出错或被中止：整个任务停下（群聊后面的人也不再发言）
         if (step.message.status !== 'done') break speakers
-        const canUseTools = ctx.preset.samplers.functionCalling && round < MAX_TOOL_ROUNDS
+        const canUseTools = ctx.preset.samplers.functionCalling && round < ctx.preset.samplers.maxToolRounds
         if (!canUseTools || step.toolCalls.length === 0) break
 
         // 执行工具，结果作为 tool 消息挂在消息树上，然后同一个角色接着写

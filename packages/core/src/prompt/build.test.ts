@@ -438,6 +438,18 @@ describe('生成模式和名字', () => {
       if (mode === 'default') expect(contents(value)[0]).toBe('小红: 例问')
     })
   }
+  test('forceUserNames 只强制 user 消息加名字，assistant 照预设，历史和示例都适用', () => {
+    const value = minimal()
+    value.preset.behavior.namesBehavior = 'default'
+    value.forceUserNames = true
+    value.preset.prompts.unshift(custom('examples'))
+    value.preset.utility.newExampleChat = ''
+    value.speaker.fields.mes_example = '{{user}}: 例问\n{{char}}: 例答'
+    expect(contents(value)).toEqual(['小红: 例问', '例答', '小红: 你好', '您好'])
+    // 群聊里 default 本来就给角色加名字，交给原有规则
+    value.group = { name: '群', members: [value.speaker], mode: 'swap', scenarioOverride: '' }
+    expect(contents(value).slice(0, 2)).toEqual(['小红: 例问', '小明: 例答'])
+  })
   test('completion 清理 name 并截到 64 字符', () => {
     const value = minimal()
     value.preset.behavior.namesBehavior = 'completion'

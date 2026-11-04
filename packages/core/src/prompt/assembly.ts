@@ -94,9 +94,20 @@ export function injectHistory(history: Piece[], injections: Injection[]): Piece[
   return result
 }
 
-/** 名字只作用于历史和示例，提示词与深度注入不冒充发言人。 */
-export function applyName(message: ChatMessage, name: string, behavior: PresetBehavior, group: boolean): ChatMessage {
+/**
+ * 名字只作用于历史和示例，提示词与深度注入不冒充发言人。
+ * forceUser：房间里多个真人必须靠名字区分，user 消息一律在内容前加名字（completion 会丢掉中文名）；
+ * assistant 消息仍按预设处理，不额外加，免得模型在回复里模仿「名字: 」。
+ */
+export function applyName(
+  message: ChatMessage,
+  name: string,
+  behavior: PresetBehavior,
+  group: boolean,
+  forceUser = false,
+): ChatMessage {
   if (message.role !== 'user' && message.role !== 'assistant') return message
+  if (forceUser && message.role === 'user') return { ...message, content: `${name}: ${message.content}` }
   const mode = behavior.namesBehavior
   if (mode === 'none' || (mode === 'default' && !group)) return message
   if (mode === 'completion') {

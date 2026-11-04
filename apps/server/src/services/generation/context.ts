@@ -345,10 +345,9 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
 
   let input: BuildInput = {
     type: opts.type,
-    // 单角色房间也必须保留每个真人的名字；completion 模式会丢失中文姓名。
-    preset: multiplayer
-      ? { ...ctx.preset, behavior: { ...ctx.preset.behavior, namesBehavior: 'content' } }
-      : ctx.preset,
+    preset: ctx.preset,
+    // 房间里必须保留每个真人的名字；角色那一侧按预设原样处理，强加前缀只会被模型模仿进回复
+    forceUserNames: !!multiplayer,
     speaker,
     group: ctx.group
       ? {

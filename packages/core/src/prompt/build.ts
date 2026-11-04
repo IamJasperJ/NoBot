@@ -118,6 +118,8 @@ export interface BuildInput {
   enabledTools: string[]
   /** 从外部传入，保证结果可复现 */
   now: Date
+  /** user 消息一律在内容前加名字（房间：多个真人要区分）；assistant 仍按 namesBehavior */
+  forceUserNames?: boolean
   /** 扩展提供的宏：名字（小写）→ 处理函数，参数是 {{名字::参数}} 里 :: 之后的部分（没有则为空串） */
   macros?: Record<string, (arg: string) => string>
 }
@@ -193,6 +195,7 @@ export interface BuildInput {
  *  - default：只有群聊时这样做
  *  - completion：放到 name 字段，名字只保留 [A-Za-z0-9_-]，截到 64 字符；清理后为空则退回 content 方式
  *  - none：不处理
+ *  - forceUserNames 为 true 时，user 消息不管 namesBehavior 都按 content 方式加名字；assistant 消息照常
  *
  * 【8. 工具】只保留 enabledTools 内的调用及按 tool_call_id 配对的结果。
  *  缺少结果的调用、孤立结果和过滤后无正文的空 assistant 消息不发；空集时完全省略工具记录，不转成文字。
@@ -456,7 +459,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
         const name = parsed.role === 'user' ? input.persona.name : speaker.name
         messages.push({
           ...piece('examples', '示例对话', parsed.role, content, 'examples'),
-          message: applyName({ role: parsed.role, content }, name, behavior, group !== null),
+          message: applyName({ role: parsed.role, content }, name, behavior, group !== null, input.forceUserNames),
           example: true,
         })
       }
@@ -531,7 +534,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
     const kept = imageCounts.get(message) ?? 0
     if (kept) output.images = images.slice(images.length - kept)
     output.content = [output.content, ...Array<string>(images.length - kept).fill('[Image]')].filter(Boolean).join('\n')
-    if (!continuation) output = applyName(output, message.name, behavior, group !== null)
+    if (!continuation) output = applyName(output, message.name, behavior, group !== null, input.forceUserNames)
     return {
       source: 'history',
       label: '历史消息',

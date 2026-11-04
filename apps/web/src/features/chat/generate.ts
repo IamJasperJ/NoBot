@@ -2,7 +2,7 @@ import { type GenerateEvent, type GenerateInput, type ImpersonateEvent, type Mes
 import type { QueryClient } from '@tanstack/react-query'
 import { readError } from '../../api/client'
 import { apiFetch } from '../../api/fetch'
-import { applyNewMessage, markIdle, refreshChatState, replaceMessage, resetChat } from '../../api/queries'
+import { applyNewMessage, keys, markIdle, refreshChatState, replaceMessage, resetChat } from '../../api/queries'
 import { scopeForChat } from '../../api/room-scope'
 import { clientMessageId, mergeMessage, roomsApi } from '../../api/rooms'
 import { emitCommandEvent } from '../../commands/events'
@@ -14,6 +14,18 @@ import { toast } from '../../stores/toast'
 
 /** 正在读流的会话。同一个会话同时只读一条流，否则内容会重复 */
 const activeStreams = new Set<string>()
+/** 本页刚读完流的会话和时间：自己这次生成收尾时推来的变更通知不用再刷新一遍 */
+const finishedAt = new Map<string, number>()
+
+/**
+ * 后台（渠道消息等）改了会话：有进行中的生成就接上流，没有就重拉最新一页。
+ * 只处理已经打开过的会话；本页正在读流或刚读完时跳过，避免和自己的生成重复。
+ */
+export function syncChatFromServer(qc: QueryClient, chatId: string) {
+  if (!qc.getQueryData(keys.chat(chatId)) || activeStreams.has(chatId)) return
+  if (Date.now() - (finishedAt.get(chatId) ?? 0) < 1500) return
+  void runGeneration(qc, chatId, 'reconnect').catch(() => resetChat(qc, chatId))
+}
 const idleWaiters = new Map<string, Set<() => void>>()
 
 /** 自动执行可以排在已有生成后面，避免切换会话或命令管道占用同一条流。 */
@@ -82,6 +94,7 @@ export async function runGeneration(
     )
   } finally {
     activeStreams.delete(chatId)
+    finishedAt.set(chatId, Date.now())
     for (const resolve of idleWaiters.get(chatId) ?? []) resolve()
     idleWaiters.delete(chatId)
     emitClientEvent({ type: 'generation:complete', chatId })

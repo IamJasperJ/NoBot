@@ -103,6 +103,12 @@ export function startLive() {
       return
     }
     switch (event.type) {
+      case 'chat.changed': {
+        // 按需加载：生成模块依赖扩展运行时和会话状态，静态引入会形成循环依赖
+        const { chatId } = event.data
+        void import('../features/chat/generate').then((m) => m.syncChatFromServer(queryClient, chatId))
+        break
+      }
       case 'channel.account':
       case 'channel.request':
         void queryClient.invalidateQueries({ queryKey: channelKeys.all })

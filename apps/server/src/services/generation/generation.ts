@@ -13,7 +13,7 @@ import { db, newId } from '../../db/client'
 import { chats, messages } from '../../db/schema'
 import { HttpError, notFound, promptBudgetMessage } from '../../errors'
 import { prepareUserTranslation } from '../../extensions/builtin/translate'
-import { emitServerEvent, runTransform } from '../../extensions/registry'
+import { emitServerEvent, notifyChatChanged, runTransform } from '../../extensions/registry'
 import { t } from '../../i18n'
 import { buildRequestBody, chatCompletion, toLlmConnection } from '../../llm/openai'
 import { enabledToolNames, runTool, toOpenAITools } from '../../tools'
@@ -273,6 +273,8 @@ export function startGeneration(chatId: string, input: GenerateInput, hooks?: Ge
     listeners: new Set(),
   }
   jobs.set(chatId, job)
+  // 渠道等后台发起的生成，网页收到通知后才会接上这条流
+  notifyChatChanged(chatId)
   void runJob(job, ctx, plan).catch((error) => logError('generation job', error))
   return job
 }

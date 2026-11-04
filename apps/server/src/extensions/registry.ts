@@ -17,6 +17,7 @@ import { t } from '../i18n'
 import { translateMetadata, translateSettingsSchema } from '../i18n/metadata'
 import { validate } from '../lib/validate'
 import { cleanupExtensionStaging, readGitInfo } from '../services/extensions/extension-git'
+import { liveHub } from '../services/live/hub'
 import { profileChatScope, selectProfile } from '../services/profiles'
 import { SETTING_KEYS } from '../services/settings'
 import { setExtensionToolsProvider } from '../tools'
@@ -392,6 +393,7 @@ export function forwardExtension(id: string, request: Request) {
 /** 异步隔离事件处理；同步异常和异步拒绝都不能影响主流程。 */
 export function emitServerEvent(event: ServerEvent) {
   const chatId = 'chatId' in event ? event.chatId : 'message' in event ? event.message.chatId : ''
+  if (['message:saved', 'message:deleted', 'generation:complete'].includes(event.type)) notifyChatChanged(chatId)
   for (const { ext, ctx } of active(chatId)) {
     if (ext.hooks?.onEvent)
       void Promise.resolve()
@@ -402,6 +404,21 @@ export function emitServerEvent(event: ServerEvent) {
           console.error(`扩展「${ext.name}」的 onEvent 出错：`, e)
         })
   }
+}
+
+/**
+ * 网页只读自己发起的生成流；渠道等后台写进来的消息和生成，要通过实时通道告诉网页去接上或刷新，
+ * 否则得手动刷新页面才看得到。
+ */
+export function notifyChatChanged(chatId: string) {
+  if (!chatId) return
+  let userId: string
+  try {
+    userId = currentUser().id
+  } catch {
+    return
+  }
+  liveHub.publishToUser(userId, { type: 'chat.changed', topic: `user:${userId}`, data: { chatId } })
 }
 
 function enabledMap(): Record<string, boolean> {

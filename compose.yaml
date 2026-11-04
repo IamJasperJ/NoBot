@@ -12,6 +12,8 @@ services:
     init: true
     environment:
       NODE_ENV: production
+      # 作息、日记日期、活跃时段都按本地时间算；容器默认是 UTC，在 .env 里设 NOBOT_TZ（如 Asia/Shanghai）。
+      TZ: ${NOBOT_TZ:-UTC}
       HOST: 0.0.0.0
       PORT: '3000'
       DATA_DIR: /app/data

@@ -25,7 +25,6 @@ import {
   groupMembers,
   groups,
   messages,
-  personas,
 } from '../../../db/schema'
 import { systemDatabase } from '../../../db/system-client'
 import { roomMembers, rooms, users } from '../../../db/system-schema'
@@ -35,6 +34,7 @@ import { stripBidi } from '../../../lib/input-text'
 import { getChatRow, loadMessage, loadPath } from '../../../services/chats'
 import { getJob } from '../../../services/generation/generation'
 import { stageMembers } from '../../../services/generation/stage'
+import { resolvePersona } from '../../../services/personas'
 import {
   acceptRules,
   checkQuota,
@@ -946,6 +946,8 @@ export class ChannelService {
         String(event.message_thread_id ?? ''),
       )
     const room = systemDatabase().select().from(rooms).where(eq(rooms.chatId, chatId)).get()
+    // 会话没单独选人设时用的是默认人设，按实际生效的人设判断和展示
+    const chatPersona = resolvePersona(chat.personaId)
     const appeared = room
       ? db
           .select()
@@ -953,7 +955,7 @@ export class ChannelService {
           .where(eq(messages.chatId, chatId))
           .all()
           .some((message) => message.meta.author?.userId === (actor.linkedUserId ?? actor.externalUserId))
-      : !!chat.personaId && chat.personaId === actorPersonaId(binding ?? { accountId, personaMode: null }, actor)
+      : !!chatPersona.id && chatPersona.id === actorPersonaId(binding ?? { accountId, personaMode: null }, actor)
     if (!appeared && !confirmed) {
       const items: { text: string; action: string; args: Record<string, unknown> }[] = [
         { text: t('以渠道人设进入'), action: 'chat-enter', args: { chatId } },
@@ -965,23 +967,16 @@ export class ChannelService {
             action: 'chat-enter',
             args: { chatId, userId: user.id },
           })
-      } else if (chat.personaId) {
-        const persona = db.select().from(personas).where(eq(personas.id, chat.personaId)).get()
-        if (persona)
-          items.push({
-            text: t('接管人设：{name}', { name: persona.name }),
-            action: 'chat-enter',
-            args: { chatId, userId: null },
-          })
-      }
+      } else
+        items.push({
+          text: t('接管人设：{name}', { name: chatPersona.name }),
+          action: 'chat-enter',
+          args: { chatId, userId: null },
+        })
       return this.chatMenu(accountId, actor, event, binding, t('你还没有在这个会话里出现过，选择进入方式'), items)
     }
     if (userId !== undefined) {
-      if (
-        room
-          ? !this.takeoverMembers(chatId, room.id, actor).some(({ user }) => user.id === userId)
-          : userId !== null || !chat.personaId
-      )
+      if (room ? !this.takeoverMembers(chatId, room.id, actor).some(({ user }) => user.id === userId) : userId !== null)
         throw refused()
     }
     const takeover = userId === undefined ? null : { chatId, userId }

@@ -171,6 +171,11 @@ test('渠道接手：库内会话、无绑定、进入方式、房间身份及�
       expect(binding().chatId).toBe(same.id)
       expect(db.select().from(chats).all()).toHaveLength(count)
       expect(actions().some((action) => action.action === 'chat-enter')).toBe(false)
+      // 没单独设人设的会话也要能接管（用的是默认人设）
+      const plain = createChat({ characterId: character.id })
+      updateChat(plain.id, { title: 'Default persona chat', personaId: null })
+      await choose(plain.id)
+      expect(actions().some((action) => action.action === 'chat-enter' && action.args.userId === null)).toBe(true)
       await choose(target.id)
       expect(calls.at(-1)?.text).toBe('你还没有在这个会话里出现过，选择进入方式')
       await click((action) => action.action === 'chat-enter' && action.args.userId === null)

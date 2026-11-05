@@ -72,7 +72,7 @@ const mockServer = {
     const toolCall = hasToolResult
       ? null
       : String(lastUser).includes('VOICEPLEASE') && toolNames.includes('send_voice')
-        ? { name: 'send_voice', arguments: '{}' }
+        ? { name: 'send_voice', arguments: '{"text":"Mock voice line"}' }
         : String(lastUser).includes('STICKER') && toolNames.includes('send_sticker')
           ? { name: 'send_sticker', arguments: '{"mood":"😏"}' }
           : String(lastUser).includes('掷骰') && toolNames.includes('roll_dice')

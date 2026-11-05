@@ -30,7 +30,8 @@ import { applyStageParse, backfillStage, initialVars } from './stage'
 /**
  * 生成任务。一次任务可能产出多条消息：
  * - 群聊：按发言顺序，每个角色说一条
- * - 工具调用：模型请求调用工具 → 执行 → 插入 tool 消息 → 同一个角色接着写（最多 samplers.maxToolRounds 轮）
+ * - 工具调用：模型请求调用工具 → 执行 → 插入 tool 消息 → 同一个角色接着写（最多 samplers.maxToolRounds 轮）；
+ *   有工具返回 endTurn 时，这一轮执行完就结束这个角色的回复
  *
  * 任务跑在后端，和浏览器连接解耦：浏览器刷新或断网，任务继续跑，重新连上后能接着看。
  * 内容先进内存，每秒写一次数据库，而不是每个 token 写一次。
@@ -342,6 +343,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
         if (!canUseTools || step.toolCalls.length === 0) break
 
         // 执行工具，结果作为 tool 消息挂在消息树上，然后同一个角色接着写
+        let endTurn = false
         for (const call of step.toolCalls) {
           const vars = computeVars(loadPath(parentId), initialVars(job.chatId).vars)
           let result = job.controller.signal.aborted
@@ -353,6 +355,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
                 ctx.preset.samplers.disabledTools,
               )
           if (job.controller.signal.aborted) result = { content: 'Tool call aborted by user.' }
+          if (result.endTurn) endTurn = true
           const toolId = newId()
           const meta: MessageMeta = { ...result.meta, toolCallId: call.id, toolName: call.name }
           // 工具媒体继承发起回复的隐私边界，不能把私密内容投递到公开渠道。
@@ -395,6 +398,8 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
           emitServerEvent({ type: 'message:saved', message: loadMessage(step.message.id) })
           break speakers
         }
+        // 工具本身就是回复的结尾：这一轮的调用都执行完后不再请求模型续写
+        if (endTurn) break
         type = 'normal'
         continueTarget = null
         userMessage = undefined

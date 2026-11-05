@@ -2661,6 +2661,7 @@ export const en: Record<string, string> = {
   '还没轮到你，可以发场外或私信': 'Not your turn yet. You can post out of character or whisper',
   // 联机扩展
   语音设置: 'Voice settings',
+  '🎙 语音': '🎙 Voice',
   '{n} 张立绘': '{n} sprites',
   '{n} 条世界书': '{n} lorebook entries',
   含语音设置: 'includes voice settings',

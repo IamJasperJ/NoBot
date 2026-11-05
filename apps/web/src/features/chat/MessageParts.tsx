@@ -36,7 +36,9 @@ export function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: st
         ? t('🎲 检定')
         : msg.meta.stickers?.length
           ? t('表情包')
-          : t('🔧 {toolName}', { toolName: msg.meta.toolName ?? t('工具') })
+          : msg.meta.channelVoice?.text
+            ? t('🎙 语音')
+            : t('🔧 {toolName}', { toolName: msg.meta.toolName ?? t('工具') })
   return (
     <div className="px-4 py-1 pl-[68px]">
       <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -55,6 +57,11 @@ export function ToolMessage({ msg, chatId, text }: { msg: MessageDTO; chatId: st
                 ...new Set(msg.meta.stickers.map((s) => (s.platform === 'telegram' ? 'Telegram' : 'QQ'))),
               ].join(' / '),
             })}
+          </span>
+        ) : msg.meta.channelVoice?.text ? (
+          // 角色直接发到渠道的语音：网页上显示说了什么，台词完整展示不折叠
+          <span className="min-w-0 break-words whitespace-pre-wrap text-zinc-700 dark:text-zinc-200">
+            {msg.meta.channelVoice.text}
           </span>
         ) : (
           <ToolText text={text} />

@@ -2,6 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { waitFor } from './helpers/sse'
 
 test('渠道角色语音决策：工具、规则、额度、偏好、双平台与真实生成', async () => {
   if (!process.env.VOICE_DECISION_CHILD) {
@@ -202,32 +203,65 @@ test('渠道角色语音决策：工具、规则、额度、偏好、双平台�
           expect(JSON.stringify(textCalls(start))).not.toContain('Assistant:')
           binding = { ...binding, chatId: chat.id, scope: 'private', chat: '111', speakers: {} }
           service.saveBinding(binding)
-          for (const style of ['only', 'with-text'] as const) {
-            const result = await voice
-              .voiceTools(toolsCtx, service)[0]!
-              .run({ style }, { chatId: chat.id, speakerId: actor.id, vars: {} })
-            host.appendMessage(chat.id, {
-              role: 'tool',
-              content: result.content,
-              speakerId: actor.id,
-              meta: result.meta,
-            })
-            start = calls.length
-            const reply = append('Voice chosen')
-            await service.deliver(binding, reply)
-            expect(
-              audio(start),
-              JSON.stringify({
-                calls: calls.slice(start),
-                result,
-                chosen: voice.replyVoiceStyle(binding, reply, service.settings(binding).values),
-                available: voice.speakerTtsAvailable(chat.id, actor.id),
-                logs: service.runtime.logs,
-              }),
-            ).toHaveLength(1)
-            expect(JSON.stringify(calls.slice(start))).not.toContain('Assistant:')
-            expect(JSON.stringify(textCalls(start)).includes('Voice chosen')).toBe(style === 'with-text')
-          }
+          const tool = voice.voiceTools(toolsCtx, service)[0]!
+          expect(tool.parameters).toMatchObject({
+            properties: { text: { type: 'string', minLength: 1, maxLength: 300 } },
+            required: ['text'],
+            additionalProperties: false,
+          })
+          expect(tool.parameters.properties).not.toHaveProperty('style')
+          const toolContext = { chatId: chat.id, speakerId: actor.id, vars: {}, signal: AbortSignal.timeout(10000) }
+          const invalid = await tool.run({ text: '   ' }, toolContext)
+          expect(invalid.content).toStartWith('INVALID_INPUT:')
+          expect(invalid.endTurn).toBeUndefined()
+          const truncated = await tool.run({ text: '😀'.repeat(301) }, toolContext)
+          expect(Array.from(truncated.content)).toHaveLength(300)
+          const result = await tool.run({ text: '  Voice chosen  ' }, toolContext)
+          expect(result).toMatchObject({ content: 'Voice chosen', endTurn: true })
+          const voiceMessage = host.appendMessage(chat.id, {
+            role: 'tool',
+            content: result.content,
+            speakerId: actor.id,
+            meta: result.meta,
+          })
+          start = calls.length
+          await service.deliver(binding, voiceMessage)
+          expect(audio(start)).toHaveLength(1)
+          expect(JSON.stringify(textCalls(start))).not.toContain('Voice chosen')
+          expect(synth.mock.calls.at(-1)?.[2]?.segments).toEqual([
+            { text: 'Voice chosen', speaker: { kind: 'character', characterId: actor.id } },
+          ])
+          expect(
+            db
+              .select()
+              .from(schema.channelDeliveries)
+              .where(eq(schema.channelDeliveries.messageId, voiceMessage.id))
+              .all(),
+          ).toHaveLength(1)
+          await service.deliver(binding, voiceMessage)
+          expect(audio(start)).toHaveLength(1)
+          const unselected = host.appendMessage(chat.id, {
+            role: 'tool',
+            content: 'Skip this',
+            speakerId: actor.id,
+            meta: { channelVoice: { bindingIds: ['another-binding'], style: 'only', text: 'Skip this' } },
+          })
+          await service.deliver(binding, unselected)
+          expect(audio(start)).toHaveLength(1)
+          const voiceLog = spyOn(service.runtime, 'log')
+          synth.mockResolvedValueOnce({ kind: 'unavailable', reason: 'tts-disabled' })
+          const fallback = host.appendMessage(chat.id, {
+            role: 'tool',
+            content: 'Fallback line',
+            speakerId: actor.id,
+            meta: { channelVoice: { bindingIds: [binding.id], style: 'only', text: 'Fallback line' } },
+          })
+          start = calls.length
+          await service.deliver(binding, fallback)
+          expect(audio(start)).toHaveLength(0)
+          expect(JSON.stringify(textCalls(start))).toContain('Fallback line')
+          expect(voiceLog).toHaveBeenCalledWith(account.id, 'media.voice.tts-disabled')
+          voiceLog.mockRestore()
           // 后续角色不能继承前一个角色的工具意图。
           binding = { ...binding, chatId: groupChat.id }
           service.saveBinding(binding)
@@ -303,7 +337,7 @@ test('渠道角色语音决策：工具、规则、额度、偏好、双平台�
           expect(reset.status).toBe(200)
           expect(bindingRow(binding.id).voicePreference).toBeNull()
           expect(voice.voiceTools(toolsCtx, service)).toHaveLength(1)
-          if (provider === 'telegram') {
+          {
             db.insert(schema.channelActors)
               .values({
                 id: newId(),
@@ -331,26 +365,67 @@ test('渠道角色语音决策：工具、规则、额度、偏好、双平台�
                 async (input: RequestInfo | URL, init?: RequestInit) => {
                   const req = input instanceof Request ? input : new Request(input, init)
                   requests.push((await req.clone().json()) as Record<string, unknown>)
+                  const body = requests.at(-1) as { messages: { role: string; content: unknown }[] }
+                  const user = [...body.messages].reverse().find((message) => message.role === 'user')
+                  if (String(user?.content).includes('VOICEPLEASE EMPTY')) {
+                    const retry = body.messages
+                      .slice(body.messages.findLastIndex((message) => message.role === 'user') + 1)
+                      .some((message) => String(message.content).includes('INVALID_INPUT:'))
+                    return Response.json({
+                      choices: [
+                        {
+                          message: {
+                            role: 'assistant',
+                            content: null,
+                            tool_calls: [
+                              {
+                                id: `voice-${requests.length}`,
+                                type: 'function',
+                                function: {
+                                  name: 'send_voice',
+                                  arguments: JSON.stringify({ text: retry ? 'Retry voice line' : '   ' }),
+                                },
+                              },
+                            ],
+                          },
+                          finish_reason: 'tool_calls',
+                        },
+                      ],
+                    })
+                  }
                   return mockLlmFetch(req)
                 },
                 { preconnect: fetch.preconnect },
               ),
             )
             try {
-              for (const text of ['VOICEPLEASE', '发语音']) {
+              for (const text of ['VOICEPLEASE', '发语音', 'VOICEPLEASE EMPTY']) {
+                const before = requests.length
                 start = calls.length
-                await service.receive(account.id, {
-                  update_id: ++seq,
-                  message: {
-                    message_id: seq,
-                    chat: { id: 111, type: 'private' },
-                    from: { id: 111, first_name: 'Owner' },
-                    text,
-                  },
-                })
+                await service.generate(binding, { mode: 'send', text, images: [] })
                 await host.waitIdle(chat.id, 10000)
-                await Bun.sleep(200)
-                expect(audio(start).length).toBeGreaterThan(0)
+                await waitFor(() => audio(start).length > 0)
+                expect(
+                  audio(start),
+                  JSON.stringify({
+                    provider,
+                    text,
+                    calls: calls.slice(start),
+                    requests: requests.slice(before),
+                    path: host.getChatInfo(chat.id, 5).messages,
+                  }),
+                ).toHaveLength(1)
+                expect(requests.length - before).toBe(text === 'VOICEPLEASE EMPTY' ? 2 : 1)
+                if (text === 'VOICEPLEASE') {
+                  expect(JSON.stringify(textCalls(start))).not.toContain('Mock voice line')
+                  if (provider === 'telegram')
+                    expect(calls.slice(start).some((call) => call.method === 'sendMessage')).toBe(false)
+                  else expect(JSON.stringify(textCalls(start))).not.toContain('"type":"text"')
+                  const path = (await import('../src/services/chats')).loadPath(
+                    (await import('../src/services/chats')).getChatRow(chat.id).activeLeafId,
+                  )
+                  expect(path.at(-1)).toMatchObject({ role: 'tool', content: 'Mock voice line' })
+                }
               }
               expect(requests.some((request) => JSON.stringify(request.tools).includes('send_voice'))).toBe(true)
               db.update(schema.promptPresets)

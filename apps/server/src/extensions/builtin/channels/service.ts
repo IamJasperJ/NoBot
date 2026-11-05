@@ -78,7 +78,7 @@ import { sendMessageStickers } from './sticker-delivery'
 import { learnQqSticker, learnTelegramSticker, qqStickerMeaning, telegramStickerSchema } from './stickers'
 import { accountRow, bindingRow, listBindings, markReceived, recordActorSeen } from './store'
 import { cleanProtocolText, isImageMessage, visibleContent, visibleText } from './visible-text'
-import { replyVoiceStyle, updateVoicePreference, voiceDeliverySettings } from './voice-decision'
+import { replyVoiceStyle, reserveVoice, updateVoicePreference, voiceDeliverySettings } from './voice-decision'
 
 const refused = () => new HttpError(403, 'CHANNEL_REFUSED', t('没有渠道操作权限'))
 type MessageEvent = Extract<TelegramEvent, { type: 'message' | 'edit' }>
@@ -2140,8 +2140,8 @@ export class ChannelService {
       stream?.abort()
       return
     }
-    // OneBot 的多角色转发尚未发出时，先排入前面的正文，再排工具图片。
-    if (isImageMessage(message) || message.meta.stickers?.length) {
+    // OneBot 的多角色转发尚未发出时，先排入前面的正文，再排工具媒体。
+    if (isImageMessage(message) || message.meta.stickers?.length || message.meta.channelVoice?.text) {
       const turn = this.oneBotTurns.get(binding.id)
       this.oneBotTurns.delete(binding.id)
       for (const previous of turn ?? []) void this.deliver(binding, previous).catch(() => {})
@@ -2375,6 +2375,50 @@ export class ChannelService {
       } finally {
         if (this.privateDeliveryTails.get(key) === pending) this.privateDeliveryTails.delete(key)
       }
+      return
+    }
+    if (message.role === 'tool' && message.meta.channelVoice?.text) {
+      stream?.abort()
+      const voice = message.meta.channelVoice
+      const text = message.meta.channelVoice.text
+      if (!voice.bindingIds.includes(binding.id)) return
+      const previous = db
+        .select()
+        .from(channelDeliveries)
+        .where(and(eq(channelDeliveries.bindingId, binding.id), eq(channelDeliveries.messageId, message.id)))
+        .get()
+      if (previous) return
+      const settings = this.settings(binding).values
+      // 工具消息入库后才有稳定 ID，重放同一消息不会重复占用额度。
+      const reserved = reserveVoice(binding.id, settings.voiceDecideHourlyMax, message.id)
+      if (!reserved) this.runtime.log(binding.accountId, 'media.voice.capped')
+      const parts: { accountId: string; externalChat: string; externalId: string }[] = []
+      const error = reserved
+        ? await this.media.speak(
+            binding,
+            message,
+            entry.client,
+            binding.accountId,
+            false,
+            {
+              ...settings,
+              voice: 'only',
+              voiceDecisionSpeaker: message.speakerId ?? undefined,
+            },
+            (externalId) => {
+              parts.push({ accountId: binding.accountId, externalChat: binding.chat, externalId })
+            },
+          )
+        : true
+      if (error) {
+        const sent = await entry.client.call<{ message_id: number }>('sendMessage', {
+          chat_id: binding.chat,
+          message_thread_id: binding.thread || undefined,
+          text,
+        })
+        parts.push({ accountId: binding.accountId, externalChat: binding.chat, externalId: String(sent.message_id) })
+      }
+      this.recordBurst(newId(), binding, message, 0, createHash('sha256').update(text).digest('hex'), parts)
       return
     }
     if (message.meta.stickers?.length) {
@@ -3073,9 +3117,17 @@ export class ChannelService {
     }
     if (
       event.type === 'message:saved' &&
-      (event.message.meta.imageGen || event.message.meta.images?.length || event.message.meta.stickers?.length)
+      (event.message.meta.imageGen ||
+        event.message.meta.images?.length ||
+        event.message.meta.stickers?.length ||
+        (event.message.role === 'tool' && event.message.meta.channelVoice?.text))
     ) {
-      for (const binding of listBindings().filter((b) => b.chatId === event.message.chatId && b.state === 'active'))
+      for (const binding of listBindings().filter(
+        (b) =>
+          b.chatId === event.message.chatId &&
+          b.state === 'active' &&
+          (!event.message.meta.channelVoice?.text || event.message.meta.channelVoice.bindingIds.includes(b.id)),
+      ))
         void this.deliver(binding, event.message).catch(() => {})
     }
     if (event.type === 'message:updated') {

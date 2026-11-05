@@ -40,6 +40,8 @@ export interface ToolResult {
   content: string
   /** 对会话变量的修改，会存进 tool 消息的 meta.varsPatch。值为 null 表示删除这个键 */
   varsPatch?: Record<string, unknown>
+  /** 工具本身就是这条回复的结尾（比如直接发语音）：执行完不再让模型续写 */
+  endTurn?: boolean
 }
 
 export interface ToolDefinition {

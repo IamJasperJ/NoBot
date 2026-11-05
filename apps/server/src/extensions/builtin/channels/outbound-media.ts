@@ -40,6 +40,7 @@ export class OutboundMedia {
     accountId: string,
     native = false,
     settings?: VoiceDeliverySettings,
+    onSent?: (externalId: string) => void,
   ) {
     if (isImageMessage(message)) return
     let recording: ReturnType<typeof setInterval> | undefined
@@ -69,12 +70,17 @@ export class OutboundMedia {
           : undefined
       type File = Extract<Awaited<ReturnType<ExtensionHost['synthesizeSpeech']>>, { kind: 'audio' }>['files'][number]
       const outputs: File[] = []
-      const selectedSegments = plan?.segments.filter(
-        (segment) =>
-          !settings?.voiceDecisionSpeaker ||
-          segment.speaker.kind === 'narrator' ||
-          (segment.speaker.kind === 'character' && segment.speaker.characterId === settings.voiceDecisionSpeaker),
-      )
+      // 工具台词已经是完整的口述内容，不经过舞台解析，也不受旁白设置影响。
+      const directVoice = message.meta.channelVoice?.text
+      const selectedSegments =
+        directVoice && message.speakerId
+          ? [{ text: directVoice, speaker: { kind: 'character' as const, characterId: message.speakerId } }]
+          : plan?.segments.filter(
+              (segment) =>
+                !settings?.voiceDecisionSpeaker ||
+                segment.speaker.kind === 'narrator' ||
+                (segment.speaker.kind === 'character' && segment.speaker.characterId === settings.voiceDecisionSpeaker),
+            )
       const tasks = selectedSegments?.map((segment) => ({ segment })) ?? [{ segment: undefined }]
       // 合成全部成功后才上传，避免中途失败时遗漏后半句。
       for (const { segment } of tasks) {
@@ -111,9 +117,10 @@ export class OutboundMedia {
             action: 'upload_voice',
           }),
         )
-        await sendCachedMedia(client, accountId, binding.chat, prepared.method, prepared, {
+        const sent = await sendCachedMedia(client, accountId, binding.chat, prepared.method, prepared, {
           message_thread_id: binding.thread || undefined,
           caption:
+            directVoice ||
             (native && (!file.speakerId || file.speakerId === message.speakerId)) ||
             omitSpeakerPrefix(
               binding,
@@ -126,6 +133,7 @@ export class OutboundMedia {
               : file.speakerName,
           duration: file.durationMs === undefined ? undefined : Math.ceil(file.durationMs / 1000),
         })
+        onSent?.(String(sent.message_id))
       }
     } catch {
       this.log(accountId, 'media.voice.failed')

@@ -27,11 +27,15 @@ export interface ToolCall {
 export interface MessageMeta {
   /** 外部来源转进来的消息，这一轮回复不转发到聊天渠道 */
   noRelay?: boolean
-  /** 仅标记当前角色回复的渠道语音意图，不在工具执行时合成。 */
+  /**
+   * 渠道语音。没有 text 时只标记当前角色回复的语音意图，由后面的正文合成；
+   * 有 text 时这条 tool 消息本身就是一条语音：渠道直接把 text 合成发出，本条回复没有正文。
+   */
   channelVoice?: {
     bindingIds: string[]
     style: 'only' | 'with-text'
     bindingStyles?: Record<string, 'only' | 'with-text'>
+    text?: string
   }
 
   /** 平台原生表情只存引用，正文保持干净。 */

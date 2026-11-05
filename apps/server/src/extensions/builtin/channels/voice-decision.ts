@@ -66,28 +66,26 @@ export function voiceTools(ctx: ExtensionContext, service: ChannelService): Tool
   return [
     {
       name: 'send_voice',
-      description: `Choose voice delivery for your current reply. Use when the user asks for a voice message or to hear you, for singing, lullabies, whispering, greetings like good night, or when voice clearly fits; otherwise do not use it. ${wording} This only marks delivery; keep writing the reply text normally. Write in the same language as the conversation.`,
+      description: `Reply with a voice message. Use when the user asks for a voice message or to hear you, for singing, lullabies, whispering, greetings like good night, or when voice clearly fits; otherwise do not use it. ${wording} Write everything you want to say aloud in text: spoken lines only, without actions, narration, parenthetical directions, or markers such as [voice]. Calling this tool ends your reply; do not write any further reply text. If you also need to send written text, do not use this tool; write a normal reply instead. Write the text in the same language as the conversation.`,
       parameters: {
         type: 'object',
-        properties: { style: { type: 'string', enum: ['only', 'with-text'] } },
+        properties: { text: { type: 'string', minLength: 1, maxLength: settings.voiceMaxChars } },
+        required: ['text'],
         additionalProperties: false,
       },
       run(args) {
-        if (args.style !== undefined && args.style !== 'only' && args.style !== 'with-text')
-          return { content: 'Invalid voice style. Continue writing normally.' }
-        const requestedStyle = args.style
+        const text =
+          typeof args.text === 'string' ? Array.from(args.text.trim()).slice(0, settings.voiceMaxChars).join('') : ''
+        if (!text) return { content: 'INVALID_INPUT: text is required. Write what you want to say aloud.' }
         return {
-          content: 'Voice delivery selected for your current reply. Keep writing the reply text normally.',
+          content: text,
+          endTurn: true,
           meta: {
             channelVoice: {
               bindingIds: bindings.map((binding) => binding.id),
-              style: requestedStyle ?? settings.voiceDecideStyle,
-              bindingStyles: Object.fromEntries(
-                bindings.map((binding) => [
-                  binding.id,
-                  requestedStyle ?? service.settings(binding).values.voiceDecideStyle,
-                ]),
-              ),
+              style: 'only',
+              bindingStyles: Object.fromEntries(bindings.map((binding) => [binding.id, 'only'])),
+              text,
             },
           },
         }
@@ -108,7 +106,7 @@ export function replyVoiceStyle(binding: ChannelBindingDTO, message: MessageDTO,
   for (const entry of [...path].reverse()) {
     if (entry.role === 'user') break
     if (entry.speakerId !== message.speakerId) continue
-    if (entry.meta.channelVoice?.bindingIds.includes(binding.id))
+    if (entry.meta.channelVoice?.text === undefined && entry.meta.channelVoice?.bindingIds.includes(binding.id))
       return entry.meta.channelVoice.bindingStyles?.[binding.id] ?? entry.meta.channelVoice.style
     if (entry.role === 'assistant' && !entry.meta.toolCalls?.length) break
   }

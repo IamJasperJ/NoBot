@@ -151,8 +151,18 @@ The model writes stage directions inline (shorthand or XML format, with MVU vari
 ### 🌳 Reliable conversation management
 
 - **Message tree**: regenerate, switch between candidate replies, edit, delete (together with later branches) and branch any message into a new chat; reordering messages creates a new branch and keeps the original order
-- **Uninterrupted generation**: generation runs on the server, so replies continue to appear after a page refresh, a chat switch or a reconnect
+- **Uninterrupted generation**: generation runs on the server, so replies continue to appear after a page refresh, a chat switch or a reconnect; conversations started from channels or background tasks also appear in the web view in real time
 - **Long-conversation performance**: a virtualized message list that loads earlier history on demand
+
+### 📱 Chat channels (Telegram / QQ)
+
+- **Connections**: Telegram bots and QQ (through NapCat's OneBot 11 protocol); the character can be fixed or picked in the channel with `/char` and `/group`; channel conversations are ordinary chats and stay in sync with the web view in real time
+- **Take over existing chats**: the paired owner can send `/chats` to list every chat and attach to one; on first entry they choose to join with their channel persona or take over the chat's existing persona (in a room, speak as one of its members), and the chat's preset, persona and other settings stay unchanged
+- **Guests and rooms**: private and group chats from people other than the owner become multiplayer rooms with per-member identity, quotas and rule acceptance (`/agree`), plus room commands such as `/roll`, `/whisper`, `/ready` and `/kick`
+- **Human-like replies**: replies can be split by line or sentence and sent as several messages with typing-speed delays; Telegram supports streaming and buttons to regenerate, switch candidates and continue, while QQ uses numbered menus
+- **Voice**: channel voice can read replies aloud automatically, add a read-aloud button, send voice only, or let the character decide; when the character decides, it writes what it says into the voice tool and a voice message is sent directly; incoming voice messages can be transcribed
+- **Stickers and interactions**: learns platform stickers and sends them by mood, with reactions, pokes and group check-ins
+- **Images and VN**: generate images in the channel (`/imagine`); Telegram can open the VN stage as a mini app
 
 ## SillyTavern compatibility and general features
 
@@ -169,6 +179,7 @@ The model writes stage directions inline (shorthand or XML format, with MVU vari
 - Group chats with natural, list, round-robin and manual turn order, forced speakers and muted members
 - Per-chat persona, generation preset, connection, chat lorebook, voice settings and author's note
 - Message exclusion, bookmarks, multi-select actions, slash commands (`/roll 2d6`, `/bg`, `/imagine` and others, chainable with `|`) and quick reply buttons
+- Tool calls: the number of consecutive tool rounds per reply is configurable in the generation preset; long tool results are collapsed in the chat and older ones are shortened in the prompt
 - Images can be sent to vision models, or converted to text descriptions for models without vision support
 - Translation (model, Google, DeepL, DeepLX, LibreTranslate, Lingva) that preserves the original text and keeps stage directions functional
 - Chat summaries, trash bin, multiple personas, and request logs accessible from any message
@@ -178,7 +189,7 @@ The model writes stage directions inline (shorthand or XML format, with MVU vari
 - Runs as a single process or via `docker compose`, and supports mobile browsers
 - Multi-user: administrators can create users, reset passwords, and disable or delete accounts under **Settings → Account → Users**; each user's characters, chats and API keys are isolated
 - Profiles combine connection, model, generation preset, regex and image settings, and can be set as default, bound to a character or switched per chat
-- Extensions: backends can register macros, tools, slash commands and routes and participate in prompt assembly, and frontends can add components to UI slots; see `examples/extensions/hello-world`
+- Extensions: backends can register macros, tools, slash commands, routes and scheduled tasks and participate in prompt assembly, and frontends can add components to UI slots; extensions can be installed, updated and switched between versions from a Git URL, permissions are confirmed before enabling, and failed updates roll back automatically. An API is also available for scheduled tasks that make a character speak on its own (no UI yet). See `examples/extensions/hello-world` and the developer notes in `apps/server/src/extensions/SDK.md`
 - Chinese and English interface
 
 ## Quick start

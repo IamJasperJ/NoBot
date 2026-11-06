@@ -288,6 +288,10 @@ Git 地址仅允许 HTTPS 或 git@host:path，ref 支持分支和标签；预览
 热重载使用独立版本运行目录，移除旧路由、工具、宏和钩子，并调用可选 dispose 清理函数。
 索引支持数组或 `{ extensions: [...] }`，逐项宽松校验，单源失败不影响其他源；每源 15 秒、2MB 上限。
 权限包含 `background`（默认 false）；后台异常状态 `backgroundError` 只暴露异常类型。
+manifest 可声明 `apiVersion`（省略为 1，当前只接受 1），不兼容时在执行任何代码前拒绝加载。
+未获批准的后端入口不会被导入；`PATCH /extensions/:id` 批准权限时会等待后端加载完成再返回。
+Git 更新 / 切换在独立副本准备，加载或后台启动失败时恢复旧版本并返回 400 `EXTENSION_UPDATE_ROLLED_BACK`；
+新版本新增权限待确认期间，再次更新或切换返回 409 `NEEDS_APPROVAL`。定时任务接口见文末「统一定时任务与扩展后台状态」。
 `ctx.host.trigger(chatId, { speakerId?, instruction? }?)` 返回 void，主动让角色发言。
 当前用户主持的房间以房主身份发起非手动回合（房主不受访客额度限制），广播房间事件，暂停或归档时拒绝；
 普通会话使用 trigger 生成，正在生成时抛出 409 `GENERATING`。

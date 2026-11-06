@@ -16,7 +16,7 @@ import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { translateMetadata, translateSettingsSchema } from '../i18n/metadata'
 import { validate } from '../lib/validate'
-import { cleanupExtensionStaging, readGitInfo } from '../services/extensions/extension-git'
+import { cleanupExtensionStaging, finishExtensionApproval, readGitInfo } from '../services/extensions/extension-git'
 import { liveHub } from '../services/live/hub'
 import { profileChatScope, selectProfile } from '../services/profiles'
 import { SETTING_KEYS } from '../services/settings'
@@ -36,6 +36,7 @@ import translate from './builtin/translate'
 import { directoryRevision, localFile, readManifest } from './files'
 import { createExtensionHost } from './host'
 import { detectPermissions, isApproved, permissionFingerprint, permissionWarnings } from './permissions'
+import { backgroundTasks, setTaskHost, startTaskScheduler, stopTaskScheduler } from './tasks'
 import type { Extension, ExtensionContext, ExtensionManifest, ServerEvent } from './types'
 import { restoreSecrets, SECRET_MASK } from './types'
 
@@ -57,11 +58,19 @@ interface Loaded {
   server?: boolean
   runtime?: string
   fileRevision?: string
+  deferred?: boolean
 }
 
 const host = createExtensionHost(emitServerEvent, () => {
   const entry = visibleExtensions().find((entry) => entry.extension.id === 'audio' && isEnabled(entry))
   return entry ? { settings: settingsOf(entry.extension), storage: storageOf('audio') } : undefined
+})
+setTaskHost({
+  trigger: ({ chatId, ...options }) => host.trigger(chatId, options),
+  busy: (chatId) => host.isGenerating(chatId),
+  checkChat: (chatId) => {
+    host.getChatInfo(chatId, 0)
+  },
 })
 const builtins: Loaded[] = []
 const userExtensions = new Map<string, Loaded[]>()
@@ -89,12 +98,15 @@ export async function ensureUserExtensions() {
     loading.set(handle, pending)
   }
   await pending
+  startTaskScheduler()
   startBackgrounds()
 }
 export async function unloadUserExtensions() {
   const handle = currentUser().handle
+  stopTaskScheduler(handle)
   stopBackgrounds(handle)
   await loading.get(handle)
+  stopTaskScheduler(handle)
   stopBackgrounds(handle)
   for (const entry of [...localExtensions()]) await unloadExtension(entry.extension.id, true)
   userExtensions.delete(handle)
@@ -241,12 +253,14 @@ export async function reloadExtension(id: string, directory: string) {
   if (old >= 0) localExtensions().splice(Math.min(old, localExtensions().length), 0, entry)
   else localExtensions().push(entry)
   startBackgrounds()
+  await Promise.resolve()
   return toDTO(entry)
 }
 
 async function loadDirectory(directory: string): Promise<Loaded> {
   const name = directory.split('/').at(-1) ?? directory
   let runtime: string | undefined
+  let identity: ExtensionManifest | undefined
   try {
     const git = await readGitInfo(directory)
     const fileRevision = await directoryRevision(directory)
@@ -254,6 +268,7 @@ async function loadDirectory(directory: string): Promise<Loaded> {
     let manifest: ExtensionManifest | undefined
     let extension: Extension
     let server: string | undefined
+    let legacy = false
     if (await Bun.file(join(directory, 'manifest.json')).exists()) {
       manifest = await readManifest(directory)
       server = manifest.server
@@ -261,9 +276,18 @@ async function loadDirectory(directory: string): Promise<Loaded> {
     } else {
       server = (await Bun.file(join(directory, 'index.ts')).exists()) ? 'index.ts' : 'index.js'
       if (!(await Bun.file(join(directory, server)).exists())) throw new Error(t('扩展缺少 manifest.json'))
-      extension = {} as Extension
+      legacy = true
+      // 旧入口无法安全读取导出元数据，批准前以目录名作为稳定标识。
+      manifest = { id: name, name, version: '', description: '', server }
+      extension = manifest
     }
-    if (server) {
+    if (!/^[a-z0-9-]+$/.test(extension.id)) throw new Error(t('扩展 id 只能包含小写字母、数字和连字符'))
+    if (visibleExtensions().some((entry) => entry.extension.id === extension.id))
+      throw new Error(t('扩展 id「{id}」重复', { id: extension.id }))
+    // 已验证的静态标识必须在入口失败后保留，重启恢复才能找到原 id 对应的回滚记录。
+    identity = manifest
+    const deferred = !!server && needsApproval({ extension, source: 'local', manifest, server: true })
+    if (server && !deferred) {
       await localFile(directory, server)
       runtime = join(paths.extensions, `.runtime-${crypto.randomUUID()}`)
       await mkdir(runtime, { recursive: true })
@@ -273,7 +297,13 @@ async function loadDirectory(directory: string): Promise<Loaded> {
       extension = (await import(url.href)).default
       if (!extension || typeof extension !== 'object') throw new Error(t('后端入口必须默认导出扩展对象'))
       // manifest 是权限与标识的唯一来源，后端导出不能覆盖声明。
-      extension = { ...extension, ...manifest }
+      extension = {
+        ...extension,
+        ...manifest,
+        ...(legacy
+          ? { name: extension.name || name, version: extension.version || '', description: extension.description || '' }
+          : {}),
+      }
     }
     if (!extension.id || !extension.name) throw new Error(t('默认导出必须是 defineExtension({ id, name, ... })'))
     if (!/^[a-z0-9-]+$/.test(extension.id)) throw new Error(t('扩展 id 只能包含小写字母、数字和连字符'))
@@ -289,6 +319,7 @@ async function loadDirectory(directory: string): Promise<Loaded> {
       server: !!server,
       runtime,
       fileRevision,
+      deferred,
     }
     if (!needsApproval(entry)) entry.app = createApp(extension)
     return entry
@@ -297,8 +328,10 @@ async function loadDirectory(directory: string): Promise<Loaded> {
     const loadError = error instanceof Error ? error.message : String(error)
     console.error(`扩展「${name}」加载失败：`, loadError)
     return {
-      extension: { id: `broken:${name}`, name, description: '', version: '' },
+      extension: identity ?? { id: `broken:${name}`, name, description: '', version: '' },
       source: 'local',
+      manifest: identity,
+      server: !!identity?.server,
       directory,
       loadError,
     }
@@ -333,6 +366,15 @@ export async function loadLocalExtensions() {
       continue
     }
     await reloadExtension(existing?.extension.id ?? '', directory)
+  }
+  // 批准后进程若在加载期间退出，重启也要完成旧副本清理或失败回滚。
+  for (const entry of [...localExtensions()]) {
+    try {
+      await finishExtensionApproval(entry.extension.id)
+    } catch (error) {
+      // 回滚会替换注册表条目并报告结果，不能中断其他扩展和当前用户的启动。
+      console.error(`扩展「${entry.extension.id}」启动恢复：`, error instanceof HttpError ? error.code : 'Error')
+    }
   }
   return listExtensions()
 }
@@ -425,17 +467,35 @@ function enabledMap(): Record<string, boolean> {
   return getSetting<Record<string, boolean>>(SETTING_KEYS.extensionsEnabled) ?? {}
 }
 
+function approvalPermissions(l: Loaded) {
+  // 没有声明的旧插件无法在执行前探测能力，保守地请求所有后端能力。
+  return (
+    l.manifest?.permissions ??
+    (l.server
+      ? {
+          server: true,
+          client: !!(l.manifest?.client || l.manifest?.style),
+          routes: true,
+          tools: true,
+          hooks: true,
+          background: true,
+          network: [],
+        }
+      : null)
+  )
+}
+
 function needsApproval(l: Loaded): boolean {
   if (l.source === 'builtin') return false
   const fingerprint = permissionFingerprint(
-    l.manifest?.permissions ?? null,
+    approvalPermissions(l),
     detectPermissions(l.extension, l.manifest, l.server),
   )
   return !isApproved(fingerprint, getSetting<Record<string, string>>('extensionsApproved')?.[l.extension.id])
 }
 
 function isEnabled(l: Loaded): boolean {
-  if (l.loadError || needsApproval(l)) return false
+  if (l.loadError || l.deferred || needsApproval(l)) return false
   return enabledMap()[l.extension.id] ?? l.extension.enabledByDefault ?? l.source === 'builtin'
 }
 
@@ -463,9 +523,7 @@ function toDTO(l: Loaded): ExtensionDTO {
   return {
     id: e.id,
     permissions:
-      l.source === 'builtin'
-        ? { ...detectPermissions(e, l.manifest, true), network: [] }
-        : (l.manifest?.permissions ?? null),
+      l.source === 'builtin' ? { ...detectPermissions(e, l.manifest, true), network: [] } : approvalPermissions(l),
     detected: detectPermissions(e, l.manifest, l.source === 'builtin' || l.server),
     permissionWarnings:
       l.source === 'builtin'
@@ -489,8 +547,18 @@ function toDTO(l: Loaded): ExtensionDTO {
       hooks: Object.keys(e.hooks ?? {}),
     },
     settingsSchema: translateSettingsSchema(e.settingsSchema ?? []),
-    settings: maskedSettingsOf(e),
+    settings: l.deferred ? {} : maskedSettingsOf(e),
     ...(l.loadError ? { loadError: l.loadError } : {}),
+    apiVersion: l.manifest?.apiVersion ?? 1,
+    background: {
+      state: backgroundErrors.get(currentUser().handle)?.has(e.id)
+        ? 'failed'
+        : backgroundControllers.get(currentUser().handle)?.has(e.id)
+          ? 'running'
+          : 'stopped',
+      startedAt: backgroundStarts.get(currentUser().handle)?.get(e.id) ?? null,
+      error: backgroundErrors.get(currentUser().handle)?.get(e.id) ?? null,
+    },
     backgroundError: backgroundErrors.get(currentUser().handle)?.get(e.id) ?? null,
   }
 }
@@ -522,10 +590,7 @@ export function updateExtension(
   if (patch.approvePermissions) {
     setSetting('extensionsApproved', {
       ...getSetting<Record<string, string>>('extensionsApproved'),
-      [id]: permissionFingerprint(
-        l.manifest?.permissions ?? null,
-        detectPermissions(l.extension, l.manifest, l.server),
-      ),
+      [id]: permissionFingerprint(approvalPermissions(l), detectPermissions(l.extension, l.manifest, l.server)),
     })
     l.app ??= createApp(l.extension)
   }
@@ -542,6 +607,16 @@ export function updateExtension(
 
 function isCurrentActive(extension: Extension) {
   return visibleExtensions().some((entry) => entry.extension === extension && isEnabled(entry))
+}
+
+/** 管理入口等待已获批准的后端加载完成；普通设置更新仍保持同步。 */
+export async function configureExtension(id: string, patch: Parameters<typeof updateExtension>[1]) {
+  updateExtension(id, patch)
+  const entry = extensionLocation(id)
+  if (entry.deferred && !needsApproval(entry) && entry.directory) await reloadExtension(id, entry.directory)
+  await Promise.resolve()
+  await finishExtensionApproval(id)
+  return toDTO(extensionLocation(id))
 }
 
 /** 已启用的扩展及其设置 */
@@ -658,6 +733,7 @@ export function imageGenerationContext(chatId = '', characterId?: string): Exten
   return context
 }
 
+const backgroundStarts = new Map<string, Map<string, number>>()
 const backgroundControllers = new Map<string, Map<string, AbortController>>()
 const backgroundErrors = new Map<string, Map<string, string>>()
 const backgroundIndex = new Map<string, Set<string>>()
@@ -735,6 +811,12 @@ function startBackgrounds() {
     if (entries.has(extension.id) || backgroundErrors.get(handle)?.has(extension.id)) continue
     const controller = new AbortController()
     entries.set(extension.id, controller)
+    let starts = backgroundStarts.get(handle)
+    if (!starts) {
+      starts = new Map()
+      backgroundStarts.set(handle, starts)
+    }
+    starts.set(extension.id, Date.now())
     backgroundControllers.set(handle, entries)
     const ctx = {
       get settings() {
@@ -742,6 +824,7 @@ function startBackgrounds() {
       },
       storage: storageOf(extension.id),
       host,
+      tasks: backgroundTasks(extension.id, controller.signal),
     }
     const failed = (error: unknown) => {
       if (entries.get(extension.id) !== controller || controller.signal.aborted) return
@@ -763,6 +846,17 @@ function startBackgrounds() {
     }
   }
 }
+/** 明确的用户操作才重试失败后台，避免普通请求造成无限重启。 */
+export async function retryExtensionBackground(id: string) {
+  const entry = extensionLocation(id)
+  if (!isEnabled(entry) || !entry.extension.startBackground)
+    throw new HttpError(409, 'EXTENSION_INACTIVE', t('扩展未启用或已重载'))
+  stopBackgrounds(currentUser().handle, id)
+  startBackgrounds()
+  await Promise.resolve()
+  return toDTO(entry)
+}
+
 /** 启动仅枚举无凭据索引；停用用户及扩展均不恢复连接。 */
 export async function resumeBackgrounds() {
   const db = systemDatabase()

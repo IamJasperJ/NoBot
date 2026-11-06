@@ -552,3 +552,44 @@ mode 为 `free / character / portrait / face / user / last / raw_last / scene / 
 - 初始变量优先级：schema init < sheet `initVars` < 世界书 InitVar < 消息路径 varsPatch / varsManual。仅启用舞台指令且规则系统已实现时加载属性卡。
 - `roll_dice` 工具支持 `reason`，结果保存于工具消息 `meta.dice`；`ability_check(who?, skill, dc?, advantage?)` 使用会话规则和 `critRules`，结果保存于 `meta.check`。不支持规则时，会话工具列表不提供 `ability_check`。
 - `<combat start: player, Ellie, Goblin>` 入库时掷先攻并写入操作的 `order`；`<combat next>` / `<combat end>` 推进 / 结束战斗。聊天详情与舞台接口返回 `StageState.combat`；回放、切分支和续写复用已保存先攻，重新生成的新操作独立掷骰。
+
+### 统一定时任务与扩展后台状态
+
+以下接口在当前登录用户的数据库内操作，其他用户的任务不可见。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/extensions/tasks` | 返回 `ScheduledTaskDTO[]`，包含用户任务和已注册的插件任务 |
+| POST | `/api/extensions/tasks` | 创建主动发言任务，返回 201 和任务 DTO |
+| PATCH | `/api/extensions/tasks/:taskId` | `{ enabled: boolean }` 暂停或恢复；暂停会取消在途回调 |
+| POST | `/api/extensions/tasks/:taskId/run` | 手动执行或重试，返回本次结果；同任务正在执行返回 409 |
+| DELETE | `/api/extensions/tasks/:taskId` | 取消并删除任务，返回 `{ ok: true }` |
+| POST | `/api/extensions/:id/background/retry` | 明确重启已启用的插件后台，返回扩展 DTO |
+
+创建请求示例：
+
+```json
+{
+  "name": "早安",
+  "schedule": { "kind": "daily", "time": "08:00", "timeZone": "Asia/Shanghai" },
+  "misfire": "skip",
+  "action": {
+    "chatId": "会话 ID",
+    "instruction": "Offer a brief morning greeting. Write in the same language as the conversation."
+  }
+}
+```
+
+`schedule` 还接受 `once`（`at` 毫秒时间戳）和 `interval`（`everyMs`、`anchor`）。
+`misfire` 可为 `skip` 或 `once`。会话正在生成时任务延后 15 秒检查。
+主动发言通过宿主的 `trigger()` 接入角色卡、世界书和房间回合；
+任务 succeeded 表示生成请求已经被接受，不代表模型回复或渠道投递最终成功。
+`owner` 为 `user` 或 `extension:<扩展 id>`。
+
+DTO 包含 `nextRunAt`、`lastRunAt`、`finishedAt`、`runCount`、`status`、`error`。
+`status` 为 idle/running/succeeded/failed/skipped/deferred/interrupted；
+`error` 仅返回固定原因码或异常类型，不记录异常消息。
+扩展 DTO 新增 `apiVersion` 与 `background: { state, startedAt, error }`，保留 `backgroundError`。
+详细生命周期、重启恢复和更新回滚边界见 `src/extensions/SDK.md`。
+
+前端数据入口为 `useScheduledTasks()`、`useRetryExtensionBackground()`；本次未新增视觉页面。

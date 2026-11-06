@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
+import { cp, mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   ExtensionDTO,
@@ -15,17 +15,20 @@ import { HttpError, notFound } from '../../errors'
 import { readManifest } from '../../extensions/files'
 import { isApproved, permissionFingerprint, permissionWarnings } from '../../extensions/permissions'
 import {
+  configureExtension,
   extensionLocation,
   listExtensions,
   reloadExtension,
   unloadExtension,
-  updateExtension,
 } from '../../extensions/registry'
+import { removeExtensionTasks } from '../../extensions/tasks'
 import { t } from '../../i18n'
 import { currentUser } from '../../user-context'
 
 const root = () => paths.extensions
 const staging = () => join(root(), '.staging')
+// 当前进程正在准备的更新不能被并发目录扫描误删。
+const activeUpdates = new Set<string>()
 const lifetime = 30 * 60 * 1000
 const pending = new Map<string, { directory: string; expires: number; timer: ReturnType<typeof setTimeout> }>()
 
@@ -134,6 +137,12 @@ export async function readGitInfo(directory: string): Promise<ExtensionGitInfo |
 
 /** 启动时移除上次进程遗留的暂存；本次进程的暂存由定时器到期删除。 */
 export async function cleanupExtensionStaging() {
+  for (const entry of await readdir(root(), { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^\.update-[0-9a-f-]{36}$/.test(entry.name)) continue
+    const directory = join(root(), entry.name)
+    // 只回收可重新生成的准备目录，.backup-* 可能是回滚唯一副本，绝不在这里删除。
+    if (!activeUpdates.has(directory)) await rm(directory, { recursive: true, force: true })
+  }
   await mkdir(staging(), { recursive: true })
   for (const entry of await readdir(staging())) {
     if (!pending.has(`${currentUser().handle}:${entry}`))
@@ -218,7 +227,7 @@ export async function confirmInstall(token: string, enable: boolean): Promise<Ex
   pending.delete(`${currentUser().handle}:${token}`)
   const extension = await reloadExtension(manifest.id, destination)
   if (extension.loadError) return extension
-  return updateExtension(manifest.id, { enabled: enable, approvePermissions: enable })
+  return configureExtension(manifest.id, { enabled: enable, approvePermissions: enable })
 }
 
 function gitLocation(id: string) {
@@ -256,18 +265,110 @@ async function ensureClean(directory: string) {
     throw new HttpError(400, 'GIT_DIRTY', t('扩展有本地修改，请先提交或移除修改再更新或切换'))
 }
 
-export async function updateGitExtension(id: string): Promise<ExtensionUpdateResult> {
+interface PendingRollback {
+  directory: string
+  backup: string
+  approved?: string
+  enabled?: boolean
+}
+const rollbackKey = (id: string) => `extensionRollback:${id}`
+
+/** 权限增加的版本保留旧副本，直到实际批准并成功启动后才删除。 */
+export async function finishExtensionApproval(id: string) {
+  const pending = getSetting<PendingRollback>(rollbackKey(id))
+  if (!pending) return
+  const entry = listExtensions().find((entry) => entry.id === id)
+  if (!entry?.loadError && !entry?.backgroundError && entry?.needsApproval) return
+  if (entry?.loadError || entry?.backgroundError) {
+    await unloadExtension(id)
+    await rm(pending.directory, { recursive: true, force: true })
+    await rename(pending.backup, pending.directory)
+    const approvals = { ...getSetting<Record<string, string>>('extensionsApproved') }
+    const enabled = { ...getSetting<Record<string, boolean>>('extensionsEnabled') }
+    if (pending.approved === undefined) delete approvals[id]
+    else approvals[id] = pending.approved
+    if (pending.enabled === undefined) delete enabled[id]
+    else enabled[id] = pending.enabled
+    setSetting('extensionsApproved', approvals)
+    setSetting('extensionsEnabled', enabled)
+    db.delete(settings)
+      .where(eq(settings.key, rollbackKey(id)))
+      .run()
+    await reloadExtension(id, pending.directory)
+    throw new HttpError(400, 'EXTENSION_UPDATE_ROLLED_BACK', t('扩展更新失败，已恢复旧版本'))
+  }
+  await rm(pending.backup, { recursive: true, force: true })
+  db.delete(settings)
+    .where(eq(settings.key, rollbackKey(id)))
+    .run()
+}
+
+/** 在独立副本准备版本，切换失败时恢复目录、设置和旧运行实例。 */
+async function replaceRepository(id: string, prepare: (directory: string) => Promise<void>) {
   const directory = gitLocation(id)
+  if (getSetting(rollbackKey(id))) throw new HttpError(409, 'NEEDS_APPROVAL', t('启用扩展前需要确认权限'))
   await ensureClean(directory)
+  const candidate = join(root(), `.update-${crypto.randomUUID()}`)
+  const backup = join(root(), `.backup-${crypto.randomUUID()}`)
+  const approved = getSetting('extensionsApproved') ?? {}
+  const enabled = getSetting('extensionsEnabled') ?? {}
+  let swapped = false
+  let committed = false
+  activeUpdates.add(candidate)
+  try {
+    await cp(directory, candidate, { recursive: true })
+    await prepare(candidate)
+    const manifest = await readManifest(candidate)
+    if (manifest.id !== id) throw new Error(t('重载时扩展 id 不能改变'))
+    await rename(directory, backup)
+    try {
+      await rename(candidate, directory)
+    } catch (error) {
+      await rename(backup, directory)
+      throw error
+    }
+    swapped = true
+    const extension = await reloadExtension(id, directory)
+    // async 启动函数的即时拒绝也应纳入本次切换结果。
+    await Promise.resolve()
+    const result = listExtensions().find((entry) => entry.id === id)!
+    if (extension.loadError || result.backgroundError) throw new Error('EXTENSION_START_FAILED')
+    if (result.needsApproval) {
+      setSetting(rollbackKey(id), {
+        directory,
+        backup,
+        approved: (approved as Record<string, string>)[id],
+        enabled: (enabled as Record<string, boolean>)[id],
+      })
+    } else committed = true
+    return result
+  } catch (error) {
+    if (swapped) {
+      await unloadExtension(id)
+      await rm(directory, { recursive: true, force: true })
+      await rename(backup, directory)
+      setSetting('extensionsApproved', approved)
+      setSetting('extensionsEnabled', enabled)
+      await reloadExtension(id, directory)
+      throw new HttpError(400, 'EXTENSION_UPDATE_ROLLED_BACK', t('扩展更新失败，已恢复旧版本'))
+    }
+    throw error
+  } finally {
+    try {
+      await rm(candidate, { recursive: true, force: true })
+      // 回滚本身失败时保留备份，避免丢失唯一可恢复副本。
+      if (committed) await rm(backup, { recursive: true, force: true })
+    } finally {
+      activeUpdates.delete(candidate)
+    }
+  }
+}
+
+export async function updateGitExtension(id: string): Promise<ExtensionUpdateResult> {
   const before = listExtensions().find((entry) => entry.id === id)!
-  await runGit(['pull', '--ff-only'], directory)
-  const remoteCommit = await runGit(['rev-parse', '--verify', '@{upstream}'], directory)
-  setSetting('extensionGitChecks', {
-    ...getSetting<Record<string, Partial<ExtensionGitInfo>>>('extensionGitChecks'),
-    [directory]: { remoteCommit, checkedAt: Date.now() },
+  const extension = await replaceRepository(id, async (directory) => {
+    await runGit(['pull', '--ff-only'], directory)
   })
-  await reloadExtension(id, directory)
-  const extension = await refreshGitDTO(id, directory)
   return {
     extension,
     permissionsChanged: !isApproved(
@@ -293,29 +394,27 @@ export async function extensionBranches(id: string) {
 export async function switchExtension(id: string, ref: string) {
   validateGitRef(ref)
   if (!ref) throw new HttpError(400, 'INVALID_GIT_REF', t('Git 分支或标签不合法'))
-  const directory = gitLocation(id)
-  await ensureClean(directory)
-  await fetchRepository(directory)
-  // checkout 的结束选项符放在 ref 后，明确把 ref 当作版本而不是路径。
-  const remoteRef = ref.startsWith('origin/') ? ref.slice('origin/'.length) : ref
-  const local = await runGit(['show-ref', '--verify', `refs/heads/${remoteRef}`], directory).then(
-    () => true,
-    () => false,
-  )
-  const remote = await runGit(['show-ref', '--verify', `refs/remotes/origin/${remoteRef}`], directory).then(
-    () => true,
-    () => false,
-  )
-  const tag = await runGit(['show-ref', '--verify', `refs/tags/${ref}`], directory).then(
-    () => true,
-    () => false,
-  )
-  if (remote && !tag) {
-    if (local) await runGit(['checkout', remoteRef, '--'], directory)
-    else await runGit(['checkout', '-b', remoteRef, '--track', `origin/${remoteRef}`, '--'], directory)
-  } else await runGit(['checkout', ref, '--'], directory)
-  await reloadExtension(id, directory)
-  return refreshGitDTO(id, directory)
+  return replaceRepository(id, async (directory) => {
+    await fetchRepository(directory)
+    // checkout 的结束选项符放在 ref 后，明确把 ref 当作版本而不是路径。
+    const remoteRef = ref.startsWith('origin/') ? ref.slice('origin/'.length) : ref
+    const local = await runGit(['show-ref', '--verify', `refs/heads/${remoteRef}`], directory).then(
+      () => true,
+      () => false,
+    )
+    const remote = await runGit(['show-ref', '--verify', `refs/remotes/origin/${remoteRef}`], directory).then(
+      () => true,
+      () => false,
+    )
+    const tag = await runGit(['show-ref', '--verify', `refs/tags/${ref}`], directory).then(
+      () => true,
+      () => false,
+    )
+    if (remote && !tag) {
+      if (local) await runGit(['checkout', remoteRef, '--'], directory)
+      else await runGit(['checkout', '-b', remoteRef, '--track', `origin/${remoteRef}`, '--'], directory)
+    } else await runGit(['checkout', ref, '--'], directory)
+  })
 }
 
 export async function uninstallExtension(id: string) {
@@ -323,6 +422,12 @@ export async function uninstallExtension(id: string) {
   if (entry.source === 'builtin') throw new HttpError(400, 'BUILTIN_EXTENSION', t('不能替换或卸载内置扩展'))
   if (!entry.directory) throw notFound(t('扩展目录'))
   await unloadExtension(id)
+  const rollback = getSetting<PendingRollback>(rollbackKey(id))
+  if (rollback) await rm(rollback.backup, { recursive: true, force: true })
+  db.delete(settings)
+    .where(eq(settings.key, rollbackKey(id)))
+    .run()
+  removeExtensionTasks(id)
   await rm(entry.directory, { recursive: true, force: true })
   for (const key of ['extensionsEnabled', 'extensionsApproved']) {
     const values = { ...getSetting<Record<string, unknown>>(key) }

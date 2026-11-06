@@ -115,7 +115,7 @@ test('HOST1：第三方后台恢复、生命周期与一次性触发指令', asy
           latest: number
           chats: number
         }>
-      registry.updateExtension('loop', { enabled: true, approvePermissions: true })
+      await registry.configureExtension('loop', { enabled: true, approvePermissions: true })
       expect((await read()).starts).toBe(1)
       expect((await read()).chats).toBe(0)
       expect(index()).toHaveLength(1)
@@ -154,7 +154,7 @@ test('HOST1：第三方后台恢复、生命周期与一次性触发指令', asy
     await Bun.write(join(disabledFixture, 'index.ts'), source(1))
     await runAsUser(disabled, async () => {
       await registry.ensureUserExtensions()
-      registry.updateExtension('loop', { enabled: true, approvePermissions: true })
+      await registry.configureExtension('loop', { enabled: true, approvePermissions: true })
       await expectStableIndex()
     })
     await runAsUser(owner, async () => {
@@ -228,7 +228,7 @@ test('HOST1：第三方后台恢复、生命周期与一次性触发指令', asy
         ),
       )
       await registry.reloadExtension('loop', fixture)
-      registry.updateExtension('loop', { enabled: true, approvePermissions: true })
+      await registry.configureExtension('loop', { enabled: true, approvePermissions: true })
       expect(registry.listExtensions().find((e) => e.id === 'loop')?.backgroundError).toBe('TypeError')
       await registry.ensureUserExtensions()
       expect(getSetting('extdata:loop:starts')).toBe(5)
@@ -245,13 +245,13 @@ test('HOST1：第三方后台恢复、生命周期与一次性触发指令', asy
       await registry.unloadExtension('loop')
       await Bun.write(join(fixture, 'index.ts'), source(5))
       await registry.reloadExtension('loop', fixture)
-      registry.updateExtension('loop', { enabled: true, approvePermissions: true })
+      await registry.configureExtension('loop', { enabled: true, approvePermissions: true })
       expect(index()).toHaveLength(1)
-      registry.updateExtension('loop', { approvePermissions: false })
+      await registry.configureExtension('loop', { approvePermissions: false })
       expect(index()).toHaveLength(0)
       await expectStableIndex()
       expect(getSetting('extdata:loop:aborts')).toBe(6)
-      registry.updateExtension('loop', { approvePermissions: true })
+      await registry.configureExtension('loop', { approvePermissions: true })
       expect(index()).toHaveLength(1)
       await expectStableIndex()
       closeUserDatabase(owner.handle)

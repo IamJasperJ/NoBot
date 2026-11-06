@@ -14,6 +14,7 @@ import type {
 } from '@nobot/shared'
 import type { Context, Hono } from 'hono'
 import type { ToolDefinition } from '../tools'
+import type { BackgroundTasks } from './tasks'
 
 /**
  * 扩展系统（v2）。一个扩展可以同时有后端和前端两部分。
@@ -35,6 +36,8 @@ export interface ExtensionManifest {
   name: string
   version: string
   description: string
+  /** 未声明时按第一版接口处理；不兼容时在执行代码之前拒绝加载。 */
+  apiVersion?: number
   author?: string
   permissions?: ExtensionPermissions
   /** 后端入口文件（相对扩展目录） */
@@ -267,7 +270,10 @@ export interface Extension {
    */
   publicRoutes?: (app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) => void
   /** 每用户后台生命周期；第三方需要 background 权限批准，重载、禁用、卸载或关闭用户库时先中止 signal。 */
-  startBackground?: (ctx: Omit<ExtensionContext, 'chatId'>, signal: AbortSignal) => void | Promise<void>
+  startBackground?: (
+    ctx: Omit<ExtensionContext, 'chatId'> & { tasks: BackgroundTasks },
+    signal: AbortSignal,
+  ) => void | Promise<void>
 }
 
 export function defineExtension(extension: Extension): Extension {

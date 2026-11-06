@@ -107,13 +107,13 @@ test('扩展 v2：manifest、旧入口、接口、资源、存储、钩子与生
     await mkdir(legacy)
     await Bun.write(
       join(legacy, 'index.ts'),
-      "export default { id: 'legacy', name: '旧式扩展', version: '1', description: '' }",
+      "export default { id: 'a-legacy', name: '旧式扩展', version: '1', description: '' }",
     )
     const legacyJs = join(root, 'c-legacy-js')
     await mkdir(legacyJs)
     await Bun.write(
       join(legacyJs, 'index.js'),
-      "export default { id: 'legacy-js', name: '旧式 JS', version: '1', description: '' }",
+      "export default { id: 'c-legacy-js', name: '旧式 JS', version: '1', description: '' }",
     )
     for (const [name, value] of Object.entries({
       'invalid-id': { ...manifest, id: '../escape' },
@@ -160,9 +160,9 @@ test('扩展 v2：manifest、旧入口、接口、资源、存储、钩子与生
       'caption',
       'audio',
       'translate',
-      'legacy',
+      'a-legacy',
       'fixture',
-      'legacy-js',
+      'c-legacy-js',
       'hello-world',
     ])
     const item = list.find((x) => x.id === 'fixture')!
@@ -173,21 +173,30 @@ test('扩展 v2：manifest、旧入口、接口、资源、存储、钩子与生
       description: '完整测试',
       author: '测试作者',
       client: { script: true, style: true },
-      hasRoutes: true,
+      hasRoutes: false,
       enabled: false,
       source: 'local',
-      settings: { greeting: '你好' },
+      settings: {},
     })
-    expect(item.provides).toEqual({ macros: ['hello'], tools: ['fixture_tool'], hooks: ['beforePrompt', 'onEvent'] })
+    expect(item.provides).toEqual({ macros: [], tools: [], hooks: [] })
     expect(list.filter((x) => x.loadError)).toHaveLength(6)
     expect(list.some((x) => x.id === 'unexpected')).toBe(false)
-    expect(list.find((x) => x.id === 'legacy')?.client).toEqual({ script: false, style: false })
+    expect(list.find((x) => x.id === 'a-legacy')?.client).toEqual({ script: false, style: false })
     expect(list.find((x) => x.id === 'hello-world')?.loadError).toBeUndefined()
     const disabled = await request('/ext/fixture/stats')
     expect(disabled.status).toBe(404)
     expect(await disabled.json()).toMatchObject({ error: { code: 'NOT_FOUND' } })
     expect((await request('/extensions/fixture/client.js')).status).toBe(404)
-    await json('/extensions/fixture', 'PATCH', { enabled: true, approvePermissions: true })
+    const approved = await json<ExtensionDTO>('/extensions/fixture', 'PATCH', {
+      enabled: true,
+      approvePermissions: true,
+    })
+    expect(approved.provides).toEqual({
+      macros: ['hello'],
+      tools: ['fixture_tool'],
+      hooks: ['beforePrompt', 'onEvent'],
+    })
+    expect(approved.settings).toEqual({ greeting: '你好' })
     expect(await json('/ext/fixture/echo?value=中文')).toEqual({ query: '中文' })
     const echo = await app.request('/api/ext/fixture/echo', {
       method: 'POST',

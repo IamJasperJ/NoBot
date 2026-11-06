@@ -1,5 +1,11 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  定时任务: 'Scheduled task',
+  任务正在执行: 'The task is running',
+  任务所属扩展未运行: 'The extension owning this task is not running',
+  '扩展更新失败，已恢复旧版本': 'Extension update failed; the previous version has been restored',
+  '扩展 API 版本不兼容：需要 {required}，宿主支持 {supported}':
+    'Incompatible extension API: requires {required}, host supports {supported}',
   '{field}至少需要一项': '{field} must contain at least one item',
   选项序号无效: 'The choice index is invalid',
   成员: 'Members',

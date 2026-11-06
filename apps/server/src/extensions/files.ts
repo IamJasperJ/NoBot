@@ -4,12 +4,15 @@ import { extensionPermissionsSchema } from '@nobot/shared'
 import { z } from 'zod'
 import { t } from '../i18n'
 
+export const EXTENSION_API_VERSION = 1
+
 export const manifestSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   name: z.string().min(1),
   version: z.string().min(1),
   description: z.string(),
   author: z.string().optional(),
+  apiVersion: z.number().int().positive().default(1),
   server: z.string().min(1).optional(),
   client: z.string().min(1).optional(),
   style: z.string().min(1).optional(),
@@ -41,6 +44,13 @@ export async function readManifest(directory: string) {
     const fields = parsed.error.issues.map((issue) => issue.path.join('.') || t('根对象')).join('、')
     throw new Error(t('manifest.json 不合法：{fields} 字段缺失或格式错误', { fields }))
   }
+  if (parsed.data.apiVersion !== EXTENSION_API_VERSION)
+    throw new Error(
+      t('扩展 API 版本不兼容：需要 {required}，宿主支持 {supported}', {
+        required: parsed.data.apiVersion,
+        supported: EXTENSION_API_VERSION,
+      }),
+    )
   for (const file of [parsed.data.server, parsed.data.client, parsed.data.style])
     if (file) await localFile(directory, file)
   return parsed.data

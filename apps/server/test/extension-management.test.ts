@@ -115,7 +115,7 @@ test('扩展管理：权限、Git 安装更新切换、热重载及目录缓存'
     expect(registry.listExtensions().find((entry) => entry.id === 'manual')).toMatchObject({
       needsApproval: true,
       enabled: false,
-      detected: { server: true, client: true, hooks: true, routes: true },
+      detected: { server: true, client: true, hooks: false, routes: false },
     })
     client.setSetting('extensionsEnabled', { manual: true })
     expect(registry.collectMacros('').sample).toBeUndefined()
@@ -152,10 +152,11 @@ test('扩展管理：权限、Git 安装更新切换、热重载及目录缓存'
     await registry.reloadExtension('manual', folder)
     expect(registry.listExtensions().find((entry) => entry.id === 'manual')!.needsApproval).toBe(true)
     expect(registry.collectMacros('').sample).toBeUndefined()
-    registry.updateExtension('manual', { approvePermissions: true })
+    await registry.configureExtension('manual', { approvePermissions: true })
     await Bun.write(join(folder, 'manifest.json'), JSON.stringify(manifest))
     await registry.reloadExtension('manual', folder)
-    expect(registry.listExtensions().find((entry) => entry.id === 'manual')!.needsApproval).toBe(false)
+    expect(registry.listExtensions().find((entry) => entry.id === 'manual')!.needsApproval).toBe(true)
+    await registry.configureExtension('manual', { approvePermissions: true })
     expect((await request('/manual/update')).status).toBe(400)
     expect((await request('/regex', 'DELETE')).status).toBe(400)
 

@@ -481,6 +481,15 @@ export const api = {
   clearLogs: () => request<Ok>('DELETE', '/logs'),
 
   // ---- 扩展 ----
+  listScheduledTasks: () => request<import('@nobot/shared').ScheduledTaskDTO[]>('GET', '/extensions/tasks'),
+  createScheduledTask: (input: import('@nobot/shared').ScheduledTaskInput) =>
+    request<import('@nobot/shared').ScheduledTaskDTO>('POST', '/extensions/tasks', input),
+  setScheduledTaskEnabled: (id: string, enabled: boolean) =>
+    request<import('@nobot/shared').ScheduledTaskDTO>('PATCH', `/extensions/tasks/${enc(id)}`, { enabled }),
+  runScheduledTask: (id: string) =>
+    request<import('@nobot/shared').ScheduledTaskDTO>('POST', `/extensions/tasks/${enc(id)}/run`),
+  deleteScheduledTask: (id: string) => request<Ok>('DELETE', `/extensions/tasks/${enc(id)}`),
+  retryExtensionBackground: (id: string) => request<ExtensionDTO>('POST', `/extensions/${enc(id)}/background/retry`),
   listExtensions: () => request<ExtensionDTO[]>('GET', '/extensions'),
   updateExtension: (
     id: string,

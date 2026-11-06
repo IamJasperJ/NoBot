@@ -1,7 +1,25 @@
-import { extensionCatalogSourcesInput, extensionInstallConfirmInput, extensionInstallInput } from '@nobot/shared'
+import {
+  extensionCatalogSourcesInput,
+  extensionInstallConfirmInput,
+  extensionInstallInput,
+  scheduledTaskInput,
+} from '@nobot/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { extensionAsset, listExtensions, loadLocalExtensions, updateExtension } from '../extensions/registry'
+import {
+  configureExtension,
+  extensionAsset,
+  listExtensions,
+  loadLocalExtensions,
+  retryExtensionBackground,
+} from '../extensions/registry'
+import {
+  createScheduledTask,
+  deleteScheduledTask,
+  listScheduledTasks,
+  runScheduledTask,
+  setScheduledTaskEnabled,
+} from '../extensions/tasks'
 import { validate } from '../lib/validate'
 import { catalogSources, extensionCatalog, setCatalogSources } from '../services/extensions/extension-catalog'
 import {
@@ -21,6 +39,19 @@ import { listToolInfo } from '../tools'
 /** 扩展管理与工具列表 */
 export const extensionRoutes = new Hono()
   .get('/', (c) => c.json(listExtensions()))
+  .get('/tasks', (c) => c.json(listScheduledTasks()))
+  .post('/tasks', validate('json', scheduledTaskInput), (c) => c.json(createScheduledTask(c.req.valid('json')), 201))
+  .patch('/tasks/:taskId', validate('json', z.object({ enabled: z.boolean() })), (c) =>
+    c.json(setScheduledTaskEnabled(c.req.param('taskId'), c.req.valid('json').enabled)),
+  )
+  .post('/tasks/:taskId/run', async (c) => c.json(await runScheduledTask(c.req.param('taskId'))))
+  .delete('/tasks/:taskId', (c) => {
+    deleteScheduledTask(c.req.param('taskId'))
+    return c.json({ ok: true })
+  })
+  .post('/:id/background/retry', async (c) =>
+    c.json(await extensionOperation(async () => retryExtensionBackground(c.req.param('id')))),
+  )
   .get('/git', async (c) => c.json(await gitStatus()))
   .get('/catalog/sources', (c) => c.json(catalogSources()))
   .put('/catalog/sources', validate('json', extensionCatalogSourcesInput), (c) =>
@@ -80,5 +111,5 @@ export const extensionRoutes = new Hono()
         settings: z.record(z.string(), z.unknown()).optional(),
       }),
     ),
-    (c) => c.json(updateExtension(c.req.param('id'), c.req.valid('json'))),
+    async (c) => c.json(await extensionOperation(() => configureExtension(c.req.param('id'), c.req.valid('json')))),
   )

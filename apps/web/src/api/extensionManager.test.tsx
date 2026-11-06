@@ -13,6 +13,8 @@ import {
   useGitStatus,
   useInstallFlow,
   useReloadExtensions,
+  useRetryExtensionBackground,
+  useScheduledTasks,
 } from './extensionManager'
 import { keys } from './queries'
 
@@ -133,6 +135,32 @@ test('扩展管理 hooks：请求、刷新、安装生命周期与错误传递',
     requests.length = 0
   }
   try {
+    const tasks = render(useScheduledTasks)
+    const taskInput = {
+      name: 'hello',
+      schedule: { kind: 'once' as const, at: 123 },
+      action: { chatId: 'chat', instruction: 'Say hello.' },
+    }
+    await tasks.create.mutateAsync(taskInput)
+    expect(requests.at(-1)).toEqual({ url: '/api/extensions/tasks', method: 'POST', body: taskInput })
+    expect(invalidations.mock.calls.map(([filters]) => filters?.queryKey)).toContainEqual([
+      'extensions',
+      'scheduled-tasks',
+    ])
+    await tasks.toggle.mutateAsync({ id: 'plugin:task', enabled: false })
+    expect(requests.at(-1)).toEqual({
+      url: '/api/extensions/tasks/plugin%3Atask',
+      method: 'PATCH',
+      body: { enabled: false },
+    })
+    await tasks.run.mutateAsync('plugin:task')
+    expect(requests.at(-1)?.url).toBe('/api/extensions/tasks/plugin%3Atask/run')
+    await tasks.remove.mutateAsync('plugin:task')
+    expect(requests.at(-1)?.method).toBe('DELETE')
+    await render(useRetryExtensionBackground).mutateAsync(extension.id)
+    expect(requests.some((request) => request.url === '/api/extensions/git%2Fid/background/retry')).toBe(true)
+    requests.length = 0
+    invalidations.mockClear()
     expect(render(useGitStatus).isPending).toBe(true)
     await qc.getQueryCache().find({ queryKey: keys.gitStatus })!.fetch()
     expect(render(useGitStatus).data).toEqual({ available: true, version: 'git 2' })

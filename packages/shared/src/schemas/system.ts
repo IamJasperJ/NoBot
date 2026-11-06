@@ -118,6 +118,8 @@ export interface ExtensionDTO {
   loadError?: string
   /** 后台停止时仅暴露异常类型，不包含凭据或异常消息 */
   backgroundError?: string | null
+  apiVersion?: number
+  background?: import('./tasks').ExtensionBackgroundStatus
   /**
    * manifest 声明的权限；null 表示没有声明（旧扩展），此时按检测到的能力请用户确认，并给出警告。
    * 内置扩展等于检测到的能力

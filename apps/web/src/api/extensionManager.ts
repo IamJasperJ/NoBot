@@ -243,3 +243,24 @@ export function useCatalogSources(): {
     saving: mutation.isPending,
   }
 }
+
+/** 后台任务的查询和控制与界面布局分离，任务结果变化后统一刷新。 */
+export function useScheduledTasks() {
+  const qc = useQueryClient()
+  const queryKey = ['extensions', 'scheduled-tasks'] as const
+  const query = useQuery({ queryKey, queryFn: api.listScheduledTasks, refetchInterval: 5000 })
+  const refresh = () => qc.invalidateQueries({ queryKey })
+  const create = useMutation({ mutationFn: api.createScheduledTask, onSuccess: refresh })
+  const toggle = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.setScheduledTaskEnabled(id, enabled),
+    onSuccess: refresh,
+  })
+  const run = useMutation({ mutationFn: api.runScheduledTask, onSuccess: refresh })
+  const remove = useMutation({ mutationFn: api.deleteScheduledTask, onSuccess: refresh })
+  return { ...query, create, toggle, run, remove }
+}
+
+export function useRetryExtensionBackground() {
+  const refresh = useRefreshExtensions()
+  return useMutation({ mutationFn: api.retryExtensionBackground, onSuccess: refresh })
+}

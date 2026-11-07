@@ -88,11 +88,14 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
   )
   app.get('/providers', (c) =>
     c.json(
-      listProviders().map(({ id, name, riskNotice, accountFields }) => ({
+      listProviders().map(({ id, name, riskNotice, accountFields, extensionId, extensionName, managed }) => ({
         id,
         name,
         riskNotice,
         accountFields,
+        extensionId: extensionId ?? null,
+        extensionName: extensionName ?? null,
+        managed: managed ?? false,
         available: true,
       })),
     ),

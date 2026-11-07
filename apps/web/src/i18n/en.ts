@@ -7,9 +7,6 @@ export const en: Record<string, string> = {
     'Connection and sign-in are managed by the extension that provides this platform.',
   '提供这个平台的扩展已停用或卸载；重新启用后会自动恢复，绑定和会话都保留。':
     'The extension that provides this platform is disabled or uninstalled. Bindings and chats are kept and it resumes automatically once re-enabled.',
-  扩展平台: 'Extension platforms',
-  '还没有扩展平台的账号。可以点「添加」，或在提供平台的扩展里开启。':
-    'No extension platform accounts yet. Click "Add", or turn it on in the extension that provides the platform.',
   添加扩展平台账号: 'Add extension platform account',
   '没有可用的扩展平台。先在扩展页启用提供渠道平台的扩展。':
     'No extension platforms are available. Enable an extension that provides a channel platform first.',
@@ -3060,8 +3057,6 @@ export const en: Record<string, string> = {
   '创建后会显示要填进 NapCat 的地址。': 'The address to enter in NapCat is shown after creating.',
   '{name} 申请加入群': '{name} asked to join the group',
   通用: 'Shared',
-  '两个平台共用的默认值；每个机器人、每个群或私聊还可以单独改。':
-    'Defaults shared by both platforms. Each bot, group or DM can still override them.',
   '每个 bot 可以固定扮演一个角色，也可以当通用 bot': 'Each bot can play one fixed character or act as a general bot',
   '还没有 Telegram 机器人。找 @BotFather 发 /newbot 拿到 Token 后点「添加」。':
     'No Telegram bots yet. Send /newbot to @BotFather, then click Add with the token.',
@@ -3275,4 +3270,17 @@ export const en: Record<string, string> = {
   房主关闭了这个房间: 'The host closed this room.',
   '房主关闭了联机，房间已结束': 'The host turned off online play; the room has ended.',
   '你已经在「{name}」里了': 'You are already in “{name}”.',
+  '所有平台共用的默认值；每个账号、每个群或私聊还可以单独改。':
+    'Defaults shared by all platforms; each account, group or private chat can still override them.',
+  '批准过的联系人各有自己的会话，点账号查看会话和设置':
+    'Each approved contact gets their own chat. Open an account to see its chats and settings',
+  '还没有账号。在{extension}里打开对应开关后会自动出现。':
+    'No account yet. It appears automatically once you turn on the matching switch in {extension}.',
+  提供这个平台的扩展: 'the extension that provides this platform',
+  '还没有账号，点「添加」创建一个。': 'No account yet. Click "Add" to create one.',
+  '账号由{extension}管理，在它的设置里开关；这里负责批准联系人、查看会话和投递记录。':
+    'Accounts are managed by {extension}; turn them on or off in its settings. Here you approve contacts and review chats and deliveries.',
+  '由{extension}提供的平台。': 'A platform provided by {extension}.',
+  '由扩展提供的平台。': 'A platform provided by an extension.',
+  '打开{extension}': 'Open {extension}',
 }

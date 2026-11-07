@@ -354,5 +354,10 @@ export interface ChannelProviderDTO {
   name: string
   riskNotice: string | null
   accountFields: ExtensionSettingField[]
+  /** 提供平台的扩展；内置平台为 null。 */
+  extensionId: string | null
+  extensionName: string | null
+  /** 账号由扩展用 ensureAccount 管理，界面不显示手动添加。 */
+  managed: boolean
   available: boolean
 }

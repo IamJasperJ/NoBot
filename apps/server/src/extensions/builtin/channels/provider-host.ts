@@ -190,6 +190,7 @@ export function extensionChannels(
   host: ExtensionHost,
   allowed = false,
   signal?: AbortSignal,
+  extensionName: string | null = null,
 ): ExtensionChannels {
   const runtime = () => channelService({ host }).runtime
   const owned = new Set<string>()
@@ -221,6 +222,8 @@ export function extensionChannels(
         accountFields: definition.accountFields,
         definition,
         extensionId,
+        extensionName,
+        managed: definition.managedAccounts ?? definition.accountFields.length === 0,
         capabilities: Object.fromEntries(
           [
             'draftStreaming',

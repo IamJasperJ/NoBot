@@ -103,7 +103,7 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
   }
   const signal = new AbortController()
   let service!: ReturnType<typeof channelService>
-  const api = run(() => extensionChannels('test-plugin', host, true, signal.signal))
+  const api = run(() => extensionChannels('test-plugin', host, true, signal.signal, 'Test Plugin'))
   const emit = (id: string, text: string, extra = {}) =>
     io.emit({
       id,
@@ -130,6 +130,15 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
         id: 'secret',
         accountFields: [{ type: 'string', key: 'password', label: 'Password', secret: true }],
       })
+      // 零字段平台视为扩展托管账号；有字段的平台需手动添加。
+      const { listProviders } = await import('../src/extensions/builtin/channels/providers')
+      const listed = listProviders()
+      expect(listed.find((p) => p.id === 'test-plugin.dm')).toMatchObject({
+        extensionId: 'test-plugin',
+        extensionName: 'Test Plugin',
+        managed: true,
+      })
+      expect(listed.find((p) => p.id === 'test-plugin.secret')?.managed).toBe(false)
       const secret = await service.runtime.create(
         (await import('@nobot/shared')).channelAccountInput.parse({
           provider: 'test-plugin.secret',

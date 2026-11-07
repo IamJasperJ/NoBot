@@ -832,6 +832,7 @@ function startBackgrounds() {
         host,
         entry.manifest?.permissions?.channels === true,
         controller.signal,
+        extension.name,
       ),
     }
     const failed = (error: unknown) => {

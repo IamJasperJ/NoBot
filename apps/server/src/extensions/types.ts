@@ -332,6 +332,8 @@ export interface ChannelProviderDefinition {
     newLocation?: { private?: 'auto' | 'approve' | 'existing-only'; group?: 'auto' | 'approve' | 'existing-only' }
   }
   accountFields: ExtensionSettingField[]
+  /** 账号由扩展自己用 ensureAccount 管理；渠道页不提供手动添加。省略时 accountFields 为空即视为托管。 */
+  managedAccounts?: boolean
   promptHint?: string
   start(account: ChannelProviderAccount, io: ChannelProviderIO, signal: AbortSignal): void | Promise<void>
   send(

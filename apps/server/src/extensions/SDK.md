@@ -140,7 +140,11 @@ export default defineExtension({
 批准后按 sentAt 稳定排序落库，再按房间接话／排队规则调度一轮生成，拒绝或拉黑时丢弃。
 `canInitiate:false` 的非主人回复按数据库父链判定：最近的 user 必须来自当前平台和位置，
 回复距离该入站不超过 30 分钟，且入站的其他子分支没有已提交的投递。同分支连发和工具降级文本可继续投递，
-不依赖宿主进程的任务内存；网页或后台主动生成仍拦截。此类平台新会话历史不保留角色卡开场白。
+不依赖宿主进程的任务内存，也不区分生成由谁触发（房间判断后的回合、网页上点生成都算答复）；
+最近的 user 不是入站、超出窗口或网页镜像仍拦截。此类平台新会话历史不保留角色卡开场白。
+
+`managedAccounts: true` 表示账号由扩展用 `ensureAccount` 管理，渠道页不显示手动添加；省略时 `accountFields` 为空即视为托管。
+`GET /api/ext/channels/providers` 返回 `extensionId`、`extensionName` 和 `managed`，内置平台分别为 null、null、false。
 
 `ChannelSendError('not-sent', code, { retryAfterMs })` 表示确定没有发出，可自动重试最多三次（retryAfterMs 超过 10 分钟时不等待，直接判定这段未发出，避免堵住同一账号的其他会话）；
 账号仍 online 时，没有重试间隔的 `not-sent` 直接记失败。

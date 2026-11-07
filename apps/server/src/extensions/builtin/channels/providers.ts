@@ -19,6 +19,10 @@ export interface RegisteredProvider {
   presenceLimits: { name: number; description: number; shortDescription: number }
   definition?: ChannelProviderDefinition
   extensionId?: string
+  /** 提供平台的扩展显示名；内置平台为空。 */
+  extensionName?: string | null
+  /** 账号由扩展托管，界面不显示手动添加。 */
+  managed?: boolean
   start(
     runtime: ChannelRuntime,
     id: string,

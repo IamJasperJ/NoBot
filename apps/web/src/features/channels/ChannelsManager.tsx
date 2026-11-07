@@ -31,10 +31,13 @@ import { Menu, MenuDivider, MenuEntry } from '../../components/menu'
 import { Avatar, Button, badgeClass, controlClass, cx, Dialog } from '../../components/ui'
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
+import { useUi } from '../../stores/ui'
 import { AccountDialog } from './AccountDialog'
 import { accountStatus, isPluginProvider, OverrideEditor, providerLabel, timeAgo } from './shared'
 
-type Tab = 'telegram' | 'onebot11' | 'plugins' | 'shared'
+/** 内置平台、通用，或某个扩展平台的 id（如 `app-life.douyin`）。 */
+type Tab = 'telegram' | 'onebot11' | 'shared' | (string & {})
+type ProviderInfo = ChannelProviderDTO
 
 /**
  * 渠道扩展详情页：按平台分页签。每个平台页签只放这个平台的机器人、待处理请求和平台专用的全局默认；
@@ -53,18 +56,27 @@ export function ChannelsManager({
   enabled: boolean
 }) {
   const accounts = useChannelAccounts(enabled)
-  const providers = useChannelProviders().data ?? []
+  const providers: ProviderInfo[] = useChannelProviders().data ?? []
   const [tab, setTab] = useState<Tab>('telegram')
   const [openId, setOpenId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const all = accounts.data ?? []
   const open = all.find((a) => a.id === openId) ?? null
   const values = channelSettingsSchema.parse(settings)
-  // 扩展平台合在一个页签里；没有注册平台也没有遗留账号时不显示。
-  const inTab = (a: ChannelAccountDTO, tab: Tab) =>
-    tab === 'plugins' ? isPluginProvider(a.provider) : a.provider === tab
+  // 每个扩展平台单独一个页签：已注册的平台，加上扩展停用后只剩账号的平台（显示为不可用）。
+  const pluginTabs = [
+    ...providers.filter((p) => isPluginProvider(p.id)).map((p) => p.id),
+    ...all.filter((a) => isPluginProvider(a.provider)).map((a) => a.provider),
+  ].filter((id, i, list) => list.indexOf(id) === i)
+  const providerOf = (id: string) => providers.find((p) => p.id === id)
+  const nameOf = (id: string) =>
+    providerLabel(id, providerOf(id)?.name ?? all.find((a) => a.provider === id)?.providerName ?? undefined)
+  const inTab = (a: ChannelAccountDTO, tab: Tab) => a.provider === tab
   const tabAccounts = all.filter((a) => inTab(a, tab))
-  const hasPlugins = providers.some((p) => isPluginProvider(p.id)) || all.some((a) => isPluginProvider(a.provider))
+  const plugin = isPluginProvider(tab) && tab !== 'shared'
+  const current = plugin ? providerOf(tab) : undefined
+  // 扩展自己管理账号（零字段、由扩展建号）时不提供「添加」，改为引导去扩展里开关。
+  const managed = plugin && (current?.managed ?? true)
   const label = (tab: Tab, name: string) => {
     const n = all.filter((a) => inTab(a, tab)).reduce((sum, a) => sum + (a.pendingRequestCount ?? 0), 0)
     return n > 0 ? `${name} · ${n}` : name
@@ -88,14 +100,14 @@ export function ChannelsManager({
         tabs={[
           { id: 'telegram', label: label('telegram', providerLabel('telegram')) },
           { id: 'onebot11', label: label('onebot11', providerLabel('onebot11')) },
-          ...(hasPlugins ? [{ id: 'plugins' as const, label: label('plugins', t('扩展平台')) }] : []),
+          ...pluginTabs.map((id) => ({ id, label: label(id, nameOf(id)) })),
           { id: 'shared', label: t('通用') },
         ]}
       />
       {tab === 'shared' ? (
         <>
           <p className="px-1 text-[13px] text-zinc-500">
-            {t('两个平台共用的默认值；每个机器人、每个群或私聊还可以单独改。')}
+            {t('所有平台共用的默认值；每个账号、每个群或私聊还可以单独改。')}
           </p>
           {defaults('shared')}
           {enabled && <LogCard />}
@@ -104,17 +116,22 @@ export function ChannelsManager({
         <>
           {enabled ? (
             <>
+              {plugin && <PluginNotice provider={current} managed={managed} available={!!current?.available} />}
               <PendingRequests accounts={tabAccounts} />
               <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
                 <header className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
-                  <h3 className="text-sm font-semibold">{t('机器人')}</h3>
+                  <h3 className="text-sm font-semibold">{plugin ? t('账号') : t('机器人')}</h3>
                   <span className="truncate text-xs text-zinc-500">
-                    {t('每个 bot 可以固定扮演一个角色，也可以当通用 bot')}
+                    {plugin
+                      ? t('批准过的联系人各有自己的会话，点账号查看会话和设置')
+                      : t('每个 bot 可以固定扮演一个角色，也可以当通用 bot')}
                   </span>
-                  <Button size="sm" variant="primary" className="ml-auto" onClick={() => setCreating(true)}>
-                    <PlusIcon />
-                    {t('添加')}
-                  </Button>
+                  {!managed && (
+                    <Button size="sm" variant="primary" className="ml-auto" onClick={() => setCreating(true)}>
+                      <PlusIcon />
+                      {t('添加')}
+                    </Button>
+                  )}
                 </header>
                 {accounts.isLoading ? (
                   <p className="px-3 py-6 text-center text-sm text-zinc-500">{t('加载中…')}</p>
@@ -124,7 +141,11 @@ export function ChannelsManager({
                       ? t('还没有 Telegram 机器人。找 @BotFather 发 /newbot 拿到 Token 后点「添加」。')
                       : tab === 'onebot11'
                         ? t('还没有 QQ 机器人。先装好 NapCat，再点「添加」。')
-                        : t('还没有扩展平台的账号。可以点「添加」，或在提供平台的扩展里开启。')}
+                        : managed
+                          ? t('还没有账号。在{extension}里打开对应开关后会自动出现。', {
+                              extension: current?.extensionName ?? t('提供这个平台的扩展'),
+                            })
+                          : t('还没有账号，点「添加」创建一个。')}
                   </p>
                 ) : (
                   <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -134,14 +155,14 @@ export function ChannelsManager({
                   </ul>
                 )}
               </section>
-              {tab !== 'plugins' && <PairingCard />}
+              {!plugin && <PairingCard />}
             </>
           ) : (
             <p className="rounded-xl border border-dashed border-zinc-300 px-3 py-4 text-center text-[13px] text-zinc-500 dark:border-zinc-700">
               {t('打开右上方的开关启用这个扩展后，才能添加机器人。默认设置现在就可以先改。')}
             </p>
           )}
-          {tab !== 'plugins' && (
+          {!plugin && (
             <>
               <h3 className="px-1 pt-2 text-sm font-semibold">{t('{name} 默认设置', { name: providerLabel(tab) })}</h3>
               {tab === 'telegram' && (
@@ -153,8 +174,8 @@ export function ChannelsManager({
         </>
       )}
       <PluginCreateDialog
-        providers={providers.filter((p) => isPluginProvider(p.id) && p.available)}
-        open={creating && tab === 'plugins'}
+        providers={current?.available ? [current] : []}
+        open={creating && plugin && !managed}
         onClose={() => setCreating(false)}
         onCreated={(id) => {
           setCreating(false)
@@ -163,7 +184,7 @@ export function ChannelsManager({
       />
       <CreateDialog
         provider={tab === 'onebot11' ? 'onebot11' : 'telegram'}
-        open={creating && tab !== 'plugins'}
+        open={creating && !plugin}
         onClose={() => setCreating(false)}
         onCreated={(id) => {
           setCreating(false)
@@ -674,5 +695,43 @@ function LogCard() {
         </ul>
       )}
     </details>
+  )
+}
+
+/** 扩展平台页签顶部：来源、风险提示，以及由扩展管理账号时去扩展里开关的入口。 */
+function PluginNotice({
+  provider,
+  managed,
+  available,
+}: {
+  provider: ProviderInfo | undefined
+  managed: boolean
+  available: boolean
+}) {
+  const extensionId = provider?.extensionId
+  const extension = provider?.extensionName
+  return (
+    <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[13px] dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="text-zinc-700 dark:text-zinc-300">
+          {!available
+            ? t('提供这个平台的扩展已停用或卸载；重新启用后会自动恢复，绑定和会话都保留。')
+            : managed
+              ? t('账号由{extension}管理，在它的设置里开关；这里负责批准联系人、查看会话和投递记录。', {
+                  extension: extension ?? t('提供这个平台的扩展'),
+                })
+              : extension
+                ? t('由{extension}提供的平台。', { extension })
+                : t('由扩展提供的平台。')}
+        </p>
+        {provider?.riskNotice && <p className="text-xs text-amber-700 dark:text-amber-400">{provider.riskNotice}</p>}
+      </div>
+      {extensionId && (
+        <Button size="sm" onClick={() => useUi.getState().openView('extensions', extensionId)}>
+          <LinkIcon />
+          {t('打开{extension}', { extension: extension ?? t('扩展') })}
+        </Button>
+      )}
+    </section>
   )
 }

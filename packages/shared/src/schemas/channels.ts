@@ -1,6 +1,7 @@
 import { z } from 'zod'
+import type { ExtensionSettingField } from './system'
 
-export const channelProvider = z.enum(['telegram', 'onebot11'])
+export const channelProvider = z.string().regex(/^(telegram|onebot11|[a-z0-9-]+\.[a-z0-9-]+)$/)
 export type ChannelProvider = z.infer<typeof channelProvider>
 export const channelSettingsSchema = z.object({
   burst: z.enum(['off', 'lines', 'sentences']).default('off'),
@@ -143,6 +144,7 @@ export const channelAccountInput = z
         accessToken: z.string().optional(),
         webhookSecret: z.string().optional(),
       })
+      .catchall(z.unknown())
       .default({ token: '' }),
     connection: z
       .object({ mode: z.enum(['ws-forward', 'ws-reverse']), url: z.string().default('') })
@@ -191,10 +193,13 @@ export const channelAccountInput = z
 export type ChannelAccountInput = z.input<typeof channelAccountInput>
 export type ChannelAccountConfig = z.infer<typeof channelAccountInput>
 export interface ChannelAccountDTO extends Omit<ChannelAccountConfig, 'credentials'> {
+  providerName: string
+  providerAvailable: boolean
   riskNotice: string | null
   implementation: { name: string; version: string } | null
   id: string
   credentials: string
+  providerStatus?: 'offline' | 'paused'
   status: 'stopped' | 'connecting' | 'online' | 'error'
   lastError: string | null
   cursor: number | null
@@ -341,4 +346,13 @@ export interface ChannelStickerPatch {
   enabled?: boolean
   characters?: string[]
   meanings?: string[]
+}
+
+/** 可用于建号的平台；未注册平台仍由账号 DTO 保留显示名和不可用状态。 */
+export interface ChannelProviderDTO {
+  id: string
+  name: string
+  riskNotice: string | null
+  accountFields: ExtensionSettingField[]
+  available: boolean
 }

@@ -27,6 +27,7 @@ import { fishClient } from './builtin/audio/tts/engines/fish'
 import { migrateAudioSettings } from './builtin/audio/tts/settings'
 import caption, { generateCaption } from './builtin/caption'
 import channels from './builtin/channels'
+import { extensionChannels } from './builtin/channels/provider-host'
 import imageGen from './builtin/image-gen'
 import { applyProfileImage } from './builtin/image-gen/profile'
 import { parseSettings as parseImageSettings } from './builtin/image-gen/settings'
@@ -192,6 +193,7 @@ function createApp(extension: Extension): Hono | undefined {
       return contextOf(extension, requestChat.getStore() ?? '').settings
     },
     storage: storageOf(extension.id),
+    channels: extensionChannels(extension.id, host),
     host,
   })
   return app
@@ -689,7 +691,7 @@ function contextOf(ext: Extension, chatId: string): ExtensionContext {
       // 配置组自己的一份规则，按它里面的开关启用
       settings.scripts = scripts
   }
-  return { settings, chatId, storage: storageOf(ext.id), host }
+  return { settings, chatId, storage: storageOf(ext.id), host, channels: extensionChannels(ext.id, host) }
 }
 
 function toolsOf(ext: Extension, chatId: string, speakerId?: string) {
@@ -825,6 +827,12 @@ function startBackgrounds() {
       storage: storageOf(extension.id),
       host,
       tasks: backgroundTasks(extension.id, controller.signal),
+      channels: extensionChannels(
+        extension.id,
+        host,
+        entry.manifest?.permissions?.channels === true,
+        controller.signal,
+      ),
     }
     const failed = (error: unknown) => {
       if (entries.get(extension.id) !== controller || controller.signal.aborted) return

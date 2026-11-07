@@ -27,7 +27,7 @@ import { validate } from '../../../lib/validate'
 import { cleanupExternalUsers } from '../../../services/external-users'
 import { createRoom } from '../../../services/rooms'
 import { currentContext, currentUser, runAsUser } from '../../../user-context'
-import { defineExtension, type ExtensionContext, SECRET_MASK } from '../../types'
+import { defineExtension, type ExtensionContext, restoreSecrets, SECRET_MASK } from '../../types'
 import { OneBotClient } from './adapters/onebot11/client'
 import { expireOneBotRequests } from './adapters/onebot11/social'
 import { verifyWebhookSecret } from './adapters/telegram/receive'
@@ -37,6 +37,8 @@ import { exchangeMiniApp } from './miniapp'
 import { oneBotRoutes } from './onebot-routes'
 import { oneBotFields } from './onebot-settings'
 import { leaveGroup, respondRequest } from './policies'
+import { lookupAll } from './provider-host'
+import { getProvider, listProviders } from './providers'
 import { sealCredentials } from './secrets'
 import { ChannelService } from './service'
 import { stickerRoutes } from './sticker-routes'
@@ -46,7 +48,7 @@ import { voicePreferenceKey, voiceTools } from './voice-decision'
 
 const services = new WeakMap<object, ChannelService>()
 const pairingAttempts = new Map<string, number[]>()
-export function channelService(ctx: Omit<ExtensionContext, 'chatId'>) {
+export function channelService(ctx: Pick<ExtensionContext, 'host'>) {
   const key = currentContext().sqlite
   let value = services.get(key)
   if (!value) {
@@ -84,6 +86,17 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
       error instanceof HttpError ? error.status : 500,
     ),
   )
+  app.get('/providers', (c) =>
+    c.json(
+      listProviders().map(({ id, name, riskNotice, accountFields }) => ({
+        id,
+        name,
+        riskNotice,
+        accountFields,
+        available: true,
+      })),
+    ),
+  )
   app.get('/accounts', (c) => c.json(db.select().from(channelAccounts).all().map(accountDTO)))
   app.post('/accounts', validate('json', channelAccountInput), async (c) => {
     const config = c.req.valid('json')
@@ -101,6 +114,7 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
   app.patch('/accounts/:id', async (c) => {
     const id = c.req.param('id')
     const row = accountRow(id)
+    if (!getProvider(row.provider)) throw new HttpError(409, 'PROVIDER_UNAVAILABLE', t('平台不可用'))
     const patch: unknown = await c.req.json()
     if (!patch || typeof patch !== 'object' || Array.isArray(patch))
       throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
@@ -112,7 +126,10 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
         input.credentials === SECRET_MASK || input.credentials === undefined
           ? row.config.credentials
           : input.credentials && typeof input.credentials === 'object' && !Array.isArray(input.credentials)
-            ? { ...row.config.credentials, ...input.credentials }
+            ? {
+                ...row.config.credentials,
+                ...restoreSecrets(input.credentials as Record<string, unknown>, row.config.credentials),
+              }
             : input.credentials,
     })
     if (!parsed.success) throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
@@ -626,6 +643,17 @@ export default defineExtension({
     services.delete(key)
   },
   hooks: {
+    afterPrompt(messages, ctx) {
+      services.get(currentContext().sqlite)?.observePrompt(ctx.chatId)
+      const hints = [
+        ...new Set(
+          lookupAll(ctx.chatId)
+            .map((binding) => getProvider(binding.provider)?.definition?.promptHint)
+            .filter((hint): hint is string => !!hint),
+        ),
+      ]
+      return hints.length ? [{ role: 'system', content: hints.join('\n') }, ...messages] : messages
+    },
     onEvent(event, _ctx) {
       services.get(currentContext().sqlite)?.onEvent(event)
     },

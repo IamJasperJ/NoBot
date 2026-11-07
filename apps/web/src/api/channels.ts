@@ -9,12 +9,14 @@ import type {
   ChannelPolicies,
   ChannelPresencePreview,
   ChannelPresenceSync,
+  ChannelProviderDTO,
   ChannelRequestDTO,
   ChannelSettingsResolution,
   ChannelStickerPatch,
   ChannelStickersDTO,
 } from '@nobot/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { t } from '../i18n'
 import { readError } from './client'
 import { apiFetch } from './fetch'
 
@@ -34,6 +36,7 @@ export type {
   ChannelPresenceSync,
   ChannelPresenceValue,
   ChannelProvider,
+  ChannelProviderDTO,
   ChannelRequestDTO,
   ChannelSettings,
   ChannelSettingsOverride,
@@ -47,6 +50,7 @@ export type {
 export const channelKeys = {
   all: ['channels'] as const,
   stickers: (id: string) => ['channels', 'stickers', id] as const,
+  providers: ['channels', 'providers'] as const,
   accounts: ['channels', 'accounts'] as const,
   account: (id: string) => ['channels', 'account', id] as const,
   bindings: (accountId?: string) => ['channels', 'bindings', accountId ?? 'all'] as const,
@@ -88,6 +92,7 @@ export type ChannelOneBotAction =
   | { action: 'essence' | 'read'; messageId: number; confirm: true }
   | { action: 'notice'; content: string; confirm: true }
 export const channelsApi = {
+  providers: () => request<ChannelProviderDTO[]>('/providers'),
   stickers: (id: string) => request<ChannelStickersDTO>(`/accounts/${encode(id)}/stickers`),
   addStickerSet: ({ accountId, name }: { accountId: string; name: string }) =>
     request<ChannelStickersDTO>(`/accounts/${encode(accountId)}/stickers/sets`, 'POST', { name }),
@@ -271,3 +276,12 @@ export const useAddStickerSet = () => useStickerMutation(channelsApi.addStickerS
 export const useRefreshQqFaces = () => useStickerMutation(channelsApi.refreshQqFaces, (accountId) => accountId)
 export const useUpdateSticker = () => useStickerMutation(channelsApi.updateSticker, (input) => input.accountId)
 export const useDeleteSticker = () => useStickerMutation(channelsApi.deleteSticker, (input) => input.accountId)
+
+export const useChannelProviders = () => useQuery({ queryKey: channelKeys.providers, queryFn: channelsApi.providers })
+
+/** 平台错误码保留给调用方判断，展示时才读取当前界面语言。 */
+export function channelStatusMessage(code: string | null): string | null {
+  if (code === 'PROVIDER_UNAVAILABLE') return t('平台不可用')
+  if (code === 'DELIVERY_UNCERTAIN') return t('结果不确定')
+  return code
+}

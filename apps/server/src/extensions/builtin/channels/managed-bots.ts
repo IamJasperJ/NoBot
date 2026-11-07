@@ -101,7 +101,7 @@ export function managedBotRoutes(app: Hono, runtime: () => ChannelRuntime) {
 export async function receiveManagedBot(
   runtime: ChannelRuntime,
   managerId: string,
-  event: { user: { id: number }; bot: { id: number } },
+  event: { user: { id: number | string }; bot: { id: number | string } },
 ) {
   const manager = requireManager(managerId)
   const actor = db
@@ -160,7 +160,7 @@ export async function receiveManagedBot(
       shortDescription: field,
     },
   })
-  const created = await runtime.create(config, event.bot.id)
+  const created = await runtime.create(config, Number(event.bot.id))
   db.transaction(() => {
     db.update(channelAccounts).set({ managedBy: managerId }).where(eq(channelAccounts.id, created.id)).run()
     db.delete(channelManagedIntents).where(eq(channelManagedIntents.id, intent.id)).run()

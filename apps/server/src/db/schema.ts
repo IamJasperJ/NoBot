@@ -444,6 +444,10 @@ export const roomMessageIndex = sqliteTable(
 )
 
 export const channelAccounts = sqliteTable('channel_accounts', {
+  providerState: text('provider_state', { mode: 'json' })
+    .$type<{ cursor?: unknown; ownerExternalId?: string | null; ensuredCharacterId?: string }>()
+    .notNull()
+    .default({}),
   connection: text('connection', { mode: 'json' }).$type<ChannelAccountConfig['connection']>(),
   rateLimit: text('rate_limit', { mode: 'json' })
     .$type<ChannelAccountConfig['rateLimit']>()
@@ -451,7 +455,7 @@ export const channelAccounts = sqliteTable('channel_accounts', {
     .default({ perMinute: 20, minIntervalMs: 1200 }),
   managedBy: text('managed_by'),
   id: text('id').primaryKey(),
-  provider: text('provider', { enum: ['telegram', 'onebot11'] }).notNull(),
+  provider: text('provider').notNull(),
   name: text('name').notNull(),
   credentials: text('credentials', { mode: 'json' }).$type<string>().notNull(),
   baseUrl: text('base_url').notNull(),
@@ -468,7 +472,7 @@ export const channelAccounts = sqliteTable('channel_accounts', {
   presence: text('presence', { mode: 'json' }).$type<ChannelAccountConfig['presence']>().notNull(),
   policies: text('policies', { mode: 'json' }).$type<ChannelAccountConfig['policies']>().notNull(),
   settings: text('settings', { mode: 'json' }).$type<ChannelAccountConfig['settings']>().notNull(),
-  status: text('status', { enum: ['stopped', 'connecting', 'online', 'error'] })
+  status: text('status', { enum: ['stopped', 'connecting', 'online', 'offline', 'paused', 'error'] })
     .notNull()
     .default('stopped'),
   lastError: text('last_error'),
@@ -527,7 +531,7 @@ export const channelActors = sqliteTable(
   'channel_actors',
   {
     id: text('id').primaryKey(),
-    provider: text('provider', { enum: ['telegram', 'onebot11'] }).notNull(),
+    provider: text('provider').notNull(),
     externalId: text('external_id').notNull(),
     displayName: text('display_name').notNull(),
     accountIds: text('account_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
@@ -553,7 +557,7 @@ export const channelDeliveries = sqliteTable('channel_deliveries', {
   parts: text('parts', { mode: 'json' })
     .$type<{ accountId: string; externalChat: string; externalId: string }[]>()
     .notNull(),
-  status: text('status', { enum: ['streaming', 'committed', 'failed', 'superseded'] }).notNull(),
+  status: text('status', { enum: ['streaming', 'committed', 'failed', 'superseded', 'uncertain'] }).notNull(),
   contentHash: text('content_hash').notNull(),
 })
 export const channelActions = sqliteTable('channel_actions', {

@@ -7,12 +7,27 @@ import type {
   ChannelSettings,
   ChannelSettingsOverride,
 } from '../../api/channels'
+import { channelStatusMessage } from '../../api/channels'
 import { HintButton, Toggle } from '../../components/form'
 import { RefreshIcon } from '../../components/icons'
 import { badgeClass, controlClass, cx, IconButton, selectClass } from '../../components/ui'
 import { t } from '../../i18n'
 
-export const providerLabel = (p: ChannelAccountDTO['provider']) => (p === 'telegram' ? 'Telegram' : t('QQ（NapCat）'))
+/** 内置平台用固定名称；扩展平台用服务器给的显示名，扩展停用后仍能显示。 */
+export const providerLabel = (p: ChannelAccountDTO['provider'], name?: string) =>
+  p === 'telegram' ? 'Telegram' : p === 'onebot11' ? t('QQ（NapCat）') : name || p
+
+export const isPluginProvider = (p: ChannelAccountDTO['provider']) => p !== 'telegram' && p !== 'onebot11'
+
+/** 账号卡片的状态：平台不可用和扩展平台的暂停、离线优先于连接状态。 */
+export function accountStatus(account: ChannelAccountDTO) {
+  if (!account.providerAvailable) return { label: t('平台不可用'), dot: 'bg-zinc-400', error: null }
+  const base = statusMeta(account.status)
+  const error = channelStatusMessage(account.lastError)
+  if (account.providerStatus === 'paused') return { label: t('已暂停'), dot: 'bg-amber-500', error }
+  if (account.providerStatus === 'offline') return { label: t('离线'), dot: 'bg-zinc-400', error }
+  return { ...base, error: account.status === 'error' ? error : null }
+}
 
 export const statusMeta = (s: ChannelAccountDTO['status']) =>
   ({

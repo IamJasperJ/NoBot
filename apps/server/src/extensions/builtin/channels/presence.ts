@@ -14,6 +14,7 @@ import type { ExtensionHost } from '../../types'
 import { OneBotClient } from './adapters/onebot11/client'
 import { TelegramError } from './adapters/telegram/client'
 import type { ChannelClient } from './adapters/types'
+import { getProvider } from './providers'
 import {
   cleanIntro,
   creatorIntro,
@@ -80,8 +81,8 @@ export function presenceValues(account: AccountRow, character?: CharacterDTO, la
   for (const [field, [, , limit]] of Object.entries(fields)) {
     const key = field as keyof typeof fields
     const onebot = account.config.provider === 'onebot11'
-    if (onebot && key === 'shortDescription') continue
-    const effectiveLimit = onebot ? (key === 'name' ? 24 : 80) : limit
+    const effectiveLimit = getProvider(account.config.provider)?.presenceLimits[key] ?? 0
+    if (!effectiveLimit) continue
     const config = account.config.presence[key]
     if (config.mode === 'unmanaged') continue
     const value =
@@ -145,8 +146,7 @@ export class PresenceSync {
       force ||
       (['description', 'shortDescription'] as const).some((key) => {
         const field = row.config.presence[key]
-        if (field.mode !== 'follow-character' || (row.config.provider === 'onebot11' && key === 'shortDescription'))
-          return false
+        if (field.mode !== 'follow-character' || !getProvider(row.config.provider)?.presenceLimits[key]) return false
         if (field.introSource === 'model') return true
         if (field.introSource !== 'auto') return false
         return (
@@ -154,7 +154,7 @@ export class PresenceSync {
             selectIntro(
               character,
               key === 'shortDescription',
-              row.config.provider === 'onebot11' ? 80 : key === 'description' ? 512 : 120,
+              getProvider(row.config.provider)?.presenceLimits[key] ?? 0,
               'auto',
               getLanguage(),
             ).source,
@@ -162,7 +162,7 @@ export class PresenceSync {
           !creatorIntro(
             character,
             key === 'shortDescription',
-            row.config.provider === 'onebot11' ? 80 : key === 'description' ? 512 : 120,
+            getProvider(row.config.provider)?.presenceLimits[key] ?? 0,
           )
         )
       })

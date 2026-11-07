@@ -149,6 +149,8 @@ export interface ExtensionPermissions {
   tools: boolean
   /** 介入提示词组装、输入输出改写等钩子 */
   hooks: boolean
+  /** 注册渠道平台 */
+  channels?: boolean
   /** 在后台定时运行 */
   background: boolean
   /** 会访问的外部域名，仅声明，做不到强制 */
@@ -161,6 +163,7 @@ export const extensionPermissionsSchema = z.object({
   routes: z.boolean().default(false),
   tools: z.boolean().default(false),
   hooks: z.boolean().default(false),
+  channels: z.boolean().default(false),
   background: z.boolean().default(false),
   network: z.array(z.string().trim().min(1)).default([]),
 })

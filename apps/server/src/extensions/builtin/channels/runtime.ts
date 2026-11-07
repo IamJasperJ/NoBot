@@ -1,4 +1,4 @@
-import type { ChannelAccountConfig, ChannelLogEntry } from '@nobot/shared'
+import type { ChannelAccountConfig, ChannelAccountDTO, ChannelLogEntry } from '@nobot/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, getSetting, newId } from '../../../db/client'
 import { channelAccounts } from '../../../db/schema'
@@ -12,11 +12,13 @@ import { currentUser, runAsUser } from '../../../user-context'
 import type { ExtensionHost } from '../../types'
 import { OneBotClient } from './adapters/onebot11/client'
 import { type OneBotDial, type OneBotSendQueue, OneBotTransport } from './adapters/onebot11/transport'
+import { PluginChannelClient } from './adapters/plugin'
 import { allowedUpdates, TelegramClient, TelegramError, type TelegramFetch } from './adapters/telegram/client'
 import { syncCommands } from './adapters/telegram/commands'
 import type { ChannelClient } from './adapters/types'
 import { miniAppUrl, publicBaseUrl } from './miniapp'
 import { PresenceSync } from './presence'
+import { getProvider } from './providers'
 import { sealCredentials } from './secrets'
 import { resolveChannelSettings } from './settings'
 import { refreshQqFaces } from './stickers'
@@ -30,9 +32,12 @@ export interface AccountRuntime {
   menuTimer?: ReturnType<typeof setInterval>
 }
 export class ChannelRuntime {
+  private starts = new Map<string, Promise<ChannelAccountDTO>>()
+  private stopVersions = new Map<string, number>()
   private manualPresence = new Map<string, AbortController>()
   readonly accounts = new Map<string, AccountRuntime>()
   readonly logs: ChannelLogEntry[] = []
+  started?: (id: string) => void
   fetch?: TelegramFetch
   dial?: OneBotDial
   oneBotQueue?: (config: ChannelAccountConfig) => OneBotSendQueue
@@ -40,66 +45,66 @@ export class ChannelRuntime {
     readonly host: ExtensionHost,
     readonly receive: (id: string, update: unknown) => Promise<void>,
   ) {}
-  client(config: ChannelAccountConfig) {
-    if (config.provider === 'onebot11') {
-      const owner = currentUser()
-      let client!: OneBotClient
-      const transport = new OneBotTransport({
-        token: config.credentials.accessToken ?? config.credentials.token,
-        dial: this.dial,
-        onEvent: (event) =>
-          runAsUser(owner, () => {
-            const id = this.oneBotId(client)
-            if (id) void this.receive(id, event).catch(() => this.log(id, 'onebot.event.failed'))
-          }),
-        onConnect: () =>
-          runAsUser(owner, async () => {
-            await client.connected()
-            const id = this.oneBotId(client)
-            if (!id) return
-            const row = accountRow(id)
-            if (row.botId && row.botId !== client.selfId) {
-              transport.stop()
-              throw new Error('IDENTITY_CHANGED')
-            }
-            db.update(channelAccounts)
-              .set({
-                botId: client.selfId,
-                botUsername: client.nickname,
-                botSnapshot: { ...row.botSnapshot, implementation: client.implementation },
-              })
-              .where(eq(channelAccounts.id, id))
-              .run()
-            if (client.napcat)
-              void refreshQqFaces(id, client, this.host, this.fetch).catch(() =>
-                this.log(id, 'stickers.refresh.failed'),
-              )
-            if (row.config.presence.confirmed)
-              void this.accounts
-                .get(id)
-                ?.presence.sync()
-                .catch(() => {})
-          }),
-        onStatus: (status) =>
-          runAsUser(owner, () => {
-            const id = this.oneBotId(client)
-            if (id) this.status(id, status)
-          }),
-        onBreaker: () =>
-          runAsUser(owner, () => {
-            const id = this.oneBotId(client)
-            if (!id) return
-            this.status(id, 'error')
-            this.index(id, false)
-            db.update(channelAccounts).set({ lastError: 'CHANNEL_RISK_PAUSED' }).where(eq(channelAccounts.id, id)).run()
-            notify(currentUser().id, 'channel.risk.paused', null, { accountId: id })
-            client.stop()
-          }),
-      })
-      client = new OneBotClient(transport, config, this.fetch, undefined, this.oneBotQueue?.(config))
-      return client
-    }
-    return new TelegramClient({ token: config.credentials.token, baseUrl: config.baseUrl, fetch: this.fetch })
+  client(config: ChannelAccountConfig): ChannelClient {
+    const provider = getProvider(config.provider)
+    if (!provider) throw new HttpError(409, 'PROVIDER_UNAVAILABLE', t('平台不可用'))
+    return provider.createClient(this, config)
+  }
+  oneBotClient(config: ChannelAccountConfig) {
+    const owner = currentUser()
+    let client!: OneBotClient
+    const transport = new OneBotTransport({
+      token: config.credentials.accessToken ?? config.credentials.token,
+      dial: this.dial,
+      onEvent: (event) =>
+        runAsUser(owner, () => {
+          const id = this.oneBotId(client)
+          if (id) void this.receive(id, event).catch(() => this.log(id, 'onebot.event.failed'))
+        }),
+      onConnect: () =>
+        runAsUser(owner, async () => {
+          await client.connected()
+          const id = this.oneBotId(client)
+          if (!id) return
+          const row = accountRow(id)
+          if (row.botId && row.botId !== client.selfId) {
+            transport.stop()
+            throw new Error('IDENTITY_CHANGED')
+          }
+          db.update(channelAccounts)
+            .set({
+              botId: client.selfId,
+              botUsername: client.nickname,
+              botSnapshot: { ...row.botSnapshot, implementation: client.implementation },
+            })
+            .where(eq(channelAccounts.id, id))
+            .run()
+          if (client.napcat)
+            void refreshQqFaces(id, client, this.host, this.fetch).catch(() => this.log(id, 'stickers.refresh.failed'))
+          if (row.config.presence.confirmed)
+            void this.accounts
+              .get(id)
+              ?.presence.sync()
+              .catch(() => {})
+        }),
+      onStatus: (status) =>
+        runAsUser(owner, () => {
+          const id = this.oneBotId(client)
+          if (id) this.status(id, status)
+        }),
+      onBreaker: () =>
+        runAsUser(owner, () => {
+          const id = this.oneBotId(client)
+          if (!id) return
+          this.status(id, 'error')
+          this.index(id, false)
+          db.update(channelAccounts).set({ lastError: 'CHANNEL_RISK_PAUSED' }).where(eq(channelAccounts.id, id)).run()
+          notify(currentUser().id, 'channel.risk.paused', null, { accountId: id })
+          client.stop()
+        }),
+    })
+    client = new OneBotClient(transport, config, this.fetch, undefined, this.oneBotQueue?.(config))
+    return client
   }
   private oneBotId(client: OneBotClient) {
     for (const [id, entry] of this.accounts) if (entry.client === client) return id
@@ -114,8 +119,9 @@ export class ChannelRuntime {
     }
     return new PresenceSync(this.host, this.client(accountRow(id).config), id, controller.signal)
   }
-  private async startOneBot(id: string, client: OneBotClient, controller: AbortController) {
+  async startOneBot(id: string, controller: AbortController) {
     const row = accountRow(id)
+    const client = this.oneBotClient(row.config)
     const entry: AccountRuntime = {
       client,
       controller,
@@ -128,12 +134,37 @@ export class ChannelRuntime {
       entry.task = client.transport.forward(row.config.connection.url, controller.signal)
     return accountDTO(accountRow(id))
   }
-  async start(id: string) {
-    await this.stop(id, false)
+  start(id: string): Promise<ChannelAccountDTO> {
+    const existing = this.starts.get(id)
+    if (existing) return existing
+    const pending = this.startNow(id)
+    this.starts.set(id, pending)
+    void pending
+      .finally(() => {
+        if (this.starts.get(id) === pending) this.starts.delete(id)
+      })
+      .catch(() => {})
+    return pending
+  }
+  private async startNow(id: string) {
+    const version = this.stopVersions.get(id) ?? 0
+    await this.stop(id, false, false)
+    if (version !== (this.stopVersions.get(id) ?? 0)) return accountDTO(accountRow(id))
     const row = accountRow(id)
     const controller = new AbortController()
+    const provider = getProvider(row.provider)
+    if (!provider) {
+      this.unavailable(id)
+      throw new HttpError(409, 'PROVIDER_UNAVAILABLE', t('平台不可用'))
+    }
+    const result = await provider.start(this, id, controller)
+    this.started?.(id)
+    return result
+  }
+  async startTelegram(id: string, controller: AbortController) {
+    const row = accountRow(id)
     const client = this.client(row.config)
-    if (client instanceof OneBotClient) return this.startOneBot(id, client, controller)
+    if (!(client instanceof TelegramClient)) throw new Error('CHANNEL_CLIENT_INVALID')
     client.draftSupported = row.botSnapshot.channelDraftSupported !== false
     client.onDraftUnsupported = () => {
       if (controller.signal.aborted) return
@@ -234,7 +265,12 @@ export class ChannelRuntime {
       })
       .run()
   }
-  async stop(id: string, persist = true) {
+  async stop(id: string, persist = true, cancelStart = true) {
+    if (cancelStart) {
+      // 注销后立即重注册时，新启动不能复用尚未退出的旧启动任务。
+      this.stopVersions.set(id, (this.stopVersions.get(id) ?? 0) + 1)
+      this.starts.delete(id)
+    }
     this.manualPresence.get(id)?.abort()
     this.manualPresence.delete(id)
     const entry = this.accounts.get(id)
@@ -266,11 +302,18 @@ export class ChannelRuntime {
     }
     this.accounts.clear()
   }
-  status(id: string, status: 'stopped' | 'connecting' | 'online' | 'error') {
-    if (accountRow(id).status === status) return
+  unavailable(id: string) {
+    db.update(channelAccounts)
+      .set({ status: 'error', lastError: 'PROVIDER_UNAVAILABLE' })
+      .where(eq(channelAccounts.id, id))
+      .run()
+  }
+  status(id: string, status: 'stopped' | 'connecting' | 'online' | 'offline' | 'paused' | 'error', reason?: string) {
+    const entry = this.accounts.get(id)
+    if (entry?.client instanceof PluginChannelClient) entry.client.status(status)
     channelLog({ at: Date.now(), accountId: id, code: `status.${status}`, message: t('渠道状态已更新') })
     db.update(channelAccounts)
-      .set({ status, lastError: status === 'error' ? 'CHANNEL_UNAVAILABLE' : null })
+      .set({ status, lastError: reason ?? (status === 'error' ? 'CHANNEL_UNAVAILABLE' : null) })
       .where(eq(channelAccounts.id, id))
       .run()
     liveHub.publishToUser(currentUser().id, {
@@ -285,31 +328,55 @@ export class ChannelRuntime {
       .from(channelRegistry)
       .where(and(eq(channelRegistry.userHandle, currentUser().handle), eq(channelRegistry.enabled, true)))
       .all()
-    for (const row of rows) await this.start(row.accountId)
+    for (const row of rows) {
+      if (!getProvider(row.provider)) this.unavailable(row.accountId)
+      else await this.start(row.accountId)
+    }
   }
   log(id: string, code: string) {
-    channelLog({ at: Date.now(), accountId: id, code, message: code })
+    channelLog({ at: Date.now(), accountId: id, code, message: code === 'delivery.uncertain' ? t('结果不确定') : code })
   }
   async create(config: ChannelAccountConfig, expectedBotId?: number) {
-    if (config.provider === 'onebot11') {
-      const connection = config.connection
-      if (!connection || !(config.credentials.accessToken ?? config.credentials.token))
+    const provider = getProvider(config.provider)
+    if (!provider) throw new HttpError(409, 'PROVIDER_UNAVAILABLE', t('平台不可用'))
+    return provider.createAccount(this, config, expectedBotId)
+  }
+  async createPlugin(config: ChannelAccountConfig) {
+    const id = newId()
+    const provider = getProvider(config.provider)
+    const row = db
+      .insert(channelAccounts)
+      .values({
+        id,
+        ...config,
+        credentials: sealCredentials(config.credentials),
+        botSnapshot: { providerName: provider?.name, providerRiskNotice: provider?.riskNotice },
+      })
+      .returning()
+      .get()
+    this.index(id, false)
+    return accountDTO(row)
+  }
+  async createOneBot(config: ChannelAccountConfig) {
+    const connection = config.connection
+    if (!connection || !(config.credentials.accessToken ?? config.credentials.token))
+      throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
+    if (connection.mode === 'ws-forward') {
+      const url = new URL(connection.url)
+      if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash)
         throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
-      if (connection.mode === 'ws-forward') {
-        const url = new URL(connection.url)
-        if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash)
-          throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
-      }
-      config.receiveMode = connection.mode
-      const id = newId()
-      const row = db
-        .insert(channelAccounts)
-        .values({ id, ...config, credentials: sealCredentials(config.credentials) })
-        .returning()
-        .get()
-      this.index(id, false)
-      return accountDTO(row)
     }
+    config.receiveMode = connection.mode
+    const id = newId()
+    const row = db
+      .insert(channelAccounts)
+      .values({ id, ...config, credentials: sealCredentials(config.credentials) })
+      .returning()
+      .get()
+    this.index(id, false)
+    return accountDTO(row)
+  }
+  async createTelegram(config: ChannelAccountConfig, expectedBotId?: number) {
     const client = this.client(config)
     const bot = await client.call<Record<string, unknown>>('getMe').catch((error: unknown) => {
       if (error instanceof TelegramError && [401, 404].includes(error.code))

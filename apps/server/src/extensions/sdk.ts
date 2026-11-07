@@ -13,3 +13,13 @@ export type {
 export function defineExtension<T extends import('./types').Extension>(extension: T): T {
   return extension
 }
+
+export type {
+  ChannelInboundMessage,
+  ChannelLookup,
+  ChannelProviderAccount,
+  ChannelProviderDefinition,
+  ChannelProviderIO,
+  ExtensionChannels,
+} from './types'
+export { ChannelProviderStoppedError, ChannelSendError } from './types'

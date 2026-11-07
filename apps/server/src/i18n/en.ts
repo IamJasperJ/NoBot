@@ -1,5 +1,7 @@
 /** 后端文字的英文翻译：键是中文原文，占位符必须与 t() 调用一致。 */
 export const en: Record<string, string> = {
+  平台不可用: 'Platform unavailable',
+  结果不确定: 'Delivery outcome uncertain',
   定时任务: 'Scheduled task',
   任务正在执行: 'The task is running',
   任务所属扩展未运行: 'The extension owning this task is not running',

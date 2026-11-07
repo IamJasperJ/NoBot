@@ -30,14 +30,15 @@ import { errorMessage, toast } from '../../stores/toast'
 import { BindingDialog } from './BindingDialog'
 import { StickersTab } from './StickersTab'
 import {
+  accountStatus,
   capabilityLabel,
   isolationLabel,
+  isPluginProvider,
   OverrideEditor,
   personaModeOptions,
   providerLabel,
   scopeLabel,
   stateMeta,
-  statusMeta,
   timeAgo,
 } from './shared'
 
@@ -217,7 +218,8 @@ function BasicTab({
   token: string | undefined
   patch: (p: Draft) => void
 }) {
-  const status = statusMeta(account.status)
+  const status = accountStatus(account)
+  const plugin = isPluginProvider(account.provider)
   return (
     <div className="space-y-4">
       {/* 状态条占满一行，下面两栏都从带标题的输入项开始，左右对齐 */}
@@ -225,14 +227,20 @@ function BasicTab({
         <span className={cx('size-2 rounded-full', status.dot)} />
         <span>{status.label}</span>
         <span className="text-zinc-400">·</span>
-        <span className="text-zinc-500">{providerLabel(account.provider)}</span>
-        {account.lastError && <span className="min-w-0 truncate text-xs text-red-600">{account.lastError}</span>}
+        <span className="text-zinc-500">{providerLabel(account.provider, account.providerName)}</span>
+        {status.error && <span className="min-w-0 truncate text-xs text-red-600">{status.error}</span>}
         {account.botUsername && <span className="ml-auto font-mono text-zinc-500">@{account.botUsername}</span>}
       </div>
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <section className="space-y-4">
           <TextField label={t('名称')} value={draft.name ?? ''} onChange={(name) => patch({ name })} />
-          {account.provider === 'onebot11' ? (
+          {plugin ? (
+            <p className="text-xs leading-relaxed text-zinc-500">
+              {account.providerAvailable
+                ? t('连接和登录由提供这个平台的扩展管理。')
+                : t('提供这个平台的扩展已停用或卸载；重新启用后会自动恢复，绑定和会话都保留。')}
+            </p>
+          ) : account.provider === 'onebot11' ? (
             <OneBotConnection account={account} draft={draft} token={token} patch={patch} />
           ) : (
             <>

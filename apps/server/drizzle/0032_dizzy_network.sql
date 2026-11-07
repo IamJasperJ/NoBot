@@ -1,0 +1,1 @@
+ALTER TABLE `channel_accounts` ADD `provider_state` text DEFAULT '{}' NOT NULL;

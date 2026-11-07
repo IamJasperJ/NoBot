@@ -18,8 +18,9 @@ import {
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { SECRET_MASK } from '../../types'
-import { implementationCapabilities, providerCapabilities } from './capabilities'
+import { implementationCapabilities } from './capabilities'
 import { miniAppUrl, publicBaseUrl } from './miniapp'
+import { getProvider } from './providers'
 import { asChannelActor } from './rooms'
 import { openCredentials } from './secrets'
 
@@ -31,20 +32,30 @@ export function accountRow(id: string) {
     config: channelAccountInput.parse({ ...account, credentials: openCredentials(account.credentials) }),
   }
 }
-export type AccountRow = ReturnType<typeof accountRow>
+export type AccountRow = Omit<ReturnType<typeof accountRow>, 'providerState'> & {
+  providerState?: ReturnType<typeof accountRow>['providerState']
+}
 export function accountDTO(row: typeof channelAccounts.$inferSelect): ChannelAccountDTO {
   const config = channelAccountInput.parse({ ...row, credentials: openCredentials(row.credentials) })
+  const provider = getProvider(config.provider)
   return {
     ...config,
-    riskNotice: config.provider === 'onebot11' ? t('QQ 非官方协议存在风控和封号风险，限速不能保证账号安全') : null,
+    providerName:
+      provider?.name ??
+      (typeof row.botSnapshot.providerName === 'string' ? row.botSnapshot.providerName : config.provider),
+    providerAvailable: !!provider,
+    riskNotice:
+      provider?.riskNotice ??
+      (typeof row.botSnapshot.providerRiskNotice === 'string' ? row.botSnapshot.providerRiskNotice : null),
     implementation:
       config.provider === 'onebot11'
         ? ((row.botSnapshot.implementation as { name: string; version: string } | undefined) ?? null)
         : null,
     canManageBots: row.botSnapshot.can_manage_bots === true,
     managedBy: row.managedBy,
-    miniApp:
-      config.provider === 'onebot11'
+    miniApp: provider?.definition
+      ? { available: false }
+      : config.provider === 'onebot11'
         ? { available: !!publicBaseUrl(), reason: publicBaseUrl() ? undefined : t('请先设置 HTTPS 公网地址') }
         : miniAppUrl(row.id)
           ? { available: true, url: miniAppUrl(row.id) }
@@ -56,8 +67,9 @@ export function accountDTO(row: typeof channelAccounts.$inferSelect): ChannelAcc
       .where(and(eq(channelRequests.accountId, row.id), eq(channelRequests.state, 'pending')))
       .all().length,
     id: row.id,
-    status: row.status,
-    lastError: row.lastError,
+    providerStatus: row.status === 'offline' || row.status === 'paused' ? row.status : undefined,
+    status: provider && row.status !== 'offline' && row.status !== 'paused' ? row.status : 'error',
+    lastError: provider ? row.lastError : 'PROVIDER_UNAVAILABLE',
     cursor: row.cursor,
     botId: row.botId,
     botUsername: row.botUsername,
@@ -69,7 +81,7 @@ export function accountDTO(row: typeof channelAccounts.$inferSelect): ChannelAcc
         ? implementationCapabilities(
             String((row.botSnapshot.implementation as { name?: string } | undefined)?.name ?? ''),
           )
-        : providerCapabilities[config.provider],
+        : (provider?.capabilities ?? {}),
   }
 }
 export function bindingRow(id: string): ChannelBindingDTO {

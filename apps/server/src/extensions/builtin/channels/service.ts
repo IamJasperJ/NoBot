@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
 import { burstDelays, burstSeed, splitBurst } from '@nobot/core'
 import { parseStageMessage, toDisplayText } from '@nobot/core/stage'
@@ -10,7 +11,7 @@ import {
   type MessageDTO,
 } from '@nobot/shared'
 import { and, desc, eq, isNull, lt } from 'drizzle-orm'
-import { db, newId } from '../../../db/client'
+import { db, getSetting, newId, setSetting } from '../../../db/client'
 import {
   channelActions,
   channelActors,
@@ -54,11 +55,12 @@ import { abortTurn, editRoomMessage, sendRoomMessage, triggerTurn } from '../../
 import { subscribeSocialNotifications } from '../../../services/social'
 import { currentUser, runAsUser } from '../../../user-context'
 import { forwardExtension } from '../../registry'
-import type { ExtensionHost, ServerEvent } from '../../types'
+import type { ChannelSendError, ExtensionHost, ServerEvent } from '../../types'
 import { OneBotClient, splitOneBot } from './adapters/onebot11/client'
 import { signBudget, socialBudget } from './adapters/onebot11/interactions'
 import { decodeOneBot } from './adapters/onebot11/receive'
 import { receiveOneBotSocial } from './adapters/onebot11/social'
+import { PluginChannelClient } from './adapters/plugin'
 import { downloadTelegramFile } from './adapters/telegram/media'
 import { decodeTelegram, type TelegramEvent } from './adapters/telegram/receive'
 import { escapeHtml, inlineTelegramSegments, renderTelegram, type TelegramSegment } from './adapters/telegram/render'
@@ -69,13 +71,15 @@ import { type MiniAppButton, miniAppButton, oneTimeStageUrl } from './miniapp'
 import { OutboundMedia } from './outbound-media'
 import { actorPersonaId, chooseActorPersona, syncActorPersona } from './personas'
 import { checkIdle, groupAdded, markLeft, requestLocation } from './policies'
+import { lookupAll } from './provider-host'
+import { getProvider } from './providers'
 import { reactToMessage } from './reactions'
 import { activeTakeover, addChannelMember, asChannelActor } from './rooms'
 import { ChannelRuntime } from './runtime'
 import { locationKey, matchChannelBinding, resolveChannelSettings } from './settings'
 import { omitSpeakerPrefix } from './speaker-prefix'
 import { sendMessageStickers } from './sticker-delivery'
-import { learnQqSticker, learnTelegramSticker, qqStickerMeaning, telegramStickerSchema } from './stickers'
+import { learnQqSticker, learnTelegramSticker, telegramStickerSchema } from './stickers'
 import { accountRow, bindingRow, listBindings, markReceived, recordActorSeen } from './store'
 import { cleanProtocolText, isImageMessage, visibleContent, visibleText } from './visible-text'
 import { replyVoiceStyle, reserveVoice, updateVoicePreference, voiceDeliverySettings } from './voice-decision'
@@ -105,14 +109,28 @@ export class ChannelService {
   readonly runtime: ChannelRuntime
   sleep = (ms: number): Promise<void> => Bun.sleep(ms)
   readonly media: OutboundMedia
+  private inboundScope = new AsyncLocalStorage<{ accountId: string; chat?: string }>()
   private oneBotTurns = new Map<string, MessageDTO[]>()
   private privateDeliveryTails = new Map<string, Promise<unknown>>()
-  private triggers = new Map<string, number>()
+  private triggers = new Map<string, string | number>()
   private albums = new Map<
     string,
     { event: MessageEvent; images: string[]; texts: string[]; timer: ReturnType<typeof setTimeout> }
   >()
-  private queued = new Map<string, { texts: string[]; images: string[] }>()
+  private queued = new Map<
+    string,
+    {
+      inputs: { input: Extract<GenerateInput, { mode: 'send' }>; sentAt: number; context?: string; inbound?: boolean }[]
+    }
+  >()
+  private roomInputs = new Map<string, { actor: ChannelActorDTO; event: MessageEvent; images: string[] }[]>()
+  private inboundRoots = new Map<string, Set<string>>()
+  private inboundJobs = new Map<string, object>()
+  private replyIds = new Map<string, Set<string>>()
+  private pendingInput = new Map<
+    string,
+    { bindingId: string; context?: string; resolve: () => void; reject: (error: unknown) => void }
+  >()
   private deliveryTails = new Map<string, Promise<unknown>>()
   private inputTails = new Map<string, Promise<unknown>>()
   private generationSubscriptions = new Map<string, () => void>()
@@ -129,6 +147,7 @@ export class ChannelService {
     readonly globalSettings: () => Record<string, unknown>,
   ) {
     this.runtime = new ChannelRuntime(host, (id, update) => this.receive(id, update))
+    this.runtime.started = (id) => this.resumeQueued(id)
     this.media = new OutboundMedia(host, (id, code) => this.runtime.log(id, code))
     const owner = currentUser()
     const ownerId = owner.id
@@ -147,6 +166,13 @@ export class ChannelService {
           (b) => b.roomId === roomId && b.state === 'active' && b.scope === 'group',
         )) {
           if (!this.settings(binding).values.mentionOnTurn || !actors.length) continue
+          if (
+            getProvider(accountRow(binding.accountId).provider)?.definition?.canInitiate === false &&
+            !lookupAll(binding.chatId).find((item) => item.bindingId === binding.id)?.ownerPresent
+          ) {
+            this.runtime.log(binding.accountId, 'delivery.skipped.no-initiate')
+            continue
+          }
           const mentions = actors
             .map((a) =>
               a.username
@@ -220,8 +246,42 @@ export class ChannelService {
     return resolveChannelSettings(accountRow(binding.accountId).config, binding, this.globalSettings())
   }
   async send(accountId: string, chat: string, text: string, thread?: string) {
+    const provider = getProvider(accountRow(accountId).provider)
+    const inbound = this.inboundScope.getStore()
+    if (provider?.definition?.canInitiate === false && !(inbound?.accountId === accountId && inbound.chat === chat)) {
+      const owner = db
+        .select()
+        .from(channelActors)
+        .where(
+          and(
+            eq(channelActors.provider, provider.id),
+            eq(channelActors.externalId, chat),
+            eq(channelActors.role, 'owner'),
+          ),
+        )
+        .get()
+      if (!owner) {
+        this.runtime.log(accountId, 'delivery.skipped.no-initiate')
+        return
+      }
+    }
     const client = this.runtime.accounts.get(accountId)?.client
     if (!client) return
+    if (client instanceof PluginChannelClient) {
+      const sending = client.call('sendMessage', { chat_id: chat, text })
+      if (inbound?.accountId === accountId) {
+        // 插件接收器可能持有发送也需要的锁，入站仅等待回复入队。
+        void sending.catch((error: unknown) =>
+          this.runtime.log(
+            accountId,
+            error instanceof Error && 'kind' in error && error.kind === 'not-sent'
+              ? 'delivery.failed'
+              : 'delivery.uncertain',
+          ),
+        )
+      } else await sending
+      return
+    }
     for (const html of renderTelegram([{ kind: 'text', text }]))
       await client.serialized(chat, () =>
         client.call('sendMessage', {
@@ -241,7 +301,14 @@ export class ChannelService {
         ?.client.call('answerCallbackQuery', { callback_query_id: decoded.id })
         .catch(() => {})
     const previous = this.inputTails.get(id) ?? Promise.resolve()
-    const pending = previous.catch(() => {}).then(() => this.handle(id, input))
+    const pending = previous
+      .catch(() => {})
+      .then(() =>
+        this.inboundScope.run(
+          { accountId: id, chat: decoded && 'chat' in decoded ? String(decoded.chat.id) : undefined },
+          () => this.handle(id, input),
+        ),
+      )
     this.inputTails.set(id, pending)
     try {
       await pending
@@ -261,10 +328,12 @@ export class ChannelService {
       }
       if (await receiveOneBotSocial(id, input, entry.client)) return
     }
-    const event =
-      entry.client instanceof OneBotClient
-        ? decodeOneBot(input, entry.client, (segment) => qqStickerMeaning(id, segment))
-        : decodeTelegram(input, { id: row.botId, username: row.botUsername })
+    const event = getProvider(row.provider)?.decode(
+      input,
+      entry.client,
+      { id: row.botId, username: row.botUsername },
+      id,
+    )
     if (!event) return
     if (!markReceived(id, event.dedupeKey, Date.now())) return
     if (entry.client instanceof OneBotClient && event.type === 'message' && event.reply_to_message) {
@@ -450,7 +519,7 @@ export class ChannelService {
       const rateLimit = resolveChannelSettings(row.config, rateBinding, this.globalSettings()).values.actorRateLimit
       if (recent.length >= rateLimit) throw refused()
       this.rates.set(rateKey, [...recent, Date.now()])
-      if (entry.client instanceof OneBotClient) {
+      if (entry.client instanceof OneBotClient || entry.client instanceof PluginChannelClient) {
         const number = /^(?:\/(?:char|group|imagine|sd)\s+)?([1-9]\d*)$/.exec(event.text)
         if (number) {
           const action = db
@@ -535,6 +604,8 @@ export class ChannelService {
           await this.send(id, binding.chat, t('暂不支持文件消息，请发送文字或图片'))
           return
         }
+      }
+      if (entry.client instanceof OneBotClient || entry.client instanceof PluginChannelClient) {
         const number = /^(?:\/choose\s+)?([1-9]\d*)$/.exec(event.text)
         const leaf = this.numberedChoiceMessage(binding)
         const hasChoices = !!leaf?.meta.stage?.choices?.length
@@ -552,7 +623,7 @@ export class ChannelService {
           return
         }
       }
-      void reactToMessage(this, binding, actor.externalId, event.message_id, entry.client).catch(() => {})
+      void reactToMessage(this, binding, actor.externalId, Number(event.message_id), entry.client).catch(() => {})
       const { id: bindingId, accountId: _, ...data } = binding
       db.update(channelBindings)
         .set({ ...data, lastActivityAt: Date.now(), idleWarnedAt: null })
@@ -631,7 +702,7 @@ export class ChannelService {
         (event.document?.mime_type?.startsWith('image/') ? event.document : undefined)
       if (event.photo?.length && !photo)
         throw new HttpError(413, 'TOO_LARGE', t('文件太大（上限 {limit}MB）', { limit: 20 }))
-      for (const photoItem of entry.client instanceof OneBotClient
+      for (const photoItem of entry.client instanceof OneBotClient || entry.client instanceof PluginChannelClient
         ? (event.photo ?? (photo ? [photo] : []))
         : photo
           ? [photo]
@@ -677,6 +748,11 @@ export class ChannelService {
       }
       await this.acceptInput(binding, actor, event, images)
     } catch (error) {
+      if (error && typeof error === 'object' && 'name' in error && error.name === 'ChannelSendError') {
+        const notSent = 'kind' in error && error.kind === 'not-sent'
+        this.runtime.log(id, notSent ? 'delivery.failed' : 'delivery.uncertain')
+        return
+      }
       if (error instanceof HttpError && error.status < 500) {
         if (
           error.status === 403 &&
@@ -702,6 +778,24 @@ export class ChannelService {
     }
   }
   private async acceptInput(binding: ChannelBindingDTO, actor: ChannelActorDTO, event: MessageEvent, images: string[]) {
+    if (
+      binding.roomId &&
+      this.host.isGenerating(binding.chatId) &&
+      (this.settings(binding).values.queueMode === 'merge' ||
+        !!getProvider(accountRow(binding.accountId).provider)?.definition)
+    ) {
+      const pending = this.roomInputs.get(binding.id)
+      const item = { actor, event, images }
+      if (pending) {
+        pending.push(item)
+        setSetting(`channels:pending-room:${binding.id}`, pending)
+      } else {
+        this.roomInputs.set(binding.id, [item])
+        setSetting(`channels:pending-room:${binding.id}`, [item])
+        this.drainRoom(binding)
+      }
+      return
+    }
     if (binding.roomId) updateVoicePreference(binding, event.text, this.settings(binding).values)
     const isOoc = event.text.startsWith('((')
     if (binding.roomId) {
@@ -747,11 +841,12 @@ export class ChannelService {
             clientMessageId: `${accountRow(binding.accountId).config.provider}:${event.chat.id}:${event.message_id}`,
             replyTo,
           },
-          {},
+          event.context ? { context: event.context } : {},
           currentUser().id,
           binding.trigger === 'follow-room' || this.triggered(binding, event),
         )
-      asChannelActor(binding, actor, send)
+      const received = asChannelActor(binding, actor, send)
+      this.markInbound(binding.id, received.id)
     } else if (this.triggered(binding, event)) {
       if (isOoc)
         this.host.appendMessage(binding.chatId, {
@@ -759,7 +854,14 @@ export class ChannelService {
           content: event.text,
           meta: { excluded: true, channel: 'ooc' },
         })
-      else await this.generate(binding, { mode: 'send', text: event.text, images })
+      else
+        await this.generate(
+          binding,
+          { mode: 'send', text: event.text, images },
+          getProvider(accountRow(binding.accountId).provider)?.definition
+            ? { sentAt: event.sentAt ?? Date.now(), context: event.context }
+            : undefined,
+        )
     }
   }
   private triggered(binding: ChannelBindingDTO, event: MessageEvent) {
@@ -865,7 +967,7 @@ export class ChannelService {
         .run()
       return [{ text: item.text, callback_data: token }]
     })
-    if (client instanceof OneBotClient)
+    if (client instanceof OneBotClient || client instanceof PluginChannelClient)
       return this.send(
         accountId,
         String(event.chat.id),
@@ -1039,7 +1141,7 @@ export class ChannelService {
       )
         db.delete(channelActions).where(eq(channelActions.token, action.token)).run()
     }
-    const onebot = client instanceof OneBotClient
+    const onebot = client instanceof OneBotClient || client instanceof PluginChannelClient
     const current = Math.max(0, Math.min(page, Math.ceil(items.length / 8) - 1))
     const visible = onebot ? items : items.slice(current * 8, current * 8 + 8)
     const token = (extra: Record<string, unknown>) => {
@@ -1298,7 +1400,12 @@ export class ChannelService {
       return
     }
     const chat = this.host.createChat(groupId ? { groupId } : { characterId: characterId! })
-    db.update(chats).set({ sourceProvider: config.provider }).where(eq(chats.id, chat.id)).run()
+    db.update(chats)
+      .set({
+        sourceProvider: config.provider === 'telegram' || config.provider === 'onebot11' ? config.provider : null,
+      })
+      .where(eq(chats.id, chat.id))
+      .run()
     const room =
       (scope === 'group' && !(['per-user', 'per-topic'].includes(isolation) && pairedOwner)) || !pairedOwner
         ? createRoom(createRoomInput.parse({ name: event.chat.title ?? event.displayName, chatId: chat.id }))
@@ -1335,7 +1442,14 @@ export class ChannelService {
   saveBinding(binding: Omit<ChannelBindingDTO, 'memberCount' | 'chatTitle'>, topicTitle?: string) {
     if (binding.source === 'new' && !db.select().from(channelBindings).where(eq(channelBindings.id, binding.id)).get())
       db.update(chats)
-        .set({ sourceProvider: accountRow(binding.accountId).config.provider })
+        .set({
+          sourceProvider:
+            accountRow(binding.accountId).config.provider === 'telegram'
+              ? 'telegram'
+              : accountRow(binding.accountId).config.provider === 'onebot11'
+                ? 'onebot11'
+                : null,
+        })
         .where(eq(chats.id, binding.chatId))
         .run()
     const { id, accountId, ...input } = binding
@@ -1363,41 +1477,166 @@ export class ChannelService {
       })
       .run()
   }
-  async generate(binding: ChannelBindingDTO, input: GenerateInput) {
+  private drainRoom(binding: ChannelBindingDTO) {
+    void this.host
+      .waitIdle(binding.chatId, 120000)
+      .then(async () => {
+        const inputs = this.roomInputs.get(binding.id)
+        this.roomInputs.delete(binding.id)
+        if (
+          !inputs?.length ||
+          !this.runtime.accounts.has(binding.accountId) ||
+          bindingRow(binding.id).state !== 'active'
+        )
+          return
+        inputs.sort((a, b) => (a.event.sentAt ?? 0) - (b.event.sentAt ?? 0))
+        const first = inputs[0]!
+        await this.acceptInput(
+          binding,
+          first.actor,
+          {
+            ...first.event,
+            text: inputs.map((item) => item.event.text).join('\n'),
+            context:
+              inputs
+                .map((item) => item.event.context)
+                .filter(Boolean)
+                .join('\n') || undefined,
+          },
+          inputs.flatMap((item) => item.images),
+        )
+        setSetting(`channels:pending-room:${binding.id}`, null)
+      })
+      .catch(() => {
+        this.roomInputs.delete(binding.id)
+        this.runtime.log(binding.accountId, 'generation.failed')
+      })
+  }
+  private resumeQueued(accountId: string) {
+    for (const binding of listBindings(accountId).filter((binding) => binding.state === 'active')) {
+      const room = getSetting<{ actor: ChannelActorDTO; event: MessageEvent; images: string[] }[] | null>(
+        `channels:pending-room:${binding.id}`,
+      )
+      if (room?.length && !this.roomInputs.has(binding.id)) {
+        this.roomInputs.set(binding.id, room)
+        this.drainRoom(binding)
+      }
+      const pending = getSetting<
+        | { input: Extract<GenerateInput, { mode: 'send' }>; sentAt: number; context?: string; inbound?: boolean }[]
+        | null
+      >(`channels:pending:${binding.id}`)
+      if (pending?.length && !this.queued.has(binding.id)) {
+        this.queued.set(binding.id, { inputs: pending })
+        this.drainInput(binding)
+      }
+    }
+  }
+  private drainInput(binding: ChannelBindingDTO) {
+    void this.host
+      .waitIdle(binding.chatId, 120000)
+      .then(async () => {
+        const queued = this.queued.get(binding.id)
+        this.queued.delete(binding.id)
+        if (!queued || bindingRow(binding.id).state !== 'active' || !this.runtime.accounts.has(binding.accountId))
+          return
+        const inputs = queued.inputs
+        inputs.sort((a, b) => a.sentAt - b.sentAt)
+        await this.startInput(
+          binding,
+          {
+            ...inputs[0]!.input,
+            text: inputs.map((item) => item.input.text).join('\n'),
+            images: inputs.flatMap((item) => item.input.images ?? []),
+          },
+          inputs.some((item) => item.inbound)
+            ? {
+                context:
+                  inputs
+                    .map((item) => item.context)
+                    .filter(Boolean)
+                    .join('\n') || undefined,
+              }
+            : undefined,
+        )
+        setSetting(`channels:pending:${binding.id}`, null)
+      })
+      .catch(() => {
+        this.queued.delete(binding.id)
+        this.runtime.log(binding.accountId, 'generation.failed')
+      })
+  }
+  private markInbound(bindingId: string, messageId: string) {
+    this.inboundRoots.set(bindingId, new Set([messageId]))
+  }
+  private acknowledgeInput(message: MessageDTO) {
+    const inbound = this.pendingInput.get(message.chatId)
+    if (!inbound) return
+    this.pendingInput.delete(message.chatId)
+    this.markInbound(inbound.bindingId, message.id)
+    if (inbound.context) {
+      message.meta.context = inbound.context
+      db.update(messages).set({ meta: message.meta }).where(eq(messages.id, message.id)).run()
+    }
+    inbound.resolve()
+  }
+  private startInput(binding: ChannelBindingDTO, input: GenerateInput, inbound?: { context?: string }) {
+    let saved: Promise<void> | undefined
+    if (inbound)
+      saved = new Promise<void>((resolve, reject) => {
+        this.pendingInput.set(binding.chatId, { bindingId: binding.id, ...inbound, resolve, reject })
+      })
+    try {
+      this.host.generate(binding.chatId, input)
+    } catch (error) {
+      this.pendingInput.delete(binding.chatId)
+      throw error
+    }
+    this.watchJobs()
+    return saved
+  }
+  async generate(binding: ChannelBindingDTO, input: GenerateInput, inbound?: { sentAt: number; context?: string }) {
+    if (
+      input.mode !== 'send' &&
+      this.inboundScope.getStore()?.accountId === binding.accountId &&
+      this.runtime.accounts.get(binding.accountId)?.client instanceof PluginChannelClient
+    ) {
+      // 继续和重生成命令可能等待旧任务，不能让接收器持锁等待这一轮完成。
+      void this.generateNow(binding, input, inbound).catch(() =>
+        this.runtime.log(binding.accountId, 'generation.failed'),
+      )
+      return
+    }
+    await this.generateNow(binding, input, inbound)
+  }
+  private async generateNow(
+    binding: ChannelBindingDTO,
+    input: GenerateInput,
+    inbound?: { sentAt: number; context?: string },
+  ) {
     if (input.mode === 'send') updateVoicePreference(binding, input.text, this.settings(binding).values)
     if (
       input.mode === 'send' &&
       this.host.isGenerating(binding.chatId) &&
-      this.settings(binding).values.queueMode === 'merge'
+      (this.settings(binding).values.queueMode === 'merge' || !!inbound)
     ) {
+      const item = { input, sentAt: inbound?.sentAt ?? Date.now(), context: inbound?.context, inbound: !!inbound }
       const queued = this.queued.get(binding.id)
       if (queued) {
-        queued.texts.push(input.text)
-        queued.images.push(...(input.images ?? []))
+        queued.inputs.push(item)
+        setSetting(`channels:pending:${binding.id}`, queued.inputs)
         return
       }
-      const texts = [input.text]
-      const images = [...(input.images ?? [])]
-      this.queued.set(binding.id, { texts, images })
-      void this.host
-        .waitIdle(binding.chatId, 120000)
-        .then(() => {
-          this.queued.delete(binding.id)
-          if (bindingRow(binding.id).state !== 'active' || !this.runtime.accounts.has(binding.accountId)) return
-          this.host.generate(binding.chatId, { ...input, text: texts.join('\n'), images })
-          this.watchJobs()
-        })
-        .catch(() => {
-          this.queued.delete(binding.id)
-        })
+      const inputs = [item]
+      this.queued.set(binding.id, { inputs })
+      setSetting(`channels:pending:${binding.id}`, inputs)
+      this.drainInput(binding)
       return
     }
     if (this.host.isGenerating(binding.chatId)) {
       if (this.settings(binding).values.queueMode === 'interrupt') this.host.abort(binding.chatId)
       await this.host.waitIdle(binding.chatId, 120000)
     }
-    this.host.generate(binding.chatId, input)
-    this.watchJobs()
+    await this.startInput(binding, input, inbound)
   }
   private async imagine(binding: ChannelBindingDTO, actor: ChannelActorDTO, event: MessageEvent) {
     const reply = (text: string) => this.send(binding.accountId, binding.chat, text, binding.thread)
@@ -1454,7 +1693,7 @@ export class ChannelService {
           return { text: choice.label, callback_data: token }
         })
         const title = needsCharacter ? t('选择要绘制的角色') : t('选择生图模式')
-        if (client instanceof OneBotClient)
+        if (client instanceof OneBotClient || client instanceof PluginChannelClient)
           return reply(
             `${title}\n${t('回复数字或 /imagine N')}\n${buttons.map((b, i) => `${i + 1}. ${b.text}`).join('\n')}`,
           )
@@ -1585,7 +1824,8 @@ export class ChannelService {
       const visibility = (match?.[1] as 'public' | 'gm' | 'blind' | 'self' | undefined) ?? 'public'
       const expression = match ? command.args.slice(0, match.index).trim() : command.args
       const result = asChannelActor(binding, actor, () => rollRoom(roomId, { expression, visibility }))
-      await this.deliveryTails.get(binding.id)
+      if (!(this.runtime.accounts.get(binding.accountId)?.client instanceof PluginChannelClient))
+        await this.deliveryTails.get(binding.id)
       if (visibility === 'public' && binding.scope === 'group' && this.settings(binding).values.diceAnimation) {
         const client = this.runtime.accounts.get(binding.accountId)?.client
         // NoBot 的检定结果始终有效；平台随机骰子只作装饰，必须排在结果之后。
@@ -1620,7 +1860,7 @@ export class ChannelService {
       )
     }
     if (command.name === 'chats') {
-      if (accountRow(binding.accountId).config.provider === 'onebot11')
+      if (accountRow(binding.accountId).config.provider !== 'telegram')
         this.clearNumberedMenu(binding.id, actor.externalId)
       const history = db.select().from(channelBindingChats).where(eq(channelBindingChats.bindingId, binding.id)).all()
       const rows = history.map((item) => {
@@ -1639,6 +1879,10 @@ export class ChannelService {
         return [{ text: getChatRow(item.chatId).title, callback_data: token }]
       })
       const entry = this.runtime.accounts.get(binding.accountId)
+      if (entry?.client instanceof PluginChannelClient)
+        return reply(
+          `${t('选择会话')}\n${t('回复数字选择')}\n${rows.map((row, index) => `${index + 1}. ${row[0]!.text}`).join('\n')}`,
+        )
       return entry?.client.call('sendMessage', {
         chat_id: binding.chat,
         message_thread_id: binding.thread || undefined,
@@ -1732,12 +1976,36 @@ export class ChannelService {
       const characterId = old.characterId
       const groupId = old.groupId
       const chat = this.host.createChat(groupId ? { groupId } : { characterId: characterId! })
-      db.update(chats).set({ sourceProvider: config.provider }).where(eq(chats.id, chat.id)).run()
+      db.update(chats)
+        .set({
+          sourceProvider: config.provider === 'telegram' || config.provider === 'onebot11' ? config.provider : null,
+        })
+        .where(eq(chats.id, chat.id))
+        .run()
       const room = roomId ? createRoom(createRoomInput.parse({ name: chat.title, chatId: chat.id })) : null
       this.saveBinding({ ...binding, chatId: chat.id, roomId: room?.id ?? null })
       return reply(t('已创建新会话'))
     }
     return reply(t('渠道命令帮助'))
+  }
+  private canClaimInbound(binding: ChannelBindingDTO, parent: MessageDTO | undefined) {
+    if (!parent || !this.inboundRoots.get(binding.id)?.has(parent.id)) return false
+    if (!binding.roomId) return true
+    // 房间自动回合沿用入站发言人的身份；网页或后台主动触发使用另一身份，不能借走待处理输入的许可。
+    const turn = getSetting<{ running: boolean; actorId: string }>(`room-turn:${binding.roomId}`)
+    return turn?.running === true && turn.actorId === parent.meta.author?.userId
+  }
+  observePrompt(chatId: string) {
+    const job = getJob(chatId)
+    if (!job) return
+    const parent = loadPath(getChatRow(chatId).activeLeafId).findLast((message) => message.role === 'user')
+    for (const binding of listBindings().filter((binding) => binding.chatId === chatId)) {
+      if (this.canClaimInbound(binding, parent)) {
+        this.inboundRoots.get(binding.id)?.clear()
+        this.inboundJobs.set(binding.id, job)
+      }
+    }
+    this.watchJobs()
   }
   private watchJobs() {
     if (!this.runtime.accounts.size) return
@@ -1758,6 +2026,28 @@ export class ChannelService {
       const job = getJob(binding.chatId)
       if (!job || this.generationSubscriptions.has(key)) continue
       const dispose = this.host.subscribe(job, (event) => {
+        if (event.type === 'start' && event.userMessage) this.acknowledgeInput(event.userMessage)
+        if (event.type === 'message' && event.message.role === 'user') this.acknowledgeInput(event.message)
+        if (
+          (event.type === 'start' && suppressChannelRelay(event.assistantMessage)) ||
+          (event.type === 'done' && suppressChannelRelay(event.message))
+        )
+          return
+        if (event.type === 'start' || event.type === 'done') {
+          const message = event.type === 'start' ? event.assistantMessage : event.message
+          let parent = message.parentId ? loadMessage(message.parentId) : undefined
+          while (parent && parent.role !== 'user') parent = parent.parentId ? loadMessage(parent.parentId) : undefined
+          const roots = this.inboundRoots.get(binding.id)
+          if (this.canClaimInbound(binding, parent)) {
+            roots?.clear()
+            this.inboundJobs.set(binding.id, job)
+          }
+          if (this.inboundJobs.get(binding.id) === job) {
+            const ids = this.replyIds.get(binding.id) ?? new Set<string>()
+            ids.add(message.id)
+            this.replyIds.set(binding.id, ids)
+          }
+        }
         const streamKey = `${binding.id}:stream`
         if (binding.roomId && !findRoom(binding.roomId)) {
           this.streams.get(streamKey)?.stream.abort()
@@ -1776,7 +2066,8 @@ export class ChannelService {
             this.settings(binding).values.voice === 'button' &&
             replyVoiceStyle(binding, event.assistantMessage, this.settings(binding).values)
           ) &&
-          !(this.runtime.accounts.get(binding.accountId)?.client instanceof OneBotClient)
+          !(this.runtime.accounts.get(binding.accountId)?.client instanceof OneBotClient) &&
+          !(this.runtime.accounts.get(binding.accountId)?.client instanceof PluginChannelClient)
         ) {
           const entry = this.runtime.accounts.get(binding.accountId)!
           const routed = event.assistantMessage.speakerId
@@ -1865,6 +2156,14 @@ export class ChannelService {
           } else void this.deliver(binding, event.message, state?.stream).catch(() => {})
         }
         if (event.type === 'complete' || event.type === 'error') {
+          if (event.type === 'error' && getProvider(accountRow(binding.accountId).provider)?.definition)
+            this.runtime.log(binding.accountId, 'generation.failed')
+          const unsaved = this.pendingInput?.get(binding.chatId)
+          if (unsaved) {
+            this.pendingInput.delete(binding.chatId)
+            unsaved.reject(new Error('CHANNEL_INPUT_NOT_SAVED'))
+          }
+          if (this.inboundJobs?.get(binding.id) === job) this.inboundJobs.delete(binding.id)
           const turn = this.oneBotTurns.get(binding.id)
           this.oneBotTurns.delete(binding.id)
           if (turn?.length)
@@ -2151,6 +2450,18 @@ export class ChannelService {
       .catch(() => {})
       .then(() => this.deliverNow(binding, message, stream))
     this.deliveryTails.set(key, pending)
+    if (
+      this.inboundScope.getStore()?.accountId === binding.accountId &&
+      this.runtime.accounts.get(binding.accountId)?.client instanceof PluginChannelClient
+    ) {
+      // 切换备选等命令也只等待投递入队，不能阻塞接收器释放浏览器锁。
+      void pending
+        .catch(() => this.runtime.log(binding.accountId, 'delivery.failed'))
+        .finally(() => {
+          if (this.deliveryTails.get(key) === pending) this.deliveryTails.delete(key)
+        })
+      return
+    }
     try {
       await pending
     } finally {
@@ -2200,6 +2511,25 @@ export class ChannelService {
       // 绑定切换会话后，旧生成订阅的迟到结果不能进入新位置。
       stream?.abort()
       return
+    }
+    if (entry.client instanceof PluginChannelClient) {
+      stream?.abort()
+      const owner = lookupAll(binding.chatId).find((item) => item.bindingId === binding.id)?.ownerPresent
+      if (!entry.client.definition.canInitiate && !owner && !this.replyIds.get(binding.id)?.has(message.id)) {
+        this.runtime.log(binding.accountId, 'delivery.skipped.no-initiate')
+        return
+      }
+      if (
+        message.meta.hidden ||
+        (message.meta.visibility && message.meta.visibility.level !== 'public') ||
+        message.meta.channel === 'whisper'
+      )
+        return
+      try {
+        return await this.deliverPlugin(binding, message, entry.client)
+      } finally {
+        this.replyIds.get(binding.id)?.delete(message.id)
+      }
     }
     const privateContent =
       message.meta.channel === 'whisper' ||
@@ -2803,8 +3133,8 @@ export class ChannelService {
         id: '',
         dedupeKey: '',
         data: action.token,
-        from: { id: Number(actor.externalId), first_name: actor.displayName },
-        message: { message_id: 0, chat: { id: Number(binding.chat), type: binding.scope }, entities: [] },
+        from: { id: actor.externalId, first_name: actor.displayName },
+        message: { message_id: 0, chat: { id: binding.chat, type: binding.scope }, entities: [] },
       })
       this.clearNumberedMenu(binding.id, actor.externalId)
       return
@@ -3054,6 +3384,63 @@ export class ChannelService {
       native,
     )
   }
+  private async deliverPlugin(binding: ChannelBindingDTO, message: MessageDTO, client: PluginChannelClient) {
+    const previous = db
+      .select()
+      .from(channelDeliveries)
+      .where(and(eq(channelDeliveries.bindingId, binding.id), eq(channelDeliveries.messageId, message.id)))
+      .get()
+    if (previous) return
+    const settings = this.settings(binding).values
+    if (
+      message.role === 'user' &&
+      (!settings.mirrorWebMessages ||
+        String(message.meta.clientMessageId ?? '').startsWith(`${accountRow(binding.accountId).provider}:`))
+    )
+      return
+    const text = message.meta.channelVoice?.text ?? visibleText(message)
+    if (!text || !['assistant', 'user', 'tool', 'system'].includes(message.role)) return
+    const choices = message.meta.stage?.choices?.map((choice, index) => `${index + 1}. ${choice.text}`).join('\n')
+    const body = text + (choices ? `\n${choices}` : '')
+    const parts: { accountId: string; externalChat: string; externalId: string }[] = []
+    let status: 'committed' | 'uncertain' | 'failed' = 'committed'
+    try {
+      const burst =
+        message.role === 'assistant' && settings.burst !== 'off'
+          ? splitBurst(body, { mode: settings.burst, maxParts: settings.burstMaxParts })
+          : [body]
+      for (const part of burst) {
+        // 每页即时保存回执；后续一页失败不能导致先前页重发。
+        for (const page of splitOneBot(part, client.definition.limits.maxTextLength)) {
+          const sent = await client.call<{ message_id: string }>('sendMessage', { chat_id: binding.chat, text: page })
+          parts.push({ accountId: binding.accountId, externalChat: binding.chat, externalId: sent.message_id })
+          this.recordBurst(
+            `${binding.id}:${message.id}`,
+            binding,
+            message,
+            0,
+            createHash('sha256').update(body).digest('hex'),
+            parts,
+          )
+        }
+      }
+    } catch (error) {
+      status = (error as Partial<ChannelSendError> | null)?.kind === 'not-sent' ? 'failed' : 'uncertain'
+      this.runtime.log(binding.accountId, status === 'uncertain' ? 'delivery.uncertain' : 'delivery.failed')
+    }
+    db.insert(channelDeliveries)
+      .values({
+        id: `${binding.id}:${message.id}`,
+        bindingId: binding.id,
+        messageId: message.id,
+        revision: 0,
+        parts,
+        status,
+        contentHash: createHash('sha256').update(body).digest('hex'),
+      })
+      .onConflictDoUpdate({ target: channelDeliveries.id, set: { parts, status } })
+      .run()
+  }
   private token(
     binding: ChannelBindingDTO,
     message: MessageDTO,
@@ -3078,6 +3465,13 @@ export class ChannelService {
     return token
   }
   onEvent(event: ServerEvent) {
+    if (event.type === 'message:saved' && event.message.role === 'user') this.acknowledgeInput(event.message)
+    if (event.type === 'message:saved' && event.message.role === 'tool') {
+      for (const binding of listBindings().filter((b) => b.chatId === event.message.chatId)) {
+        if (this.inboundJobs.get(binding.id) === getJob(binding.chatId) && getJob(binding.chatId))
+          this.replyIds.get(binding.id)?.add(event.message.id)
+      }
+    }
     if (event.type === 'character:updated') {
       for (const [id, entry] of this.runtime.accounts) {
         const config = accountRow(id).config

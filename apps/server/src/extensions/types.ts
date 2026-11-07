@@ -196,6 +196,8 @@ export interface ExtensionHost {
 }
 
 export interface ExtensionContext {
+  /** 宿主始终提供；可选声明兼容旧扩展自行构造的上下文，后台上下文则为必填。 */
+  channels?: ExtensionChannels
   host: ExtensionHost
   /** 这个扩展当前的设置（已合并默认值） */
   settings: Record<string, unknown>
@@ -271,7 +273,7 @@ export interface Extension {
   publicRoutes?: (app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) => void
   /** 每用户后台生命周期；第三方需要 background 权限批准，重载、禁用、卸载或关闭用户库时先中止 signal。 */
   startBackground?: (
-    ctx: Omit<ExtensionContext, 'chatId'> & { tasks: BackgroundTasks },
+    ctx: Omit<ExtensionContext, 'chatId'> & { tasks: BackgroundTasks; channels: ExtensionChannels },
     signal: AbortSignal,
   ) => void | Promise<void>
 }
@@ -315,4 +317,83 @@ export async function parseSettingsDraft(c: Context, saved: Record<string, unkno
 export async function draftChatId(c: Context): Promise<string | undefined> {
   const chatId = (await draftBody(c)).chatId
   return typeof chatId === 'string' ? chatId : undefined
+}
+
+/** 插件渠道只接收宿主已经拆分、限速的单段纯文本。 */
+export interface ChannelProviderDefinition {
+  id: string
+  name: string
+  riskNotice?: string
+  scopes: ('private' | 'group')[]
+  canInitiate: boolean
+  limits: { maxTextLength: number; minIntervalMs?: number; perMinute?: number }
+  media: { inboundImages: boolean; outboundImages: boolean; voice: boolean }
+  defaults?: {
+    newLocation?: { private?: 'auto' | 'approve' | 'existing-only'; group?: 'auto' | 'approve' | 'existing-only' }
+  }
+  accountFields: ExtensionSettingField[]
+  promptHint?: string
+  start(account: ChannelProviderAccount, io: ChannelProviderIO, signal: AbortSignal): void | Promise<void>
+  send(
+    account: ChannelProviderAccount,
+    message: { chatId: string; text: string; replyTo?: string },
+    signal: AbortSignal,
+  ): Promise<{ id: string }>
+}
+export interface ChannelProviderAccount {
+  id: string
+  config: Record<string, unknown>
+  cursor: unknown
+}
+export interface ChannelInboundMessage {
+  id: string
+  chat: { id: string; title: string; scope?: 'private' | 'group' }
+  from: { id: string; name: string }
+  text: string
+  images?: { bytes: Uint8Array; mime: string }[]
+  context?: string
+  replyTo?: string
+  sentAt: number
+}
+export interface ChannelProviderIO {
+  emit(message: ChannelInboundMessage): Promise<void>
+  status(status: 'connecting' | 'online' | 'offline' | 'paused', reason?: string): void
+  saveCursor(cursor: unknown): void
+  setOwner(externalId: string | null): void
+}
+export interface ChannelLookup {
+  provider: string
+  accountId: string
+  bindingId: string
+  scope: 'private' | 'group'
+  external: { chat: string; title: string }
+  actors: { externalId: string; name: string; role: 'owner' | 'player' | 'blocked'; paired: boolean }[]
+  ownerPresent: boolean
+}
+export interface ExtensionChannels {
+  lookup(chatId: string): ChannelLookup | null
+  lookupAll(chatId: string): ChannelLookup[]
+  registerProvider(definition: ChannelProviderDefinition): { unregister(): void }
+  ensureAccount(
+    providerId: string,
+    options: { name: string; characterId?: string; groupId?: string },
+  ): Promise<{ accountId: string; characterFollowed: boolean }>
+}
+export class ChannelSendError extends Error {
+  readonly name = 'ChannelSendError'
+  readonly retryAfterMs?: number
+  constructor(
+    readonly kind: 'not-sent' | 'unknown',
+    readonly code: string,
+    options?: { retryAfterMs?: number },
+  ) {
+    super(code)
+    this.retryAfterMs = options?.retryAfterMs
+  }
+}
+export class ChannelProviderStoppedError extends Error {
+  readonly name = 'ChannelProviderStoppedError'
+  constructor() {
+    super('Channel provider stopped')
+  }
 }

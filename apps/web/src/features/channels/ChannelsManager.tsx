@@ -3,9 +3,11 @@ import { useState } from 'react'
 import {
   type ChannelAccountDTO,
   type ChannelProvider,
+  type ChannelProviderDTO,
   useChannelAccountAction,
   useChannelAccounts,
   useChannelLog,
+  useChannelProviders,
   useChannelRequests,
   useConfirmChannelPairing,
   useCreateChannelAccount,
@@ -30,9 +32,9 @@ import { Avatar, Button, badgeClass, controlClass, cx, Dialog } from '../../comp
 import { t } from '../../i18n'
 import { errorMessage, toast } from '../../stores/toast'
 import { AccountDialog } from './AccountDialog'
-import { OverrideEditor, providerLabel, statusMeta, timeAgo } from './shared'
+import { accountStatus, isPluginProvider, OverrideEditor, providerLabel, timeAgo } from './shared'
 
-type Tab = 'telegram' | 'onebot11' | 'shared'
+type Tab = 'telegram' | 'onebot11' | 'plugins' | 'shared'
 
 /**
  * 渠道扩展详情页：按平台分页签。每个平台页签只放这个平台的机器人、待处理请求和平台专用的全局默认；
@@ -51,17 +53,21 @@ export function ChannelsManager({
   enabled: boolean
 }) {
   const accounts = useChannelAccounts(enabled)
+  const providers = useChannelProviders().data ?? []
   const [tab, setTab] = useState<Tab>('telegram')
   const [openId, setOpenId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const all = accounts.data ?? []
   const open = all.find((a) => a.id === openId) ?? null
   const values = channelSettingsSchema.parse(settings)
-  const pending = (provider: ChannelProvider) =>
-    all.filter((a) => a.provider === provider).reduce((n, a) => n + (a.pendingRequestCount ?? 0), 0)
-  const label = (provider: ChannelProvider) => {
-    const n = pending(provider)
-    return n > 0 ? `${providerLabel(provider)} · ${n}` : providerLabel(provider)
+  // 扩展平台合在一个页签里；没有注册平台也没有遗留账号时不显示。
+  const inTab = (a: ChannelAccountDTO, tab: Tab) =>
+    tab === 'plugins' ? isPluginProvider(a.provider) : a.provider === tab
+  const tabAccounts = all.filter((a) => inTab(a, tab))
+  const hasPlugins = providers.some((p) => isPluginProvider(p.id)) || all.some((a) => isPluginProvider(a.provider))
+  const label = (tab: Tab, name: string) => {
+    const n = all.filter((a) => inTab(a, tab)).reduce((sum, a) => sum + (a.pendingRequestCount ?? 0), 0)
+    return n > 0 ? `${name} · ${n}` : name
   }
   const defaults = (only: Tab) => (
     <OverrideEditor
@@ -80,8 +86,9 @@ export function ChannelsManager({
         value={tab}
         onChange={setTab}
         tabs={[
-          { id: 'telegram', label: label('telegram') },
-          { id: 'onebot11', label: label('onebot11') },
+          { id: 'telegram', label: label('telegram', providerLabel('telegram')) },
+          { id: 'onebot11', label: label('onebot11', providerLabel('onebot11')) },
+          ...(hasPlugins ? [{ id: 'plugins' as const, label: label('plugins', t('扩展平台')) }] : []),
           { id: 'shared', label: t('通用') },
         ]}
       />
@@ -97,7 +104,7 @@ export function ChannelsManager({
         <>
           {enabled ? (
             <>
-              <PendingRequests accounts={all.filter((a) => a.provider === tab)} />
+              <PendingRequests accounts={tabAccounts} />
               <section className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/40">
                 <header className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
                   <h3 className="text-sm font-semibold">{t('机器人')}</h3>
@@ -111,39 +118,52 @@ export function ChannelsManager({
                 </header>
                 {accounts.isLoading ? (
                   <p className="px-3 py-6 text-center text-sm text-zinc-500">{t('加载中…')}</p>
-                ) : all.every((a) => a.provider !== tab) ? (
+                ) : tabAccounts.length === 0 ? (
                   <p className="px-3 py-6 text-center text-[13px] text-zinc-500">
                     {tab === 'telegram'
                       ? t('还没有 Telegram 机器人。找 @BotFather 发 /newbot 拿到 Token 后点「添加」。')
-                      : t('还没有 QQ 机器人。先装好 NapCat，再点「添加」。')}
+                      : tab === 'onebot11'
+                        ? t('还没有 QQ 机器人。先装好 NapCat，再点「添加」。')
+                        : t('还没有扩展平台的账号。可以点「添加」，或在提供平台的扩展里开启。')}
                   </p>
                 ) : (
                   <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                    {all
-                      .filter((a) => a.provider === tab)
-                      .map((a) => (
-                        <AccountRow key={a.id} account={a} onOpen={() => setOpenId(a.id)} />
-                      ))}
+                    {tabAccounts.map((a) => (
+                      <AccountRow key={a.id} account={a} onOpen={() => setOpenId(a.id)} />
+                    ))}
                   </ul>
                 )}
               </section>
-              <PairingCard />
+              {tab !== 'plugins' && <PairingCard />}
             </>
           ) : (
             <p className="rounded-xl border border-dashed border-zinc-300 px-3 py-4 text-center text-[13px] text-zinc-500 dark:border-zinc-700">
               {t('打开右上方的开关启用这个扩展后，才能添加机器人。默认设置现在就可以先改。')}
             </p>
           )}
-          <h3 className="px-1 pt-2 text-sm font-semibold">{t('{name} 默认设置', { name: providerLabel(tab) })}</h3>
-          {tab === 'telegram' && (
-            <TelegramGlobal settings={settings} onSettingsChange={onSettingsChange} disabled={disabled} />
+          {tab !== 'plugins' && (
+            <>
+              <h3 className="px-1 pt-2 text-sm font-semibold">{t('{name} 默认设置', { name: providerLabel(tab) })}</h3>
+              {tab === 'telegram' && (
+                <TelegramGlobal settings={settings} onSettingsChange={onSettingsChange} disabled={disabled} />
+              )}
+              {defaults(tab)}
+            </>
           )}
-          {defaults(tab)}
         </>
       )}
+      <PluginCreateDialog
+        providers={providers.filter((p) => isPluginProvider(p.id) && p.available)}
+        open={creating && tab === 'plugins'}
+        onClose={() => setCreating(false)}
+        onCreated={(id) => {
+          setCreating(false)
+          setOpenId(id)
+        }}
+      />
       <CreateDialog
         provider={tab === 'onebot11' ? 'onebot11' : 'telegram'}
-        open={creating}
+        open={creating && tab !== 'plugins'}
         onClose={() => setCreating(false)}
         onCreated={(id) => {
           setCreating(false)
@@ -193,7 +213,7 @@ function AccountRow({ account, onOpen }: { account: ChannelAccountDTO; onOpen: (
   const action = useChannelAccountAction()
   const remove = useDeleteChannelAccount()
   const characters = useCharacters().data ?? []
-  const status = statusMeta(account.status)
+  const status = accountStatus(account)
   const character = characters.find((c) => c.id === (account.characterId ?? account.presence.characterId))
   const run = (a: 'start' | 'stop' | 'restart') =>
     action.mutate({ id: account.id, action: a }, { onError: (e) => toast.error(errorMessage(e)) })
@@ -224,7 +244,7 @@ function AccountRow({ account, onOpen }: { account: ChannelAccountDTO; onOpen: (
           </span>
           <span className="block truncate text-xs text-zinc-500">
             {[
-              providerLabel(account.provider),
+              providerLabel(account.provider, account.providerName),
               status.label,
               account.characterMode === 'fixed'
                 ? t('扮演 {name}', { name: character?.name ?? t('未选择角色') })
@@ -232,12 +252,10 @@ function AccountRow({ account, onOpen }: { account: ChannelAccountDTO; onOpen: (
               t('{n} 个群或私聊', { n: account.bindingCount ?? 0 }),
             ].join(' · ')}
           </span>
-          {account.status === 'error' && account.lastError && (
-            <span className="block truncate text-xs text-red-600">{account.lastError}</span>
-          )}
+          {status.error && <span className="block truncate text-xs text-red-600">{status.error}</span>}
         </span>
       </button>
-      {running ? (
+      {!account.providerAvailable ? null : running ? (
         <Button size="sm" disabled={action.isPending} onClick={() => run('stop')}>
           <StopIcon />
           {t('停止')}
@@ -418,6 +436,121 @@ function CreateDialog({
           </Button>
         </div>
       </div>
+    </Dialog>
+  )
+}
+
+/**
+ * 扩展平台建号：平台由扩展注册，登录状态通常在扩展里，这里只选平台、角色并填扩展声明的字段。
+ * 只渲染 string 字段（含 secret），其他类型由扩展自己的设置页处理。
+ */
+function PluginCreateDialog({
+  providers,
+  open,
+  onClose,
+  onCreated,
+}: {
+  providers: ChannelProviderDTO[]
+  open: boolean
+  onClose: () => void
+  onCreated: (id: string) => void
+}) {
+  const characters = useCharacters().data ?? []
+  const create = useCreateChannelAccount()
+  const [providerId, setProviderId] = useState('')
+  const [form, setForm] = useState({ name: '', characterMode: 'fixed' as 'fixed' | 'generic', characterId: '' })
+  const [fields, setFields] = useState<Record<string, string>>({})
+  const provider = providers.find((p) => p.id === providerId) ?? providers[0]
+  const ready = !!provider && (form.characterMode === 'generic' || !!form.characterId)
+  const submit = () => {
+    if (!provider) return
+    const character = characters.find((c) => c.id === form.characterId)
+    create.mutate(
+      {
+        provider: provider.id,
+        name: form.name.trim() || character?.name || provider.name,
+        characterMode: form.characterMode,
+        characterId: form.characterMode === 'fixed' ? form.characterId : null,
+        credentials: { token: '', ...fields },
+      },
+      {
+        onSuccess: (account) => {
+          setForm({ name: '', characterMode: 'fixed', characterId: '' })
+          setFields({})
+          toast.info(t('已添加 {name}', { name: account.name }))
+          onCreated(account.id)
+        },
+        onError: (e) => toast.error(errorMessage(e)),
+      },
+    )
+  }
+  return (
+    <Dialog open={open} onClose={onClose} title={t('添加扩展平台账号')} className="w-[min(560px,calc(100vw-32px))]">
+      {!provider ? (
+        <p className="py-4 text-center text-[13px] text-zinc-500">
+          {t('没有可用的扩展平台。先在扩展页启用提供渠道平台的扩展。')}
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {providers.length > 1 && (
+            <SelectField
+              label={t('平台')}
+              value={provider.id}
+              onChange={setProviderId}
+              options={providers.map((p) => ({ value: p.id, label: p.name }))}
+            />
+          )}
+          {provider.riskNotice && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              {provider.riskNotice}
+            </p>
+          )}
+          {provider.accountFields
+            .flatMap((f) => (f.type === 'string' ? [f] : []))
+            .map((f) => (
+              <TextField
+                key={f.key}
+                label={f.label}
+                hint={f.hint}
+                type={f.secret ? 'password' : undefined}
+                value={fields[f.key] ?? ''}
+                onChange={(value) => setFields({ ...fields, [f.key]: value })}
+              />
+            ))}
+          <SelectField
+            label={t('扮演方式')}
+            value={form.characterMode}
+            onChange={(characterMode) => setForm({ ...form, characterMode })}
+            options={[
+              { value: 'fixed', label: t('一角色一 bot') },
+              { value: 'generic', label: t('通用 bot') },
+            ]}
+          />
+          {form.characterMode === 'fixed' && (
+            <SelectField
+              label={t('角色')}
+              value={form.characterId}
+              onChange={(characterId) => setForm({ ...form, characterId })}
+              options={[
+                { value: '', label: t('选择角色') },
+                ...characters.map((c) => ({ value: c.id, label: c.name })),
+              ]}
+            />
+          )}
+          <TextField
+            label={t('名称')}
+            hint={t('只在 NoBot 里显示，不填就用角色名')}
+            value={form.name}
+            onChange={(name) => setForm({ ...form, name })}
+          />
+          <div className="flex justify-end gap-2">
+            <Button onClick={onClose}>{t('取消')}</Button>
+            <Button variant="primary" disabled={!ready || create.isPending} onClick={submit}>
+              {t('创建')}
+            </Button>
+          </div>
+        </div>
+      )}
     </Dialog>
   )
 }

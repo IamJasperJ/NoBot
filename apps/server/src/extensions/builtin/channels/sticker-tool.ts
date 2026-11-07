@@ -7,7 +7,7 @@ import type { ExtensionContext } from '../../types'
 import type { ChannelService } from './service'
 import { resolveSticker } from './sticker-resolution'
 import { usableStickers } from './stickers'
-import { accountRow, listBindings } from './store'
+import { listBindings } from './store'
 
 const gap = { rarely: 10, sometimes: 4, often: 1 } as const
 export function stickerTools(ctx: ExtensionContext, service: ChannelService): ToolDefinition[] {
@@ -53,7 +53,7 @@ export function stickerTools(ctx: ExtensionContext, service: ChannelService): To
             .run()
           if (!stickers.some((sticker) => sticker.accountId === binding.accountId))
             stickers.push({
-              platform: accountRow(binding.accountId).config.provider,
+              platform: selected.ref.kind === 'telegram' ? 'telegram' : 'onebot11',
               accountId: binding.accountId,
               mood,
               ref: selected.ref,

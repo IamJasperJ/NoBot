@@ -1,5 +1,20 @@
 /** 界面英文词典；中文原文为键，按功能分组。 */
 export const en: Record<string, string> = {
+  渠道平台: 'Channel platforms',
+  注册渠道平台并接收和发送消息: 'Register channel platforms and receive and send messages',
+  平台不可用: 'Platform unavailable',
+  '连接和登录由提供这个平台的扩展管理。':
+    'Connection and sign-in are managed by the extension that provides this platform.',
+  '提供这个平台的扩展已停用或卸载；重新启用后会自动恢复，绑定和会话都保留。':
+    'The extension that provides this platform is disabled or uninstalled. Bindings and chats are kept and it resumes automatically once re-enabled.',
+  扩展平台: 'Extension platforms',
+  '还没有扩展平台的账号。可以点「添加」，或在提供平台的扩展里开启。':
+    'No extension platform accounts yet. Click "Add", or turn it on in the extension that provides the platform.',
+  添加扩展平台账号: 'Add extension platform account',
+  '没有可用的扩展平台。先在扩展页启用提供渠道平台的扩展。':
+    'No extension platforms are available. Enable an extension that provides a channel platform first.',
+  平台: 'Platform',
+  结果不确定: 'Delivery outcome uncertain',
   思考气泡: 'Thought bubble',
   '模型有思考内容（如 DeepSeek 的推理）时，在画面左上方用气泡显示；一直保留时演出中按进度分段浮现':
     'Shows the model reasoning (such as DeepSeek reasoning) in a bubble at the top left. When kept, it fades in step by step during playback',

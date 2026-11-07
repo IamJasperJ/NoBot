@@ -30,12 +30,14 @@ const capabilityText = (key: Capability) => {
       return { title: t('提供工具'), detail: t('模型在对话中可以调用它提供的工具') }
     case 'background':
       return { title: t('后台任务'), detail: t('在后台定时运行（不打开网页也会执行）') }
+    case 'channels':
+      return { title: t('渠道平台'), detail: t('注册渠道平台并接收和发送消息') }
     case 'hooks':
       return { title: t('介入生成流程'), detail: t('可以改写提示词、用户输入和模型输出') }
   }
 }
 
-const CAPABILITIES: Capability[] = ['server', 'client', 'routes', 'tools', 'hooks', 'background']
+const CAPABILITIES: Capability[] = ['server', 'client', 'routes', 'tools', 'hooks', 'background', 'channels']
 
 /**
  * 权限清单：声明的权限逐项列出，检测到但未声明的标成警告色；网络域名单独列出。

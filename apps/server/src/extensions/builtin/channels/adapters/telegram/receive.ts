@@ -1,15 +1,16 @@
 import { z } from 'zod'
 import { telegramStickerSchema } from '../../sticker-types'
 
+const externalId = z.union([z.number().int(), z.string()])
 const user = z.object({
-  id: z.number().int(),
+  id: externalId,
   is_bot: z.boolean().optional(),
   first_name: z.string().default(''),
   last_name: z.string().optional(),
   username: z.string().optional(),
 })
 const chat = z.object({
-  id: z.number().int(),
+  id: externalId,
   type: z.enum(['private', 'group', 'supergroup', 'channel']),
   title: z.string().optional(),
   first_name: z.string().optional(),
@@ -24,15 +25,17 @@ const media = z.object({
   height: z.number().optional(),
 })
 const message = z.object({
-  message_id: z.number().int(),
+  message_id: externalId,
+  context: z.string().optional(),
+  sentAt: z.number().optional(),
   chat,
   from: user.optional(),
   text: z.string().optional(),
-  message_thread_id: z.number().int().optional(),
+  message_thread_id: externalId.optional(),
   entities: z
     .array(z.object({ type: z.string(), offset: z.number(), length: z.number(), user: user.optional() }))
     .default([]),
-  reply_to_message: z.object({ message_id: z.number(), from: user.optional() }).optional(),
+  reply_to_message: z.object({ message_id: externalId, from: user.optional() }).optional(),
   forum_topic_created: z.object({ name: z.string() }).optional(),
   forum_topic_edited: z.object({ name: z.string().optional() }).optional(),
   new_chat_title: z.string().optional(),
@@ -53,7 +56,7 @@ const membership = z.object({
   new_chat_member: z.object({ status: z.string() }),
 })
 const updateSchema = z.object({
-  update_id: z.number().int(),
+  update_id: externalId,
   managed_bot: z.object({ user, bot: user }).optional(),
   message: message.optional(),
   edited_message: message.optional(),
@@ -63,7 +66,7 @@ const updateSchema = z.object({
   my_chat_member: membership.optional(),
   chat_member: membership.optional(),
   message_reaction: z
-    .object({ chat, message_id: z.number(), user: user.optional(), new_reaction: z.array(z.unknown()) })
+    .object({ chat, message_id: externalId, user: user.optional(), new_reaction: z.array(z.unknown()) })
     .optional(),
 })
 export function decodeTelegram(input: unknown, bot: { id?: string | null; username?: string | null }) {

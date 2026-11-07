@@ -77,3 +77,68 @@ Git 更新和分支切换在独立副本完成准备和 manifest/API 校验。
 
 回滚范围是插件代码和启用/批准设置，不能撤回插件在顶层或启动过程中已产生的外部副作用。
 长时间运行后发生的故障通过状态和手动重试处理，不自动回滚代码。
+
+## 渠道平台（v2）
+
+后台声明 `permissions: { background: true, channels: true }` 后，可以在
+`startBackground(ctx, signal)` 中调用 `ctx.channels.registerProvider(definition)`。
+未声明 `channels` 的注册调用会抛出 `CHANNEL_PERMISSION_REQUIRED`；工具、钩子和路由的
+上下文也提供只读的 `channels.lookup(chatId)` / `channels.lookupAll(chatId)`，不需要渠道权限。
+`registerProvider` / `ensureAccount` 仅限当前后台生命周期使用。
+`registerProvider` 返回 `{ unregister(): void }`；注销会停止平台全部账号、使旧 IO 失效、
+显示 `PROVIDER_UNAVAILABLE`，并保留账号、绑定、会话和日志。重复注销无副作用；
+可再次注册同名平台，宿主自动启动此前 enabled 的账号。后台 signal 中止也会自动注销，
+旧后台或旧注销句柄不会影响后来的注册。
+
+`ensureAccount(providerId, { name, characterId?, groupId? })` 返回
+`{ accountId, characterFollowed: boolean }`。新建账号保存 `providerState.ensuredCharacterId`，
+传入角色时 `characterFollowed: true`；未传角色时为 false。已有账号仅在传入角色且当前
+`characterMode === 'fixed'`、当前角色等于上次 ensuredCharacterId 时跟随并更新记录，
+否则返回 false，保留用户设置。其他设置不覆盖，已停用账号不重新启用。
+
+SDK 导出 `ChannelProviderDefinition`、`ChannelProviderAccount`、`ChannelProviderIO`、
+`ChannelInboundMessage`、`ChannelLookup`、`ExtensionChannels`、`ChannelSendError` 和
+`ChannelProviderStoppedError`。完整字段及 REST 接口见
+[渠道平台接口](../../../../docs/design/channel-providers.md)。
+
+```ts
+import { defineExtension, ChannelSendError } from './sdk'
+
+export default defineExtension({
+  id: 'example', name: 'Example', version: '1.0.0', description: 'Example channel',
+  async startBackground(ctx, signal) {
+    ctx.channels.registerProvider({
+      id: 'dm', name: 'Example DM', scopes: ['private'], canInitiate: false,
+      limits: { maxTextLength: 500, minIntervalMs: 1000, perMinute: 20 },
+      media: { inboundImages: true, outboundImages: false, voice: false },
+      accountFields: [], defaults: { newLocation: { private: 'approve' } },
+      promptHint: 'This is a direct message. Reply briefly in plain text. Write in the same language as the conversation.',
+      async start(account, io, accountSignal) {
+        io.status('online')
+        // 将 io 交给平台接收器；账号信号中止后停止接收器。
+        await new Promise<void>((resolve) => accountSignal.addEventListener('abort', () => resolve(), { once: true }))
+      },
+      async send(account, message, accountSignal) {
+        // 只接收单段纯文本。平台确认未发送时才能声明 not-sent。
+        throw new ChannelSendError('not-sent', 'BUDGET', { retryAfterMs: 60000 })
+      },
+    })
+    await ctx.channels.ensureAccount('dm', { name: 'Example DM' })
+  },
+})
+```
+
+`io` 可以保存在接收器中，从任意异步上下文调用；宿主自动恢复所属用户上下文。
+账号信号中止后，`emit`、`status`、`saveCursor`、`setOwner` 都会同步抛出
+`ChannelProviderStoppedError`，可按 `error.name` 判断。`start` 返回不表示账号停止。
+账号启动时状态为 `connecting`，发送队列会等待；**插件就绪后必须调用 `io.status('online')`，否则不会发送**。
+`emit` 在消息落库或进入批准／持久化排队流程后 resolve；不会等待模型生成或回复投递。
+入站触发的授权提示、命令回复也只等待加入发送队列，后台发送错误记入渠道日志。
+`saveCursor` 接受可 JSON 序列化的游标。`setOwner(id)` 声明已配对主人，`null` 撤销本账号的声明。
+
+`ChannelSendError('not-sent', code, { retryAfterMs })` 表示确定没有发出，可自动重试最多三次（retryAfterMs 超过 10 分钟时不等待，直接判定这段未发出，避免堵住同一账号的其他会话）；
+账号仍 online 时，没有重试间隔的 `not-sent` 直接记失败。
+如果插件先报告 paused / offline / connecting 等非 online 状态，再抛 `not-sent`（例如验证码），
+宿主等待恢复 online 后重发当前段，不要求 retryAfterMs，也不消耗三次重试预算。`unknown` 和其他异常只记结果不确定，绝不自动重发。
+宿主按 `error.name === 'ChannelSendError'` 识别跨模块错误。
+暂停期间同一发送队列冻结，恢复 `online` 后继续；账号停止会取消等待中的发送。

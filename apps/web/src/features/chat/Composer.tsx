@@ -8,6 +8,7 @@ import { clientMessageId, reportRoomTyping, useSendRoomMessage, useSendWhisper }
 import { useTranslateEnabled, useTranslateText } from '../../api/translation'
 import { MicIcon, PlusIcon, SendIcon, StopIcon, TranslateIcon } from '../../components/icons'
 import { cx, IconButton } from '../../components/ui'
+import { useDismissableDetails } from '../../components/useDismissable'
 import { emitClientEvent } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
 import { useCommandInput } from '../../hooks/useCommandInput'
@@ -88,7 +89,8 @@ export function Composer({
       const key = randomId()
       updateImages([...imagesRef.current, { key }])
       void api
-        .uploadAttachment(file)
+        // 带上会话 id：房间会话要走房间的上传接口登记附件，否则发送时会被判为「附件不可用」
+        .uploadAttachment(file, chatId)
         .then((attachment) => {
           updateImages(imagesRef.current.map((item) => (item.key === key ? { key, attachment } : item)))
         })
@@ -201,6 +203,8 @@ export function Composer({
     if (!showing) ui.openView('chat')
   }
   const closeMenu = () => menuRef.current?.removeAttribute('open')
+  // 点外面（包括输入框旁的图片按钮）或按 Esc 收起「+」菜单
+  useDismissableDetails(menuRef)
 
   const trigger = (speakerId?: string) => {
     closeMenu()

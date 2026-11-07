@@ -3289,4 +3289,6 @@ export const en: Record<string, string> = {
   '由「{extension}」提供的平台。': 'A platform provided by {extension}.',
   '由扩展提供的平台。': 'A platform provided by an extension.',
   '打开{extension}': 'Open {extension}',
+  查看图片: 'View image',
+  查看大图: 'View full size',
 }

@@ -144,7 +144,9 @@ test('助手与工具显示图片、异步占位和失败信息', () => {
       meta: { images: [{ id: 'image', url: '/fixture-image.webp', width: 512, height: 512 }] },
     })
     expect(html).toContain('/fixture-image.webp')
-    expect(html).toContain('target="_blank"')
+    // 点图片在站内看大图，不再新开标签页
+    expect(html).not.toContain('target="_blank"')
+    expect(html).toContain('cursor-zoom-in')
   }
   const pending = render({
     ...msg,

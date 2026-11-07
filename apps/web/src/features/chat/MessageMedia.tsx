@@ -1,10 +1,11 @@
 import type { AttachmentDTO, MessageDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { api } from '../../api/client'
 import { apiFetch } from '../../api/fetch'
 import { replaceMessage, resetChat, useSetAttachmentCg } from '../../api/queries'
 import { ChevronLeftIcon, ChevronRightIcon, StarIcon } from '../../components/icons'
+import { Lightbox } from '../../components/lightbox'
 import { Button, cx, IconButton } from '../../components/ui'
 import { emitClientEvent, hasListener, useExtensionsRuntime } from '../../extensions/runtime'
 import { Slot } from '../../extensions/Slot'
@@ -31,6 +32,9 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
   const [saving, setSaving] = useState(false)
   const [editingPrompt, setEditingPrompt] = useState(false)
   const [expandedError, setExpandedError] = useState(false)
+  // 站内查看大图，不再跳到新标签页
+  const [viewing, setViewing] = useState<string | null>(null)
+  const closeViewer = useCallback(() => setViewing(null), [])
   const task = msg.meta.imageGen
   const images = msg.meta.images ?? []
   const hasTaskFrame = task?.status === 'pending' || task?.status === 'error'
@@ -98,17 +102,18 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
   if (!images.length && !task) return null
   return (
     <div className="group/media my-2 space-y-1">
+      {viewing && <Lightbox src={viewing} onClose={closeViewer} />}
       {images.length > 0 && imageIndex < images.length && (
         <div className="flex flex-wrap gap-2">
           {images.map(
             (image, index) =>
               (!carousel || index === imageIndex) && (
-                <a
+                <button
+                  type="button"
                   key={image.id}
-                  href={image.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block overflow-hidden rounded-xl bg-zinc-100 ring-1 ring-black/5 dark:bg-zinc-800 dark:ring-white/10"
+                  aria-label={t('查看大图')}
+                  onClick={() => setViewing(image.url)}
+                  className="block cursor-zoom-in overflow-hidden rounded-xl bg-zinc-100 ring-1 ring-black/5 dark:bg-zinc-800 dark:ring-white/10"
                   style={{ width: carousel ? 'min(320px, 100%)' : fitWidth(image) }}
                 >
                   <img
@@ -120,7 +125,7 @@ export function MessageMedia({ msg, chatId }: { msg: MessageDTO; chatId: string 
                       image.width && image.height ? { aspectRatio: `${image.width} / ${image.height}` } : undefined
                     }
                   />
-                </a>
+                </button>
               ),
           )}
         </div>

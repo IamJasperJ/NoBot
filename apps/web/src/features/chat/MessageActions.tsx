@@ -1,5 +1,6 @@
 import type { BookmarkDTO, MessageDTO } from '@nobot/shared'
 import { useQueryClient } from '@tanstack/react-query'
+import { useRef } from 'react'
 import { api } from '../../api/client'
 import { keys, replaceMessage } from '../../api/queries'
 import type { useMessageTranslation, useTranslationView } from '../../api/translation'
@@ -18,7 +19,8 @@ import {
   TranslateIcon,
   TrashIcon,
 } from '../../components/icons'
-import { IconButton } from '../../components/ui'
+import { cx, IconButton } from '../../components/ui'
+import { useDismissableDetails, useFlipUp } from '../../components/useDismissable'
 import { Slot } from '../../extensions/Slot'
 import { t } from '../../i18n'
 import { useChatOps } from '../../stores/chatOps'
@@ -55,6 +57,11 @@ export function MessageActions({
   onRun,
 }: Props) {
   const qc = useQueryClient()
+  const menuRef = useRef<HTMLDetailsElement>(null)
+  const menuBox = useRef<HTMLDivElement>(null)
+  useDismissableDetails(menuRef)
+  // 靠近底部的消息菜单会被输入框挡住，放不下时向上展开
+  const flipUp = useFlipUp(menuRef, menuBox)
 
   const setExcluded = async (excluded: boolean) => {
     try {
@@ -105,13 +112,19 @@ export function MessageActions({
           <RefreshIcon />
         </IconButton>
       )}
-      <details className="message-actions relative">
+      <details ref={menuRef} className="message-actions relative">
         <summary className="list-none">
           <span className="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800">
             <DotsIcon />
           </span>
         </summary>
-        <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+        <div
+          ref={menuBox}
+          className={cx(
+            'absolute right-0 z-20 max-h-[60vh] w-44 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-800 dark:bg-zinc-900',
+            flipUp ? 'bottom-full mb-1' : 'mt-1',
+          )}
+        >
           {canRegenerate && (
             <MenuItem
               icon={<ChevronRightIcon />}

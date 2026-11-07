@@ -224,7 +224,12 @@ export function loadGenerationContext(chatId: string, opts: { requireConnection:
 }
 
 /** 把激活路径上的消息转成组装用的历史（失败的消息不发给模型） */
-export function toHistory(ctx: GenerationContext, leafId: string | null, plainHistory = false): HistoryMessage[] {
+export function toHistory(
+  ctx: GenerationContext,
+  leafId: string | null,
+  plainHistory = false,
+  includeContext = true,
+): HistoryMessage[] {
   const names = new Map(ctx.members.map((m) => [m.id, m.name]))
   const preset = resolvePlayPreset(ctx.chat.id).data
   const path = loadPath(leafId)
@@ -285,6 +290,7 @@ export function toHistory(ctx: GenerationContext, leafId: string | null, plainHi
         (m.role === 'tool' && m.meta.images?.length && !recent.has(m.id)
           ? `\n[Tool returned ${m.meta.images.length} image(s); images omitted from history.]`
           : '') +
+        (m.role === 'user' && includeContext && m.meta.context ? `\n${m.meta.context}` : '') +
         (m.role === 'user' && m.meta.check ? `\n${describeCheck(m.meta.check)}` : '') +
         (m.meta.choice?.counts
           ? `\n[Room vote counts by option: ${m.meta.choice.counts.map((count, index) => `${index + 1}=${count}`).join(', ')}.]`
@@ -331,6 +337,7 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
   if (!speaker) throw new HttpError(400, 'NO_SPEAKER', t('找不到发言的角色'))
   const multiplayer = multiplayerPrompt(ctx.chat.id, opts.leafId)
   const history = replaceImageAttachments(toHistory(ctx, opts.leafId, opts.plainHistory), ctx.connection)
+  // pending 仅用于尚未入库的预览正文，不接收 meta；扩展追加的消息统一走上面的历史路径。
   if (opts.pending) {
     history.push({
       id: 'pending',
@@ -509,7 +516,8 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
 /** 网络与缓存留在服务层，向量命中后仍走同一套纯扫描和预算。 */
 export async function assembleWithVectors(ctx: GenerationContext, opts: AssembleOptions) {
   const settings = getWorldInfoSettings()
-  const history = toHistory(ctx, opts.leafId, opts.plainHistory).filter(
+  // 向量检索只读取正文，避免外部素材触发世界书；总结素材也始终直接读取数据库正文。
+  const history = toHistory(ctx, opts.leafId, opts.plainHistory, false).filter(
     (message) => message.role === 'user' || message.role === 'assistant',
   )
   if (opts.pending)

@@ -56,10 +56,11 @@ test('助手历史规范化演绎标签，保留其他角色、图片回退和�
     const play = resolvePlayPreset(chat.id)
     const raw = '<screaming>甲</screaming><gasp>乙</gasp><laughs/>丙'
     const normalized = '<shout>甲</shout><gasp/>乙<laugh/>丙'
+    const context = 'External work material for the model only.'
     let parentId = chat.activeLeafId
     const records: { id: string; role: MessageRole; content: string; meta: MessageMeta }[] = [
-      { id: 'delivery-user', role: 'user', content: raw, meta: {} },
-      { id: 'delivery-assistant', role: 'assistant', content: raw, meta: {} },
+      { id: 'delivery-user', role: 'user', content: raw, meta: { context } },
+      { id: 'delivery-assistant', role: 'assistant', content: raw, meta: { context: 'Ignored assistant context.' } },
       { id: 'delivery-tool', role: 'tool', content: raw, meta: { toolCallId: 'test' } },
       {
         id: 'delivery-caption',
@@ -93,12 +94,15 @@ test('助手历史规范化演绎标签，保留其他角色、图片回退和�
       const ctx = loadGenerationContext(chat.id, { requireConnection: false })
       const history = toHistory(ctx, parentId)
       expect(history.find((m) => m.id === 'delivery-assistant')?.content).toBe(normalized)
-      expect(history.find((m) => m.id === 'delivery-user')?.content).toBe(raw)
+      expect(history.find((m) => m.id === 'delivery-user')?.content).toBe(`${raw}\n${context}`)
+      expect(toHistory(ctx, parentId, false, false).find((m) => m.id === 'delivery-user')?.content).toBe(raw)
       expect(history.find((m) => m.id === 'delivery-tool')?.content).toBe(raw)
       expect(history.find((m) => m.id === 'delivery-caption')?.content).toBe(raw)
       expect(history.find((m) => m.id === 'delivery-image')?.content).toBe(`(Sent an image: ${raw})`)
       const built = assemble(ctx, { type: 'normal', speakerId: actor.id, leafId: 'delivery-assistant' })
       expect(built.messages.some((m) => m.role === 'assistant' && m.content === normalized)).toBe(true)
+      expect(built.messages.some((m) => m.role === 'user' && m.content.endsWith(`${raw}\n${context}`))).toBe(true)
+      expect(JSON.stringify(built.messages)).not.toContain('Ignored assistant context.')
       expect(toHistory(ctx, parentId, true).find((m) => m.id === 'delivery-assistant')?.content).toBe('甲乙丙')
       if (enabled) {
         database.db
@@ -111,7 +115,11 @@ test('助手历史规范化演绎标签，保留其他角色、图片回退和�
         expect(toHistory(ctx, parentId).find((m) => m.id === 'delivery-assistant')?.content).toBe('甲乙丙')
       }
     }
-    expect(database.db.select().from(messages).where(eq(messages.id, 'delivery-assistant')).get()?.content).toBe(raw)
+    for (const id of ['delivery-user', 'delivery-assistant']) {
+      const saved = database.db.select().from(messages).where(eq(messages.id, id)).get()
+      expect(saved?.content).toBe(raw)
+      expect(saved?.meta.context).toBe(id === 'delivery-user' ? context : 'Ignored assistant context.')
+    }
   } finally {
     sqlite?.close()
     await rm(directory, { recursive: true, force: true })

@@ -25,6 +25,11 @@ export interface ToolCall {
 
 /** 消息的附加信息，存成 json */
 export interface MessageMeta {
+  /**
+   * 外部来源附给模型的补充材料（如扩展读取的作品素材），不显示在消息正文里。
+   * 仅对 user 消息生效，只在组装 Prompt 时附在这条用户消息正文之后。
+   */
+  context?: string
   /** 外部来源转进来的消息，这一轮回复不转发到聊天渠道 */
   noRelay?: boolean
   /**

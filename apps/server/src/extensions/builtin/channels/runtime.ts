@@ -311,11 +311,11 @@ export class ChannelRuntime {
   status(id: string, status: 'stopped' | 'connecting' | 'online' | 'offline' | 'paused' | 'error', reason?: string) {
     const entry = this.accounts.get(id)
     if (entry?.client instanceof PluginChannelClient) entry.client.status(status)
+    const lastError = reason ?? (status === 'error' ? 'CHANNEL_UNAVAILABLE' : null)
+    const previous = accountRow(id)
+    if (previous.status === status && previous.lastError === lastError) return
     channelLog({ at: Date.now(), accountId: id, code: `status.${status}`, message: t('渠道状态已更新') })
-    db.update(channelAccounts)
-      .set({ status, lastError: reason ?? (status === 'error' ? 'CHANNEL_UNAVAILABLE' : null) })
-      .where(eq(channelAccounts.id, id))
-      .run()
+    db.update(channelAccounts).set({ status, lastError }).where(eq(channelAccounts.id, id)).run()
     liveHub.publishToUser(currentUser().id, {
       type: 'channel.account',
       topic: `user:${currentUser().id}`,
@@ -333,8 +333,13 @@ export class ChannelRuntime {
       else await this.start(row.accountId)
     }
   }
-  log(id: string, code: string) {
-    channelLog({ at: Date.now(), accountId: id, code, message: code === 'delivery.uncertain' ? t('结果不确定') : code })
+  log(id: string, code: string, message?: string) {
+    channelLog({
+      at: Date.now(),
+      accountId: id,
+      code,
+      message: message ?? (code === 'delivery.uncertain' ? t('结果不确定') : code),
+    })
   }
   async create(config: ChannelAccountConfig, expectedBotId?: number) {
     const provider = getProvider(config.provider)

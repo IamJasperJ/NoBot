@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomBytes, randomInt } from 'node:crypto'
+import { join } from 'node:path'
 import { burstDelays, burstSeed, splitBurst } from '@nobot/core'
 import { parseStageMessage, toDisplayText } from '@nobot/core/stage'
 import {
@@ -29,9 +30,11 @@ import {
 } from '../../../db/schema'
 import { systemDatabase } from '../../../db/system-client'
 import { roomMembers, rooms, users } from '../../../db/system-schema'
+import { paths } from '../../../env'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { stripBidi } from '../../../lib/input-text'
+import { getAttachment } from '../../../services/attachments'
 import { getChatRow, loadMessage, loadPath } from '../../../services/chats'
 import { getJob } from '../../../services/generation/generation'
 import { stageMembers } from '../../../services/generation/stage'
@@ -120,16 +123,24 @@ export class ChannelService {
   private queued = new Map<
     string,
     {
-      inputs: { input: Extract<GenerateInput, { mode: 'send' }>; sentAt: number; context?: string; inbound?: boolean }[]
+      inputs: {
+        input: Extract<GenerateInput, { mode: 'send' }>
+        sentAt: number
+        context?: string
+        clientMessageId?: string
+        inbound?: boolean
+      }[]
     }
   >()
   private roomInputs = new Map<string, { actor: ChannelActorDTO; event: MessageEvent; images: string[] }[]>()
-  private inboundRoots = new Map<string, Set<string>>()
-  private inboundJobs = new Map<string, object>()
-  private replyIds = new Map<string, Set<string>>()
   private pendingInput = new Map<
     string,
-    { bindingId: string; context?: string; resolve: () => void; reject: (error: unknown) => void }
+    {
+      context?: string
+      clientMessageId?: string
+      resolve: () => void
+      reject: (error: unknown) => void
+    }
   >()
   private deliveryTails = new Map<string, Promise<unknown>>()
   private inputTails = new Map<string, Promise<unknown>>()
@@ -147,7 +158,17 @@ export class ChannelService {
     readonly globalSettings: () => Record<string, unknown>,
   ) {
     this.runtime = new ChannelRuntime(host, (id, update) => this.receive(id, update))
-    this.runtime.started = (id) => this.resumeQueued(id)
+    this.runtime.started = (id) => {
+      this.resumeQueued(id)
+      const client = this.runtime.accounts.get(id)?.client
+      if (client instanceof PluginChannelClient) {
+        client.replayRequest = (requestId) => this.replayRequest(requestId)
+        for (const request of db.select().from(channelRequests).where(eq(channelRequests.accountId, id)).all()) {
+          if (request.state === 'approved')
+            void this.replayRequest(request.id).catch(() => this.runtime.log(id, 'inbound.replay.failed'))
+        }
+      }
+    }
     this.media = new OutboundMedia(host, (id, code) => this.runtime.log(id, code))
     const owner = currentUser()
     const ownerId = owner.id
@@ -245,6 +266,26 @@ export class ChannelService {
   settings(binding: ChannelBindingDTO) {
     return resolveChannelSettings(accountRow(binding.accountId).config, binding, this.globalSettings())
   }
+  private logSendError(accountId: string, error: unknown) {
+    const value =
+      error && typeof error === 'object'
+        ? (error as { name?: unknown; kind?: unknown; code?: unknown; message?: unknown })
+        : undefined
+    const channelError = value?.name === 'ChannelSendError'
+    const details = [
+      channelError ? value.kind : value?.name,
+      channelError ? value.code : undefined,
+      value?.message ?? (value ? undefined : String(error)),
+    ]
+      .filter((part) => typeof part === 'string' && part.length)
+      .join(' ')
+      .slice(0, 300)
+    this.runtime.log(
+      accountId,
+      channelError && value.kind === 'not-sent' ? 'delivery.failed' : 'delivery.uncertain',
+      details,
+    )
+  }
   async send(accountId: string, chat: string, text: string, thread?: string) {
     const provider = getProvider(accountRow(accountId).provider)
     const inbound = this.inboundScope.getStore()
@@ -271,14 +312,7 @@ export class ChannelService {
       const sending = client.call('sendMessage', { chat_id: chat, text })
       if (inbound?.accountId === accountId) {
         // 插件接收器可能持有发送也需要的锁，入站仅等待回复入队。
-        void sending.catch((error: unknown) =>
-          this.runtime.log(
-            accountId,
-            error instanceof Error && 'kind' in error && error.kind === 'not-sent'
-              ? 'delivery.failed'
-              : 'delivery.uncertain',
-          ),
-        )
+        void sending.catch((error: unknown) => this.logSendError(accountId, error))
       } else await sending
       return
     }
@@ -495,6 +529,7 @@ export class ChannelService {
             Date.now(),
             event.displayName,
           )
+        if (!actor) await this.saveRequestInput(id, event)
         await this.send(id, String(event.chat.id), t('请先配对或请主人授权'))
         return
       }
@@ -583,7 +618,10 @@ export class ChannelService {
             .run()
       }
       if (event.forum_topic_created || event.forum_topic_edited || event.new_chat_title) return
-      if (binding?.state !== 'active') return
+      if (binding?.state !== 'active') {
+        await this.saveRequestInput(id, event)
+        return
+      }
       if (stickerBinding?.state !== 'active') await learnStickers()
       syncActorPersona(binding, actor)
       if (entry.client instanceof OneBotClient) {
@@ -749,8 +787,7 @@ export class ChannelService {
       await this.acceptInput(binding, actor, event, images)
     } catch (error) {
       if (error && typeof error === 'object' && 'name' in error && error.name === 'ChannelSendError') {
-        const notSent = 'kind' in error && error.kind === 'not-sent'
-        this.runtime.log(id, notSent ? 'delivery.failed' : 'delivery.uncertain')
+        this.logSendError(id, error)
         return
       }
       if (error instanceof HttpError && error.status < 500) {
@@ -777,7 +814,101 @@ export class ChannelService {
       }
     }
   }
-  private async acceptInput(binding: ChannelBindingDTO, actor: ChannelActorDTO, event: MessageEvent, images: string[]) {
+  /** 批准队列只保存附件引用，插件释放图片字节或重启都不影响回放。 */
+  private async saveRequestInput(accountId: string, event: MessageEvent) {
+    const client = this.runtime.accounts.get(accountId)?.client
+    if (!(client instanceof PluginChannelClient)) return
+    const request = db
+      .select()
+      .from(channelRequests)
+      .where(
+        and(
+          eq(channelRequests.accountId, accountId),
+          eq(channelRequests.chat, String(event.chat.id)),
+          eq(channelRequests.state, 'pending'),
+        ),
+      )
+      .get()
+    if (!request) return
+    const key = `channels:request:${request.id}`
+    const pending = getSetting<{ event: MessageEvent; images: string[] }[]>(key) ?? []
+    if (pending.some((item) => item.event.dedupeKey === event.dedupeKey)) return
+    const images: string[] = []
+    for (const photo of event.photo ?? [])
+      images.push((await this.host.saveImage(await downloadTelegramFile(client, photo))).id)
+    pending.push({ event: { ...event, photo: undefined }, images })
+    setSetting(key, pending.slice(-20))
+  }
+  private async replayRequest(requestId: string) {
+    const request = db.select().from(channelRequests).where(eq(channelRequests.id, requestId)).get()
+    if (!request) return
+    const pending = (this.inputTails.get(request.accountId) ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => this.replayRequestNow(requestId))
+    this.inputTails.set(request.accountId, pending)
+    try {
+      await pending
+    } finally {
+      if (this.inputTails.get(request.accountId) === pending) this.inputTails.delete(request.accountId)
+    }
+  }
+  private async replayRequestNow(requestId: string) {
+    const request = db.select().from(channelRequests).where(eq(channelRequests.id, requestId)).get()
+    if (request?.state !== 'approved') return
+    const key = `channels:request:${requestId}`
+    const pending = getSetting<{ event: MessageEvent; images: string[] }[]>(key)
+    if (!pending?.length) return
+    pending.sort((a, b) => (a.event.sentAt ?? 0) - (b.event.sentAt ?? 0))
+    for (const [index, item] of pending.entries()) {
+      const actor = db
+        .select()
+        .from(channelActors)
+        .where(
+          and(
+            eq(channelActors.provider, accountRow(request.accountId).provider),
+            eq(channelActors.externalId, String(item.event.from.id)),
+          ),
+        )
+        .get()
+      if (!actor || actor.role === 'blocked') continue
+      const binding = await this.resolveBinding(request.accountId, item.event, actor)
+      if (binding?.state !== 'active') return
+      const images: string[] = []
+      for (const id of item.images) {
+        if (!binding.roomId) {
+          images.push(id)
+          continue
+        }
+        // 房间成员上传仍经过原有权限与资产登记入口。
+        const form = new FormData()
+        form.set('chatId', binding.chatId)
+        form.set(
+          'file',
+          new Blob([await Bun.file(join(paths.attachments, `${id}.webp`)).arrayBuffer()], { type: 'image/webp' }),
+          'photo',
+        )
+        const response = await asChannelActor(binding, actor, () =>
+          dispatchScope(
+            binding.roomId!,
+            new Request('http://room/attachments', { method: 'POST', body: form }),
+            '/attachments',
+          ),
+        )
+        if (!response.ok) throw new HttpError(400, 'ROOM_ATTACHMENT_UNAVAILABLE', t('所选附件不可用，请重新上传'))
+        images.push(((await response.json()) as { id: string }).id)
+      }
+      syncActorPersona(binding, actor)
+      await this.acceptInput(binding, actor, item.event, images, index === pending.length - 1)
+    }
+    setSetting(key, null)
+  }
+  private async acceptInput(
+    binding: ChannelBindingDTO,
+    actor: ChannelActorDTO,
+    event: MessageEvent,
+    images: string[],
+    trigger = true,
+  ) {
     if (
       binding.roomId &&
       this.host.isGenerating(binding.chatId) &&
@@ -843,11 +974,22 @@ export class ChannelService {
           },
           event.context ? { context: event.context } : {},
           currentUser().id,
-          binding.trigger === 'follow-room' || this.triggered(binding, event),
+          trigger && (binding.trigger === 'follow-room' || this.triggered(binding, event)),
         )
-      const received = asChannelActor(binding, actor, send)
-      this.markInbound(binding.id, received.id)
+      asChannelActor(binding, actor, send)
     } else if (this.triggered(binding, event)) {
+      if (!trigger) {
+        this.host.appendMessage(binding.chatId, {
+          role: 'user',
+          content: event.text,
+          meta: {
+            clientMessageId: `${accountRow(binding.accountId).provider}:${binding.chat}:${event.message_id}`,
+            context: event.context,
+            images: images.map(getAttachment),
+          },
+        })
+        return
+      }
       if (isOoc)
         this.host.appendMessage(binding.chatId, {
           role: 'user',
@@ -859,7 +1001,11 @@ export class ChannelService {
           binding,
           { mode: 'send', text: event.text, images },
           getProvider(accountRow(binding.accountId).provider)?.definition
-            ? { sentAt: event.sentAt ?? Date.now(), context: event.context }
+            ? {
+                sentAt: event.sentAt ?? Date.now(),
+                context: event.context,
+                clientMessageId: `${accountRow(binding.accountId).provider}:${binding.chat}:${event.message_id}`,
+              }
             : undefined,
         )
     }
@@ -1221,7 +1367,10 @@ export class ChannelService {
       const created = await this.resolveBinding(accountId, event, actor, { kind, id: targetId })
       if (!created) return
     } else {
-      const chat = this.host.createChat(kind === 'group' ? { groupId: targetId } : { characterId: targetId })
+      const chat = this.createChannelChat(
+        config.provider,
+        kind === 'group' ? { groupId: targetId } : { characterId: targetId },
+      )
       const room = binding.roomId ? createRoom(createRoomInput.parse({ name: chat.title, chatId: chat.id })) : null
       this.saveBinding({ ...binding, chatId: chat.id, roomId: room?.id ?? null })
     }
@@ -1399,7 +1548,7 @@ export class ChannelService {
       await this.showPicker(id, actor, event)
       return
     }
-    const chat = this.host.createChat(groupId ? { groupId } : { characterId: characterId! })
+    const chat = this.createChannelChat(config.provider, groupId ? { groupId } : { characterId: characterId! })
     db.update(chats)
       .set({
         sourceProvider: config.provider === 'telegram' || config.provider === 'onebot11' ? config.provider : null,
@@ -1438,6 +1587,15 @@ export class ChannelService {
       }
     }
     return bindingRow(binding.id)
+  }
+  private createChannelChat(provider: string, input: Parameters<ExtensionHost['createChat']>[0]) {
+    const chat = this.host.createChat(input)
+    if (getProvider(provider)?.definition?.canInitiate === false) {
+      // 创建完成、尚未绑定或触发生成时清空开场白，避免它进入提示词和投递。
+      db.update(chats).set({ activeLeafId: null }).where(eq(chats.id, chat.id)).run()
+      db.delete(messages).where(eq(messages.chatId, chat.id)).run()
+    }
+    return chat
   }
   saveBinding(binding: Omit<ChannelBindingDTO, 'memberCount' | 'chatTitle'>, topicTitle?: string) {
     if (binding.source === 'new' && !db.select().from(channelBindings).where(eq(channelBindings.id, binding.id)).get())
@@ -1522,7 +1680,13 @@ export class ChannelService {
         this.drainRoom(binding)
       }
       const pending = getSetting<
-        | { input: Extract<GenerateInput, { mode: 'send' }>; sentAt: number; context?: string; inbound?: boolean }[]
+        | {
+            input: Extract<GenerateInput, { mode: 'send' }>
+            sentAt: number
+            context?: string
+            clientMessageId?: string
+            inbound?: boolean
+          }[]
         | null
       >(`channels:pending:${binding.id}`)
       if (pending?.length && !this.queued.has(binding.id)) {
@@ -1550,6 +1714,7 @@ export class ChannelService {
           },
           inputs.some((item) => item.inbound)
             ? {
+                clientMessageId: inputs.find((item) => item.inbound)?.clientMessageId,
                 context:
                   inputs
                     .map((item) => item.context)
@@ -1565,25 +1730,24 @@ export class ChannelService {
         this.runtime.log(binding.accountId, 'generation.failed')
       })
   }
-  private markInbound(bindingId: string, messageId: string) {
-    this.inboundRoots.set(bindingId, new Set([messageId]))
-  }
   private acknowledgeInput(message: MessageDTO) {
     const inbound = this.pendingInput.get(message.chatId)
     if (!inbound) return
     this.pendingInput.delete(message.chatId)
-    this.markInbound(inbound.bindingId, message.id)
-    if (inbound.context) {
-      message.meta.context = inbound.context
-      db.update(messages).set({ meta: message.meta }).where(eq(messages.id, message.id)).run()
-    }
+    if (inbound.context) message.meta.context = inbound.context
+    if (inbound.clientMessageId) message.meta.clientMessageId = inbound.clientMessageId
+    db.update(messages).set({ meta: message.meta }).where(eq(messages.id, message.id)).run()
     inbound.resolve()
   }
-  private startInput(binding: ChannelBindingDTO, input: GenerateInput, inbound?: { context?: string }) {
+  private startInput(
+    binding: ChannelBindingDTO,
+    input: GenerateInput,
+    inbound?: { context?: string; clientMessageId?: string },
+  ) {
     let saved: Promise<void> | undefined
     if (inbound)
       saved = new Promise<void>((resolve, reject) => {
-        this.pendingInput.set(binding.chatId, { bindingId: binding.id, ...inbound, resolve, reject })
+        this.pendingInput.set(binding.chatId, { ...inbound, resolve, reject })
       })
     try {
       this.host.generate(binding.chatId, input)
@@ -1594,15 +1758,19 @@ export class ChannelService {
     this.watchJobs()
     return saved
   }
-  async generate(binding: ChannelBindingDTO, input: GenerateInput, inbound?: { sentAt: number; context?: string }) {
+  async generate(
+    binding: ChannelBindingDTO,
+    input: GenerateInput,
+    inbound?: { sentAt: number; context?: string; clientMessageId?: string },
+  ) {
     if (
       input.mode !== 'send' &&
       this.inboundScope.getStore()?.accountId === binding.accountId &&
       this.runtime.accounts.get(binding.accountId)?.client instanceof PluginChannelClient
     ) {
       // 继续和重生成命令可能等待旧任务，不能让接收器持锁等待这一轮完成。
-      void this.generateNow(binding, input, inbound).catch(() =>
-        this.runtime.log(binding.accountId, 'generation.failed'),
+      void this.generateNow(binding, input, inbound).catch((error: unknown) =>
+        this.logSendError(binding.accountId, error),
       )
       return
     }
@@ -1611,7 +1779,7 @@ export class ChannelService {
   private async generateNow(
     binding: ChannelBindingDTO,
     input: GenerateInput,
-    inbound?: { sentAt: number; context?: string },
+    inbound?: { sentAt: number; context?: string; clientMessageId?: string },
   ) {
     if (input.mode === 'send') updateVoicePreference(binding, input.text, this.settings(binding).values)
     if (
@@ -1619,7 +1787,13 @@ export class ChannelService {
       this.host.isGenerating(binding.chatId) &&
       (this.settings(binding).values.queueMode === 'merge' || !!inbound)
     ) {
-      const item = { input, sentAt: inbound?.sentAt ?? Date.now(), context: inbound?.context, inbound: !!inbound }
+      const item = {
+        input,
+        sentAt: inbound?.sentAt ?? Date.now(),
+        context: inbound?.context,
+        clientMessageId: inbound?.clientMessageId,
+        inbound: !!inbound,
+      }
       const queued = this.queued.get(binding.id)
       if (queued) {
         queued.inputs.push(item)
@@ -1975,7 +2149,7 @@ export class ChannelService {
       const old = getChatRow(binding.chatId)
       const characterId = old.characterId
       const groupId = old.groupId
-      const chat = this.host.createChat(groupId ? { groupId } : { characterId: characterId! })
+      const chat = this.createChannelChat(config.provider, groupId ? { groupId } : { characterId: characterId! })
       db.update(chats)
         .set({
           sourceProvider: config.provider === 'telegram' || config.provider === 'onebot11' ? config.provider : null,
@@ -1988,24 +2162,37 @@ export class ChannelService {
     }
     return reply(t('渠道命令帮助'))
   }
-  private canClaimInbound(binding: ChannelBindingDTO, parent: MessageDTO | undefined) {
-    if (!parent || !this.inboundRoots.get(binding.id)?.has(parent.id)) return false
-    if (!binding.roomId) return true
-    // 房间自动回合沿用入站发言人的身份；网页或后台主动触发使用另一身份，不能借走待处理输入的许可。
-    const turn = getSetting<{ running: boolean; actorId: string }>(`room-turn:${binding.roomId}`)
-    return turn?.running === true && turn.actorId === parent.meta.author?.userId
-  }
-  observePrompt(chatId: string) {
-    const job = getJob(chatId)
-    if (!job) return
-    const parent = loadPath(getChatRow(chatId).activeLeafId).findLast((message) => message.role === 'user')
-    for (const binding of listBindings().filter((binding) => binding.chatId === chatId)) {
-      if (this.canClaimInbound(binding, parent)) {
-        this.inboundRoots.get(binding.id)?.clear()
-        this.inboundJobs.set(binding.id, job)
-      }
-    }
+  observePrompt(_chatId: string) {
     this.watchJobs()
+  }
+  /**
+   * 许可只依赖持久化消息树；同一分支的连发不互斥，其他已投递分支不能重发。
+   * 不区分生成由谁触发：房间判断后的回合、网页上点生成，只要是在答复 30 分钟内未答复的入站消息就放行。
+   */
+  private isInboundReply(binding: ChannelBindingDTO, message: MessageDTO) {
+    if (!['assistant', 'tool'].includes(message.role)) return false
+    const rows = db.select().from(messages).where(eq(messages.chatId, binding.chatId)).all()
+    const byId = new Map(rows.map((row) => [row.id, row]))
+    let branch = message.id
+    let parent = message.parentId ? byId.get(message.parentId) : undefined
+    while (parent && parent.role !== 'user') {
+      branch = parent.id
+      parent = parent.parentId ? byId.get(parent.parentId) : undefined
+    }
+    if (!parent?.meta.clientMessageId?.startsWith(`${accountRow(binding.accountId).provider}:${binding.chat}:`))
+      return false
+    if (message.createdAt - parent.createdAt > 30 * 60000) return false
+    const root = parent.id
+    return !db
+      .select()
+      .from(channelDeliveries)
+      .where(and(eq(channelDeliveries.bindingId, binding.id), eq(channelDeliveries.status, 'committed')))
+      .all()
+      .some((delivery) => {
+        let node = byId.get(delivery.messageId)
+        while (node && node.parentId !== root) node = node.parentId ? byId.get(node.parentId) : undefined
+        return !!node && node.id !== branch
+      })
   }
   private watchJobs() {
     if (!this.runtime.accounts.size) return
@@ -2033,21 +2220,6 @@ export class ChannelService {
           (event.type === 'done' && suppressChannelRelay(event.message))
         )
           return
-        if (event.type === 'start' || event.type === 'done') {
-          const message = event.type === 'start' ? event.assistantMessage : event.message
-          let parent = message.parentId ? loadMessage(message.parentId) : undefined
-          while (parent && parent.role !== 'user') parent = parent.parentId ? loadMessage(parent.parentId) : undefined
-          const roots = this.inboundRoots.get(binding.id)
-          if (this.canClaimInbound(binding, parent)) {
-            roots?.clear()
-            this.inboundJobs.set(binding.id, job)
-          }
-          if (this.inboundJobs.get(binding.id) === job) {
-            const ids = this.replyIds.get(binding.id) ?? new Set<string>()
-            ids.add(message.id)
-            this.replyIds.set(binding.id, ids)
-          }
-        }
         const streamKey = `${binding.id}:stream`
         if (binding.roomId && !findRoom(binding.roomId)) {
           this.streams.get(streamKey)?.stream.abort()
@@ -2163,7 +2335,6 @@ export class ChannelService {
             this.pendingInput.delete(binding.chatId)
             unsaved.reject(new Error('CHANNEL_INPUT_NOT_SAVED'))
           }
-          if (this.inboundJobs?.get(binding.id) === job) this.inboundJobs.delete(binding.id)
           const turn = this.oneBotTurns.get(binding.id)
           this.oneBotTurns.delete(binding.id)
           if (turn?.length)
@@ -2515,7 +2686,7 @@ export class ChannelService {
     if (entry.client instanceof PluginChannelClient) {
       stream?.abort()
       const owner = lookupAll(binding.chatId).find((item) => item.bindingId === binding.id)?.ownerPresent
-      if (!entry.client.definition.canInitiate && !owner && !this.replyIds.get(binding.id)?.has(message.id)) {
+      if (!entry.client.definition.canInitiate && !owner && !this.isInboundReply(binding, message)) {
         this.runtime.log(binding.accountId, 'delivery.skipped.no-initiate')
         return
       }
@@ -2525,11 +2696,7 @@ export class ChannelService {
         message.meta.channel === 'whisper'
       )
         return
-      try {
-        return await this.deliverPlugin(binding, message, entry.client)
-      } finally {
-        this.replyIds.get(binding.id)?.delete(message.id)
-      }
+      return await this.deliverPlugin(binding, message, entry.client)
     }
     const privateContent =
       message.meta.channel === 'whisper' ||
@@ -3425,8 +3592,12 @@ export class ChannelService {
         }
       }
     } catch (error) {
-      status = (error as Partial<ChannelSendError> | null)?.kind === 'not-sent' ? 'failed' : 'uncertain'
-      this.runtime.log(binding.accountId, status === 'uncertain' ? 'delivery.uncertain' : 'delivery.failed')
+      status =
+        (error as Partial<ChannelSendError> | null)?.name === 'ChannelSendError' &&
+        (error as Partial<ChannelSendError>).kind === 'not-sent'
+          ? 'failed'
+          : 'uncertain'
+      this.logSendError(binding.accountId, error)
     }
     db.insert(channelDeliveries)
       .values({
@@ -3466,12 +3637,6 @@ export class ChannelService {
   }
   onEvent(event: ServerEvent) {
     if (event.type === 'message:saved' && event.message.role === 'user') this.acknowledgeInput(event.message)
-    if (event.type === 'message:saved' && event.message.role === 'tool') {
-      for (const binding of listBindings().filter((b) => b.chatId === event.message.chatId)) {
-        if (this.inboundJobs.get(binding.id) === getJob(binding.chatId) && getJob(binding.chatId))
-          this.replyIds.get(binding.id)?.add(event.message.id)
-      }
-    }
     if (event.type === 'character:updated') {
       for (const [id, entry] of this.runtime.accounts) {
         const config = accountRow(id).config

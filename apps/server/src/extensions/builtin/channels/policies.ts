@@ -1,6 +1,6 @@
 import type { ChannelRequestDTO } from '@nobot/shared'
 import { and, eq } from 'drizzle-orm'
-import { db, newId } from '../../../db/client'
+import { db, newId, setSetting } from '../../../db/client'
 import { channelActors, channelBindings, channelRequests } from '../../../db/schema'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
@@ -9,6 +9,7 @@ import { notify } from '../../../services/social'
 import { currentUser } from '../../../user-context'
 import { OneBotClient } from './adapters/onebot11/client'
 import { decideOneBotRequest } from './adapters/onebot11/social'
+import { PluginChannelClient } from './adapters/plugin'
 import type { ChannelClient } from './adapters/types'
 import { accountRow, listBindings, recordActorSeen } from './store'
 
@@ -214,6 +215,7 @@ export async function respondRequest(id: string, action: 'approve' | 'reject' | 
     .set({ state: action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'blocked' })
     .where(eq(channelRequests.id, id))
     .run()
+  if (action !== 'approve') setSetting(`channels:request:${id}`, null)
   if (action === 'approve') {
     activateGroup(row.accountId, row.chat)
     if (row.kind === 'new-location' && row.actorExternalId && !row.chat.startsWith('-')) {
@@ -240,6 +242,7 @@ export async function respondRequest(id: string, action: 'approve' | 'reject' | 
       }
     }
   }
+  if (action === 'approve' && client instanceof PluginChannelClient) await client.replayRequest?.(id)
   liveHub.publishToUser(currentUser().id, { type: 'channel.request', topic: `user:${currentUser().id}`, data: { id } })
 }
 /** 活跃时间仅代表隐私模式下 bot 能收到的消息；提醒时间持久化，重启不延长宽限期。 */

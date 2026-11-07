@@ -31,8 +31,8 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
   const { systemDatabase } = await import('../src/db/system-client')
   const { users } = await import('../src/db/system-schema')
   const { runAsUser, closeUserDatabase } = await import('../src/user-context')
-  const { db, getSetting } = await import('../src/db/client')
-  const { channelAccounts, channelRequests, channelDeliveries } = await import('../src/db/schema')
+  const { db, getSetting, newId } = await import('../src/db/client')
+  const { channelAccounts, channelRequests, channelDeliveries, messages } = await import('../src/db/schema')
   const { createExtensionHost } = await import('../src/extensions/host')
   const registry = await import('../src/extensions/registry')
   const { channelService } = await import('../src/extensions/builtin/channels')
@@ -140,7 +140,7 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       expect(accountRow(secret.id).credentials).not.toContain('CONFIG_SECRET')
       expect(accountRow(secret.id).config.credentials.password).toBe('CONFIG_SECRET')
       expect(JSON.stringify(accountDTO(accountRow(secret.id)))).not.toContain('CONFIG_SECRET')
-      const character = createCharacter({ name: 'Alice' })
+      const character = createCharacter({ name: 'Alice', firstMes: 'GREETING_MUST_NOT_EXIST' })
       const result = await api.ensureAccount('dm', { name: 'DM', characterId: character.id })
       expect(result.characterFollowed).toBe(true)
       expect(accountRow(result.accountId).providerState.ensuredCharacterId).toBe(character.id)
@@ -188,7 +188,13 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       await client.call('sendMessage', { chat_id: 'visitor', text: 'drain' })
       const request = db.select().from(channelRequests).get()!
       expect(request.state).toBe('pending')
+      createApiPreset(apiPresetInput.parse({ name: 'Mock', baseUrl: model.url, model: 'mock-one' }))
+      model.setScript(() => ({ text: 'approved', delayMs: 1 }))
+      io.setOwner('visitor')
       await respondRequest(request.id, 'approve', client)
+      const approvedBinding = listBindings(result.accountId).find((binding) => binding.chat === 'visitor')!
+      await host.waitIdle(approvedBinding.chatId, 5000)
+      await client.call('sendMessage', { chat_id: 'visitor', text: 'drain' })
       // 未配对玩家获批后走真实房间生成，快于轮询周期的模型也必须回复。
       const visitor = (id: string, text: string) =>
         io.emit({
@@ -198,15 +204,63 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
           chat: { id: 'player', title: 'Player' },
           sentAt: Date.now(),
         })
-      createApiPreset(apiPresetInput.parse({ name: 'Mock', baseUrl: model.url, model: 'mock-one' }))
       model.setScript(() => ({ text: 'player reply', delayMs: 1 }))
-      await visitor('player-request', 'hello')
+      const png = new Uint8Array(
+        await (await import('sharp'))
+          .default({ create: { width: 2, height: 2, channels: 3, background: '#ff0000' } })
+          .png()
+          .toBuffer(),
+      )
+      await visitor('player-request', 'Alice?')
+      await io.emit({
+        id: 'player-image',
+        text: 'earlier image',
+        context: 'Approval context',
+        sentAt: 100,
+        from: { id: 'player', name: 'Player' },
+        chat: { id: 'player', title: 'Player' },
+        images: [{ bytes: png, mime: 'image/png' }],
+      })
+      await io.emit({
+        id: 'player-equal',
+        text: 'equal time',
+        sentAt: 100,
+        from: { id: 'player', name: 'Player' },
+        chat: { id: 'player', title: 'Player' },
+      })
       const playerRequest = db
         .select()
         .from(channelRequests)
         .all()
         .find((request) => request.chat === 'player')!
+      const pendingApproval = getSetting<{ event: { text: string; photo?: unknown }; images: string[] }[]>(
+        `channels:request:${playerRequest.id}`,
+      )!
+      expect(pendingApproval).toHaveLength(3)
+      expect(pendingApproval[1]!.images).toHaveLength(1)
+      expect(pendingApproval[1]!.event.photo).toBeUndefined()
+      expect(client.files.size).toBe(0)
+      const requestsBeforeApproval = model.requests.length
       await respondRequest(playerRequest.id, 'approve', client)
+      const replayBinding = listBindings(result.accountId).find((binding) => binding.chat === 'player')!
+      await settle(() =>
+        host
+          .getChatInfo(replayBinding.chatId, 100)
+          .messages.some((message) => message.role === 'assistant' && message.status !== 'streaming'),
+      )
+      await host.waitIdle(replayBinding.chatId, 5000)
+      await client.call('sendMessage', { chat_id: 'visitor', text: 'drain' })
+      const replayed = host.getChatInfo(replayBinding.chatId, 100).messages
+      expect(replayed.filter((message) => message.role === 'user').map((message) => message.content)).toEqual([
+        'earlier image',
+        'equal time',
+        'Alice?',
+      ])
+      expect(replayed[0]!.meta.context).toBe('Approval context')
+      expect(replayed[0]!.meta.images).toHaveLength(1)
+      expect(replayed.some((message) => message.content.includes('GREETING_MUST_NOT_EXIST'))).toBe(false)
+      expect(model.requests.length - requestsBeforeApproval).toBe(1)
+      expect(getSetting(`channels:request:${playerRequest.id}`)).toBeNull()
       await visitor('player-first', 'Alice?')
       const playerBinding = listBindings(result.accountId).find((binding) => binding.chat === 'player')!
       const rooms = await import('../src/services/rooms')
@@ -225,10 +279,125 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       await host.waitIdle(playerBinding.chatId, 5000)
       rooms.updateRoom(playerBinding.roomId!, { turnMode: 'host' })
       await visitor('player-pending', 'pending for a later round')
+      // 主持人模式下由网页触发的这一轮仍是在答复未回复的入站消息，允许投递。
       const proactiveBefore = sends.length
       host.trigger(playerBinding.chatId)
       await host.waitIdle(playerBinding.chatId, 5000)
-      expect(sends.length).toBe(proactiveBefore)
+      await settle(() => sends.length > proactiveBefore)
+      expect(sends.length).toBeGreaterThan(proactiveBefore)
+      // 新 service 没有旧任务订阅和认领状态，投递许可仍由消息树恢复。
+      const { ChannelService } = await import('../src/extensions/builtin/channels/service')
+      const fresh = new ChannelService(host, () => ({}))
+      fresh.runtime.accounts.set(result.accountId, {
+        ...service.runtime.accounts.get(result.accountId)!,
+        controller: new AbortController(),
+      })
+      try {
+        const root = newId()
+        const firstReply = newId()
+        const now = Date.now()
+        db.insert(messages)
+          .values([
+            {
+              id: root,
+              chatId: playerBinding.chatId,
+              parentId: null,
+              role: 'user',
+              content: 'restart input',
+              meta: { clientMessageId: `test-plugin.dm:player:restart` },
+              createdAt: now,
+            },
+            {
+              id: firstReply,
+              chatId: playerBinding.chatId,
+              parentId: root,
+              role: 'assistant',
+              content: 'restored',
+              createdAt: now + 1000,
+            },
+          ])
+          .run()
+        const restoredBefore = sends.length
+        await fresh.deliver(playerBinding, loadMessage(firstReply))
+        expect(sends.length).toBeGreaterThan(restoredBefore)
+        const sameBranch = newId()
+        const sibling = newId()
+        const expired = newId()
+        db.insert(messages)
+          .values([
+            {
+              id: sameBranch,
+              chatId: playerBinding.chatId,
+              parentId: firstReply,
+              role: 'tool',
+              content: 'tool protocol',
+              meta: { channelVoice: { bindingIds: [playerBinding.id], style: 'only', text: 'tool followup' } },
+              createdAt: now + 2000,
+            },
+            {
+              id: sibling,
+              chatId: playerBinding.chatId,
+              parentId: root,
+              role: 'assistant',
+              content: 'regenerated',
+              createdAt: now + 3000,
+            },
+            {
+              id: expired,
+              chatId: playerBinding.chatId,
+              parentId: sameBranch,
+              role: 'assistant',
+              content: 'expired',
+              createdAt: now + 30 * 60000 + 1,
+            },
+          ])
+          .run()
+        const toolBefore = sends.length
+        await fresh.deliver(playerBinding, loadMessage(sameBranch))
+        expect(sends.length).toBeGreaterThan(toolBefore)
+        const boundary = newId()
+        db.insert(messages)
+          .values({
+            id: boundary,
+            chatId: playerBinding.chatId,
+            parentId: sameBranch,
+            role: 'assistant',
+            content: 'boundary',
+            createdAt: now + 30 * 60000,
+          })
+          .run()
+        const boundaryBefore = sends.length
+        await fresh.deliver(playerBinding, loadMessage(boundary))
+        expect(sends.length).toBeGreaterThan(boundaryBefore)
+        const blockedBefore = sends.length
+        await fresh.deliver(playerBinding, loadMessage(sibling))
+        await fresh.deliver(playerBinding, loadMessage(expired))
+        expect(sends.length).toBe(blockedBefore)
+      } finally {
+        fresh.dispose()
+      }
+      // 等待期间仅保留最近二十条；拒绝和拉黑都清掉持久化内容。
+      for (const action of ['reject', 'block'] as const) {
+        for (let i = 0; i < 22; i++)
+          await io.emit({
+            id: `${action}-${i}`,
+            text: `pending ${i}`,
+            sentAt: i,
+            from: { id: action, name: action },
+            chat: { id: action, title: action },
+          })
+        const pendingRequest = db
+          .select()
+          .from(channelRequests)
+          .all()
+          .find((item) => item.chat === action)!
+        const buffered = getSetting<{ event: { text: string } }[]>(`channels:request:${pendingRequest.id}`)!
+        expect(buffered).toHaveLength(20)
+        expect(buffered[0]!.event.text).toBe('pending 2')
+        await respondRequest(pendingRequest.id, action, client)
+        expect(getSetting(`channels:request:${pendingRequest.id}`)).toBeNull()
+      }
+      await client.call('sendMessage', { chat_id: 'visitor', text: 'drain' })
       // 主人通路验证 context；随后取消主人，验证禁止主动发送。
       io.setOwner('visitor')
       model.setScript(() => ({ text: 'abcdefghijklmnop', delayMs: 1 }))
@@ -245,9 +414,9 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       releaseSend!()
       sendGate = undefined
       const binding = listBindings(result.accountId).find((binding) => binding.chat === 'visitor')!
-      expect(
-        host.getChatInfo(binding.chatId, 20).messages.find((message) => message.role === 'user')?.meta.context,
-      ).toBe('Private platform context')
+      expect(host.getChatInfo(binding.chatId, 20).messages.find((message) => message.meta.context)?.meta.context).toBe(
+        'Private platform context',
+      )
       await host.waitIdle(binding.chatId, 5000)
       await settle(() => sends.length >= before + 4)
       expect(
@@ -258,7 +427,7 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       ).toBe('abcdefghijklmnop')
       expect(sends.slice(before).every((message) => Array.from(message.text).length <= 5)).toBe(true)
       const info = host.getChatInfo(binding.chatId, 20)
-      expect(info.messages.find((message) => message.role === 'user')?.meta.context).toBe('Private platform context')
+      expect(info.messages.find((message) => message.meta.context)?.meta.context).toBe('Private platform context')
       expect(
         model.requests.some((request) =>
           request.messages.some((message) => message.content.includes(definition.promptHint!)),
@@ -315,12 +484,6 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       ).toBe('early\nequal\nlate')
       await client.call('sendMessage', { chat_id: 'visitor', text: 'drain' })
       model.setScript(() => ({ text: 'image reply', delayMs: 1 }))
-      const png = new Uint8Array(
-        await (await import('sharp'))
-          .default({ create: { width: 2, height: 2, channels: 3, background: '#ff0000' } })
-          .png()
-          .toBuffer(),
-      )
       await emit('valid-image', 'look', { images: [{ bytes: png, mime: 'image/png' }] })
       await host.waitIdle(binding.chatId, 5000)
       expect(
@@ -348,6 +511,21 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       expect(delays).toEqual([0, 60000])
       io.saveCursor({ page: 2 })
       expect(accountRow(result.accountId).providerState.cursor).toEqual({ page: 2 })
+      io.status('paused', 'Captcha')
+      const statusLogs = () =>
+        getSetting<{ code: string }[]>('channels:log')!.filter((entry) => entry.code === 'status.paused').length
+      const pauseLogs = statusLogs()
+      let statusCalls = 0
+      const originalStatus = client.status.bind(client)
+      client.status = (status) => {
+        statusCalls++
+        originalStatus(status)
+      }
+      io.status('paused', 'Captcha')
+      expect(statusCalls).toBe(1)
+      expect(statusLogs()).toBe(pauseLogs)
+      io.status('paused', 'Captcha changed')
+      expect(statusLogs()).toBe(pauseLogs + 1)
       io.status('paused', 'Captcha')
       expect(accountDTO(accountRow(result.accountId)).lastError).toBe('Captcha')
       behavior = 'not-sent'
@@ -397,8 +575,8 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       failures = 0
       behavior = 'error'
       await expect(client.call('sendMessage', { chat_id: 'visitor', text: 'error' })).rejects.toHaveProperty(
-        'kind',
-        'unknown',
+        'message',
+        'private detail',
       )
       expect(failures).toBe(1)
       behavior = 'unknown'
@@ -413,6 +591,11 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       await emit('unknown-command', '/help')
       await settle(() => failures === 1)
       expect(failures).toBe(1)
+      expect(
+        getSetting<{ code: string; message: string }[]>('channels:log')?.some(
+          (entry) => entry.code === 'delivery.uncertain' && entry.message.includes('unknown private detail'),
+        ),
+      ).toBe(true)
       behavior = 'ok'
       const unsupportedBefore = sends.length
       for (const method of [
@@ -454,6 +637,27 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
       ).toBe('uncertain')
       await service.deliver(binding, loadMessage(uncertain.id))
       expect(failures).toBe(1)
+      expect(
+        getSetting<{ code: string; message: string }[]>('channels:log')?.some(
+          (entry) => entry.code === 'delivery.uncertain' && entry.message === 'unknown private detail',
+        ),
+      ).toBe(true)
+      behavior = 'never-sent'
+      const failed = host.appendMessage(binding.chatId, { role: 'assistant', content: 'failed' })
+      await service.deliver(binding, failed)
+      expect(
+        getSetting<{ code: string; message: string }[]>('channels:log')?.some(
+          (entry) => entry.code === 'delivery.failed' && entry.message === 'not-sent BUDGET BUDGET',
+        ),
+      ).toBe(true)
+      behavior = 'error'
+      const generic = host.appendMessage(binding.chatId, { role: 'assistant', content: 'generic' })
+      await service.deliver(binding, generic)
+      expect(
+        getSetting<{ code: string; message: string }[]>('channels:log')?.some(
+          (entry) => entry.code === 'delivery.uncertain' && entry.message === 'Error private detail',
+        ),
+      ).toBe(true)
       const oldIO = io
       registration.unregister()
       registration.unregister()

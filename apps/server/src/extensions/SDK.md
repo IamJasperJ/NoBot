@@ -136,9 +136,16 @@ export default defineExtension({
 入站触发的授权提示、命令回复也只等待加入发送队列，后台发送错误记入渠道日志。
 `saveCursor` 接受可 JSON 序列化的游标。`setOwner(id)` 声明已配对主人，`null` 撤销本账号的声明。
 
+插件平台等待批准的新位置会保存最近 20 条输入（文字、context、sentAt 和图片附件引用）；
+批准后按 sentAt 稳定排序落库，再按房间接话／排队规则调度一轮生成，拒绝或拉黑时丢弃。
+`canInitiate:false` 的非主人回复按数据库父链判定：最近的 user 必须来自当前平台和位置，
+回复距离该入站不超过 30 分钟，且入站的其他子分支没有已提交的投递。同分支连发和工具降级文本可继续投递，
+不依赖宿主进程的任务内存；网页或后台主动生成仍拦截。此类平台新会话历史不保留角色卡开场白。
+
 `ChannelSendError('not-sent', code, { retryAfterMs })` 表示确定没有发出，可自动重试最多三次（retryAfterMs 超过 10 分钟时不等待，直接判定这段未发出，避免堵住同一账号的其他会话）；
 账号仍 online 时，没有重试间隔的 `not-sent` 直接记失败。
 如果插件先报告 paused / offline / connecting 等非 online 状态，再抛 `not-sent`（例如验证码），
 宿主等待恢复 online 后重发当前段，不要求 retryAfterMs，也不消耗三次重试预算。`unknown` 和其他异常只记结果不确定，绝不自动重发。
-宿主按 `error.name === 'ChannelSendError'` 识别跨模块错误。
+宿主按 `error.name === 'ChannelSendError'` 识别跨模块错误。投递失败日志保留 kind、code、message；
+其他异常保留 name、message，最多 300 字，未知异常仍按结果不确定处理，不自动重发。
 暂停期间同一发送队列冻结，恢复 `online` 后继续；账号停止会取消等待中的发送。

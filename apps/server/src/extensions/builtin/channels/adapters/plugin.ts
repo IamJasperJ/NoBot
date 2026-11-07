@@ -4,7 +4,6 @@ import {
   type ChannelProviderAccount,
   type ChannelProviderDefinition,
   ChannelProviderStoppedError,
-  ChannelSendError,
 } from '../../../types'
 import { splitOneBot } from './onebot11/client'
 import { abortableDelay } from './telegram/client'
@@ -18,6 +17,7 @@ export class PluginChannelClient {
   draftSupported = false
   onDraftUnsupported?: () => void
   readonly files = new Map<string, { bytes: Uint8Array; mime: string }>()
+  replayRequest?: (id: string) => Promise<void>
   private tail: Promise<unknown> = Promise.resolve()
   private queues = new Map<string, Promise<unknown>>()
   private sent: number[] = []
@@ -91,7 +91,7 @@ export class PluginChannelClient {
           await this.sleep(Math.max(0, value.retryAfterMs), this.signal)
           await this.ready()
           attempt++
-        } else throw new ChannelSendError('unknown', 'DELIVERY_UNCERTAIN')
+        } else throw error
       }
     }
   }

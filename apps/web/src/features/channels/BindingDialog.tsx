@@ -9,6 +9,7 @@ import {
   useChannelSettings,
   useDisableChannelBinding,
   useLeaveChannelBinding,
+  useSetPrimaryChannelBinding,
   useUpdateChannelActor,
   useUpdateChannelBinding,
 } from '../../api/channels'
@@ -25,6 +26,7 @@ import {
   isolationLabel,
   OverrideEditor,
   personaModeOptions,
+  providerLabel,
   scopeLabel,
   stateMeta,
   timeAgo,
@@ -138,6 +140,7 @@ function SessionTab({
     ).data ?? []
   const disable = useDisableChannelBinding()
   const leave = useLeaveChannelBinding()
+  const setPrimary = useSetPrimaryChannelBinding()
   const [confirmLeave, setConfirmLeave] = useState(false)
   const openChat = () => {
     useUi.getState().openView('chat')
@@ -165,6 +168,34 @@ function SessionTab({
             </Button>
           )}
         </div>
+        {!!binding.siblings?.length && (
+          <div className="flex items-start gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-xs leading-relaxed dark:border-zinc-800">
+            <span className="min-w-0 flex-1 text-zinc-500">
+              {binding.primary
+                ? t('这是主渠道：网页上发起的消息和角色主动说的话都发到这里；其他平台发来的请求，回复只回到那个平台。')
+                : t('这个会话的主渠道是 {place}。只有从这里发来的请求，回复才会发到这里。', {
+                    place: binding.siblings
+                      .filter((s) => s.primary)
+                      .map((s) => `${providerLabel(s.provider, s.providerName)}「${s.title || s.accountName}」`)
+                      .join('、'),
+                  })}
+            </span>
+            {!binding.primary && (
+              <Button
+                size="sm"
+                disabled={setPrimary.isPending}
+                onClick={() =>
+                  setPrimary.mutate(binding.id, {
+                    onSuccess: () => toast.info(t('已设为主渠道')),
+                    onError: (e) => toast.error(errorMessage(e)),
+                  })
+                }
+              >
+                {t('设为主渠道')}
+              </Button>
+            )}
+          </div>
+        )}
         <SelectField
           label={t('会话来源')}
           value={binding.source}

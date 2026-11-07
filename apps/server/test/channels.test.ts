@@ -30,7 +30,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
   const { eq } = await import('drizzle-orm')
   const { systemDatabase } = await import('../src/db/system-client')
   const { users, sessions } = await import('../src/db/system-schema')
-  const { db, newId } = await import('../src/db/client')
+  const { db, setSetting, newId } = await import('../src/db/client')
   const { channelAccounts, channelActors, channelRequests, channelDeliveries, channelActions } = await import(
     '../src/db/schema'
   )
@@ -591,6 +591,11 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
       expect(attachedResponse.status).toBe(200)
       const attached = (await attachedResponse.json()) as import('@nobot/shared').ChannelBindingDTO
       expect(attached.settings).toEqual({})
+      expect(attached.primary).toBe(true)
+      const primaryResponse = await app.request(`/api/ext/channels/bindings/${attached.id}/primary`, { method: 'PUT' })
+      expect(primaryResponse.status).toBe(200)
+      expect(await primaryResponse.json()).toEqual({ ok: true })
+
       for (const [path, settings] of [
         [`accounts/${account.id}`, { stream: false, thinking: 'fold' }],
         [`accounts/${account.id}`, { stream: true }],
@@ -664,7 +669,11 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
             .select()
             .from(channelDeliveries)
             .all()
-            .some((d) => d.bindingId === ownerBinding.id);
+            .some(
+              (d) =>
+                d.bindingId === ownerBinding.id &&
+                host.getChatInfo(plain.id).messages.some((m) => m.id === d.messageId && m.role === 'assistant'),
+            );
           i++
         )
           await new Promise((resolve) => setTimeout(resolve, 50))
@@ -690,7 +699,11 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
           .select()
           .from(channelDeliveries)
           .all()
-          .find((d) => d.bindingId === ownerBinding.id)!
+          .find(
+            (d) =>
+              d.bindingId === ownerBinding.id &&
+              host.getChatInfo(plain.id).messages.some((m) => m.id === d.messageId && m.role === 'assistant'),
+          )!
         const regenerate = db
           .select()
           .from(channelActions)
@@ -763,6 +776,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
             chat: scope === 'private' ? '30' : '-30',
           }
           service.saveBinding(fixed)
+          setSetting(`channels:primary:${fixed.chatId}`, fixed.id)
           for (const [speakerId, name, expected] of [
             [secondCharacter.id, 'Bob', 'Plain reply <i>waves</i>'],
             [character.id, 'Alice', 'Plain reply <i>waves</i>'],
@@ -785,6 +799,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
         }
         const stageBinding = { ...ownerBinding, id: newId(), accountId: second.id, chat: '31' }
         service.saveBinding(stageBinding)
+        setSetting(`channels:primary:${stageBinding.chatId}`, stageBinding.id)
         const stageReply = host.appendMessage(stageBinding.chatId, {
           role: 'assistant',
           speakerId: secondCharacter.id,
@@ -809,6 +824,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
           speakerId: character.id,
           meta: { name: 'Alice' },
         })
+        setSetting(`channels:primary:${ownerBinding.chatId}`, ownerBinding.id)
         const beforeGeneric = calls.length
         await service.deliver(ownerBinding, genericReply)
         expect(
@@ -857,6 +873,8 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
           settings: { streamIntervalMs: 250 },
         }
         service.saveBinding(streamed)
+        const nonTarget = { ...streamed, id: newId(), chat: '-602' }
+        service.saveBinding(nonTarget)
         model.setScript(() => ({ text: 'Routed stream response for Bob', delayMs: 20 }))
         const startCalls = calls.length
         await service.generate(streamed, { mode: 'send', text: 'Hello Bob', images: [] })
@@ -867,6 +885,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
             .slice(startCalls)
             .some((c) => c.url.includes('OTHER_SECRET') && c.method === 'editMessageText' && c.body.chat_id === '-600'),
         ).toBe(true)
+        expect(calls.slice(startCalls).some((c) => c.body.chat_id === '-602')).toBe(false)
         const onlyBinding = {
           ...streamed,
           id: newId(),
@@ -874,6 +893,7 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
           settings: { voice: 'only' as const, voiceNarration: 'speak' as const, stream: true, streamIntervalMs: 250 },
         }
         service.saveBinding(onlyBinding)
+        setSetting(`channels:primary:${onlyBinding.chatId}`, onlyBinding.id)
         const voicePath = join(directory, 'only-stream.mp3')
         await Bun.write(voicePath, new Uint8Array([73, 68, 51, 4, 0, 0, 0, 0, 0, 0]))
         const synthesis = spyOn(host, 'synthesizeSpeech').mockResolvedValue({

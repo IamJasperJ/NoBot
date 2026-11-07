@@ -323,7 +323,9 @@ test('频道 imagine：共用命令、异步媒体、菜单绑定、房间额度
             .all()
             .filter((r) => r.roomId === room.id),
         ).toHaveLength(1)
-        await wait(() => calls.some((c) => c.method === 'sendPhoto' && c.body.chat_id === '-111'))
+        // 默认图片只投递主渠道，不能再广播到同会话的群绑定。
+        await service.deliver(groupBinding, loadPath(getChatRow(chat.id).activeLeafId).at(-1)!)
+        expect(calls.some((c) => c.method === 'sendPhoto' && c.body.chat_id === '-111')).toBe(false)
         const { ensureExternalUser } = await import('../src/services/external-users')
         const guest = ensureExternalUser('telegram', owner.id, '222', 'Guest')
         systemDatabase()

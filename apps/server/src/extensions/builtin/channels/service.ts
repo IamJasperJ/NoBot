@@ -68,6 +68,7 @@ import { downloadTelegramFile } from './adapters/telegram/media'
 import { decodeTelegram, type TelegramEvent } from './adapters/telegram/receive'
 import { escapeHtml, inlineTelegramSegments, renderTelegram, type TelegramSegment } from './adapters/telegram/render'
 import { DeferredTelegramStream, type TelegramStream, TelegramTextStream } from './adapters/telegram/stream'
+import { routeTarget, sameLocation } from './cross-platform'
 import { imagineLabel, imagineModes, parseImagine } from './imagine'
 import { receiveManagedBot } from './managed-bots'
 import { type MiniAppButton, miniAppButton, oneTimeStageUrl } from './miniapp'
@@ -83,7 +84,7 @@ import { locationKey, matchChannelBinding, resolveChannelSettings } from './sett
 import { omitSpeakerPrefix } from './speaker-prefix'
 import { sendMessageStickers } from './sticker-delivery'
 import { learnQqSticker, learnTelegramSticker, telegramStickerSchema } from './stickers'
-import { accountRow, bindingRow, listBindings, markReceived, recordActorSeen } from './store'
+import { accountRow, bindingRow, listBindings, markReceived, primaryBindingId, recordActorSeen } from './store'
 import { cleanProtocolText, isImageMessage, visibleContent, visibleText } from './visible-text'
 import { replyVoiceStyle, reserveVoice, updateVoicePreference, voiceDeliverySettings } from './voice-decision'
 
@@ -145,7 +146,10 @@ export class ChannelService {
   private deliveryTails = new Map<string, Promise<unknown>>()
   private inputTails = new Map<string, Promise<unknown>>()
   private generationSubscriptions = new Map<string, () => void>()
-  private streams = new Map<string, { stream: TelegramStream; content: string; reasoning: string }>()
+  private streams = new Map<
+    string,
+    { stream: TelegramStream; content: string; reasoning: string; message: MessageDTO }
+  >()
   private editTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private presenceTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private rates = new Map<string, number[]>()
@@ -184,7 +188,19 @@ export class ChannelService {
           .all()
           .filter((a) => a.role !== 'blocked' && (a.linkedUserId ?? a.externalUserId) === userId)
         for (const binding of listBindings().filter(
-          (b) => b.roomId === roomId && b.state === 'active' && b.scope === 'group',
+          (b) =>
+            b.roomId === roomId &&
+            b.state === 'active' &&
+            b.scope === 'group' &&
+            listBindings().some(
+              (primary) =>
+                primary.chatId === b.chatId &&
+                primary.primary &&
+                sameLocation(
+                  { ...b, provider: accountRow(b.accountId).provider },
+                  { ...primary, provider: accountRow(primary.accountId).provider },
+                ),
+            ),
         )) {
           if (!this.settings(binding).values.mentionOnTurn || !actors.length) continue
           if (
@@ -909,6 +925,8 @@ export class ChannelService {
     images: string[],
     trigger = true,
   ) {
+    const inboundId = `${accountRow(binding.accountId).provider}:${binding.chat}:${event.message_id}`
+    setSetting(`channels:inbound-thread:${inboundId}`, binding.thread)
     if (
       binding.roomId &&
       this.host.isGenerating(binding.chatId) &&
@@ -994,19 +1012,17 @@ export class ChannelService {
         this.host.appendMessage(binding.chatId, {
           role: 'user',
           content: event.text,
-          meta: { excluded: true, channel: 'ooc' },
+          meta: { excluded: true, channel: 'ooc', clientMessageId: inboundId },
         })
       else
         await this.generate(
           binding,
           { mode: 'send', text: event.text, images },
-          getProvider(accountRow(binding.accountId).provider)?.definition
-            ? {
-                sentAt: event.sentAt ?? Date.now(),
-                context: event.context,
-                clientMessageId: `${accountRow(binding.accountId).provider}:${binding.chat}:${event.message_id}`,
-              }
-            : undefined,
+          {
+            sentAt: event.sentAt ?? Date.now(),
+            context: event.context,
+            clientMessageId: inboundId,
+          },
         )
     }
   }
@@ -1597,7 +1613,7 @@ export class ChannelService {
     }
     return chat
   }
-  saveBinding(binding: Omit<ChannelBindingDTO, 'memberCount' | 'chatTitle'>, topicTitle?: string) {
+  saveBinding(binding: Omit<ChannelBindingDTO, 'memberCount' | 'chatTitle' | 'primary'>, topicTitle?: string) {
     if (binding.source === 'new' && !db.select().from(channelBindings).where(eq(channelBindings.id, binding.id)).get())
       db.update(chats)
         .set({
@@ -1914,6 +1930,8 @@ export class ChannelService {
   }
   private async command(binding: ChannelBindingDTO, actor: ChannelActorDTO, event: MessageEvent) {
     const command = event.command!
+    const inboundId = `${accountRow(binding.accountId).provider}:${binding.chat}:${event.message_id}`
+    setSetting(`channels:inbound-thread:${inboundId}`, binding.thread)
     const roomId = binding.roomId
     const reply = (text: string) => this.send(binding.accountId, binding.chat, text, binding.thread)
     if (command.name === 'vn' && accountRow(binding.accountId).config.provider === 'onebot11') {
@@ -1980,12 +1998,12 @@ export class ChannelService {
     if (command.name === 'ooc') {
       if (roomId)
         return asChannelActor(binding, actor, () =>
-          sendRoomMessage(roomId, { text: command.args, channel: 'ooc', clientMessageId: event.dedupeKey }),
+          sendRoomMessage(roomId, { text: command.args, channel: 'ooc', clientMessageId: inboundId }),
         )
       return this.host.appendMessage(binding.chatId, {
         role: 'user',
         content: command.args,
-        meta: { excluded: true, channel: 'ooc' },
+        meta: { excluded: true, channel: 'ooc', clientMessageId: inboundId },
       })
     }
     if (command.name === 'ready' || command.name === 'pass') {
@@ -2029,7 +2047,7 @@ export class ChannelService {
         whisperRoom(roomId, {
           text: target?.[2] ?? command.args,
           to: receiver?.linkedUserId ?? receiver?.externalUserId ?? 'gm',
-          clientMessageId: event.dedupeKey,
+          clientMessageId: inboundId,
         }),
       )
     }
@@ -2165,6 +2183,33 @@ export class ChannelService {
   observePrompt(_chatId: string) {
     this.watchJobs()
   }
+  /** 在任何草稿、媒体和提及操作之前按位置裁剪；同位置的角色选 bot 规则仍由原流程处理。 */
+  private routesTo(binding: ChannelBindingDTO, message: MessageDTO) {
+    if (message.chatId !== binding.chatId || bindingRow(binding.id).state !== 'active') return false
+    if (message.role === 'user' && !this.settings(binding).values.mirrorWebMessages) return false
+    const bindings = listBindings()
+      .filter((b) => b.chatId === message.chatId)
+      .map((b) => ({
+        ...b,
+        provider: accountRow(b.accountId).provider,
+      }))
+    const parents = db
+      .select()
+      .from(messages)
+      .where(eq(messages.chatId, message.chatId))
+      .all()
+      .map((parent) => ({
+        ...parent,
+        meta: {
+          ...parent.meta,
+          channelThread: parent.meta.clientMessageId
+            ? (getSetting<string>(`channels:inbound-thread:${parent.meta.clientMessageId}`) ?? undefined)
+            : undefined,
+        },
+      }))
+    const target = routeTarget(message, parents, bindings, primaryBindingId(message.chatId), Date.now())
+    return !!target && sameLocation({ ...binding, provider: accountRow(binding.accountId).provider }, target)
+  }
   /**
    * 许可只依赖持久化消息树；同一分支的连发不互斥，其他已投递分支不能重发。
    * 不区分生成由谁触发：房间判断后的回合、网页上点生成，只要是在答复 30 分钟内未答复的入站消息就放行。
@@ -2229,6 +2274,12 @@ export class ChannelService {
           this.generationSubscriptions.delete(key)
           return
         }
+        if (event.type === 'start' && !this.routesTo(binding, event.assistantMessage)) return
+        if (event.type === 'done' && !this.routesTo(binding, event.message)) {
+          this.streams.get(streamKey)?.stream.abort()
+          this.streams.delete(streamKey)
+          return
+        }
         if (event.type === 'start' && suppressChannelRelay(event.assistantMessage)) return
         if (
           event.type === 'start' &&
@@ -2290,6 +2341,7 @@ export class ChannelService {
                 },
               )
             }),
+            message: event.assistantMessage,
             content: event.assistantMessage.content,
             reasoning: event.assistantMessage.meta.reasoning ?? '',
           })
@@ -2300,6 +2352,11 @@ export class ChannelService {
         }
         if (event.type === 'delta') {
           const state = this.streams.get(streamKey)
+          if (state && !this.routesTo(binding, state.message)) {
+            state.stream.abort()
+            this.streams.delete(streamKey)
+            return
+          }
           if (state && this.settings(binding).values.stream) {
             state.content += event.text
             state.reasoning += event.reasoning ?? ''
@@ -2606,7 +2663,7 @@ export class ChannelService {
     throw refused()
   }
   async deliver(binding: ChannelBindingDTO, message: MessageDTO, stream?: TelegramStream) {
-    if (suppressChannelRelay(message)) {
+    if (suppressChannelRelay(message) || !this.routesTo(binding, message)) {
       stream?.abort()
       return
     }
@@ -2671,7 +2728,7 @@ export class ChannelService {
       .run()
   }
   private async deliverNow(binding: ChannelBindingDTO, message: MessageDTO, stream?: TelegramStream) {
-    if (suppressChannelRelay(message)) {
+    if (suppressChannelRelay(message) || !this.routesTo(binding, message)) {
       stream?.abort()
       return
     }
@@ -2969,12 +3026,6 @@ export class ChannelService {
     const settings = voiceDeliverySettings(binding, message, this.settings(binding).values, (code) =>
       this.runtime.log(binding.accountId, code),
     )
-    if (
-      message.role === 'user' &&
-      (!settings.mirrorWebMessages ||
-        String(message.meta.clientMessageId ?? '').startsWith(`${accountRow(binding.accountId).config.provider}:`))
-    )
-      return
     if (message.role !== 'assistant' && message.role !== 'user' && message.role !== 'system') return
     const deliveries = db.select().from(channelDeliveries).where(eq(channelDeliveries.bindingId, binding.id)).all()
     const previous =
@@ -3358,7 +3409,7 @@ export class ChannelService {
     }
   }
   private async deliverOneBotTurn(binding: ChannelBindingDTO, turn: MessageDTO[]) {
-    turn = turn.filter((message) => !suppressChannelRelay(message))
+    turn = turn.filter((message) => this.routesTo(binding, message) && !suppressChannelRelay(message))
     if (!turn.length) return
     const client = this.runtime.accounts.get(binding.accountId)?.client
     if (!(client instanceof OneBotClient) || bindingRow(binding.id).state !== 'active') return
@@ -3411,11 +3462,6 @@ export class ChannelService {
     const settings = voiceDeliverySettings(binding, message, this.settings(binding).values, (code) =>
       this.runtime.log(binding.accountId, code),
     )
-    if (
-      message.role === 'user' &&
-      (!settings.mirrorWebMessages || String(message.meta.clientMessageId ?? '').startsWith('onebot11:'))
-    )
-      return
     if (!['assistant', 'user', 'system'].includes(message.role)) return
     const stage = parseStageMessage(visibleContent(message), {
       knownNames: [],
@@ -3559,12 +3605,6 @@ export class ChannelService {
       .get()
     if (previous) return
     const settings = this.settings(binding).values
-    if (
-      message.role === 'user' &&
-      (!settings.mirrorWebMessages ||
-        String(message.meta.clientMessageId ?? '').startsWith(`${accountRow(binding.accountId).provider}:`))
-    )
-      return
     const text = message.meta.channelVoice?.text ?? visibleText(message)
     if (!text || !['assistant', 'user', 'tool', 'system'].includes(message.role)) return
     const choices = message.meta.stage?.choices?.map((choice, index) => `${index + 1}. ${choice.text}`).join('\n')
@@ -3676,7 +3716,8 @@ export class ChannelService {
     }
     if (
       event.type === 'message:saved' &&
-      (event.message.meta.imageGen ||
+      (event.message.role === 'user' ||
+        event.message.meta.imageGen ||
         event.message.meta.images?.length ||
         event.message.meta.stickers?.length ||
         (event.message.role === 'tool' && event.message.meta.channelVoice?.text))

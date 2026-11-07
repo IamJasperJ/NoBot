@@ -142,7 +142,7 @@ export function ChannelsManager({
                       : tab === 'onebot11'
                         ? t('还没有 QQ 机器人。先装好 NapCat，再点「添加」。')
                         : managed
-                          ? t('还没有账号。在{extension}里打开对应开关后会自动出现。', {
+                          ? t('还没有账号。在「{extension}」里打开对应开关后会自动出现。', {
                               extension: current?.extensionName ?? t('提供这个平台的扩展'),
                             })
                           : t('还没有账号，点「添加」创建一个。')}
@@ -717,11 +717,11 @@ function PluginNotice({
           {!available
             ? t('提供这个平台的扩展已停用或卸载；重新启用后会自动恢复，绑定和会话都保留。')
             : managed
-              ? t('账号由{extension}管理，在它的设置里开关；这里负责批准联系人、查看会话和投递记录。', {
+              ? t('账号由「{extension}」管理，在它的设置里开关；这里负责批准联系人、查看会话和投递记录。', {
                   extension: extension ?? t('提供这个平台的扩展'),
                 })
               : extension
-                ? t('由{extension}提供的平台。', { extension })
+                ? t('由「{extension}」提供的平台。', { extension })
                 : t('由扩展提供的平台。')}
         </p>
         {provider?.riskNotice && <p className="text-xs text-amber-700 dark:text-amber-400">{provider.riskNotice}</p>}

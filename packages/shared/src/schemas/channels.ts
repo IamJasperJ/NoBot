@@ -245,6 +245,16 @@ export interface ChannelBindingDTO extends z.infer<typeof channelBindingInput> {
   createdBy: string
   idleWarnedAt: number | null
   voicePreference?: { bias?: 'low' | 'medium' | 'high'; suppressed?: boolean; updatedAt: number } | null
+  primary: boolean
+  /** 同一会话的其他绑定及其主渠道状态。 */
+  siblings?: {
+    id: string
+    provider: ChannelProvider
+    providerName: string
+    accountName: string
+    title: string
+    primary: boolean
+  }[]
 }
 export interface ChannelActorDTO {
   personaName?: string | null

@@ -294,6 +294,11 @@ test('CH2a：ASR 限制、宿主合成、媒体缓存、入站附件、隐私、
     const originalGenerate = host.generate
     host.generate = ((_id, input) => {
       generated.push(input)
+      // 模拟生成器落库事件，让渠道为所有平台持久化入站来源。
+      if (input.mode === 'send') {
+        const saved = host.appendMessage(_id, { role: 'user', content: input.text })
+        service.onEvent({ type: 'message:saved', message: saved })
+      }
       return 'job'
     }) as typeof host.generate
     const incoming = (extra: Record<string, unknown>) => ({

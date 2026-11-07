@@ -24,7 +24,7 @@ test('渠道角色语音决策：工具、规则、额度、偏好、双平台�
   delete (globalThis as typeof globalThis & { __NOBOT_TEST_USER__?: string }).__NOBOT_TEST_USER__
   const { channelAccountInput, channelBindingInput, presetDataSchema } = await import('@nobot/shared')
   const { eq } = await import('drizzle-orm')
-  const { db, newId } = await import('../src/db/client')
+  const { db, setSetting, newId } = await import('../src/db/client')
   const schema = await import('../src/db/schema')
   const { systemDatabase } = await import('../src/db/system-client')
   const { users } = await import('../src/db/system-schema')
@@ -150,6 +150,7 @@ test('渠道角色语音决策：工具、规则、额度、偏好、双平台�
             idleWarnedAt: null,
           }
           service.saveBinding(raw)
+          setSetting(`channels:primary:${raw.chatId}`, raw.id)
           let binding = bindingRow(raw.id)
           const toolsCtx = { ...ctx, chatId: chat.id, speakerId: actor.id }
           expect(voice.voiceTools({ ...toolsCtx, chatId: '' }, service)).toHaveLength(0)
@@ -419,8 +420,13 @@ test('渠道角色语音决策：工具、规则、额度、偏好、双平台�
                 if (text === 'VOICEPLEASE') {
                   expect(JSON.stringify(textCalls(start))).not.toContain('Mock voice line')
                   if (provider === 'telegram')
-                    expect(calls.slice(start).some((call) => call.method === 'sendMessage')).toBe(false)
-                  else expect(JSON.stringify(textCalls(start))).not.toContain('"type":"text"')
+                    expect(
+                      calls
+                        .slice(start)
+                        .filter((call) => call.method === 'sendMessage')
+                        .every((call) => JSON.stringify(call).includes('VOICEPLEASE')),
+                    ).toBe(true)
+                  else expect(JSON.stringify(textCalls(start))).not.toContain('Mock voice line')
                   const path = (await import('../src/services/chats')).loadPath(
                     (await import('../src/services/chats')).getChatRow(chat.id).activeLeafId,
                   )

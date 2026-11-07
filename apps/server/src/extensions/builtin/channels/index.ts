@@ -24,6 +24,7 @@ import { channelRegistry, roomMembers, rooms, users } from '../../../db/system-s
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { validate } from '../../../lib/validate'
+import { getChatRow, loadPath } from '../../../services/chats'
 import { cleanupExternalUsers } from '../../../services/external-users'
 import { createRoom } from '../../../services/rooms'
 import { currentContext, currentUser, runAsUser } from '../../../user-context'
@@ -31,6 +32,7 @@ import { defineExtension, type ExtensionContext, restoreSecrets, SECRET_MASK } f
 import { OneBotClient } from './adapters/onebot11/client'
 import { expireOneBotRequests } from './adapters/onebot11/social'
 import { verifyWebhookSecret } from './adapters/telegram/receive'
+import { promptHintFor } from './cross-platform'
 import { managedBotRoutes } from './managed-bots'
 import { mediaFields } from './media-settings'
 import { exchangeMiniApp } from './miniapp'
@@ -276,6 +278,11 @@ function routes(app: Hono, ctx: Omit<ExtensionContext, 'chatId'>) {
   })
   app.get('/bindings', (c) => c.json(listBindings(c.req.query('accountId'))))
   app.get('/bindings/:id', (c) => c.json(bindingRow(c.req.param('id'))))
+  app.put('/bindings/:id/primary', (c) => {
+    const binding = bindingRow(c.req.param('id'))
+    setSetting(`channels:primary:${binding.chatId}`, binding.id)
+    return c.json({ ok: true })
+  })
   app.patch(
     '/bindings/:id',
     validate('json', channelBindingInput.partial().extend({ voicePreference: z.null().optional() })),
@@ -648,14 +655,14 @@ export default defineExtension({
   hooks: {
     afterPrompt(messages, ctx) {
       services.get(currentContext().sqlite)?.observePrompt(ctx.chatId)
-      const hints = [
-        ...new Set(
-          lookupAll(ctx.chatId)
-            .map((binding) => getProvider(binding.provider)?.definition?.promptHint)
-            .filter((hint): hint is string => !!hint),
-        ),
-      ]
-      return hints.length ? [{ role: 'system', content: hints.join('\n') }, ...messages] : messages
+      if (!ctx.chatId) return messages
+      const last = loadPath(getChatRow(ctx.chatId).activeLeafId).findLast((item) => item.role === 'user')
+      const hint = promptHintFor(
+        String(last?.meta.clientMessageId ?? ''),
+        lookupAll(ctx.chatId).map((binding) => ({ provider: binding.provider, chat: binding.external.chat })),
+        (provider) => getProvider(provider)?.definition?.promptHint,
+      )
+      return hint ? [{ role: 'system', content: hint }, ...messages] : messages
     },
     onEvent(event, _ctx) {
       services.get(currentContext().sqlite)?.onEvent(event)

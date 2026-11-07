@@ -31,13 +31,16 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
   const { systemDatabase } = await import('../src/db/system-client')
   const { users } = await import('../src/db/system-schema')
   const { runAsUser, closeUserDatabase } = await import('../src/user-context')
-  const { db, getSetting, newId } = await import('../src/db/client')
-  const { channelAccounts, channelRequests, channelDeliveries, messages } = await import('../src/db/schema')
+  const { db, getSetting, setSetting, newId } = await import('../src/db/client')
+  const { channelAccounts, channelBindings, channelActors, channelRequests, channelDeliveries, messages } =
+    await import('../src/db/schema')
   const { createExtensionHost } = await import('../src/extensions/host')
   const registry = await import('../src/extensions/registry')
   const { channelService } = await import('../src/extensions/builtin/channels')
   const { extensionChannels } = await import('../src/extensions/builtin/channels/provider-host')
-  const { accountRow, accountDTO, listBindings } = await import('../src/extensions/builtin/channels/store')
+  const { accountRow, accountDTO, bindingRow, listBindings, recordActorSeen } = await import(
+    '../src/extensions/builtin/channels/store'
+  )
   const { respondRequest } = await import('../src/extensions/builtin/channels/policies')
   const { createCharacter } = await import('../src/services/characters')
   const { createApiPreset } = await import('../src/services/connections')
@@ -606,6 +609,81 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
         ),
       ).toBe(true)
       behavior = 'ok'
+      // 同一会话两个位置：来源回复优先，网页默认走主渠道，用户入站不跨位置转发。
+      io.setOwner('visitor')
+      const second = { ...binding, id: 'route-second', chat: 'route-b', source: 'account-shared' as const }
+      service.saveBinding(second)
+      const ownerActor = db
+        .select()
+        .from(channelActors)
+        .all()
+        .find((actor) => actor.externalId === 'visitor')!
+      recordActorSeen(result.accountId, ownerActor, second.chat)
+      setSetting(`channels:primary:${binding.chatId}`, second.id)
+      expect(bindingRow(second.id).primary).toBe(true)
+      expect(bindingRow(binding.id).siblings?.find((b) => b.id === second.id)?.primary).toBe(true)
+      model.setScript(() => ({ text: 'route reply', delayMs: 1 }))
+      let routeBefore = sends.length
+      await emit('route-a', 'incoming A')
+      await host.waitIdle(binding.chatId, 5000)
+      await client.call('sendMessage', { chat_id: 'visitor', text: 'route drain' })
+      expect(sends.slice(routeBefore).every((m) => m.chatId === 'visitor')).toBe(true)
+      expect(
+        sends
+          .slice(routeBefore)
+          .map((m) => m.text)
+          .join(''),
+      ).toContain('route reply')
+      expect(
+        sends
+          .slice(routeBefore)
+          .map((m) => m.text)
+          .join(''),
+      ).not.toContain('incoming A')
+      routeBefore = sends.length
+      await service.generate(binding, { mode: 'send', text: 'web one', images: [] })
+      await host.waitIdle(binding.chatId, 5000)
+      await service.deliver(bindingRow(second.id), host.getChatInfo(binding.chatId).messages.at(-1)!)
+      expect(sends.slice(routeBefore).length).toBeGreaterThan(0)
+      expect(
+        sends
+          .slice(routeBefore)
+          .map((m) => m.text)
+          .join(''),
+      ).toContain('route reply')
+      expect(sends.slice(routeBefore).every((m) => m.chatId === second.chat)).toBe(true)
+      setSetting(`channels:primary:${binding.chatId}`, binding.id)
+      routeBefore = sends.length
+      await service.generate(binding, { mode: 'send', text: 'web two', images: [] })
+      await host.waitIdle(binding.chatId, 5000)
+      await service.deliver(bindingRow(binding.id), host.getChatInfo(binding.chatId).messages.at(-1)!)
+      expect(sends.slice(routeBefore).length).toBeGreaterThan(0)
+      expect(
+        sends
+          .slice(routeBefore)
+          .map((m) => m.text)
+          .join(''),
+      ).toContain('route reply')
+      expect(sends.slice(routeBefore).every((m) => m.chatId === binding.chat)).toBe(true)
+      // 扩展追加的 noRelay 用户消息（如应用生活的主人私信）不走主渠道，这一轮回复哪里都不发。
+      host.appendMessage(binding.chatId, { role: 'user', content: 'owner dm', meta: { noRelay: true } })
+      const quiet = host.appendMessage(binding.chatId, { role: 'assistant', content: 'quiet reply' })
+      routeBefore = sends.length
+      await Promise.all([service.deliver(bindingRow(binding.id), quiet), service.deliver(bindingRow(second.id), quiet)])
+      expect(sends.length).toBe(routeBefore)
+      const inboundUser = host
+        .getChatInfo(binding.chatId, 100)
+        .messages.find((m) => m.meta.clientMessageId === 'test-plugin.dm:visitor:route-a')!
+      routeBefore = sends.length
+      await Promise.all([service.deliver(binding, inboundUser), service.deliver(bindingRow(second.id), inboundUser)])
+      expect(sends.length).toBe(routeBefore)
+      service.saveBinding({ ...binding, settings: { ...binding.settings, mirrorWebMessages: false } })
+      const unmirrored = host.appendMessage(binding.chatId, { role: 'user', content: 'do not mirror' })
+      routeBefore = sends.length
+      await service.deliver(bindingRow(binding.id), unmirrored)
+      expect(sends.length).toBe(routeBefore)
+      service.saveBinding(binding)
+      db.delete(channelBindings).where(eq(channelBindings.id, second.id)).run()
       const unsupportedBefore = sends.length
       for (const method of [
         'editMessageText',

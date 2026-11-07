@@ -4,7 +4,7 @@ import {
   type ChannelLogEntry,
   channelAccountInput,
 } from '@nobot/shared'
-import { and, eq, lt } from 'drizzle-orm'
+import { and, eq, lt, sql } from 'drizzle-orm'
 import { db, getSetting, setSetting } from '../../../db/client'
 import {
   channelAccounts,
@@ -19,6 +19,7 @@ import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { SECRET_MASK } from '../../types'
 import { implementationCapabilities } from './capabilities'
+import { primaryBinding } from './cross-platform'
 import { miniAppUrl, publicBaseUrl } from './miniapp'
 import { getProvider } from './providers'
 import { asChannelActor } from './rooms'
@@ -97,6 +98,11 @@ export function listBindings(accountId?: string): ChannelBindingDTO[] {
     .all()
     .map(bindingDTO)
 }
+/** 表中没有创建时间列，rowid 保留插入顺序，不能使用会变化的 lastActivityAt。 */
+export function primaryBindingId(chatId: string) {
+  const rows = db.select().from(channelBindings).where(eq(channelBindings.chatId, chatId)).orderBy(sql`rowid`).all()
+  return primaryBinding(rows, getSetting<string>(`channels:primary:${chatId}`))?.id
+}
 export function markReceived(accountId: string, externalEventId: string, now: number) {
   db.delete(channelInbox)
     .where(lt(channelInbox.receivedAt, now - 7 * 86400000))
@@ -121,9 +127,27 @@ function bindingDTO(row: typeof channelBindings.$inferSelect): ChannelBindingDTO
   const { locationKey: _, topicTitle: __, ...value } = row
   const binding = {
     ...value,
+    primary: row.id === primaryBindingId(row.chatId),
     chatTitle: db.select().from(chats).where(eq(chats.id, row.chatId)).get()?.title ?? '',
     memberCount: 0,
     voicePreference: getSetting<ChannelBindingDTO['voicePreference']>(`channels:voice-preference:${row.id}`) ?? null,
+    siblings: db
+      .select()
+      .from(channelBindings)
+      .where(eq(channelBindings.chatId, row.chatId))
+      .all()
+      .filter((other) => other.id !== row.id)
+      .map((other) => {
+        const account = accountDTO(accountRow(other.accountId))
+        return {
+          id: other.id,
+          primary: other.id === primaryBindingId(row.chatId),
+          provider: account.provider,
+          providerName: account.providerName,
+          accountName: account.name,
+          title: other.title,
+        }
+      }),
   }
   const seen = db
     .select()

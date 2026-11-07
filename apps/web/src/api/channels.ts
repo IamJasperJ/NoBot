@@ -158,6 +158,7 @@ export const channelsApi = {
   binding: (id: string) => request<ChannelBindingDTO>(`/bindings/${encode(id)}`),
   updateBinding: ({ id, patch }: { id: string; patch: Partial<ChannelBindingInput> & { voicePreference?: null } }) =>
     request<ChannelBindingDTO>(`/bindings/${encode(id)}`, 'PATCH', patch),
+  setPrimary: (id: string) => request<{ ok: true }>(`/bindings/${encode(id)}/primary`, 'PUT'),
   disableBinding: (id: string) => request<{ ok: true }>(`/bindings/${encode(id)}/disable`, 'POST'),
   leaveBinding: ({ id, confirm }: { id: string; confirm: true }) =>
     request<{ ok: true }>(`/bindings/${encode(id)}/leave`, 'POST', { confirm }),
@@ -285,3 +286,5 @@ export function channelStatusMessage(code: string | null): string | null {
   if (code === 'DELIVERY_UNCERTAIN') return t('结果不确定')
   return code
 }
+
+export const useSetPrimaryChannelBinding = () => useChannelMutation(channelsApi.setPrimary)

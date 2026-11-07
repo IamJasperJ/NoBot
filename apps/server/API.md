@@ -597,3 +597,15 @@ DTO 包含 `nextRunAt`、`lastRunAt`、`finishedAt`、`runCount`、`status`、`e
 详细生命周期、重启恢复和更新回滚边界见 `src/extensions/SDK.md`。
 
 前端数据入口为 `useScheduledTasks()`、`useRetryExtensionBackground()`；本次未新增视觉页面。
+
+### 渠道主绑定
+
+`PUT /api/ext/channels/bindings/:id/primary` 将绑定设为它所在 NoBot 会话的主渠道，返回 `{ ok: true }`。
+绑定不存在时返回 404。设置保存在 `channels:primary:<chatId>`；未设置、绑定被删除或非 active 时，
+按创建顺序回退到该会话最早的 active 绑定。没有 active 绑定时不投递。
+`ChannelBindingDTO.primary` 和 `siblings[].primary` 表示当前实际生效的主绑定，仅一个绑定为 true。
+
+同一会话可以绑定多个位置（provider + chat + thread）。渠道入站用户消息不会转发；网页用户消息仅在
+目标绑定启用 `mirrorWebMessages` 时镜像到主渠道位置。角色和工具回复沿父链找到最近的 user，若其来源
+匹配本会话绑定且回复创建时间距该 user 不超过 30 分钟，则仅向来源位置投递；其他内容走主渠道位置。
+`canInitiate:false` 的已有资格限制继续叠加。回合提示和成员提及通知只向主渠道位置发送。

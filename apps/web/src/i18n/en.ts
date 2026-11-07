@@ -3,6 +3,12 @@ export const en: Record<string, string> = {
   渠道平台: 'Channel platforms',
   注册渠道平台并接收和发送消息: 'Register channel platforms and receive and send messages',
   平台不可用: 'Platform unavailable',
+  '这是主渠道：网页上发起的消息和角色主动说的话都发到这里；其他平台发来的请求，回复只回到那个平台。':
+    'This is the main channel: messages started on the web and things the character says on its own go here. Requests from other platforms are answered only on that platform.',
+  '这个会话的主渠道是 {place}。只有从这里发来的请求，回复才会发到这里。':
+    'The main channel of this chat is {place}. Replies come here only for requests sent from here.',
+  设为主渠道: 'Set as main channel',
+  已设为主渠道: 'Set as main channel',
   '连接和登录由提供这个平台的扩展管理。':
     'Connection and sign-in are managed by the extension that provides this platform.',
   '提供这个平台的扩展已停用或卸载；重新启用后会自动恢复，绑定和会话都保留。':
@@ -3274,13 +3280,13 @@ export const en: Record<string, string> = {
     'Defaults shared by all platforms; each account, group or private chat can still override them.',
   '批准过的联系人各有自己的会话，点账号查看会话和设置':
     'Each approved contact gets their own chat. Open an account to see its chats and settings',
-  '还没有账号。在{extension}里打开对应开关后会自动出现。':
+  '还没有账号。在「{extension}」里打开对应开关后会自动出现。':
     'No account yet. It appears automatically once you turn on the matching switch in {extension}.',
   提供这个平台的扩展: 'the extension that provides this platform',
   '还没有账号，点「添加」创建一个。': 'No account yet. Click "Add" to create one.',
-  '账号由{extension}管理，在它的设置里开关；这里负责批准联系人、查看会话和投递记录。':
+  '账号由「{extension}」管理，在它的设置里开关；这里负责批准联系人、查看会话和投递记录。':
     'Accounts are managed by {extension}; turn them on or off in its settings. Here you approve contacts and review chats and deliveries.',
-  '由{extension}提供的平台。': 'A platform provided by {extension}.',
+  '由「{extension}」提供的平台。': 'A platform provided by {extension}.',
   '由扩展提供的平台。': 'A platform provided by an extension.',
   '打开{extension}': 'Open {extension}',
 }

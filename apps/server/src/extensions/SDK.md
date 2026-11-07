@@ -143,6 +143,28 @@ export default defineExtension({
 不依赖宿主进程的任务内存，也不区分生成由谁触发（房间判断后的回合、网页上点生成都算答复）；
 最近的 user 不是入站、超出窗口或网页镜像仍拦截。此类平台新会话历史不保留角色卡开场白。
 
+### 群聊
+
+`scopes` 含 `'group'` 时，入站 `chat.scope: 'group'` 走完整群流程：新位置策略取 `defaults.newLocation.group`，
+批准后建群绑定和房间；触发方式取 `defaults.trigger.group`（省略为 `follow-room`，限速紧的平台可设 `mention`）。
+插件群里没见过的 `from.id` 自动建成 player 档案，每人一个 actor；拉黑的仍拒绝。`send` 的 `chatId` 是群的外部 id。
+
+入站消息可带 `mentionsMe?: boolean`（@ 了本账号）和 `repliesToMe?: boolean`（引用的是本账号发的消息），
+分别决定触发方式 `mention` / `reply` 是否触发，房间里的 @ 回复也靠它们。`repliesToMe` 显式给出时以插件为准；
+省略且带 `replyTo` 时，宿主按本账号的投递记录判断。`canInitiate:false` 的主人豁免只适用于私聊，
+群里一律按入站父链和 30 分钟窗口判断，主人在群里也不能主动发言。
+
+### 直接绑定已有会话
+
+`ctx.channels.bind(providerId, { chat: { id, title, scope? }, chatId })` 返回 `{ bindingId }`，需要 `channels` 权限，
+providerId 用短 id 或完整 id，只能操作本扩展注册的平台。它在该平台的托管账号上把一个外部私聊位置直接绑到
+当前用户已有的会话，跳过新位置批准。幂等：已绑在同一会话直接返回；绑在别的会话就改绑过来（绑定 id 不变）；
+会话不存在或不属于当前用户时抛 NOT_FOUND。不改主渠道设置。目前只支持 `scope: 'private'`。
+
+经 `io.setOwner(id)` 声明的主人，其私聊（位置 id 等于主人的外部 id）享有 `canInitiate:false` 的豁免，
+即使主人还没从这个位置发过言：网页发言、定时任务等经主渠道投递的消息都能发出。
+回复仍按主渠道路由：30 分钟内的入站回到来源位置，其余发主渠道；主渠道是别的平台时不会发到这里。
+
 `managedAccounts: true` 表示账号由扩展用 `ensureAccount` 管理，渠道页不显示手动添加；省略时 `accountFields` 为空即视为托管。
 `GET /api/ext/channels/providers` 返回 `extensionId`、`extensionName` 和 `managed`，内置平台分别为 null、null、false。
 

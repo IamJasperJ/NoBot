@@ -109,6 +109,28 @@ export function suppressChannelRelay(
   return false
 }
 
+/**
+ * canInitiate:false 平台上可以主动发的例外：只有和主人的私聊。
+ * 群里有主人在也不算，群消息仍要按入站父链判断，避免在群里主动发言。
+ */
+function ownerDirect(binding: ChannelBindingDTO) {
+  if (binding.scope !== 'private') return false
+  if (lookupAll(binding.chatId).find((item) => item.bindingId === binding.id)?.ownerPresent) return true
+  // 插件用 bind 预先绑定主人私信时，主人可能还没从这个位置发过消息（没有「见过」记录）：
+  // 私聊位置的外部 id 就是对方的用户 id，直接按主人档案判断
+  return !!db
+    .select()
+    .from(channelActors)
+    .where(
+      and(
+        eq(channelActors.provider, accountRow(binding.accountId).provider),
+        eq(channelActors.externalId, binding.chat),
+        eq(channelActors.role, 'owner'),
+      ),
+    )
+    .get()
+}
+
 export class ChannelService {
   readonly runtime: ChannelRuntime
   sleep = (ms: number): Promise<void> => Bun.sleep(ms)
@@ -205,7 +227,7 @@ export class ChannelService {
           if (!this.settings(binding).values.mentionOnTurn || !actors.length) continue
           if (
             getProvider(accountRow(binding.accountId).provider)?.definition?.canInitiate === false &&
-            !lookupAll(binding.chatId).find((item) => item.bindingId === binding.id)?.ownerPresent
+            !ownerDirect(binding)
           ) {
             this.runtime.log(binding.accountId, 'delivery.skipped.no-initiate')
             continue
@@ -386,7 +408,10 @@ export class ChannelService {
     )
     if (!event) return
     if (!markReceived(id, event.dedupeKey, Date.now())) return
-    if (entry.client instanceof OneBotClient && event.type === 'message' && event.reply_to_message) {
+    // 插件没声明 repliesToMe 时和 OneBot 一样，按投递记录判断引用的是不是本账号发的消息
+    const lookupReply =
+      entry.client instanceof OneBotClient || (event.type === 'message' && 'repliesToBotUnknown' in event)
+    if (lookupReply && event.type === 'message' && event.reply_to_message) {
       const quoted = event.reply_to_message
       const delivery = db
         .select()
@@ -401,7 +426,12 @@ export class ChannelService {
           ),
         )
       event.repliesToBot = !!delivery
-      if (!quoted.from && event.command && ['invite', 'kick'].includes(event.command.name)) {
+      if (
+        entry.client instanceof OneBotClient &&
+        !quoted.from &&
+        event.command &&
+        ['invite', 'kick'].includes(event.command.name)
+      ) {
         const original = await entry.client.action<{
           sender?: { user_id: number; nickname?: string }
           user_id?: number
@@ -533,6 +563,25 @@ export class ChannelService {
           await this.send(id, String(event.chat.id), t('请在网页渠道页输入配对码：{code}', { code }))
           return
         }
+      }
+      // 插件平台的群没有「先私聊配对」的入口：陌生发言人直接建成 player 档案，
+      // 能不能进群由位置批准（defaults.newLocation.group）把关；拉黑的人仍然拒绝
+      if (!actor && entry.client instanceof PluginChannelClient && event.chat.type !== 'private') {
+        actor = recordActorSeen(
+          id,
+          db
+            .insert(channelActors)
+            .values({
+              id: newId(),
+              provider: row.config.provider,
+              externalId: actorId,
+              displayName: event.displayName,
+              role: 'player',
+            })
+            .returning()
+            .get(),
+          String(event.chat.id),
+        )
       }
       if (!actor || actor.role === 'blocked') {
         if (!actor && event.chat.type === 'private')
@@ -1585,7 +1634,10 @@ export class ChannelService {
       scope,
       isolation,
       state: 'active',
-      trigger: scope === 'private' ? 'all' : 'follow-room',
+      trigger:
+        scope === 'private'
+          ? 'all'
+          : (getProvider(config.provider)?.definition?.defaults?.trigger?.group ?? 'follow-room'),
     })
     const binding = {
       ...value,
@@ -2742,8 +2794,7 @@ export class ChannelService {
     }
     if (entry.client instanceof PluginChannelClient) {
       stream?.abort()
-      const owner = lookupAll(binding.chatId).find((item) => item.bindingId === binding.id)?.ownerPresent
-      if (!entry.client.definition.canInitiate && !owner && !this.isInboundReply(binding, message)) {
+      if (!entry.client.definition.canInitiate && !ownerDirect(binding) && !this.isInboundReply(binding, message)) {
         this.runtime.log(binding.accountId, 'delivery.skipped.no-initiate')
         return
       }

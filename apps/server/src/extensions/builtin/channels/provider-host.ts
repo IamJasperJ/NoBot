@@ -1,11 +1,12 @@
-import { channelAccountInput } from '@nobot/shared'
+import { channelAccountInput, channelBindingInput } from '@nobot/shared'
 import { and, eq } from 'drizzle-orm'
-import { db } from '../../../db/client'
+import { db, newId } from '../../../db/client'
 import { channelAccounts, channelActorLocations, channelActors, channelBindings } from '../../../db/schema'
 import { systemDatabase } from '../../../db/system-client'
-import { channelRegistry } from '../../../db/system-schema'
+import { channelRegistry, rooms } from '../../../db/system-schema'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
+import { getChatRow } from '../../../services/chats'
 import { currentUser, runAsUser } from '../../../user-context'
 import {
   type ChannelProviderDefinition,
@@ -18,7 +19,7 @@ import { channelService } from './index'
 import { PresenceSync } from './presence'
 import { addProvider, getProvider, type RegisteredProvider, removeProvider } from './providers'
 import type { ChannelRuntime } from './runtime'
-import { accountDTO, accountRow } from './store'
+import { accountDTO, accountRow, listBindings } from './store'
 
 export function lookupAll(chatId: string) {
   return db
@@ -198,6 +199,13 @@ export function extensionChannels(
     if (signal?.aborted) throw new ChannelProviderStoppedError()
     if (!allowed || !signal) throw new HttpError(403, 'CHANNEL_PERMISSION_REQUIRED', t('没有渠道操作权限'))
   }
+  /** 短 id 或完整 id 都接受；只能操作本扩展本次后台注册的平台 */
+  const ownProvider = (providerId: string) => {
+    const id = providerId.startsWith(`${extensionId}.`) ? providerId : `${extensionId}.${providerId}`
+    if (!owned.has(id) || getProvider(id)?.extensionId !== extensionId)
+      throw new HttpError(403, 'CHANNEL_PERMISSION_REQUIRED', t('没有渠道操作权限'))
+    return id
+  }
   return {
     lookup: (chatId) => lookupAll(chatId)[0] ?? null,
     lookupAll,
@@ -283,12 +291,50 @@ export function extensionChannels(
       for (const row of enabled) void value.start(row.accountId).catch(() => {})
       return { unregister }
     },
+    bind(providerId, options) {
+      check()
+      const id = ownProvider(providerId)
+      const account = db.select().from(channelAccounts).where(eq(channelAccounts.provider, id)).get()
+      if (!account) throw new HttpError(404, 'NOT_FOUND', t('渠道账号不存在'))
+      // 群绑定需要房间和成员流程，暂不开放直接绑定
+      if ((options.chat.scope ?? 'private') !== 'private' || !options.chat.id)
+        throw new HttpError(400, 'INVALID_INPUT', t('渠道设置无效'))
+      // 会话在当前用户自己的库里查，查不到（包括别人的会话）直接报不存在
+      getChatRow(options.chatId)
+      const value = channelService({ host })
+      const existing = listBindings(account.id).find(
+        (binding) => binding.scope === 'private' && binding.chat === options.chat.id && binding.thread === '',
+      )
+      if (existing?.chatId === options.chatId && existing.state === 'active') return { bindingId: existing.id }
+      const room = systemDatabase().select().from(rooms).where(eq(rooms.chatId, options.chatId)).get()
+      const base = existing ?? {
+        ...channelBindingInput.parse({
+          accountId: account.id,
+          scope: 'private',
+          chat: options.chat.id,
+          chatId: options.chatId,
+          source: 'attached',
+          isolation: 'dm',
+          trigger: 'all',
+        }),
+        id: newId(),
+        createdBy: currentUser().id,
+        lastActivityAt: Date.now(),
+        idleWarnedAt: null,
+      }
+      value.saveBinding({
+        ...base,
+        title: options.chat.title || base.title,
+        chatId: options.chatId,
+        roomId: room?.id ?? null,
+        state: 'active',
+      })
+      return { bindingId: base.id }
+    },
     async ensureAccount(providerId, options) {
       check()
-      const id = providerId.startsWith(`${extensionId}.`) ? providerId : `${extensionId}.${providerId}`
-      const provider = getProvider(id)
-      if (!owned.has(id) || provider?.extensionId !== extensionId)
-        throw new HttpError(403, 'CHANNEL_PERMISSION_REQUIRED', t('没有渠道操作权限'))
+      const id = ownProvider(providerId)
+      const provider = getProvider(id)!
       const existing = db.select().from(channelAccounts).where(eq(channelAccounts.provider, id)).get()
       if (existing) {
         const characterFollowed =

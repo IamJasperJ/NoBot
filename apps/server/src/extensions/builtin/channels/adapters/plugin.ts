@@ -175,10 +175,23 @@ export class PluginChannelClient {
         context: message.context,
         sentAt: message.sentAt,
         reply_to_message: message.replyTo ? { message_id: message.replyTo } : undefined,
+        // 插件自己判断的 @ 和引用，Telegram 解码会丢掉未知字段，decode 里再从原始对象取回
+        mentionsMe: message.mentionsMe,
+        repliesToMe: message.repliesToMe,
       },
     }
   }
   decode(input: unknown) {
-    return decodeTelegram(input, { id: this.account.id })
+    const decoded = decodeTelegram(input, { id: this.account.id })
+    if (decoded?.type !== 'message') return decoded
+    const raw = (input as { message?: { mentionsMe?: unknown; repliesToMe?: unknown } }).message
+    decoded.mentionsBot = raw?.mentionsMe === true
+    if (typeof raw?.repliesToMe === 'boolean') {
+      decoded.repliesToBot = raw.repliesToMe
+      return decoded
+    }
+    // 插件没给 repliesToMe：标记出来，由服务按本账号的投递记录判断引用的是不是自己发的消息
+    decoded.repliesToBot = false
+    return Object.assign(decoded, { repliesToBotUnknown: true as const })
   }
 }

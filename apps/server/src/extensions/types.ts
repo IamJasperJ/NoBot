@@ -330,6 +330,11 @@ export interface ChannelProviderDefinition {
   media: { inboundImages: boolean; outboundImages: boolean; voice: boolean }
   defaults?: {
     newLocation?: { private?: 'auto' | 'approve' | 'existing-only'; group?: 'auto' | 'approve' | 'existing-only' }
+    /**
+     * 新建群绑定的触发方式，省略为 follow-room（按房间规则接话）。
+     * 平台限速紧时可以设成 mention：只有 @ 本账号的消息触发回复，其他群消息仍记入房间历史
+     */
+    trigger?: { group?: 'all' | 'follow-room' | 'mention' | 'reply' | 'command' }
   }
   accountFields: ExtensionSettingField[]
   /** 账号由扩展自己用 ensureAccount 管理；渠道页不提供手动添加。省略时 accountFields 为空即视为托管。 */
@@ -355,6 +360,13 @@ export interface ChannelInboundMessage {
   images?: { bytes: Uint8Array; mime: string }[]
   context?: string
   replyTo?: string
+  /** 群聊：这条消息 @ 了本账号（触发方式「被 @」、房间里的 @ 回复都靠它）；省略视为 false */
+  mentionsMe?: boolean
+  /**
+   * 群聊：这条消息引用的是本账号发的消息。省略时宿主用 replyTo 对照本账号的投递记录自己判断；
+   * 显式给出时以插件为准
+   */
+  repliesToMe?: boolean
   sentAt: number
 }
 export interface ChannelProviderIO {
@@ -380,6 +392,14 @@ export interface ExtensionChannels {
     providerId: string,
     options: { name: string; characterId?: string; groupId?: string },
   ): Promise<{ accountId: string; characterFollowed: boolean }>
+  /**
+   * 把托管账号上的一个外部私聊位置直接绑定到已有会话，跳过新位置批准。
+   * 幂等：已绑在这个会话直接返回；绑在别的会话就改绑过来。不改主渠道设置。目前只支持私聊
+   */
+  bind(
+    providerId: string,
+    options: { chat: { id: string; title: string; scope?: 'private' | 'group' }; chatId: string },
+  ): { bindingId: string }
 }
 export class ChannelSendError extends Error {
   readonly name = 'ChannelSendError'

@@ -23,6 +23,7 @@ import { errorMessage, toast } from '../../stores/toast'
 import { useUi } from '../../stores/ui'
 import { useRoomDialogs } from '../rooms/shared'
 import {
+  capabilityBlock,
   isolationLabel,
   OverrideEditor,
   personaModeOptions,
@@ -84,14 +85,19 @@ export function BindingDialog({
             { id: 'session', label: t('会话') },
             { id: 'members', label: t('成员') },
             { id: 'behavior', label: t('行为') },
-            ...(binding.scope === 'group' ? [{ id: 'speakers' as const, label: t('多 bot 发言') }] : []),
+            ...(binding.scope === 'group' && !capabilityBlock(account.capabilities.multiBot)
+              ? [{ id: 'speakers' as const, label: t('多 bot 发言') }]
+              : []),
           ]}
         />
-        {tab === 'session' && <SessionTab binding={merged} patch={patch} onClose={onClose} />}
+        {tab === 'session' && (
+          <SessionTab binding={merged} capabilities={account.capabilities} patch={patch} onClose={onClose} />
+        )}
         {tab === 'members' && <MembersTab binding={binding} account={account} />}
         {tab === 'behavior' && (
           <BehaviorTab
             provider={account.provider}
+            capabilities={account.capabilities}
             binding={binding}
             value={merged.settings ?? {}}
             onChange={(settings) => patch({ settings })}
@@ -118,13 +124,18 @@ export function BindingDialog({
 
 function SessionTab({
   binding,
+  capabilities,
   patch,
   onClose,
 }: {
   binding: ChannelBindingDTO
+  capabilities: ChannelAccountDTO['capabilities']
   patch: (p: Patch) => void
   onClose: () => void
 }) {
+  const triggerBlock = capabilityBlock(capabilities.groupTrigger)
+  const leaveBlock = capabilityBlock(capabilities.leaveGroup)
+  const noTopics = capabilities.topic === 'unsupported'
   const rooms = (useRooms().data ?? []).filter((r) => r.myRole === 'owner')
   const characters = useCharacters().data ?? []
   const groups = useGroups().data ?? []
@@ -257,18 +268,25 @@ function SessionTab({
             label={t('群里的人怎么分会话')}
             value={binding.isolation}
             onChange={(isolation) => patch({ isolation })}
-            options={(['shared', 'per-user', 'per-topic'] as const).map((v) => ({
-              value: v,
-              label: isolationLabel(v),
-            }))}
+            options={(['shared', 'per-user', 'per-topic'] as const)
+              // 平台没有话题时不提供按话题；已经选过的保留，避免下拉框显示空白
+              .filter((v) => v !== 'per-topic' || !noTopics || binding.isolation === v)
+              .map((v) => ({
+                value: v,
+                label: isolationLabel(v),
+              }))}
           />
         )}
-        <SelectField
-          label={t('什么时候回复')}
-          value={binding.trigger}
-          onChange={(trigger) => patch({ trigger })}
-          options={[...triggerOptions()]}
-        />
+        {triggerBlock && !group ? null : (
+          <SelectField
+            label={t('什么时候回复')}
+            hint={triggerBlock ?? undefined}
+            disabled={!!triggerBlock}
+            value={binding.trigger}
+            onChange={(trigger) => patch({ trigger })}
+            options={[...triggerOptions()]}
+          />
+        )}
         <SelectField
           label={t('玩家人设')}
           value={binding.personaMode ?? ''}
@@ -291,6 +309,7 @@ function SessionTab({
           </Button>
         )}
         {group &&
+          !leaveBlock &&
           binding.state !== 'left' &&
           (confirmLeave ? (
             <>
@@ -392,11 +411,13 @@ function MembersTab({ binding, account }: { binding: ChannelBindingDTO; account:
 
 function BehaviorTab({
   provider,
+  capabilities,
   binding,
   value,
   onChange,
 }: {
   provider: ChannelAccountDTO['provider']
+  capabilities: ChannelAccountDTO['capabilities']
   binding: ChannelBindingDTO
   value: ChannelBindingDTO['settings']
   onChange: (v: ChannelBindingDTO['settings']) => void
@@ -408,6 +429,7 @@ function BehaviorTab({
       {binding.voicePreference && <VoicePreferenceNote binding={binding} />}
       <OverrideEditor
         provider={provider}
+        capabilities={capabilities}
         value={value}
         effective={resolved.values}
         // 本层没覆盖时，来源一定在上层；服务端的 provenance 可能还是保存前的「binding」，退回到机器人

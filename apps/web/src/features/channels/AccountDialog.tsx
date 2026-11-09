@@ -31,6 +31,7 @@ import { BindingDialog } from './BindingDialog'
 import { StickersTab } from './StickersTab'
 import {
   accountStatus,
+  capabilityBlock,
   capabilityLabel,
   isolationLabel,
   isPluginProvider,
@@ -91,11 +92,14 @@ export function AccountDialog({ account, onClose }: { account: ChannelAccountDTO
               onChange={setTab}
               tabs={[
                 { id: 'basic', label: t('基本') },
-                { id: 'presence', label: t('资料') },
+                // 平台完全用不上的页签不显示，原因写在「基本」页的说明里
+                ...(presenceUnavailable(account) ? [] : [{ id: 'presence' as const, label: t('资料') }]),
                 { id: 'policies', label: t('进群与好友') },
                 { id: 'persona', label: t('玩家人设') },
                 { id: 'behavior', label: t('行为') },
-                { id: 'stickers', label: t('表情包') },
+                ...(capabilityBlock(account.capabilities.stickers)
+                  ? []
+                  : [{ id: 'stickers' as const, label: t('表情包') }]),
                 { id: 'places', label: t('群和私聊') },
               ]}
             />
@@ -110,6 +114,7 @@ export function AccountDialog({ account, onClose }: { account: ChannelAccountDTO
         {tab === 'behavior' && (
           <BehaviorTab
             provider={account.provider}
+            capabilities={account.capabilities}
             value={(merged.settings ?? {}) as ChannelSettingsOverride}
             onChange={(settings) => patch({ settings })}
           />
@@ -207,6 +212,38 @@ function CharacterAllowlist({ value, onChange }: { value: string[]; onChange: (i
   )
 }
 
+/** 头像、名字、简介都不能同步时，「资料」页签没有任何可做的事 */
+const presenceUnavailable = (account: ChannelAccountDTO) =>
+  (['avatar', 'name', 'description', 'shortDescription'] as const).every(
+    (key) => account.capabilities[key] === 'unsupported',
+  )
+
+/** 告诉用户这个扩展平台哪些功能用不了、哪些要去扩展里设置，免得对着停用的控件猜原因 */
+function PluginCapabilityNote({ account }: { account: ChannelAccountDTO }) {
+  const c = account.capabilities
+  const unsupported = [
+    presenceUnavailable(account) && t('同步头像和资料'),
+    c.voice === 'unsupported' && t('语音'),
+    c.outboundImages === 'unsupported' && t('发图片（CG、生成图、立绘）'),
+    c.reactions === 'unsupported' && t('给消息回表情'),
+    c.deleteMessage === 'unsupported' && t('撤回消息'),
+    c.mention === 'unsupported' && t('主动 @ 人'),
+    c.leaveGroup === 'unsupported' && t('退群'),
+    c.multiBot === 'unsupported' && t('多 bot 发言'),
+  ].filter(Boolean)
+  const managed = [
+    c.groupTrigger === 'managed' && t('群里什么时候回复'),
+    c.stickers === 'managed' && t('表情包'),
+  ].filter(Boolean)
+  if (!unsupported.length && !managed.length) return null
+  return (
+    <div className="space-y-1 rounded-lg bg-zinc-50 px-3 py-2 text-xs leading-relaxed text-zinc-500 dark:bg-zinc-800/50 dark:text-zinc-400">
+      {unsupported.length > 0 && <p>{t('这个平台做不到：{items}。', { items: unsupported.join('、') })}</p>}
+      {managed.length > 0 && <p>{t('在提供平台的扩展里设置：{items}。', { items: managed.join('、') })}</p>}
+    </div>
+  )
+}
+
 function BasicTab({
   account,
   draft,
@@ -231,6 +268,7 @@ function BasicTab({
         {status.error && <span className="min-w-0 truncate text-xs text-red-600">{status.error}</span>}
         {account.botUsername && <span className="ml-auto font-mono text-zinc-500">@{account.botUsername}</span>}
       </div>
+      {plugin && <PluginCapabilityNote account={account} />}
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <section className="space-y-4">
           <TextField label={t('名称')} value={draft.name ?? ''} onChange={(name) => patch({ name })} />
@@ -855,6 +893,8 @@ function PoliciesTab({ account }: { account: ChannelAccountDTO }) {
   const dirty = JSON.stringify(draft) !== JSON.stringify(account.policies)
   const friendCapability = capabilityLabel(account.capabilities.friendRequest)
   const leaveCapability = capabilityLabel(account.capabilities.leaveGroup)
+  // 平台不支持拉人进群时，群相关的策略改不了也不起作用
+  const inviteBlock = capabilityBlock(account.capabilities.groupInvite)
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
@@ -862,6 +902,8 @@ function PoliciesTab({ account }: { account: ChannelAccountDTO }) {
           <h4 className="text-[13px] font-medium">{t('被拉进群')}</h4>
           <SelectField
             label={t('有人把 bot 拉进新群时')}
+            hint={inviteBlock ?? undefined}
+            disabled={!!inviteBlock}
             value={draft.groupInvite}
             onChange={(groupInvite) => setDraft({ ...draft, groupInvite })}
             options={[
@@ -873,6 +915,8 @@ function PoliciesTab({ account }: { account: ChannelAccountDTO }) {
           />
           <NumberField
             label={t('最多加入几个群')}
+            hint={inviteBlock ?? undefined}
+            disabled={!!inviteBlock}
             value={draft.limits.maxGroups}
             min={1}
             max={200}
@@ -1115,8 +1159,10 @@ function BehaviorTab({
   value,
   onChange,
   provider,
+  capabilities,
 }: {
   provider: ChannelAccountDTO['provider']
+  capabilities: ChannelAccountDTO['capabilities']
   value: ChannelSettingsOverride
   onChange: (v: ChannelSettingsOverride) => void
 }) {
@@ -1127,6 +1173,7 @@ function BehaviorTab({
       <p className="text-[13px] text-zinc-500">{t('这里的设置覆盖扩展页的全局默认；每个群或私聊还能再单独改。')}</p>
       <OverrideEditor
         provider={provider}
+        capabilities={capabilities}
         value={value}
         effective={global}
         inheritedFrom={() => 'global'}

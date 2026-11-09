@@ -120,7 +120,14 @@ export const channelPresenceSchema = z.object({
     .prefault({}),
 })
 export type ChannelPresence = z.infer<typeof channelPresenceSchema>
-export type ChannelCapabilityState = 'supported' | 'unsupported' | 'unknown' | 'console_only' | 'permission_required'
+/** managed：平台能做，但设置在提供平台的扩展里，渠道页不重复提供。 */
+export type ChannelCapabilityState =
+  | 'supported'
+  | 'unsupported'
+  | 'unknown'
+  | 'console_only'
+  | 'permission_required'
+  | 'managed'
 export type ChannelCapabilities = Record<string, ChannelCapabilityState>
 export type ChannelPresenceSync = Record<
   string,

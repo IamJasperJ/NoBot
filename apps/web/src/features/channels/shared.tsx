@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type {
   ChannelAccountDTO,
   ChannelBindingDTO,
+  ChannelCapabilities,
   ChannelCapabilityState,
   ChannelProvider,
   ChannelSettings,
@@ -40,13 +41,19 @@ export const statusMeta = (s: ChannelAccountDTO['status']) =>
 export const capabilityLabel = (s: ChannelCapabilityState | undefined) =>
   s === 'supported'
     ? null
-    : s === 'console_only'
-      ? t('需在平台后台修改')
-      : s === 'permission_required'
-        ? t('需要群管理权限')
-        : s === 'unsupported'
-          ? t('平台不支持')
-          : t('未确认')
+    : s === 'managed'
+      ? t('在提供平台的扩展里设置')
+      : s === 'console_only'
+        ? t('需在平台后台修改')
+        : s === 'permission_required'
+          ? t('需要群管理权限')
+          : s === 'unsupported'
+            ? t('平台不支持')
+            : t('未确认')
+
+/** 平台明确用不上、或设置在扩展里时返回说明；未声明的能力不限制，内置平台的设置不受影响。 */
+export const capabilityBlock = (s: ChannelCapabilityState | undefined) =>
+  s === 'unsupported' ? t('平台不支持') : s === 'managed' ? t('在提供平台的扩展里设置') : null
 
 export const scopeLabel = (b: ChannelBindingDTO) => (b.scope === 'private' ? t('私聊') : b.thread ? t('话题') : t('群'))
 
@@ -85,6 +92,34 @@ type Kind =
 type Row = { key: keyof ChannelSettings; label: string; kind: Kind }
 
 /** 只在某个平台有意义的设置；不在表里的两边都显示 */
+/** 设置项依赖的平台能力：能力不可用时这一项停用，整组都不可用时收成一行。 */
+const rowCapability: Partial<Record<keyof ChannelSettings, string>> = {
+  voice: 'voice',
+  voiceDecideBias: 'voice',
+  voiceDecideStyle: 'voice',
+  voiceDecideHourlyMax: 'voice',
+  voiceNarration: 'voice',
+  voiceLongText: 'voice',
+  voiceMaxChars: 'voice',
+  voiceInput: 'voice',
+  echoTranscript: 'voice',
+  cg: 'outboundImages',
+  generatedImages: 'outboundImages',
+  sprites: 'outboundImages',
+  background: 'outboundImages',
+  statusCard: 'outboundImages',
+  deleteSync: 'deleteMessage',
+  mentionOnTurn: 'mention',
+  reactions: 'reactions',
+  reactionCooldownMs: 'reactions',
+  reactionDailyBudget: 'reactions',
+  stickerFrequency: 'stickers',
+  stickerCooldownSec: 'stickers',
+  stickerAutoLearn: 'stickers',
+  stickerMaxSets: 'stickers',
+  stickerAutoLabel: 'stickers',
+}
+
 const onlyFor: Partial<Record<keyof ChannelSettings, ChannelProvider>> = {
   stream: 'telegram',
   streamIntervalMs: 'telegram',
@@ -496,11 +531,14 @@ export function OverrideEditor({
   onChange,
   disabled,
   provider,
+  capabilities,
   only,
   plain,
 }: {
   /** 只显示这个平台用得上的项（平台专用 + 通用）；不传时全部显示 */
   provider?: ChannelProvider
+  /** 账号的平台能力：不可用的项停用并说明原因 */
+  capabilities?: ChannelCapabilities
   /** 全局默认页按页签拆分：'shared' 只显示两边共用的项，平台名只显示该平台专用的项 */
   only?: 'shared' | ChannelProvider
   /** 全局默认：value 就是完整设置，没有继承徽标和恢复按钮 */
@@ -528,6 +566,12 @@ export function OverrideEditor({
     delete next[key]
     onChange(next)
   }
+  const blockOf = (key: keyof ChannelSettings) => {
+    const capability = rowCapability[key]
+    return capability ? capabilityBlock(capabilities?.[capability]) : null
+  }
+  // 整组都用不上的收成一行放到最后，常用的设置留在前面
+  const fullyBlocked = (group: { rows: Row[] }) => group.rows.every((row) => blockOf(row.key))
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       {settingGroups(provider ?? only)
@@ -542,85 +586,104 @@ export function OverrideEditor({
           ),
         }))
         .filter((group) => group.rows.length > 0)
-        .map((group) => (
-          <section
-            key={group.title}
-            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/40"
-          >
-            <h4 className="pb-1 text-xs font-medium text-zinc-500">{group.title}</h4>
-            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {group.rows.map((row) => {
-                const own = plain || value[row.key] !== undefined
-                const current = (own ? value[row.key] : effective[row.key]) as boolean | number | string
-                const hint = rowHint(row.key, provider ?? only)
-                return (
-                  <li key={row.key} className="py-1.5">
-                    <div className="flex min-h-8 items-center gap-2">
-                      <span className="flex min-w-0 flex-1 items-center gap-0.5 text-[13px]">
-                        {row.label}
-                        {hint && (
-                          <HintButton hint={hint} open={openHints.has(row.key)} onToggle={() => toggleHint(row.key)} />
-                        )}
-                      </span>
-                      {plain ? null : own ? (
-                        <IconButton label={t('恢复继承')} onClick={() => reset(row.key)} disabled={disabled}>
-                          <RefreshIcon />
-                        </IconButton>
-                      ) : (
-                        <span className={cx(badgeClass, 'font-normal text-zinc-400')}>
-                          {sourceLabel(inheritedFrom(row.key))}
+        .sort((a, b) => Number(fullyBlocked(a)) - Number(fullyBlocked(b)))
+        .map((group) =>
+          fullyBlocked(group) ? (
+            <section
+              key={group.title}
+              className="flex h-fit items-center justify-between gap-2 rounded-xl border border-dashed border-zinc-200 px-3 py-2 dark:border-zinc-800"
+            >
+              <h4 className="text-xs font-medium text-zinc-500">{group.title}</h4>
+              <span className="text-xs text-zinc-400">{blockOf(group.rows[0]!.key)}</span>
+            </section>
+          ) : (
+            <section
+              key={group.title}
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/40"
+            >
+              <h4 className="pb-1 text-xs font-medium text-zinc-500">{group.title}</h4>
+              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {group.rows.map((row) => {
+                  const own = plain || value[row.key] !== undefined
+                  const current = (own ? value[row.key] : effective[row.key]) as boolean | number | string
+                  const hint = rowHint(row.key, provider ?? only)
+                  const block = blockOf(row.key)
+                  const rowDisabled = disabled || !!block
+                  return (
+                    <li key={row.key} className="py-1.5">
+                      <div className="flex min-h-8 items-center gap-2">
+                        <span className="flex min-w-0 flex-1 items-center gap-0.5 text-[13px]">
+                          {row.label}
+                          {hint && (
+                            <HintButton
+                              hint={hint}
+                              open={openHints.has(row.key)}
+                              onToggle={() => toggleHint(row.key)}
+                            />
+                          )}
                         </span>
-                      )}
-                      <div className={cx('shrink-0', !own && 'opacity-60')}>
-                        {row.kind.type === 'bool' ? (
-                          <Toggle
-                            label={row.label}
-                            checked={current as boolean}
-                            disabled={disabled}
-                            onChange={(v) => set(row.key, v)}
-                          />
-                        ) : row.kind.type === 'select' ? (
-                          <select
-                            aria-label={row.label}
-                            className={cx(selectClass, 'w-32')}
-                            value={current as string}
-                            disabled={disabled}
-                            onChange={(e) => set(row.key, e.target.value)}
-                          >
-                            {row.kind.options.map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
+                        {block ? (
+                          <span className="text-xs text-zinc-400">{block}</span>
+                        ) : plain ? null : own ? (
+                          <IconButton label={t('恢复继承')} onClick={() => reset(row.key)} disabled={disabled}>
+                            <RefreshIcon />
+                          </IconButton>
                         ) : (
-                          <input
-                            type="number"
-                            aria-label={row.label}
-                            className={cx(controlClass, 'w-28')}
-                            min={row.kind.min}
-                            max={row.kind.max}
-                            value={current as number}
-                            disabled={disabled}
-                            onChange={(e) => {
-                              const kind = row.kind as { min: number; max: number }
-                              const n = Number(e.target.value)
-                              if (Number.isFinite(n))
-                                set(row.key, Math.min(kind.max, Math.max(kind.min, Math.round(n))))
-                            }}
-                          />
+                          <span className={cx(badgeClass, 'font-normal text-zinc-400')}>
+                            {sourceLabel(inheritedFrom(row.key))}
+                          </span>
                         )}
+                        <div className={cx('shrink-0', (!own || block) && 'opacity-60')}>
+                          {row.kind.type === 'bool' ? (
+                            <Toggle
+                              label={row.label}
+                              checked={current as boolean}
+                              disabled={rowDisabled}
+                              onChange={(v) => set(row.key, v)}
+                            />
+                          ) : row.kind.type === 'select' ? (
+                            <select
+                              aria-label={row.label}
+                              className={cx(selectClass, 'w-32')}
+                              value={current as string}
+                              disabled={rowDisabled}
+                              onChange={(e) => set(row.key, e.target.value)}
+                            >
+                              {row.kind.options.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="number"
+                              aria-label={row.label}
+                              className={cx(controlClass, 'w-28')}
+                              min={row.kind.min}
+                              max={row.kind.max}
+                              value={current as number}
+                              disabled={rowDisabled}
+                              onChange={(e) => {
+                                const kind = row.kind as { min: number; max: number }
+                                const n = Number(e.target.value)
+                                if (Number.isFinite(n))
+                                  set(row.key, Math.min(kind.max, Math.max(kind.min, Math.round(n))))
+                              }}
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    {hint && openHints.has(row.key) && (
-                      <p className="pt-1 text-xs leading-relaxed text-zinc-500">{hint}</p>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-        ))}
+                      {hint && openHints.has(row.key) && (
+                        <p className="pt-1 text-xs leading-relaxed text-zinc-500">{hint}</p>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ),
+        )}
     </div>
   )
 }

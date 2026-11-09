@@ -1,8 +1,11 @@
 import type { ChannelAccountConfig, ChannelFriendDTO } from '@nobot/shared'
+import { oneBotExtensionActions } from '../../capabilities'
 import type { TelegramFetch } from '../telegram/client'
 import type { ChannelClient } from '../types'
 import { OneBotStatus } from './status'
 import { OneBotError, OneBotSendQueue, type OneBotTransport } from './transport'
+
+const extensionActions = new Set<string>(Object.values(oneBotExtensionActions).flat())
 
 export interface OneBotSegment {
   type: string
@@ -33,6 +36,8 @@ export function splitOneBot(text: string, limit = 4500) {
 export class OneBotClient implements ChannelClient {
   draftSupported = false
   onDraftUnsupported?: () => void
+  readonly unsupportedActions = new Set<string>()
+  onActionUnsupported?: (action: string) => void
   selfId = ''
   nickname = ''
   implementation = { name: '', version: '' }
@@ -67,8 +72,8 @@ export class OneBotClient implements ChannelClient {
     this.lifetime.abort()
     this.transport.stop()
   }
-  get napcat() {
-    return /napcat/i.test(this.implementation.name)
+  supports(action: string) {
+    return !extensionActions.has(action) || !this.unsupportedActions.has(action)
   }
   async connected() {
     const bot = await this.action<{ user_id: number; nickname: string }>('get_login_info')
@@ -77,8 +82,22 @@ export class OneBotClient implements ChannelClient {
     const version = await this.action<{ app_name?: string; app_version?: string }>('get_version_info')
     this.implementation = { name: version.app_name ?? '', version: version.app_version ?? '' }
   }
-  action<T = boolean>(action: string, params: Record<string, unknown> = {}, signal = this.signal) {
-    return this.transport.call<T>(action, params, signal)
+  async action<T = boolean>(action: string, params: Record<string, unknown> = {}, signal = this.signal) {
+    if (!this.supports(action)) throw new OneBotError(1404)
+    try {
+      return await this.transport.call<T>(action, params, signal)
+    } catch (error) {
+      if (
+        error instanceof OneBotError &&
+        error.retcode === 1404 &&
+        extensionActions.has(action) &&
+        !this.unsupportedActions.has(action)
+      ) {
+        this.unsupportedActions.add(action)
+        this.onActionUnsupported?.(action)
+      }
+      throw error
+    }
   }
   async friendList(refresh = false) {
     if (!refresh && this.friends && Date.now() - this.friends.at < 60000) return this.friends.rows
@@ -91,7 +110,7 @@ export class OneBotClient implements ChannelClient {
   }
   async privateAllowed(user: string, group?: string, temporary = this.config.settings.tempSessionDm) {
     if ((await this.friendList()).some((friend) => String(friend.user_id) === user)) return true
-    return !!(this.napcat && temporary && group)
+    return !!(temporary && group)
   }
   registerMedia(kind: 'image' | 'record', file: string, url?: string) {
     const key = `${kind}:${file}`
@@ -170,13 +189,19 @@ export class OneBotClient implements ChannelClient {
     })
   }
   onlineStatus(status: 10 | 30 | 50) {
-    if (this.napcat) this.status.follow(status)
+    if (this.supports('set_online_status')) this.status.follow(status)
   }
   async prepareStop(follow: boolean) {
-    if (follow && this.napcat && !this.transport.paused) await this.status.leaving(this.signal)
+    if (follow && this.supports('set_online_status') && !this.transport.paused) {
+      try {
+        await this.status.leaving(this.signal)
+      } catch (error) {
+        if (!(error instanceof OneBotError && error.retcode === 1404)) throw error
+      }
+    }
   }
   async forward(group: string, nodes: { name: string; text: string }[]) {
-    if (!this.napcat) throw new OneBotError(-1)
+    if (!this.supports('send_group_forward_msg')) throw new OneBotError(1404)
     return this.queue.send(
       group,
       () =>
@@ -220,6 +245,7 @@ export class OneBotClient implements ChannelClient {
       result = await this.action('set_group_leave', { group_id: Number(id), is_dismiss: false }, signal)
     else if (method === 'deleteMessage')
       result = await this.action('delete_msg', { message_id: params.message_id }, signal)
+    else if (method === 'fetch_custom_face') result = await this.action(method, params, signal)
     else if (method === 'getFile') result = { file_path: params.file_id }
     else if (method === 'sendChatAction' || method === 'editMessageReplyMarkup') result = true
     else if (method.startsWith('editMessage')) throw new OneBotError(-1)

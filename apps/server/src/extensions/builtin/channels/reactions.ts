@@ -1,6 +1,7 @@
 import type { ChannelBindingDTO } from '@nobot/shared'
 import { getSetting, setSetting } from '../../../db/client'
 import { OneBotClient } from './adapters/onebot11/client'
+import { OneBotError } from './adapters/onebot11/transport'
 import type { ChannelClient } from './adapters/types'
 import type { ChannelService } from './service'
 
@@ -30,8 +31,12 @@ export async function reactToMessage(
   if (client instanceof OneBotClient) {
     // 固定白名单仅用 👍 的 Unicode 十进制 id；NapCat 按长 id 识别 Unicode 表情。
     // https://github.com/NapNeko/NapCatQQ/blob/main/packages/napcat-core/apis/msg.ts
-    if (client.napcat)
-      await client.action('set_msg_emoji_like', { message_id: messageId, emoji_id: '128077', set: true })
+    if (client.supports('set_msg_emoji_like'))
+      await client
+        .action('set_msg_emoji_like', { message_id: messageId, emoji_id: '128077', set: true })
+        .catch((error: unknown) => {
+          if (!(error instanceof OneBotError && error.retcode === 1404)) throw error
+        })
     return
   }
   await client.call('setMessageReaction', {

@@ -81,6 +81,9 @@ export function accountDTO(row: typeof channelAccounts.$inferSelect): ChannelAcc
       config.provider === 'onebot11'
         ? implementationCapabilities(
             String((row.botSnapshot.implementation as { name?: string } | undefined)?.name ?? ''),
+            Array.isArray(row.botSnapshot.unsupportedActions)
+              ? row.botSnapshot.unsupportedActions.filter((action): action is string => typeof action === 'string')
+              : [],
           )
         : (provider?.capabilities ?? {}),
   }

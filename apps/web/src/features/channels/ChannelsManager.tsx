@@ -140,7 +140,7 @@ export function ChannelsManager({
                     {tab === 'telegram'
                       ? t('还没有 Telegram 机器人。找 @BotFather 发 /newbot 拿到 Token 后点「添加」。')
                       : tab === 'onebot11'
-                        ? t('还没有 QQ 机器人。先装好 NapCat，再点「添加」。')
+                        ? t('还没有 OneBot 机器人。先装好 NapCat 等 OneBot 实现，再点「添加」。')
                         : managed
                           ? t('还没有账号。在「{extension}」里打开对应开关后会自动出现。', {
                               extension: current?.extensionName ?? t('提供这个平台的扩展'),
@@ -381,8 +381,8 @@ function CreateDialog({
               {t('NapCat 是非官方的 QQ 客户端，QQ 号有被风控或封禁的风险。建议用专门的小号，不要用常用号。')}
             </p>
             <ol className="list-decimal space-y-1 pl-5 text-[13px] text-zinc-500">
-              <li>{t('安装并登录 NapCat，在它的网络设置里新建一个 WebSocket 连接')}</li>
-              <li>{t('选「NoBot 连 NapCat」就建 WebSocket 服务端；选「NapCat 连 NoBot」就建 WebSocket 客户端')}</li>
+              <li>{t('安装并登录 NapCat 等 OneBot 实现，在它的网络设置里新建一个 WebSocket 连接')}</li>
+              <li>{t('选「NoBot 连 OneBot」就建 WebSocket 服务端；选「OneBot 连 NoBot」就建 WebSocket 客户端')}</li>
               <li>{t('两边填同一个 Token')}</li>
             </ol>
             <SelectField
@@ -390,19 +390,19 @@ function CreateDialog({
               value={form.mode}
               onChange={(mode) => setForm({ ...form, mode })}
               options={[
-                { value: 'ws-forward', label: t('NoBot 连 NapCat（正向 WebSocket）') },
-                { value: 'ws-reverse', label: t('NapCat 连 NoBot（反向 WebSocket）') },
+                { value: 'ws-forward', label: t('NoBot 连 OneBot（正向 WebSocket）') },
+                { value: 'ws-reverse', label: t('OneBot 连 NoBot（反向 WebSocket）') },
               ]}
             />
             {form.mode === 'ws-forward' ? (
               <TextField
-                label={t('NapCat 的 WebSocket 地址')}
+                label={t('OneBot 的 WebSocket 地址')}
                 placeholder="ws://127.0.0.1:3001"
                 value={form.url}
                 onChange={(url) => setForm({ ...form, url })}
               />
             ) : (
-              <p className="text-xs text-zinc-500">{t('创建后会显示要填进 NapCat 的地址。')}</p>
+              <p className="text-xs text-zinc-500">{t('创建后会显示要填进 OneBot 的地址。')}</p>
             )}
             <TextField
               label={t('Access Token')}

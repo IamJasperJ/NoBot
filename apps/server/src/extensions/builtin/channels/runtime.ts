@@ -65,21 +65,34 @@ export class ChannelRuntime {
         runAsUser(owner, async () => {
           await client.connected()
           const id = this.oneBotId(client)
-          if (!id) return
+          if (!id || this.accounts.get(id)?.controller.signal.aborted) return
           const row = accountRow(id)
           if (row.botId && row.botId !== client.selfId) {
             transport.stop()
             throw new Error('IDENTITY_CHANGED')
           }
+          const previous = row.botSnapshot.implementation as { name?: string; version?: string } | undefined
+          client.unsupportedActions.clear()
+          if (previous?.name === client.implementation.name && previous?.version === client.implementation.version) {
+            for (const action of Array.isArray(row.botSnapshot.unsupportedActions)
+              ? row.botSnapshot.unsupportedActions
+              : []) {
+              if (typeof action === 'string') client.unsupportedActions.add(action)
+            }
+          }
           db.update(channelAccounts)
             .set({
               botId: client.selfId,
               botUsername: client.nickname,
-              botSnapshot: { ...row.botSnapshot, implementation: client.implementation },
+              botSnapshot: {
+                ...row.botSnapshot,
+                implementation: client.implementation,
+                unsupportedActions: [...client.unsupportedActions],
+              },
             })
             .where(eq(channelAccounts.id, id))
             .run()
-          if (client.napcat)
+          if (client.supports('fetch_custom_face'))
             void refreshQqFaces(id, client, this.host, this.fetch).catch(() => this.log(id, 'stickers.refresh.failed'))
           if (row.config.presence.confirmed)
             void this.accounts
@@ -122,6 +135,14 @@ export class ChannelRuntime {
   async startOneBot(id: string, controller: AbortController) {
     const row = accountRow(id)
     const client = this.oneBotClient(row.config)
+    client.onActionUnsupported = () => {
+      if (controller.signal.aborted) return
+      const fresh = accountRow(id)
+      db.update(channelAccounts)
+        .set({ botSnapshot: { ...fresh.botSnapshot, unsupportedActions: [...client.unsupportedActions] } })
+        .where(eq(channelAccounts.id, id))
+        .run()
+    }
     const entry: AccountRuntime = {
       client,
       controller,

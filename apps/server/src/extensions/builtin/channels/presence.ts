@@ -12,6 +12,7 @@ import { getLanguage } from '../../../services/settings'
 import { currentContext } from '../../../user-context'
 import type { ExtensionHost } from '../../types'
 import { OneBotClient } from './adapters/onebot11/client'
+import { OneBotError } from './adapters/onebot11/transport'
 import { TelegramError } from './adapters/telegram/client'
 import type { ChannelClient } from './adapters/types'
 import { getProvider } from './providers'
@@ -376,7 +377,7 @@ export class PresenceSync {
       try {
         if (key === 'avatar' && avatar) {
           if (this.client instanceof OneBotClient) {
-            if (!this.client.napcat) throw new Error('UNKNOWN_CAPABILITY')
+            if (!this.client.supports('set_qq_avatar')) throw new Error('UNKNOWN_CAPABILITY')
             await this.client.action(
               'set_qq_avatar',
               { file: `base64://${Buffer.from(avatar).toString('base64')}` },
@@ -392,7 +393,8 @@ export class PresenceSync {
           const [field, language] = key.split(':')
           const [method, parameter] = fields[field as keyof typeof fields]
           if (this.client instanceof OneBotClient) {
-            if (!this.client.napcat) throw new Error('UNKNOWN_CAPABILITY')
+            if (!this.client.supports(field === 'name' ? 'set_qq_profile' : 'set_self_longnick'))
+              throw new Error('UNKNOWN_CAPABILITY')
             // longNick 与 personal_note 不混用；80 字是保守的本地截断，QQ 实际约束未公开。
             // https://napneko.github.io/onebot/api
             await this.client.action(
@@ -410,9 +412,12 @@ export class PresenceSync {
         state.appliedHash = desiredHash
       } catch (error) {
         if (this.signal.aborted) return
-        state.error = t('渠道请求失败')
+        const unsupported =
+          (error instanceof OneBotError && error.retcode === 1404) ||
+          (error instanceof Error && error.message === 'UNKNOWN_CAPABILITY')
+        state.error = unsupported ? t('此平台不支持该操作') : t('渠道请求失败')
         state.nextRetryAt =
-          state.attempts >= 3
+          unsupported || state.attempts >= 3
             ? null
             : this.now() + (error instanceof TelegramError && error.retryAfter ? error.retryAfter * 1000 : 60000)
       }

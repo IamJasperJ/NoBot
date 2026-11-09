@@ -3015,15 +3015,13 @@ export const en: Record<string, string> = {
   '消息下方加 📖 按钮': 'Add a 📖 button under messages',
   '正在打开舞台…': 'Opening the stage…',
   '已连接：{name} {version}': 'Connected: {name} {version}',
-  '（不是 NapCat，资料、群名片、戳一戳等扩展功能不可用）':
-    ' (not NapCat, so profile, group card, poke and other extras are unavailable)',
   连接方向: 'Connection direction',
-  'NoBot 连 NapCat（正向 WebSocket）': 'NoBot connects to NapCat (forward WebSocket)',
-  'NapCat 连 NoBot（反向 WebSocket）': 'NapCat connects to NoBot (reverse WebSocket)',
-  'NapCat 的 WebSocket 地址': "NapCat's WebSocket address",
-  '填进 NapCat 的 WebSocket 客户端地址': "Address for NapCat's WebSocket client",
-  'NapCat 和 NoBot 不在同一台机器时，把地址里的主机名换成 NapCat 能访问到的地址。':
-    'If NapCat runs on another machine, replace the host name with one NapCat can reach.',
+  'NoBot 连 OneBot（正向 WebSocket）': 'NoBot connects to OneBot (forward WebSocket)',
+  'OneBot 连 NoBot（反向 WebSocket）': 'OneBot connects to NoBot (reverse WebSocket)',
+  'OneBot 的 WebSocket 地址': "OneBot's WebSocket address",
+  '填进 OneBot 的 WebSocket 客户端地址': "Address for OneBot's WebSocket client",
+  'OneBot 和 NoBot 不在同一台机器时，把地址里的主机名换成 OneBot 能访问到的地址。':
+    'If OneBot runs on another machine, replace the host name with one OneBot can reach.',
   'Access Token': 'Access token',
   '发送频率（防风控）': 'Send rate (to avoid restrictions)',
   每分钟最多发几条: 'Max messages per minute',
@@ -3035,7 +3033,7 @@ export const en: Record<string, string> = {
   '通知我，由我决定': 'Notify me and let me decide',
   搜索好友: 'Search friends',
   搜索: 'Search',
-  '连接上 NapCat 后才能看到好友列表': 'The friend list appears once NapCat is connected',
+  '连接上 OneBot 后才能看到好友列表': 'The friend list appears once OneBot is connected',
   确认删除: 'Confirm delete',
   'QQ 专用': 'QQ only',
   多个角色说话时: 'When several characters speak',
@@ -3052,21 +3050,21 @@ export const en: Record<string, string> = {
   被戳写进剧情: 'Pokes become story events',
   每天群签到: 'Daily group sign-in',
   '已添加 {name}': 'Added {name}',
-  'QQ（NapCat）': 'QQ (NapCat)',
   'NapCat 是非官方的 QQ 客户端，QQ 号有被风控或封禁的风险。建议用专门的小号，不要用常用号。':
     'NapCat is an unofficial QQ client, so the QQ account may be restricted or banned. Use a dedicated secondary account, not your main one.',
-  '安装并登录 NapCat，在它的网络设置里新建一个 WebSocket 连接':
-    'Install and sign in to NapCat, then add a WebSocket connection in its network settings',
-  '选「NoBot 连 NapCat」就建 WebSocket 服务端；选「NapCat 连 NoBot」就建 WebSocket 客户端':
-    'For “NoBot connects to NapCat”, create a WebSocket server; for “NapCat connects to NoBot”, create a WebSocket client',
+  '安装并登录 NapCat 等 OneBot 实现，在它的网络设置里新建一个 WebSocket 连接':
+    'Install and sign in to NapCat or another OneBot implementation, then add a WebSocket connection in its network settings',
+  '选「NoBot 连 OneBot」就建 WebSocket 服务端；选「OneBot 连 NoBot」就建 WebSocket 客户端':
+    'For “NoBot connects to OneBot”, create a WebSocket server; for “OneBot connects to NoBot”, create a WebSocket client',
   '两边填同一个 Token': 'Use the same token on both sides',
-  '创建后会显示要填进 NapCat 的地址。': 'The address to enter in NapCat is shown after creating.',
+  '创建后会显示要填进 OneBot 的地址。': 'The address to enter in OneBot is shown after creating.',
   '{name} 申请加入群': '{name} asked to join the group',
   通用: 'Shared',
   '每个 bot 可以固定扮演一个角色，也可以当通用 bot': 'Each bot can play one fixed character or act as a general bot',
   '还没有 Telegram 机器人。找 @BotFather 发 /newbot 拿到 Token 后点「添加」。':
     'No Telegram bots yet. Send /newbot to @BotFather, then click Add with the token.',
-  '还没有 QQ 机器人。先装好 NapCat，再点「添加」。': 'No QQ bots yet. Install NapCat first, then click Add.',
+  '还没有 OneBot 机器人。先装好 NapCat 等 OneBot 实现，再点「添加」。':
+    'No OneBot bots yet. Install NapCat or another OneBot implementation first, then click Add.',
   '{name} 默认设置': '{name} defaults',
   'HTTPS 公网地址': 'Public HTTPS address',
   'VN 舞台（Mini App）和 webhook 共用，例如 https://nobot.example.com；不填就不能用 Mini App':

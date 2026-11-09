@@ -7,9 +7,17 @@ import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { validate } from '../../../lib/validate'
 import { OneBotClient } from './adapters/onebot11/client'
+import { OneBotError } from './adapters/onebot11/transport'
 import { oneTimeStageUrl } from './miniapp'
 import type { ChannelRuntime } from './runtime'
 import { bindingRow } from './store'
+
+/** 首次真实调用才发现缺失动作时，与缓存命中使用同一 HTTP 错误。 */
+function unsupportedAction(error: unknown): never {
+  if (error instanceof OneBotError && error.retcode === 1404)
+    throw new HttpError(400, 'UNSUPPORTED', t('此平台不支持该操作'))
+  throw error
+}
 
 export function oneBotRoutes(app: Hono, runtime: () => ChannelRuntime) {
   const client = (id: string) => {
@@ -24,8 +32,8 @@ export function oneBotRoutes(app: Hono, runtime: () => ChannelRuntime) {
     validate('json', z.object({ userId: z.number().int().positive(), confirm: z.literal(true) })),
     async (c) => {
       const api = client(c.req.param('id'))
-      if (!api.napcat) throw new HttpError(400, 'UNSUPPORTED', t('此平台不支持该操作'))
-      await api.action('delete_friend', { user_id: c.req.valid('json').userId })
+      if (!api.supports('delete_friend')) throw new HttpError(400, 'UNSUPPORTED', t('此平台不支持该操作'))
+      await api.action('delete_friend', { user_id: c.req.valid('json').userId }).catch(unsupportedAction)
       api.invalidateFriends()
       return c.json({ ok: true })
     },
@@ -44,7 +52,10 @@ export function oneBotRoutes(app: Hono, runtime: () => ChannelRuntime) {
       const binding = bindingRow(c.req.param('id'))
       const api = client(binding.accountId)
       const input = c.req.valid('json')
-      if (!api.napcat) throw new HttpError(400, 'UNSUPPORTED', t('此平台不支持该操作'))
+      const action = { essence: 'set_essence_msg', notice: '_send_group_notice', read: 'mark_msg_as_read' }[
+        input.action
+      ]
+      if (!api.supports(action)) throw new HttpError(400, 'UNSUPPORTED', t('此平台不支持该操作'))
       if (input.action === 'essence' || input.action === 'read') {
         const source = await api.action<{ group_id?: number; user_id?: number }>('get_msg', {
           message_id: input.messageId,
@@ -61,13 +72,17 @@ export function oneBotRoutes(app: Hono, runtime: () => ChannelRuntime) {
         })
         if (!['owner', 'admin'].includes(member.role)) throw new HttpError(403, 'FORBIDDEN', t('机器人缺少群管理权限'))
       }
-      if (input.action === 'essence') await api.action('set_essence_msg', { message_id: input.messageId })
+      if (input.action === 'essence')
+        await api.action('set_essence_msg', { message_id: input.messageId }).catch(unsupportedAction)
       if (input.action === 'notice')
-        await api.action('_send_group_notice', {
-          group_id: Number(binding.chat.replace(/^-/, '')),
-          content: input.content,
-        })
-      if (input.action === 'read') await api.action('mark_msg_as_read', { message_id: input.messageId })
+        await api
+          .action('_send_group_notice', {
+            group_id: Number(binding.chat.replace(/^-/, '')),
+            content: input.content,
+          })
+          .catch(unsupportedAction)
+      if (input.action === 'read')
+        await api.action('mark_msg_as_read', { message_id: input.messageId }).catch(unsupportedAction)
       return c.json({ ok: true })
     },
   )

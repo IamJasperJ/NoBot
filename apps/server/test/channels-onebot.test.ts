@@ -63,6 +63,9 @@ test('CH3 集成：真实房间桥、请求审批、私密投递、资料与单�
   let seq = 100
   let forwardFailure = false
   let playerFriend = false
+  let implementationVersion = 'test'
+  let implementationName = 'SnowLuma'
+  let unsupportedAction = ''
   try {
     await runAsUser(owner, async () => {
       registry.updateExtension('channels', { enabled: true })
@@ -96,16 +99,23 @@ test('CH3 集成：真实房间桥、请求审批、私密投递、资料与单�
       expect(account.riskNotice).toBeTruthy()
       expect(JSON.stringify(account)).not.toContain('QQ_SECRET')
       await service.runtime.start(account.id)
-      const client = service.runtime.accounts.get(account.id)!.client
-      if (!(client instanceof OneBotClient)) throw new Error('client')
-      client.transport.attach({
+      const initialClient = service.runtime.accounts.get(account.id)!.client
+      if (!(initialClient instanceof OneBotClient)) throw new Error('client')
+      let client = initialClient
+      const socket = {
         close: () => {},
-        send: (raw) => {
+        send: (raw: string) => {
           const call = JSON.parse(raw) as { action: string; params: Record<string, unknown>; echo: string }
           calls.push(call)
+          if (call.action === unsupportedAction) {
+            queueMicrotask(() =>
+              client.transport.receive({ echo: call.echo, status: 'failed', retcode: 1404, data: null }),
+            )
+            return
+          }
           if (forwardFailure && call.action === 'send_group_forward_msg') {
             queueMicrotask(() =>
-              client.transport.receive({ echo: call.echo, status: 'failed', retcode: 100, data: null }),
+              client.transport.receive({ echo: call.echo, status: 'failed', retcode: 1404, data: null }),
             )
             return
           }
@@ -113,7 +123,7 @@ test('CH3 集成：真实房间桥、请求审批、私密投递、资料与单�
             call.action === 'get_login_info'
               ? { user_id: 999, nickname: 'QQ' }
               : call.action === 'get_version_info'
-                ? { app_name: 'NapCat', app_version: 'test' }
+                ? { app_name: implementationName, app_version: implementationVersion }
                 : call.action === 'get_friend_list'
                   ? [
                       { user_id: 111, nickname: 'Owner', remark: '' },
@@ -128,10 +138,58 @@ test('CH3 集成：真实房间桥、请求审批、私密投递、资料与单�
                         : true
           queueMicrotask(() => client.transport.receive({ echo: call.echo, status: 'ok', retcode: 0, data }))
         },
-      })
+      }
+      client.transport.attach(socket)
       await Bun.sleep(0)
       expect(accountRow(account.id).status).toBe('online')
-      expect(accountDTO(accountRow(account.id)).implementation).toEqual({ name: 'NapCat', version: 'test' })
+      expect(accountDTO(accountRow(account.id)).implementation).toEqual({ name: 'SnowLuma', version: 'test' })
+      unsupportedAction = 'set_qq_avatar'
+      await expect(client.action(unsupportedAction)).rejects.toMatchObject({ retcode: 1404 })
+      expect(accountRow(account.id).botSnapshot.unsupportedActions).toEqual(['set_qq_avatar'])
+      expect(accountDTO(accountRow(account.id)).capabilities.avatar).toBe('unsupported')
+      // 新客户端必须从快照恢复，不能只验证旧客户端的内存集合。
+      await service.runtime.stop(account.id)
+      await service.runtime.start(account.id)
+      const reconnected = service.runtime.accounts.get(account.id)!.client
+      if (!(reconnected instanceof OneBotClient)) throw new Error('client')
+      const reconnectSocket = {
+        close: () => {},
+        send: (raw: string) => {
+          const call = JSON.parse(raw) as { action: string; echo: string }
+          const data =
+            call.action === 'get_login_info'
+              ? { user_id: 999, nickname: 'QQ' }
+              : call.action === 'get_version_info'
+                ? { app_name: implementationName, app_version: implementationVersion }
+                : []
+          queueMicrotask(() => reconnected.transport.receive({ echo: call.echo, status: 'ok', retcode: 0, data }))
+        },
+      }
+      reconnected.transport.attach(reconnectSocket)
+      await Bun.sleep(0)
+      expect(reconnected.supports('set_qq_avatar')).toBe(false)
+      expect(accountRow(account.id).botSnapshot.unsupportedActions).toEqual(['set_qq_avatar'])
+      implementationVersion = 'upgraded'
+      reconnected.transport.attach(reconnectSocket)
+      await Bun.sleep(0)
+      expect(reconnected.supports('set_qq_avatar')).toBe(true)
+      expect(accountRow(account.id).botSnapshot.unsupportedActions).toEqual([])
+      reconnected.unsupportedActions.add('set_qq_avatar')
+      reconnected.onActionUnsupported?.('set_qq_avatar')
+      implementationName = 'OtherOneBot'
+      reconnected.transport.attach(reconnectSocket)
+      await Bun.sleep(0)
+      expect(reconnected.supports('set_qq_avatar')).toBe(true)
+      expect(accountRow(account.id).botSnapshot.unsupportedActions).toEqual([])
+      await service.runtime.stop(account.id)
+      await service.runtime.start(account.id)
+      const restored = service.runtime.accounts.get(account.id)!.client
+      if (!(restored instanceof OneBotClient)) throw new Error('client')
+      // 后续已有场景沿用完整的模拟响应。
+      client = restored
+      unsupportedAction = ''
+      client.transport.attach(socket)
+      await Bun.sleep(0)
       const message = (text: string, id: number, group = false) => ({
         post_type: 'message',
         self_id: 999,
@@ -436,6 +494,17 @@ test('CH3 集成：真实房间桥、请求审批、私密投递、资料与单�
           .slice(beforeFallback)
           .some((call) => call.action === 'send_group_msg' && JSON.stringify(call.params).includes('Fallback')),
       ).toBe(true)
+      expect(client.supports('send_group_forward_msg')).toBe(false)
+      const beforeCachedFallback = calls.length
+      await service.deliver(
+        forwardBinding,
+        host.appendMessage(groupChat.id, {
+          role: 'assistant',
+          content: 'Alice：「Cached」\nBob：「Fallback again」',
+        }),
+      )
+      expect(calls.slice(beforeCachedFallback).some((call) => call.action === 'send_group_forward_msg')).toBe(false)
+      expect(calls.slice(beforeCachedFallback).some((call) => call.action === 'send_group_msg')).toBe(true)
       const originalTranscribe = service.host.transcribe
       let transcribed = 0
       service.host.transcribe = async (bytes, mime) => {

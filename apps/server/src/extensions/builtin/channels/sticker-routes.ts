@@ -7,6 +7,7 @@ import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { validate } from '../../../lib/validate'
 import { OneBotClient } from './adapters/onebot11/client'
+import { OneBotError } from './adapters/onebot11/transport'
 import type { ChannelRuntime } from './runtime'
 import { cachedStickerFile, importStickerSet, listStickers, refreshQqFaces } from './stickers'
 import { accountRow } from './store'
@@ -36,8 +37,14 @@ export function stickerRoutes(app: Hono, runtime: () => ChannelRuntime) {
     const sender = runtime().accounts.get(id)?.client
     if (!(sender instanceof OneBotClient))
       throw new HttpError(409, 'CHANNEL_UNAVAILABLE', t('无法连接机器人平台，请检查网络后重试'))
-    if (!sender.napcat) throw new HttpError(400, 'UNSUPPORTED', t('此平台不支持该操作'))
-    return c.json(await refreshQqFaces(id, sender, runtime().host, runtime().fetch, c.req.raw.signal))
+    if (!sender.supports('fetch_custom_face')) throw new HttpError(400, 'UNSUPPORTED', t('此平台不支持该操作'))
+    try {
+      return c.json(await refreshQqFaces(id, sender, runtime().host, runtime().fetch, c.req.raw.signal))
+    } catch (error) {
+      if (error instanceof OneBotError && error.retcode === 1404)
+        throw new HttpError(400, 'UNSUPPORTED', t('此平台不支持该操作'))
+      throw error
+    }
   })
   app.get('/accounts/:id/stickers/:stickerId/preview', async (c) => {
     const id = c.req.param('id')

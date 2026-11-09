@@ -363,7 +363,7 @@ function BasicTab({
   )
 }
 
-/** NapCat 连接：正向填 NapCat 的 WS 服务端地址；反向把 NoBot 的地址填进 NapCat 的 WS 客户端 */
+/** OneBot 连接：正向填 OneBot 的 WS 服务端地址；反向把 NoBot 的地址填进 OneBot 的 WS 客户端 */
 function OneBotConnection({
   account,
   draft,
@@ -387,30 +387,27 @@ function OneBotConnection({
         </p>
       )}
       {account.implementation && (
-        <p className="text-xs text-zinc-500">
-          {t('已连接：{name} {version}', account.implementation)}
-          {!/napcat/i.test(account.implementation.name) && t('（不是 NapCat，资料、群名片、戳一戳等扩展功能不可用）')}
-        </p>
+        <p className="text-xs text-zinc-500">{t('已连接：{name} {version}', account.implementation)}</p>
       )}
       <SelectField
         label={t('连接方向')}
         value={connection.mode}
         onChange={(mode) => patch({ connection: { ...connection, mode }, receiveMode: mode })}
         options={[
-          { value: 'ws-forward', label: t('NoBot 连 NapCat（正向 WebSocket）') },
-          { value: 'ws-reverse', label: t('NapCat 连 NoBot（反向 WebSocket）') },
+          { value: 'ws-forward', label: t('NoBot 连 OneBot（正向 WebSocket）') },
+          { value: 'ws-reverse', label: t('OneBot 连 NoBot（反向 WebSocket）') },
         ]}
       />
       {connection.mode === 'ws-forward' ? (
         <TextField
-          label={t('NapCat 的 WebSocket 地址')}
+          label={t('OneBot 的 WebSocket 地址')}
           placeholder="ws://127.0.0.1:3001"
           value={connection.url}
           onChange={(url) => patch({ connection: { ...connection, url } })}
         />
       ) : (
         <div className="space-y-1.5">
-          <span className="block text-[13px] font-medium">{t('填进 NapCat 的 WebSocket 客户端地址')}</span>
+          <span className="block text-[13px] font-medium">{t('填进 OneBot 的 WebSocket 客户端地址')}</span>
           <div className="flex gap-2">
             <input readOnly className={cx(controlClass, 'min-w-0 flex-1 font-mono text-xs')} value={reverseUrl} />
             <Button onClick={() => void navigator.clipboard.writeText(reverseUrl).then(() => toast.info(t('已复制')))}>
@@ -418,7 +415,7 @@ function OneBotConnection({
             </Button>
           </div>
           <span className="block text-xs text-zinc-500">
-            {t('NapCat 和 NoBot 不在同一台机器时，把地址里的主机名换成 NapCat 能访问到的地址。')}
+            {t('OneBot 和 NoBot 不在同一台机器时，把地址里的主机名换成 OneBot 能访问到的地址。')}
           </span>
         </div>
       )}
@@ -1069,7 +1066,7 @@ function FriendsList({ account }: { account: ChannelAccountDTO }) {
         />
       </div>
       {account.status !== 'online' ? (
-        <p className="text-xs text-zinc-500">{t('连接上 NapCat 后才能看到好友列表')}</p>
+        <p className="text-xs text-zinc-500">{t('连接上 OneBot 后才能看到好友列表')}</p>
       ) : friends.isLoading ? (
         <p className="text-xs text-zinc-500">{t('加载中…')}</p>
       ) : (

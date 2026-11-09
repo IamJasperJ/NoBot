@@ -71,10 +71,50 @@ test('连续三次 retcode 失败熔断，停止取消 pending', async () => {
     await expect(action).rejects.toThrow()
   }
   expect(s.paused()).toBe(1)
+  expect(s.transport.paused).toBe(true)
   const other = setup()
   const pending = other.transport.call('wait')
   other.transport.stop()
   await expect(pending).rejects.toThrow()
+})
+
+for (const retcode of [1404, 1400]) {
+  test(`连续三次 ${retcode} 不熔断，后续调用仍能发送`, async () => {
+    const s = setup()
+    for (let i = 0; i < 3; i++) {
+      const result = s.transport.call('probe').catch((error: unknown) => error)
+      s.respond(i, null, retcode)
+      expect(await result).toMatchObject({ retcode })
+    }
+    expect(s.transport.paused).toBe(false)
+    expect(s.paused()).toBe(0)
+    const next = s.transport.call('next')
+    expect(s.calls).toHaveLength(4)
+    expect(s.calls[3]?.action).toBe('next')
+    s.respond(3, true)
+    expect(await next).toBe(true)
+  })
+
+  test(`${retcode} 不重置已有失败计数`, async () => {
+    const s = setup()
+    const retcodes = [100, retcode, 100, retcode, 100]
+    for (const [index, code] of retcodes.entries()) {
+      const result = s.transport.call('failure').catch((error: unknown) => error)
+      s.respond(index, null, code)
+      expect(await result).toMatchObject({ retcode: code })
+      expect(s.transport.paused).toBe(index === retcodes.length - 1)
+    }
+    expect(s.paused()).toBe(1)
+  })
+}
+
+test('带风控文字的 1404 仍然熔断', async () => {
+  const s = setup()
+  const result = s.transport.call('probe').catch((error: unknown) => error)
+  s.respond(0, null, 1404, '风控')
+  expect(await result).toMatchObject({ retcode: 1404 })
+  expect(s.transport.paused).toBe(true)
+  expect(s.paused()).toBe(1)
 })
 
 test('正向连接传递 token，关闭后退避重连，中止退出', async () => {
@@ -249,7 +289,7 @@ test('群名片变更检测与实现能力快照', async () => {
     draftStreaming: 'unsupported',
   })
   expect(implementationCapabilities('Other')).toMatchObject({
-    avatar: 'unknown',
+    avatar: 'supported',
     groupCard: 'supported',
     friendRequest: 'supported',
     leaveGroup: 'supported',
@@ -302,12 +342,12 @@ test('在线状态至少间隔一分钟；快速结束的生成不会稍后错�
 test('群名片失败后可重试，排队的变更使用最新已应用值比较', async () => {
   const s = setup()
   const first = s.client.groupCard('100', 'Alice')
-  const rejected = expect(first).rejects.toThrow()
+  const firstResult = first.catch((error: unknown) => error)
   const retry = s.client.groupCard('100', 'Alice')
   const change = s.client.groupCard('100', 'Bob')
   await Bun.sleep(0)
   s.respond(0, null, 100)
-  await rejected
+  expect(await firstResult).toBeInstanceOf(OneBotError)
   await Bun.sleep(0)
   s.respond(1, true)
   await retry
@@ -316,4 +356,104 @@ test('群名片失败后可重试，排队的变更使用最新已应用值比�
   await change
   await s.client.groupCard('100', 'Bob')
   expect(s.calls.map((call) => call.params.card)).toEqual(['Alice', 'Alice', 'Bob'])
+})
+
+test('SnowLuma 默认发送扩展动作，1404 只学习一次且后续不发送', async () => {
+  const s = setup()
+  s.client.implementation = { name: 'SnowLuma', version: '1' }
+  const learned: string[] = []
+  s.client.onActionUnsupported = (action) => learned.push(action)
+  const first = s.client.action('set_qq_profile', { nickname: 'Alice' })
+  expect(s.calls[0]?.action).toBe('set_qq_profile')
+  const concurrent = s.client.action('set_qq_profile', { nickname: 'Bob' })
+  const firstResult = first.catch((error: unknown) => error)
+  const concurrentResult = concurrent.catch((error: unknown) => error)
+  s.respond(0, null, 1404)
+  s.respond(1, null, 1404)
+  expect(await firstResult).toMatchObject({ retcode: 1404 })
+  expect(await concurrentResult).toMatchObject({ retcode: 1404 })
+  expect([...s.client.unsupportedActions]).toEqual(['set_qq_profile'])
+  expect(learned).toEqual(['set_qq_profile'])
+  expect(s.client.supports('set_qq_profile')).toBe(false)
+  await expect(s.client.action('set_qq_profile')).rejects.toMatchObject({ retcode: 1404 })
+  expect(s.calls).toHaveLength(2)
+})
+
+for (const retcode of [100, 1400, -1, -2]) {
+  test(`扩展动作错误 ${retcode} 不记录，允许下次重试`, async () => {
+    const s = setup()
+    const learned: string[] = []
+    s.client.onActionUnsupported = (action) => learned.push(action)
+    const pending = s.client.action('set_qq_avatar')
+    if (retcode !== -2) s.respond(0, null, retcode)
+    await expect(pending).rejects.toMatchObject({ retcode })
+    expect(s.client.unsupportedActions.size).toBe(0)
+    expect(learned).toEqual([])
+    expect(s.client.supports('set_qq_avatar')).toBe(true)
+    const retry = s.client.action('set_qq_avatar')
+    s.respond(1, true)
+    await retry
+    expect(s.calls).toHaveLength(2)
+  })
+}
+
+test('标准动作返回 1404 仍然发送，快照误含标准动作也不会短路', async () => {
+  const s = setup()
+  const learned: string[] = []
+  s.client.onActionUnsupported = (action) => learned.push(action)
+  const first = s.client.action('send_group_msg')
+  s.respond(0, null, 1404)
+  await expect(first).rejects.toMatchObject({ retcode: 1404 })
+  expect(s.client.unsupportedActions.size).toBe(0)
+  s.client.unsupportedActions.add('send_group_msg')
+  const retry = s.client.action('send_group_msg')
+  s.respond(1, true)
+  await retry
+  expect(learned).toEqual([])
+  expect(s.calls).toHaveLength(2)
+})
+
+test('扩展能力按连接记录与动作学习声明，戳一戳需两个动作均缺失', () => {
+  expect(implementationCapabilities('', ['set_qq_avatar'])).toMatchObject({
+    avatar: 'unknown',
+    poke: 'unknown',
+    essence: 'unknown',
+    notice: 'unknown',
+    tempSessionDm: 'unknown',
+  })
+  expect(implementationCapabilities('SnowLuma')).toMatchObject({
+    avatar: 'supported',
+    poke: 'supported',
+    essence: 'permission_required',
+    notice: 'permission_required',
+    tempSessionDm: 'supported',
+  })
+  expect(
+    implementationCapabilities('SnowLuma', ['set_qq_avatar', 'set_essence_msg', '_send_group_notice', 'group_poke']),
+  ).toMatchObject({
+    avatar: 'unsupported',
+    essence: 'unsupported',
+    notice: 'unsupported',
+    poke: 'supported',
+  })
+  expect(implementationCapabilities('SnowLuma', ['friend_poke']).poke).toBe('supported')
+  expect(implementationCapabilities('SnowLuma', ['group_poke', 'friend_poke']).poke).toBe('unsupported')
+})
+
+test('收藏表情真实转发与停止时 1404 降级', async () => {
+  const s = setup()
+  const faces = s.client.call('fetch_custom_face', { count: 1000 })
+  expect(s.calls[0]).toMatchObject({ action: 'fetch_custom_face', params: { count: 1000 } })
+  s.respond(0, null, 1404)
+  await expect(faces).rejects.toMatchObject({ retcode: 1404 })
+  const stop = s.client.prepareStop(true)
+  for (let i = 0; i < 500 && s.calls.length !== 2; i++) {
+    await Bun.sleep(1)
+  }
+  expect(s.calls).toHaveLength(2)
+  s.respond(1, null, 1404)
+  await stop
+  expect(s.client.supports('set_online_status')).toBe(false)
+  await s.client.prepareStop(true)
+  expect(s.calls).toHaveLength(2)
 })

@@ -47,30 +47,28 @@ export const providerCapabilities: Record<ChannelProvider, ChannelCapabilities> 
   },
 }
 
-/** 未知实现只声明 OneBot 标准能力，扩展接口不能凭兼容协议推断。 */
-export function implementationCapabilities(name: string): ChannelCapabilities {
-  const napcat = /napcat/i.test(name)
-  return {
+/** 只学习这些扩展动作；标准动作的失败不能改变协议能力。 */
+export const oneBotExtensionActions = {
+  avatar: ['set_qq_avatar'],
+  name: ['set_qq_profile'],
+  description: ['set_self_longnick'],
+  onlineStatus: ['set_online_status'],
+  reactions: ['set_msg_emoji_like'],
+  poke: ['group_poke', 'friend_poke'],
+  dailySign: ['set_group_sign'],
+  essence: ['set_essence_msg'],
+  notice: ['_send_group_notice'],
+  markRead: ['mark_msg_as_read'],
+  forward: ['send_group_forward_msg'],
+  deleteFriend: ['delete_friend'],
+  fetchCustomFace: ['fetch_custom_face'],
+} as const
+
+/** 连接过的实现默认允许扩展，仅根据真实调用的 1404 收窄能力。 */
+export function implementationCapabilities(name: string, unsupported: readonly string[] = []): ChannelCapabilities {
+  const capabilities: ChannelCapabilities = {
     ...providerCapabilities.onebot11,
-    ...Object.fromEntries(
-      [
-        'avatar',
-        'name',
-        'description',
-        'onlineStatus',
-        'reactions',
-        'poke',
-        'dailySign',
-        'essence',
-        'notice',
-        'markRead',
-        'forward',
-        'tempSessionDm',
-        'deleteFriend',
-      ].map((key) => [key, napcat ? 'supported' : 'unknown']),
-    ),
-    essence: napcat ? 'permission_required' : 'unknown',
-    notice: napcat ? 'permission_required' : 'unknown',
+    tempSessionDm: name ? 'supported' : 'unknown',
     shortDescription: 'unsupported',
     topic: 'unsupported',
     draftStreaming: 'unsupported',
@@ -78,4 +76,15 @@ export function implementationCapabilities(name: string): ChannelCapabilities {
     managedBots: 'unsupported',
     oneTimeStageLink: 'supported',
   }
+  for (const [key, actions] of Object.entries(oneBotExtensionActions)) {
+    if (key === 'fetchCustomFace') continue
+    capabilities[key as keyof ChannelCapabilities] = !name
+      ? 'unknown'
+      : actions.every((action) => unsupported.includes(action))
+        ? 'unsupported'
+        : key === 'essence' || key === 'notice'
+          ? 'permission_required'
+          : 'supported'
+  }
+  return capabilities
 }

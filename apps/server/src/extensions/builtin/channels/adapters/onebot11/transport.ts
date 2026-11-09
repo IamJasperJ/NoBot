@@ -77,7 +77,9 @@ export class OneBotTransport {
         this.failures = 0
         pending.resolve(data.data)
       } else {
-        this.failures++
+        const retcode = Number(data.retcode) || -1
+        // 动作不存在或参数不被接受只说明请求不兼容，不能计为平台异常，也不能清零已有失败。
+        if (retcode !== 1404 && retcode !== 1400) this.failures++
         const risk = /risk|frozen|blocked|风控|冻结|封禁|频繁/i.test(
           String(data.message ?? '') + String(data.wording ?? ''),
         )
@@ -86,7 +88,7 @@ export class OneBotTransport {
           this.options.onBreaker()
           this.detach()
         }
-        pending.reject(new OneBotError(Number(data.retcode) || -1))
+        pending.reject(new OneBotError(retcode))
       }
       return
     }

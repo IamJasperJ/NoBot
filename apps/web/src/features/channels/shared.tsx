@@ -16,7 +16,7 @@ import { t } from '../../i18n'
 
 /** 内置平台用固定名称；扩展平台用服务器给的显示名，扩展停用后仍能显示。 */
 export const providerLabel = (p: ChannelAccountDTO['provider'], name?: string) =>
-  p === 'telegram' ? 'Telegram' : p === 'onebot11' ? t('QQ（NapCat）') : name || p
+  p === 'telegram' ? 'Telegram' : p === 'onebot11' ? 'OneBot' : name || p
 
 export const isPluginProvider = (p: ChannelAccountDTO['provider']) => p !== 'telegram' && p !== 'onebot11'
 

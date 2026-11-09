@@ -695,7 +695,7 @@ export class ChannelService {
         const settings = this.settings(binding).values
         if (
           binding.scope === 'group' &&
-          entry.client.napcat &&
+          entry.client.supports('set_group_sign') &&
           settings.dailySign &&
           signBudget(id, binding.chat) &&
           socialBudget(id, `sign:${binding.chat}`, settings)
@@ -3436,7 +3436,7 @@ export class ChannelService {
     asChannelActor(binding, actor, () => {})
     const settings = this.settings(binding).values
     if ((!settings.pokeBack && !settings.pokeToStory) || !socialBudget(id, `poke:${group}:${actorId}`, settings)) return
-    if (settings.pokeBack && client.napcat)
+    if (settings.pokeBack && client.supports(group ? 'group_poke' : 'friend_poke'))
       await client
         .action(group ? 'group_poke' : 'friend_poke', {
           user_id: Number(actorId),

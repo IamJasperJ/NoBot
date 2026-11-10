@@ -4,6 +4,7 @@ import {
   type ChannelProviderAccount,
   type ChannelProviderDefinition,
   ChannelProviderStoppedError,
+  ChannelSendError,
 } from '../../../types'
 import { splitOneBot } from './onebot11/client'
 import { abortableDelay } from './telegram/client'
@@ -50,7 +51,7 @@ export class PluginChannelClient {
       this.check()
     }
   }
-  private async send(chatId: string, text: string, replyTo?: string) {
+  private async sendOperation(work: () => Promise<{ id: string }>) {
     const limits = this.definition.limits
     const interval = Math.max(this.config.rateLimit.minIntervalMs, limits.minIntervalMs ?? 0)
     const minute = Math.min(this.config.rateLimit.perMinute, limits.perMinute ?? Infinity)
@@ -66,7 +67,7 @@ export class PluginChannelClient {
       this.lastAt = this.now()
       this.sent.push(this.lastAt)
       try {
-        return await this.definition.send(this.account, { chatId, text, replyTo }, this.signal)
+        return await work()
       } catch (error) {
         this.check()
         const value =
@@ -95,6 +96,9 @@ export class PluginChannelClient {
       }
     }
   }
+  private send(chatId: string, text: string, replyTo?: string) {
+    return this.sendOperation(() => this.definition.send(this.account, { chatId, text, replyTo }, this.signal))
+  }
   async call<T = boolean>(
     method: string,
     params: Record<string, unknown> | FormData = {},
@@ -108,11 +112,49 @@ export class PluginChannelClient {
       return { file_path: id, file_size: this.files.get(id)?.bytes.length } as T
     }
     if (method === 'getChat') return { id: args.chat_id, title: String(args.chat_id) } as T
-    if (method !== 'sendMessage') return true as T
+    const images = this.definition.media.outboundImages && this.definition.sendImage
+    if (method !== 'sendMessage' && !(images && ['sendPhoto', 'sendMediaGroup'].includes(method))) return true as T
     const pending = this.tail
       .catch(() => {})
       .then(async () => {
         const parts: string[] = []
+        if (method !== 'sendMessage') {
+          const photos: { media: unknown; caption?: string }[] =
+            method === 'sendPhoto'
+              ? [{ media: args.photo, caption: typeof args.caption === 'string' ? args.caption : undefined }]
+              : (JSON.parse(String(args.media)) as { media: string; caption?: string }[]).map((item) => ({
+                  ...item,
+                  media: item.media.startsWith('attach://') ? args[item.media.slice(9)] : item.media,
+                }))
+          const results: { message_id: string }[] = []
+          try {
+            for (const photo of photos) {
+              if (!(photo.media instanceof Blob)) throw new ChannelSendError('not-sent', 'BAD_MEDIA')
+              const blob = photo.media
+              const bytes = new Uint8Array(await blob.arrayBuffer())
+              const result = await this.sendOperation(() =>
+                this.definition.sendImage!(
+                  this.account,
+                  {
+                    chatId: String(args.chat_id),
+                    bytes,
+                    mime: blob.type,
+                    replyTo: typeof args.reply_to_message_id === 'string' ? args.reply_to_message_id : undefined,
+                  },
+                  this.signal,
+                ),
+              )
+              results.push({ message_id: result.id })
+              // 图片已发出后 caption 失败不能让宿主重放图片。
+              for (const text of splitOneBot(photo.caption ?? '', this.definition.limits.maxTextLength))
+                if (text) await this.send(String(args.chat_id), text)
+            }
+          } catch (error) {
+            if (results.length) throw new ChannelSendError('unknown', 'PARTIAL_MEDIA_DELIVERY')
+            throw error
+          }
+          return method === 'sendPhoto' ? results[0] : results
+        }
         for (const text of splitOneBot(String(args.text ?? ''), this.definition.limits.maxTextLength)) {
           const result = await this.send(
             String(args.chat_id),

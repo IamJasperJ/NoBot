@@ -3292,6 +3292,7 @@ export const en: Record<string, string> = {
   在提供平台的扩展里设置: 'Set in the extension that provides this platform',
   同步头像和资料: 'syncing avatar and profile',
   '发图片（CG、生成图、立绘）': 'sending images (CGs, generated images, sprites)',
+  '发立绘、背景和状态卡': 'sending sprites, backgrounds and status cards',
   给消息回表情: 'reacting to messages',
   撤回消息: 'recalling messages',
   '主动 @ 人': '@-mentioning people',

@@ -2804,7 +2804,18 @@ export class ChannelService {
         message.meta.channel === 'whisper'
       )
         return
-      return await this.deliverPlugin(binding, message, entry.client)
+      await this.deliverPlugin(binding, message, entry.client)
+      // CG 图片可能在文字投递后才补齐，媒体去重必须独立于文字回执。
+      if (
+        isImageMessage(message) &&
+        entry.client.definition.media.outboundImages &&
+        entry.client.definition.sendImage
+      ) {
+        await this.media
+          .deliver(binding, message, this.settings(binding).values, entry.client, binding.accountId)
+          .catch(() => this.runtime.log(binding.accountId, 'media.failed'))
+      }
+      return
     }
     const privateContent =
       message.meta.channel === 'whisper' ||

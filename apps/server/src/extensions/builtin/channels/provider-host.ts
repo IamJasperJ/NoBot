@@ -249,6 +249,7 @@ export function extensionChannels(
               'outboundImages',
             ].map((key) => [key, 'unsupported' as const]),
           ),
+          outboundImages: definition.media.outboundImages && definition.sendImage ? 'supported' : 'unsupported',
           ...definition.capabilities,
         },
         presenceLimits: { name: 0, description: 0, shortDescription: 0 },

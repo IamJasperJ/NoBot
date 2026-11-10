@@ -9,9 +9,11 @@ import { matchStageMember, stageMembers } from '../../../services/generation/sta
 import { listSprites } from '../../../services/sprites/sprites'
 import type { ExtensionHost } from '../../types'
 import { OneBotClient } from './adapters/onebot11/client'
+import { PluginChannelClient } from './adapters/plugin'
 import { prepareAudio, readMediaAsset, sendCachedMedia } from './adapters/telegram/media'
 import { escapeHtml } from './adapters/telegram/render'
 import type { ChannelClient } from './adapters/types'
+import { getProvider } from './providers'
 import { omitSpeakerPrefix } from './speaker-prefix'
 import { accountRow, listBindings } from './store'
 import { isImageMessage, visibleContent, visibleText } from './visible-text'
@@ -188,6 +190,7 @@ export class OutboundMedia {
         pending &&
         (explicit || settings.generatedImages !== 'off') &&
         !(client instanceof OneBotClient) &&
+        !(client instanceof PluginChannelClient) &&
         !this.drawing.has(drawingKey)
       ) {
         const tick = async () => {
@@ -248,7 +251,19 @@ export class OutboundMedia {
         await fn()
         saved[name] = revision
         setSetting(key, saved)
-      } catch {
+      } catch (error) {
+        // 插件来自独立模块，按错误协议识别，结果不确定时持久化防止重放。
+        if (
+          error &&
+          typeof error === 'object' &&
+          'name' in error &&
+          error.name === 'ChannelSendError' &&
+          'kind' in error &&
+          error.kind !== 'not-sent'
+        ) {
+          saved[name] = revision
+          setSetting(key, saved)
+        }
         this.log(accountId, `media.${name}.failed`)
       }
     }
@@ -330,7 +345,9 @@ export class OutboundMedia {
       mvu: true,
     })
     const stage = message.meta.stage ?? parsed.stage
-    if (settings.sprites !== 'off') {
+    const capabilities = getProvider(accountRow(accountId).provider)?.capabilities
+    const sceneImages = (capabilities?.sceneImages ?? capabilities?.outboundImages) !== 'unsupported'
+    if (sceneImages && settings.sprites !== 'off') {
       const ops = [...stage.ops]
       if (
         message.speakerId &&
@@ -382,7 +399,7 @@ export class OutboundMedia {
         })
       }
     }
-    if (settings.background) {
+    if (sceneImages && settings.background) {
       for (const op of stage.ops) {
         if (op.op !== 'scene' || !op.bg) continue
         const background = backgroundsForChat(binding.chatId).find((bg) => bg.id === op.bg || bg.name === op.bg)
@@ -393,7 +410,7 @@ export class OutboundMedia {
       }
     }
     const vars = { ...parsed.varsPatch, ...message.meta.varsPatch, ...message.meta.varsManual }
-    if (settings.statusCard !== 'off' && vars && Object.keys(vars).length) {
+    if (sceneImages && settings.statusCard !== 'off' && vars && Object.keys(vars).length) {
       await once('status', hash(vars), async () => {
         const text = `<blockquote expandable>${escapeHtml(
           Object.entries(vars)

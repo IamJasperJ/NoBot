@@ -225,6 +225,7 @@ function PluginCapabilityNote({ account }: { account: ChannelAccountDTO }) {
     presenceUnavailable(account) && t('同步头像和资料'),
     c.voice === 'unsupported' && t('语音'),
     c.outboundImages === 'unsupported' && t('发图片（CG、生成图、立绘）'),
+    c.outboundImages !== 'unsupported' && c.sceneImages === 'unsupported' && t('发立绘、背景和状态卡'),
     c.reactions === 'unsupported' && t('给消息回表情'),
     c.deleteMessage === 'unsupported' && t('撤回消息'),
     c.mention === 'unsupported' && t('主动 @ 人'),

@@ -128,7 +128,10 @@ export type ChannelCapabilityState =
   | 'console_only'
   | 'permission_required'
   | 'managed'
-export type ChannelCapabilities = Record<string, ChannelCapabilityState>
+/** sceneImages 控制立绘、背景与状态卡；未声明时沿用 outboundImages。 */
+export type ChannelCapabilities = Record<string, ChannelCapabilityState> & {
+  sceneImages?: ChannelCapabilityState
+}
 export type ChannelPresenceSync = Record<
   string,
   {

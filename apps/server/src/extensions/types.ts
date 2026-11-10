@@ -347,6 +347,11 @@ export interface ChannelProviderDefinition {
   capabilities?: ChannelCapabilities
   promptHint?: string
   start(account: ChannelProviderAccount, io: ChannelProviderIO, signal: AbortSignal): void | Promise<void>
+  sendImage?(
+    account: ChannelProviderAccount,
+    message: { chatId: string; bytes: Uint8Array; mime: string; replyTo?: string },
+    signal: AbortSignal,
+  ): Promise<{ id: string }>
   send(
     account: ChannelProviderAccount,
     message: { chatId: string; text: string; replyTo?: string },

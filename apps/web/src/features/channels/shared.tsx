@@ -105,9 +105,9 @@ const rowCapability: Partial<Record<keyof ChannelSettings, string>> = {
   echoTranscript: 'voice',
   cg: 'outboundImages',
   generatedImages: 'outboundImages',
-  sprites: 'outboundImages',
-  background: 'outboundImages',
-  statusCard: 'outboundImages',
+  sprites: 'sceneImages',
+  background: 'sceneImages',
+  statusCard: 'sceneImages',
   deleteSync: 'deleteMessage',
   mentionOnTurn: 'mention',
   reactions: 'reactions',
@@ -568,7 +568,10 @@ export function OverrideEditor({
   }
   const blockOf = (key: keyof ChannelSettings) => {
     const capability = rowCapability[key]
-    return capability ? capabilityBlock(capabilities?.[capability]) : null
+    if (!capability) return null
+    // 没单独声明场景图的平台，立绘、背景和状态卡跟随发图能力
+    const fallback = capability === 'sceneImages' ? capabilities?.outboundImages : undefined
+    return capabilityBlock(capabilities?.[capability] ?? fallback)
   }
   // 整组都用不上的收成一行放到最后，常用的设置留在前面
   const fullyBlocked = (group: { rows: Row[] }) => group.rows.every((row) => blockOf(row.key))

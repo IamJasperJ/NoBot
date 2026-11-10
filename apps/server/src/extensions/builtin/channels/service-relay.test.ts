@@ -16,6 +16,7 @@ import * as userContext from '../../../user-context'
 import type { ChannelProviderDefinition, ExtensionHost } from '../../types'
 import { PluginChannelClient } from './adapters/plugin'
 import * as assets from './adapters/telegram/media'
+import { ChannelDelivery } from './delivery'
 import { OutboundMedia } from './outbound-media'
 import * as providers from './providers'
 import { ChannelService, suppressChannelRelay } from './service'
@@ -53,11 +54,12 @@ test('转发判断沿父链经过工具和多段回复，仅最近的用户决�
 
 test('自身禁止转发时在排队前退出，文字和工具附件都不触碰渠道或合并队列', async () => {
   // 用空宿主验证提前退出：若进入任何投递路径就会因缺少运行时依赖失败。
-  const deliver = ChannelService.prototype.deliver
+  // 投递逻辑已拆到 ChannelDelivery，提前退出发生在那里。
+  const deliver = ChannelDelivery.prototype.deliver
   for (const meta of [{ noRelay: true }, { noRelay: true, images: [] }, { noRelay: true, stickers: [] }]) {
     let aborted = false
     await deliver.call(
-      {} as ChannelService,
+      {} as ChannelDelivery,
       {} as never,
       { meta } as MessageDTO,
       {

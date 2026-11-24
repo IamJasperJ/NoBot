@@ -35,6 +35,7 @@ interface Props {
   busy: boolean
   /** 最后一条角色回复：可以重新生成、续写 */
   canRegenerate: boolean
+  canModify?: boolean
   bookmark: BookmarkDTO | undefined
   translateEnabled: boolean
   translation: ReturnType<typeof useMessageTranslation>
@@ -49,6 +50,7 @@ export function MessageActions({
   chatId,
   busy,
   canRegenerate,
+  canModify = true,
   bookmark,
   translateEnabled,
   translation,
@@ -100,9 +102,11 @@ export function MessageActions({
 
   return (
     <div className="ml-auto flex items-center opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:has-[details[open]]:opacity-100">
-      <IconButton label={t('编辑')} onClick={onEdit} disabled={busy}>
-        <EditIcon />
-      </IconButton>
+      {canModify && (
+        <IconButton label={t('编辑')} onClick={onEdit} disabled={busy}>
+          <EditIcon />
+        </IconButton>
+      )}
       {canRegenerate && (
         <IconButton
           label={t('重新生成')}
@@ -134,21 +138,25 @@ export function MessageActions({
             />
           )}
           <MenuItem icon={<BranchIcon />} label={t('从这里开分支')} disabled={busy} onClick={branch} />
-          <MenuItem
-            icon={msg.meta.excluded ? <EyeIcon /> : <EyeOffIcon />}
-            label={msg.meta.excluded ? t('恢复发送') : t('不发给模型')}
-            onClick={() => void setExcluded(!msg.meta.excluded)}
-          />
+          {canModify && (
+            <MenuItem
+              icon={msg.meta.excluded ? <EyeIcon /> : <EyeOffIcon />}
+              label={msg.meta.excluded ? t('恢复发送') : t('不发给模型')}
+              onClick={() => void setExcluded(!msg.meta.excluded)}
+            />
+          )}
           <MenuItem
             icon={<BookmarkIcon />}
             label={bookmark ? t('移除书签') : t('加书签')}
             onClick={() => void toggleBookmark()}
           />
-          <MenuItem
-            icon={<ListCheckIcon />}
-            label={t('多选…')}
-            onClick={() => useChatOps.getState().startSelect(chatId, msg.id)}
-          />
+          {canModify && (
+            <MenuItem
+              icon={<ListCheckIcon />}
+              label={t('多选…')}
+              onClick={() => useChatOps.getState().startSelect(chatId, msg.id)}
+            />
+          )}
           {translateEnabled && msg.content.trim() && (
             <MenuItem
               icon={<TranslateIcon />}
@@ -184,13 +192,15 @@ export function MessageActions({
             />
           )}
           <Slot name="chat.message.actions" props={{ chatId, message: msg }} />
-          <MenuItem
-            icon={<TrashIcon />}
-            label={t('删除')}
-            danger
-            disabled={busy}
-            onClick={() => void deleteMessage(qc, chatId, msg.id)}
-          />
+          {canModify && (
+            <MenuItem
+              icon={<TrashIcon />}
+              label={t('删除')}
+              danger
+              disabled={busy}
+              onClick={() => void deleteMessage(qc, chatId, msg.id)}
+            />
+          )}
         </div>
       </details>
     </div>

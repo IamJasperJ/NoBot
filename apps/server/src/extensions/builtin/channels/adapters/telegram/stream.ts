@@ -13,6 +13,7 @@ export class TelegramTextStream {
   private started = false
   private closed = false
   private typing: ReturnType<typeof setInterval>
+  private onAccountAbort = () => this.abort()
   constructor(
     private client: ChannelClient,
     private ref: { chat: string; private: boolean; thread?: string },
@@ -26,6 +27,7 @@ export class TelegramTextStream {
   ) {
     this.messageId = options.messageId
     const activity = () => {
+      if (options.signal?.aborted) return
       void client
         .call('sendChatAction', { chat_id: ref.chat, action: 'typing', message_thread_id: ref.thread }, options.signal)
         .catch(() => {})
@@ -33,7 +35,8 @@ export class TelegramTextStream {
     activity()
     this.typing = setInterval(activity, 4000)
     this.typing.unref()
-    options.signal?.addEventListener('abort', () => this.abort(), { once: true })
+    if (options.signal?.aborted) this.abort()
+    else options.signal?.addEventListener('abort', this.onAccountAbort, { once: true })
   }
   get accountId() {
     return this.options.accountId
@@ -66,6 +69,7 @@ export class TelegramTextStream {
       { kind: 'text', text },
     ])[0]!
     await this.client.serialized(this.ref.chat, async () => {
+      if (this.closed) return
       const common = { chat_id: this.ref.chat, message_thread_id: this.ref.thread, text: html, parse_mode: 'HTML' }
       if (this.ref.private && this.client.draftSupported) {
         try {
@@ -78,6 +82,8 @@ export class TelegramTextStream {
           this.client.onDraftUnsupported?.()
         }
       }
+      // 重新生成时保留上一版，直到新的回复可以正式保存。
+      if (this.closed || this.options.messageId !== undefined) return
       if (this.messageId)
         await this.client.call('editMessageText', { ...common, message_id: this.messageId }, this.options.signal)
       else
@@ -91,8 +97,8 @@ export class TelegramTextStream {
     if (this.closed) return []
     if (this.timer) clearTimeout(this.timer)
     await this.pending.catch(() => {})
-    this.closed = true
-    clearInterval(this.typing)
+    if (this.closed) return []
+    this.close()
     return this.client.serialized(this.ref.chat, async () => {
       const ids: number[] = []
       const pages = renderTelegram(segments ?? [{ kind: 'text', text }])
@@ -124,9 +130,25 @@ export class TelegramTextStream {
     })
   }
   abort() {
+    if (this.closed) return
+    this.close()
+    // 群聊的流式预览会创建实体消息，等待正在发送的一次预览返回后再撤回。
+    void this.pending
+      .catch(() => {})
+      .then(async () => {
+        const messageId = this.messageId
+        if (messageId === undefined || messageId === this.options.messageId || this.options.signal?.aborted) return
+        await this.client.serialized(this.ref.chat, () =>
+          this.client.call('deleteMessage', { chat_id: this.ref.chat, message_id: messageId }, this.options.signal),
+        )
+      })
+      .catch(() => {})
+  }
+  private close() {
     this.closed = true
     if (this.timer) clearTimeout(this.timer)
     clearInterval(this.typing)
+    this.options.signal?.removeEventListener('abort', this.onAccountAbort)
   }
 }
 

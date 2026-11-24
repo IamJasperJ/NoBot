@@ -32,7 +32,7 @@ test('MP3：骰点可见性、私信、回合持久化、先攻与选项状态�
   const r = await import('../src/services/rooms')
   const trpg = await import('../src/services/rooms/trpg')
   const turns = await import('../src/services/rooms/turns')
-  const { roomMessage } = await import('../src/services/rooms/dto')
+  const { readableMessage, roomMessage } = await import('../src/services/rooms/dto')
   const { registerTtsRoutes } = await import('../src/extensions/builtin/audio/tts/routes')
   const { Hono } = await import('hono')
   const audio = new Hono()
@@ -41,7 +41,7 @@ test('MP3：骰点可见性、私信、回合持久化、先攻与选项状态�
   registerTtsRoutes(audio, { settings: {}, storage: { get: () => undefined, set: () => {}, delete: () => {} } })
   const { dispatchScope } = await import('../src/services/rooms/scope')
   const { liveHub } = await import('../src/services/live/hub')
-  const { createChat, loadMessage, loadPath } = await import('../src/services/chats')
+  const { branchChat, createChat, loadMessage, loadPath } = await import('../src/services/chats')
   const { loadGenerationContext, toHistory } = await import('../src/services/generation/context')
   const { listNotifications } = await import('../src/services/social')
   const { createRoomInput, updateRoomInput, roomRollInput, roomWhisperInput } = await import('@nobot/shared')
@@ -214,6 +214,20 @@ test('MP3：骰点可见性、私信、回合持久化、先攻与选项状态�
     )
     expect(reply.meta.visibility?.userIds).not.toContain('owner')
     expect(JSON.stringify(collected.owner)).not.toContain('GM REPLY')
+    expect(() => as('owner', () => branchChat(chatId, reply.id))).toThrow(HttpError)
+    const publicRoll = as('owner', () =>
+      trpg.rollRoom(roomId, roomRollInput.parse({ expression: '1d20', visibility: 'public' }), () => 0.25),
+    )
+    const detached = as('owner', () => branchChat(chatId, publicRoll.message.id))
+    const copied = as('owner', () => loadPath(detached.activeLeafId))
+    expect(copied.at(-1)?.content).toBe(publicRoll.message.content)
+    expect(copied.some((message) => message.content === 'GM REPLY')).toBe(false)
+    expect(copied.some((message) => message.meta.visibility?.level === 'self')).toBe(false)
+    expect(copied.map((message, index) => message.parentId === (copied[index - 1]?.id ?? null))).toEqual(
+      copied.map(() => true),
+    )
+    const olderCopy = as('owner', () => readableMessage({ ...loadMessage(reply.id), chatId: detached.id }))
+    expect(olderCopy).toMatchObject({ content: '', meta: { hidden: { reason: 'whisper' } } })
     expect(() =>
       as('author', () =>
         trpg.whisperRoom(roomId, roomWhisperInput.parse({ text: 'bad', to: 'other', clientMessageId: 'bad' })),
@@ -374,6 +388,7 @@ test('MP3：骰点可见性、私信、回合持久化、先攻与选项状态�
     const restored = choiceMessage()
     as('author', () => trpg.pickRoomChoice(roomId, restored, 0))
     const deadline = as('owner', () => trpg.choiceSnapshot(roomId, restored)).deadline
+    trpg.stopRoomTimers(roomId)
     closeUserDatabase('owner')
     requestCount = model.requests.length
     // 注入重启恢复时钟，直接恢复到已过截止时间；回调在请求用户上下文之外执行。
@@ -381,6 +396,27 @@ test('MP3：骰点可见性、私信、回合持久化、先攻与选项状态�
     await Bun.sleep(20)
     expect(as('owner', () => trpg.choiceSnapshot(roomId, restored))).toMatchObject({ closed: true, winner: 0 })
     await settledVote(restored, requestCount)
+
+    const interrupted = choiceMessage()
+    as('author', () => trpg.pickRoomChoice(roomId, interrupted, 1))
+    model.setScript(() => ({ status: 500, error: 'Temporary failure' }))
+    as('gm', () => trpg.closeChoice(roomId, interrupted))
+    while (as('owner', () => generation.isGenerating(chatId))) await Bun.sleep(5)
+    expect(as('owner', () => trpg.choiceSnapshot(roomId, interrupted))).toMatchObject({
+      closed: true,
+      winner: 1,
+      replyPending: true,
+    })
+    const afterFailure = model.requests.length
+    model.setScript(() => ({ text: 'Recovered vote reply', delayMs: 3 }))
+    as('owner', () => trpg.closeChoice(roomId, interrupted))
+    as('gm', () => trpg.closeChoice(roomId, interrupted))
+    await settledVote(interrupted, afterFailure)
+    expect(as('owner', () => trpg.choiceSnapshot(roomId, interrupted)).replyPending).toBeUndefined()
+    const recoveredPath = as('owner', () => loadPath(createChatLeaf()))
+    expect(recoveredPath.filter((m) => m.meta.choice?.messageId === interrupted)).toHaveLength(1)
+    expect(recoveredPath.at(-1)?.content).toBe('Recovered vote reply')
+
     const { playPresetDataSchema } = await import('@nobot/shared')
     as('owner', () => {
       const playId = newId()

@@ -36,7 +36,7 @@ test('MP4 真实用户库：提案、旁观、导出、提醒、异步与转让'
   const turns = await import('../src/services/rooms/turns')
   const trpg = await import('../src/services/rooms/trpg')
   const { dispatchScope } = await import('../src/services/rooms/scope')
-  const { createChat, loadPath, getChatRow } = await import('../src/services/chats')
+  const { createChat, deleteChat, loadPath, getChatRow } = await import('../src/services/chats')
   const now = Date.now()
   const users = ['alice', 'bob', 'carol'].map((id, i) => ({ id, handle: id, name: id, isAdmin: i === 0 }))
   for (const u of users)
@@ -114,7 +114,9 @@ test('MP4 真实用户库：提案、旁观、导出、提醒、异步与转让'
     ] as const)
       expect(permissions[flag]).toBe(false)
     const scope = (path: string, who = observer, method = 'GET') =>
-      who(() => dispatchScope(id, new Request(`http://local/api/rooms/${id}/scope${path}`, { method }), path))
+      who(() =>
+        dispatchScope(id, new Request(`http://local/api/rooms/${id}/scope${path}`, { method }), path.split('?')[0]!),
+      )
     const send = (text: string, cid = newId()) =>
       guest(() => turns.sendRoomMessage(id, { text, channel: 'ooc', clientMessageId: cid }))
     const publicMessage = send('new public @alice', 'mention-once')
@@ -142,6 +144,8 @@ test('MP4 真实用户库：提案、旁观、导出、提醒、异步与转让'
     const secret = guest(() => trpg.whisperRoom(id, { text: 'PRIVATE whisper', to: 'gm', clientMessageId: 'whisper' }))
     for (const visibility of ['self', 'gm', 'blind'] as const)
       guest(() => trpg.rollRoom(id, { expression: '1d6', visibility }))
+    const literalAssetText = '/api/assets/attachments/example.webp is a pasted path'
+    const lastPublic = send(literalAssetText)
     const page = (await (await scope(`/chats/${room.chatId}`)).json()) as {
       messages: { id: string; meta: { hidden?: unknown } }[]
     }
@@ -149,12 +153,39 @@ test('MP4 真实用户库：提案、旁观、导出、提醒、异步与转让'
     expect(page.messages.map((m) => m.id)).not.toContain(secret.id)
     expect(page.messages.every((m) => !m.meta.hidden)).toBe(true)
     expect(page.messages.some((m) => m.id === publicMessage.id)).toBe(true)
+    const previous = await (await scope(`/chats/${room.chatId}?before=${lastPublic.id}&limit=1`)).json()
+    expect(previous).toMatchObject({ messages: [{ id: publicMessage.id }], hasMore: false })
+    for (const cursor of [beforeJoin.id, secret.id, 'unknown']) {
+      await expect(scope(`/chats/${room.chatId}?before=${cursor}`)).rejects.toMatchObject({
+        status: 409,
+        code: 'STALE_CHAT_CURSOR',
+      })
+    }
+    const exportImage = { id: 'export-image', url: '/api/assets/attachments/export-image.webp', width: 10, height: 10 }
+    owner(() => {
+      db.update(schema.messages)
+        .set({ meta: { ...publicMessage.meta, images: [exportImage] } })
+        .where(eq(schema.messages.id, publicMessage.id))
+        .run()
+    })
     const exported = observer(() => ext.exportRoom(id, 'json'))
     expect(exported).not.toContain('PRIVATE whisper')
     expect(exported).not.toContain(beforeJoin.id)
     expect(exported).not.toContain('hidden')
     expect(exported).toContain(publicMessage.id)
-    expect(() => observer(() => ext.exportRoom(id, 'markdown'))).not.toThrow()
+    const scopedUrl = `/api/rooms/${id}/scope/assets/attachments/export-image.webp`
+    expect(JSON.parse(exported)).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({ id: lastPublic.id, content: literalAssetText }),
+        expect.objectContaining({
+          id: publicMessage.id,
+          meta: expect.objectContaining({ images: [{ ...exportImage, url: scopedUrl }] }),
+        }),
+      ]),
+    })
+    const markdown = observer(() => ext.exportRoom(id, 'markdown'))
+    expect(markdown).toContain(literalAssetText)
+    expect(markdown).toContain(scopedUrl)
     expect(() => observer(() => ext.exportRoom(id, 'json'))).not.toThrow()
     expect(() => observer(() => ext.exportRoom(id, 'markdown'))).toThrow()
     const unread = observer(() => ext.unreadDetails(id))
@@ -173,7 +204,7 @@ test('MP4 真实用户库：提案、旁观、导出、提醒、异步与转让'
       .toBuffer()
     const { saveAvatar } = await import('../src/lib/files')
     const { saveSprite } = await import('../src/services/sprites/sprites')
-    const { readFileSync, existsSync, unlinkSync } = await import('node:fs')
+    const { readFileSync, existsSync, readdirSync, unlinkSync } = await import('node:fs')
     const avatar = await guest(() => saveAvatar(b.characterId, bytes))
     const sprite = await guest(() => saveSprite(b.characterId, bytes, 'default', 'happy'))
     for (let i = 0; i < 7; i++) await guest(() => saveSprite(b.characterId, bytes, 'default', `extra-${i}`))
@@ -476,6 +507,29 @@ test('MP4 真实用户库：提案、旁观、导出、提醒、异步与转让'
     const background = await owner(() =>
       saveBackground(bytes, { name: 'Room background', source: 'upload', chatId: room.chatId }),
     )
+    const otherChat = owner(() => createChat({ characterId: a.characterId }))
+    const otherBackground = await owner(() =>
+      saveBackground(bytes, { name: 'Other chat background', source: 'upload', chatId: otherChat.id }),
+    )
+    const coverChat = owner(() => createChat({ characterId: a.characterId }))
+    const coverBackground = await owner(() =>
+      saveBackground(bytes, { name: 'Room cover background', source: 'generated', chatId: coverChat.id }),
+    )
+    owner(() => r.updateRoom(id, { coverAsset: `${coverBackground.url}?v=1` }))
+    await owner(() => deleteChat(coverChat.id))
+    expect(owner(() => getChatRow(room.chatId)).id).toBe(room.chatId)
+    expect(
+      owner(
+        () => db.select().from(schema.backgrounds).where(eq(schema.backgrounds.id, coverBackground.id)).get()?.chatId,
+      ),
+    ).toBeNull()
+    expect((await scope(coverBackground.url.slice(4))).status).toBe(200)
+    const otherAttachment = await owner(() => saveAttachment(bytes))
+    const loreBackground = await owner(() => saveBackground(bytes, { name: 'Lore background', source: 'upload' }))
+    const lorebookId = newId()
+    const characterVoice = { engine: 'openai', voice: 'coral', speed: 1 }
+    const literal = `  { "message": "${publicMessage.id}", "background": "${otherBackground.id}", "path": "${otherAttachment.url}" }\n`
+    const attachmentsBefore = new Set(guest(() => readdirSync(currentPaths().attachments)))
     const branchId = newId()
     const { mockLlm } = await import('./helpers/mockLlm')
     const model = mockLlm()
@@ -484,6 +538,16 @@ test('MP4 真实用户库：提案、旁观、导出、提醒、异步与转让'
       db.update(schema.apiPresets).set({ baseUrl: model.url }).where(eq(schema.apiPresets.id, 'new-connection')).run(),
     )
     owner(() => {
+      setSetting(`extdata:audio:tts-chat:${room.chatId}`, { characters: { [a.characterId]: characterVoice } })
+      db.insert(schema.lorebooks).values({ id: lorebookId, name: 'Room lore', createdAt: now, updatedAt: now }).run()
+      db.insert(schema.lorebookEntries)
+        .values({
+          id: newId(),
+          lorebookId,
+          data: shared.lorebookEntryDataSchema.parse({ backgroundId: loreBackground.id }),
+        })
+        .run()
+      db.insert(schema.chatLorebooks).values({ chatId: room.chatId, lorebookId }).run()
       db.update(schema.chats)
         .set({ backgroundId: background.id, vars: { quest: 7 } })
         .where(eq(schema.chats.id, room.chatId))
@@ -506,6 +570,18 @@ test('MP4 真实用户库：提案、旁观、导出、提醒、异步与转让'
           parentId: publicMessage.id,
           role: 'assistant',
           content: 'Alternate branch',
+          speakerId: a.characterId,
+          createdAt: now,
+        })
+        .run()
+      db.insert(schema.messages)
+        .values({
+          id: newId(),
+          chatId: room.chatId,
+          parentId: publicMessage.id,
+          role: 'assistant',
+          content: literal,
+          meta: { replyTo: publicMessage.id, context: publicMessage.id },
           speakerId: a.characterId,
           createdAt: now,
         })
@@ -579,10 +655,43 @@ test('MP4 真实用户库：提案、旁观、导出、提醒、异步与转让'
           .some((m) => m.chatId === moved.chatId),
       ).toBe(false)
       const movedPublic = loadPath(movedChat.activeLeafId).find((m) => m.content === publicMessage.content)!
+      const movedLiteral = db
+        .select()
+        .from(schema.messages)
+        .where(eq(schema.messages.chatId, moved.chatId))
+        .all()
+        .find((message) => message.content === literal)
+      expect(movedLiteral?.meta).toMatchObject({ replyTo: movedPublic.id, context: publicMessage.id })
+      expect(movedLiteral?.parentId).toBe(movedPublic.id)
+      expect(getSetting(`extdata:audio:tts-chat:${moved.chatId}`)).toEqual({
+        characters: { [movedLiteral!.speakerId!]: characterVoice },
+      })
+      expect(
+        db
+          .select()
+          .from(schema.backgrounds)
+          .all()
+          .some((row) => row.name === otherBackground.name),
+      ).toBe(false)
+      const copiedLoreBackground = db
+        .select()
+        .from(schema.backgrounds)
+        .all()
+        .find((row) => row.name === loreBackground.name)!
+      expect(copiedLoreBackground.id).not.toBe(loreBackground.id)
+      expect(
+        db
+          .select()
+          .from(schema.lorebookEntries)
+          .all()
+          .some((row) => row.data.backgroundId === copiedLoreBackground.id),
+      ).toBe(true)
       const image = movedPublic.meta.images![0]!
       expect(image.id).not.toBe(attachment.id)
       expect(existsSync(join(currentPaths().attachments, `${image.id}.webp`))).toBe(true)
       expect(existsSync(join(currentPaths().attachments, `${image.id}.json`))).toBe(true)
+      const newAttachments = readdirSync(currentPaths().attachments).filter((name) => !attachmentsBefore.has(name))
+      expect(newAttachments.sort()).toEqual([`${image.id}.json`, `${image.id}.webp`])
       const voice = movedPublic.meta.ttsCache![0]!
       expect(voice.url).not.toBe('/api/assets/tts-cache/room-voice.mp3')
       expect(existsSync(join(currentPaths().ttsCache, voice.url.split('/').at(-1)!))).toBe(true)

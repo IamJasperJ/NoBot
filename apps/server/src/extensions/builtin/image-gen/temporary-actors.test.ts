@@ -2,7 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CharacterDTO, ChatDTO, PlayPresetDTO, TemporaryActorDTO } from '@nobot/shared'
+import type { BookmarkDTO, CharacterDTO, ChatDTO, PlayPresetDTO, TemporaryActorDTO } from '@nobot/shared'
 import { Hono } from 'hono'
 import sharp from 'sharp'
 
@@ -37,7 +37,8 @@ test('临时立绘：存储兼容、舞台状态、自动重试和管理接口',
   const { loadPath } = await import('../../../services/chats')
   const { parseSettings } = await import('./settings')
   const { autoActors } = await import('./vn6')
-  const { temporaryActorRoutes, actorTasks } = await import('./temporary-actors')
+  const { startTemporaryActor, temporaryActorRoutes, actorTasks } = await import('./temporary-actors')
+  const { trackImageLifetime } = await import('./pipeline/state')
   const { HttpError } = await import('../../../errors')
   const json = async <T>(path: string, method = 'GET', body?: unknown): Promise<T> => {
     const res = await app.request(`/api${path}`, {
@@ -226,9 +227,11 @@ test('临时立绘：存储兼容、舞台状态、自动重试和管理接口',
     expect((await request('POST', '/cutout', cutoutInput)).status).toBe(409)
     expect((await request('POST', '/cutout', { ...cutoutInput, preview: true })).status).toBe(409)
     actorTasks.clear()
+    const otherChat = await json<ChatDTO>('/chats', 'POST', { characterId: character.id })
+    host.appendMessage(otherChat.id, { role: 'user', content: 'Shared image', meta: { images: [result.image!] } })
     await request('DELETE', '', { ...input, purge: true })
     expect(await Bun.file(join(paths.attachments, `${stored.original!.id}.webp`)).exists()).toBe(false)
-    expect(await Bun.file(join(paths.attachments, `${result.image!.id}.webp`)).exists()).toBe(false)
+    expect(await Bun.file(join(paths.attachments, `${result.image!.id}.webp`)).exists()).toBe(true)
     // 旧记录首次重抠保留当前附件；再次重抠仍使用同一附件。
     const legacy = await host.saveImage(png)
     writeTemporaryActor(chat.id, input.key, {
@@ -259,13 +262,89 @@ test('临时立绘：存储兼容、舞台状态、自动重试和管理接口',
     }
     invalid.set('file', new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'large.png'))
     expect((await routes.request('/temporary-actors/upload', { method: 'POST', body: invalid })).status).toBe(400)
-    writeTemporaryActor(chat.id, 'old', { ...readTemporaryActors(chat.id).merchant!, key: 'old', updatedAt: 0 })
+    const finalImage = readTemporaryActors(chat.id).merchant!.image!
+    const save = await json<BookmarkDTO>(`/chats/${chat.id}/saves`, 'POST', {})
+    expect(save.snapshot?.actors[0]?.spriteUrl).toBe(finalImage.url)
+    writeTemporaryActor(chat.id, 'old', {
+      ...readTemporaryActors(chat.id).merchant!,
+      key: 'old',
+      image: legacy,
+      updatedAt: 0,
+    })
     const list = await json<TemporaryActorDTO[]>(`/ext/image-gen/temporary-actors?chatId=${chat.id}`)
     expect(list.map((record) => record.key)).toEqual(['merchant', 'old'])
     expect(getSetting<Record<string, TemporaryActorDTO>>(`vn-actors:${chat.id}`)?.merchant?.image).toBeTruthy()
     // 关闭 VN 自动生成后仍允许清理历史记录。
     await json(`/chats/${chat.id}`, 'PATCH', { playPresetId: null })
     expect((await request('DELETE', '', { ...input, purge: true })).status).toBe(200)
+    expect(await Bun.file(join(paths.attachments, `${finalImage.id}.webp`)).exists()).toBe(true)
+    expect(await Bun.file(join(paths.attachments, `${legacy.id}.webp`)).exists()).toBe(true)
+    expect((await request('DELETE', '', { ...input, key: 'old', purge: true })).status).toBe(200)
+    expect(await Bun.file(join(paths.attachments, `${legacy.id}.webp`)).exists()).toBe(false)
+
+    const lifetime = new AbortController()
+    trackImageLifetime(lifetime.signal)
+    const saveImage = host.saveImage.bind(host)
+    const canceledFiles: string[] = []
+    const cancelWhileSaving = spyOn(host, 'saveImage').mockImplementation(async (bytes) => {
+      const attachment = await saveImage(bytes)
+      canceledFiles.push(attachment.id)
+      lifetime.abort()
+      return attachment
+    })
+    try {
+      expect(await startTemporaryActor(ctx, chat.id, 'cancelled', 'Actor', 'blue eyes').task).toBe(false)
+      expect(readTemporaryActors(chat.id).cancelled).toMatchObject({ status: 'error', error: '已取消' })
+      expect(canceledFiles).not.toHaveLength(0)
+      for (const id of canceledFiles) {
+        expect(await Bun.file(join(paths.attachments, `${id}.webp`)).exists()).toBe(false)
+        expect(await Bun.file(join(paths.attachments, `${id}.json`)).exists()).toBe(false)
+      }
+    } finally {
+      lifetime.abort()
+      cancelWhileSaving.mockRestore()
+    }
+
+    const deletedChat = await json<ChatDTO>('/chats', 'POST', { characterId: character.id })
+    const previousImage = await saveImage(png)
+    const previousOriginal = await saveImage(png)
+    writeTemporaryActor(deletedChat.id, 'actor', {
+      key: 'actor',
+      name: 'Actor',
+      status: 'done',
+      updatedAt: Date.now(),
+      prompt: '',
+      image: previousImage,
+      original: previousOriginal,
+    })
+    host.appendMessage(otherChat.id, {
+      role: 'user',
+      content: 'Keep previous image',
+      meta: { images: [previousImage] },
+    })
+    const wroteImage = Promise.withResolvers<string>()
+    const finishSaving = Promise.withResolvers<void>()
+    const holdSave = spyOn(host, 'saveImage').mockImplementation(async (bytes) => {
+      const attachment = await saveImage(bytes)
+      wroteImage.resolve(attachment.id)
+      await finishSaving.promise
+      return attachment
+    })
+    const deleting = startTemporaryActor(ctx, deletedChat.id, 'actor', 'Actor', 'blue eyes').task
+    try {
+      const newId = await wroteImage.promise
+      await json(`/chats/${deletedChat.id}`, 'DELETE')
+      finishSaving.resolve()
+      expect(await deleting).toBe(false)
+      expect(getSetting(`vn-actors:${deletedChat.id}`)).toBeUndefined()
+      expect(await Bun.file(join(paths.attachments, `${newId}.webp`)).exists()).toBe(false)
+      expect(await Bun.file(join(paths.attachments, `${previousOriginal.id}.webp`)).exists()).toBe(false)
+      expect(await Bun.file(join(paths.attachments, `${previousImage.id}.webp`)).exists()).toBe(true)
+    } finally {
+      finishSaving.resolve()
+      await deleting
+      holdSave.mockRestore()
+    }
   } finally {
     release()
     await wait()

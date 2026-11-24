@@ -8,22 +8,27 @@ import type { LiveEnvelope } from '@nobot/shared'
 // 独立进程隔离全局系统库与既有测试的用户上下文，避免改变其他测试的 DATA_DIR。
 test('MP1 社交、在线状态、实时路由与跨库隔离', async () => {
   if (!process.env.MP1_TEST_CHILD) {
-    const child = Bun.spawn([process.execPath, 'test', import.meta.path], {
-      env: { ...process.env, MP1_TEST_CHILD: '1' },
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    const [out, err, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ])
-    expect(code, out + err).toBe(0)
+    const directory = await mkdtemp(join(tmpdir(), 'nobot-social-'))
+    try {
+      const child = Bun.spawn([process.execPath, 'test', import.meta.path], {
+        env: { ...process.env, DATA_DIR: directory, MP1_TEST_CHILD: '1' },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      const [out, err, code] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+        child.exited,
+      ])
+      expect(code, out + err).toBe(0)
+    } finally {
+      // 在线状态定时器仍可能查询系统库，等子进程退出再删除它的临时目录。
+      await rm(directory, { recursive: true, force: true })
+    }
     return
   }
   delete (globalThis as typeof globalThis & { __NOBOT_TEST_USER__?: string }).__NOBOT_TEST_USER__
-  const directory = await mkdtemp(join(tmpdir(), 'nobot-social-'))
-  process.env.DATA_DIR = directory
+  const { env } = await import('../src/env')
   const { systemDatabase } = await import('../src/db/system-client')
   const { users, sessions, friendships, notifications, userBlocks, userPresencePrefs } = await import(
     '../src/db/system-schema'
@@ -203,6 +208,30 @@ test('MP1 社交、在线状态、实时路由与跨库隔离', async () => {
     social.requestFriend('a', 'bob', now + 259200000)
     social.respondFriend('b', 'a', 'accept', now)
     presence.connect('b', 'snapshot-tab')
+    const { SSEStreamingApi } = await import('hono/streaming')
+    let release!: () => void
+    const writing = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const write = spyOn(SSEStreamingApi.prototype, 'write').mockImplementationOnce(async function (
+      this: InstanceType<typeof SSEStreamingApi>,
+    ) {
+      await writing
+      return this
+    })
+    const connected = spyOn(presence, 'connect')
+    try {
+      const early = await server.request('http://local/api/live', { headers: { Cookie: ac } })
+      await early.body!.cancel()
+      release()
+      await Bun.sleep(0)
+      expect(connected).not.toHaveBeenCalled()
+      expect(liveHub.topicUsers('user:a')).toEqual([])
+    } finally {
+      release()
+      write.mockRestore()
+      connected.mockRestore()
+    }
     const disconnected = spyOn(presence, 'disconnect')
     const notification = social.notify('a', 'friend.request', 'b')
     const later = social.notify('a', 'room.invite', 'b')
@@ -265,7 +294,7 @@ test('MP1 社交、在线状态、实时路由与跨库隔离', async () => {
     // 实际建立两个用户库，系统关系表不应出现在任何一个私有库。
     for (const user of [a, b]) {
       runAsUser(user, () => {})
-      const sqlite = new Database(join(directory, 'users', user.handle, 'app.db'), { readonly: true })
+      const sqlite = new Database(join(env.dataDir, 'users', user.handle, 'app.db'), { readonly: true })
       expect(
         sqlite
           .query(
@@ -283,6 +312,5 @@ test('MP1 社交、在线状态、实时路由与跨库隔离', async () => {
     liveHub.closeUser('b')
     closeUserDatabase('alice')
     closeUserDatabase('bob')
-    await rm(directory, { recursive: true, force: true })
   }
 }, 30000)

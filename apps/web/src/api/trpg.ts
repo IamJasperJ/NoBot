@@ -6,7 +6,7 @@ import { runGeneration } from '../features/chat/generate'
 import { t } from '../i18n'
 import { useMiniAppHaptic } from '../miniapp/telegram'
 import { useFreshMessage } from '../stores/freshMessages'
-import { api } from './client'
+import { ApiRequestError, api } from './client'
 import { flattenPages, useChatPages, usePlayPresets } from './queries'
 import { roomsApi, scopeForChat } from './rooms'
 
@@ -33,7 +33,7 @@ function isEnabled(play: ReturnType<typeof usePlay>) {
  * 发送中（含演出等待）busy 为 true，防止重复点击。
  */
 export function usePickChoice(chatId: string): {
-  pick: (option: ChoiceOption) => Promise<void>
+  pick: (option: ChoiceOption, sourceMessageId?: string) => Promise<void>
   pending: CheckResult | null
   busy: boolean
 } {
@@ -46,7 +46,7 @@ export function usePickChoice(chatId: string): {
   return {
     pending,
     busy,
-    pick: async (option) => {
+    pick: async (option, sourceMessageId) => {
       if (locked.current) return
       locked.current = true
       haptic()
@@ -55,10 +55,22 @@ export function usePickChoice(chatId: string): {
         const roomId = scopeForChat(chatId)
         if (roomId) {
           const messages = flattenPages(qc.getQueryData(['chat', chatId]))
-          const source = messages.findLast((m) => m.meta.stage?.choices?.some((choice) => choice.text === option.text))
-          const index = source?.meta.stage?.choices?.findIndex((choice) => choice.text === option.text)
+          const matches = (choice: ChoiceOption) =>
+            choice.text === option.text &&
+            choice.check?.skill === option.check?.skill &&
+            choice.check?.dc === option.check?.dc
+          const source = sourceMessageId
+            ? messages.find((m) => m.id === sourceMessageId)
+            : messages.findLast((m) => m.meta.stage?.choices?.some(matches))
+          const index = source?.meta.stage?.choices?.findIndex(matches)
           if (!source || index === undefined || index < 0) throw new Error(t('选项已不可用'))
-          await roomsApi.vote({ id: roomId, messageId: source.id, index })
+          try {
+            await roomsApi.vote({ id: roomId, messageId: source.id, index, messageVersion: source.meta.version ?? 0 })
+          } catch (error) {
+            if (error instanceof ApiRequestError && error.code === 'CHOICE_CHANGED')
+              await qc.invalidateQueries({ queryKey: ['chat', chatId] })
+            throw error
+          }
           await qc.invalidateQueries({ queryKey: ['chat', chatId] })
           return
         }

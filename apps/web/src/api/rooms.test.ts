@@ -13,7 +13,9 @@ import {
   mergeMessage,
   roomInviteDestination,
   roomKeys,
+  roomLiveConnected,
   scopeForChat,
+  viewRoom,
 } from './rooms'
 
 afterEach(() => {
@@ -112,6 +114,48 @@ test('room live 按 seq 去重并隔离聊天流，被踢清掉 scope、消息�
   expect(queryClient.getQueryData(keys.chat('chat-a'))).toBeUndefined()
   expect(scopedApiPath('/api/chats/chat-a')).toBe('/api/chats/chat-a')
   expect(useStreaming.getState().streams['chat-a']).toBeUndefined()
+})
+
+test('房间重连清理旧片段，回合快照恢复按钮状态并保留其他会话的流', () => {
+  const room = { id: 'room-a', chatId: 'chat-a', myRole: 'player' } as RoomDTO
+  queryClient.setQueryData(roomKeys.detail(room.id), room)
+  setupCache([makeMessage('root', null)])
+  const fetchMock = spyOn(globalThis, 'fetch').mockResolvedValue(new Response())
+  const unview = viewRoom(room)
+  const unviewSecond = viewRoom(room)
+  const stream = useStreaming.getState()
+  const roomEvent = (type: string, payload: Record<string, unknown>) =>
+    applyRoomLive(type, { roomId: room.id, payload })
+  const generating = () => queryClient.getQueryData<{ pages: ChatPage[] }>(keys.chat(room.chatId))?.pages[0]?.generating
+  try {
+    roomLiveConnected('first-connection')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    roomEvent('room.turn', { running: true })
+    expect(generating()).toBe(true)
+    stream.begin(room.chatId, 'stale', '断线前的片段')
+    stream.begin('other-chat', 'other', '并行回复')
+    applyRoomLive('room.message', { roomId: room.id, seq: 4, payload: {} })
+    roomLiveConnected('new-connection')
+    roomLiveConnected('new-connection')
+    const subscriptions = fetchMock.mock.calls.filter(([url]) => String(url) === '/api/live/topics')
+    expect(subscriptions).toHaveLength(2)
+    expect(JSON.parse(String(subscriptions[1]![1]?.body))).toMatchObject({ connectionId: 'new-connection', since: 4 })
+    expect(useStreaming.getState().streams[room.chatId]).toBeUndefined()
+    expect(useStreaming.getState().streams['other-chat']?.text).toBe('并行回复')
+
+    roomEvent('room.turn', { running: false, pendingCount: 0 })
+    expect(generating()).toBe(false)
+    stream.begin(room.chatId, 'new-message')
+    roomEvent('room.generation', { type: 'delta', messageId: 'new-message', text: '重连后的片段', index: 1 })
+    expect(useStreaming.getState().streams[room.chatId]?.text).toBe('重连后的片段')
+    applyRoomLive('room.resync', { roomId: room.id, seq: 8 })
+    expect(useStreaming.getState().streams[room.chatId]).toBeUndefined()
+    expect(useStreaming.getState().streams['other-chat']?.text).toBe('并行回复')
+  } finally {
+    unviewSecond()
+    unview()
+    fetchMock.mockRestore()
+  }
 })
 
 test('邀请通知与 /join 链接暴露大厅数据入口，不需要新增视觉组件', () => {

@@ -32,7 +32,7 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
   const { users } = await import('../src/db/system-schema')
   const { runAsUser, closeUserDatabase } = await import('../src/user-context')
   const { db, getSetting, setSetting, newId } = await import('../src/db/client')
-  const { channelAccounts, channelBindings, channelActors, channelRequests, channelDeliveries, messages } =
+  const { channelAccounts, channelBindings, channelActors, channelRequests, channelDeliveries, chats, messages } =
     await import('../src/db/schema')
   const { createExtensionHost } = await import('../src/extensions/host')
   const registry = await import('../src/extensions/registry')
@@ -329,6 +329,8 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
             },
           ])
           .run()
+        // 恢复的消息也必须属于当前分支，和正常生成写入后的会话状态一致。
+        db.update(chats).set({ activeLeafId: firstReply }).where(eq(chats.id, playerBinding.chatId)).run()
         const restoredBefore = sends.length
         await fresh.deliver(playerBinding, loadMessage(firstReply))
         expect(sends.length).toBeGreaterThan(restoredBefore)
@@ -364,6 +366,7 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
             },
           ])
           .run()
+        db.update(chats).set({ activeLeafId: sameBranch }).where(eq(chats.id, playerBinding.chatId)).run()
         const toolBefore = sends.length
         await fresh.deliver(playerBinding, loadMessage(sameBranch))
         expect(sends.length).toBeGreaterThan(toolBefore)
@@ -378,6 +381,7 @@ test('渠道平台：注册、批准、入站、生成、查询、投递与生�
             createdAt: now + 30 * 60000,
           })
           .run()
+        db.update(chats).set({ activeLeafId: boundary }).where(eq(chats.id, playerBinding.chatId)).run()
         const boundaryBefore = sends.length
         await fresh.deliver(playerBinding, loadMessage(boundary))
         expect(sends.length).toBeGreaterThan(boundaryBefore)

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { GenerateEvent } from '@nobot/shared'
 
 // 用户库、扩展模块和模拟模型均在子进程中隔离。
 test('HOST1：第三方后台恢复、生命周期与一次性触发指令', async () => {
@@ -267,7 +268,12 @@ test('HOST1：第三方后台恢复、生命周期与一次性触发指令', asy
       const actor = createCharacter({ name: 'Alice', fields: {} })
       const chat = createChat({ characterId: actor.id })
       model.setScript(() => ({ text: 'Hello', delayMs: 25 }))
-      host.trigger(chat.id, { instruction: 'Secret {{char}} note' })
+      const triggered: GenerateEvent[] = []
+      const unsubscribe = host.trigger(chat.id, {
+        instruction: 'Secret {{char}} note',
+        onEvent: (e) => triggered.push(e),
+      })
+      expect(typeof unsubscribe).toBe('function')
       expect(() => host.trigger(chat.id)).toThrow(expect.objectContaining({ status: 409, code: 'GENERATING' }))
       await host.waitIdle(chat.id, 5000)
       expect(
@@ -277,14 +283,23 @@ test('HOST1：第三方后台恢复、生命周期与一次性触发指令', asy
           .at(-1)?.content,
       ).toContain('Secret Alice note')
       expect(JSON.stringify(loadPath(getChatRow(chat.id).activeLeafId))).not.toContain('Secret')
+      expect(triggered.filter((e) => e.type === 'done')).toHaveLength(1)
+      expect(triggered.at(-1)?.type).toBe('complete')
+      const triggeredCount = triggered.length
       host.generate(chat.id, { mode: 'send', text: 'Next ordinary turn', images: [] })
       await host.waitIdle(chat.id, 5000)
       expect(JSON.stringify(model.requests.at(-1))).not.toContain('Secret')
+      expect(triggered).toHaveLength(triggeredCount)
+      unsubscribe?.()
       await quietPrompt({ chatId: chat.id, instruction: 'Say hello' })
       expect(JSON.stringify(model.requests.at(-1))).not.toContain('Secret')
       // 空白指令当作没有指令，不报校验错误
-      host.trigger(chat.id, { instruction: '   ' })
+      const detached: GenerateEvent[] = []
+      const detach = host.trigger(chat.id, { instruction: '   ', onEvent: (e) => detached.push(e) })
+      const detachedCount = detached.length
+      detach?.()
       await host.waitIdle(chat.id, 5000)
+      expect(detached).toHaveLength(detachedCount)
       expect(JSON.stringify(model.requests.at(-1))).not.toContain('Trigger instruction')
       const other = createCharacter({ name: 'Bob', fields: {} })
       const group = createGroup({
@@ -294,9 +309,12 @@ test('HOST1：第三方后台恢复、生命周期与一次性触发指令', asy
       })
       const groupChat = createChat({ groupId: group.id })
       const before = model.requests.length
-      host.trigger(groupChat.id, { instruction: 'Group secret {{char}}' })
+      const groupEvents: GenerateEvent[] = []
+      host.trigger(groupChat.id, { instruction: 'Group secret {{char}}', onEvent: (e) => groupEvents.push(e) })
       await host.waitIdle(groupChat.id, 5000)
       expect(model.requests.slice(before)).toHaveLength(2)
+      expect(groupEvents.filter((e) => e.type === 'done')).toHaveLength(2)
+      expect(groupEvents.at(-1)?.type).toBe('complete')
       for (const request of model.requests.slice(before))
         expect(request.messages.filter((m) => m.role === 'system').at(-1)?.content).toContain('Group secret')
       expect(JSON.stringify(loadPath(getChatRow(groupChat.id).activeLeafId))).not.toContain('Group secret')
@@ -320,10 +338,13 @@ test('HOST1：第三方后台恢复、生命周期与一次性触发指令', asy
         events.push(event)
       })
       try {
-        host.trigger(roomChat.id, { instruction: 'Room secret' })
+        const roomEvents: GenerateEvent[] = []
+        host.trigger(roomChat.id, { instruction: 'Room secret', onEvent: (e) => roomEvents.push(e) })
         expect(() => host.trigger(roomChat.id)).toThrow(expect.objectContaining({ code: 'GENERATING' }))
         await host.waitIdle(roomChat.id, 5000)
         expect(JSON.stringify(model.requests.at(-1))).toContain('Room secret')
+        expect(roomEvents.filter((e) => e.type === 'done')).toHaveLength(1)
+        expect(roomEvents.at(-1)?.type).toBe('complete')
         expect(db.select().from(schema.roomUsage).where(eq(schema.roomUsage.roomId, room.id)).all()).toHaveLength(1)
         expect(JSON.stringify(events)).toContain('room.generation')
         expect(JSON.stringify(events)).not.toContain('Room secret')

@@ -13,6 +13,7 @@ import {
 import { resolveImageConnection } from '../../extensions/builtin/image-gen/discovery'
 import { cleanPrompt, promptInstruction, templates } from '../../extensions/builtin/image-gen/modes'
 import { type Context, renderImage } from '../../extensions/builtin/image-gen/pipeline'
+import { imageTaskSignal } from '../../extensions/builtin/image-gen/pipeline/state'
 import { parseSettings } from '../../extensions/builtin/image-gen/settings'
 import { t } from '../../i18n'
 import { chatCompletion, toLlmConnection } from '../../llm/openai'
@@ -69,6 +70,7 @@ export async function generateSpriteSet(
   chatId?: string,
   progress?: SpriteJobDTO,
 ): Promise<SpriteJobDTO> {
+  const signal = imageTaskSignal()
   if (running.has(characterId)) throw new HttpError(409, 'SPRITE_BUSY', t('该角色正在生成立绘'))
   running.add(characterId)
   const expressions = [...new Set(input.expressions)]
@@ -92,6 +94,7 @@ export async function generateSpriteSet(
           includeHistory: false,
           connectionId: settings.promptConnectionId || undefined,
           model: settings.promptModel || undefined,
+          signal,
         })
       else {
         const profile = selectProfile({ characterId, groupId: null, profileId: null }).profile
@@ -108,7 +111,7 @@ export async function generateSpriteSet(
         for await (const chunk of chatCompletion({
           connection: toLlmConnection(connection),
           body,
-          signal: new AbortController().signal,
+          signal,
         }))
           appearance += chunk.text ?? ''
         insertLog({
@@ -134,6 +137,10 @@ export async function generateSpriteSet(
     let referenceImage: string | undefined
     const useReference = getBackend(settings).supportsReference?.(settings) === true
     for (const expression of expressions) {
+      if (signal.aborted) {
+        state.failed = state.total - state.done
+        break
+      }
       try {
         const composed = composePrompt(
           settings,
@@ -153,19 +160,15 @@ export async function generateSpriteSet(
           size.width,
           size.height,
           chatId,
-          undefined,
+          signal,
           undefined,
           referenceImage,
           settings.spriteMatting === 'native',
         )
         if (expression === expressions[0]) seed = settings.seed
-        await saveSprite(
-          characterId,
-          await cutoutSprite(bytes, mattingOptions(settings)),
-          input.outfit,
-          expression,
-          bytes,
-        )
+        const cutout = await cutoutSprite(bytes, mattingOptions(settings))
+        signal.throwIfAborted()
+        await saveSprite(characterId, cutout, input.outfit, expression, bytes)
         // 以第一张成功保存的原始背景图固定整套外观，不把去底边缘传回模型。
         if (useReference && !referenceImage)
           referenceImage = `data:${getImageMime(bytes)};base64,${Buffer.from(bytes).toString('base64')}`

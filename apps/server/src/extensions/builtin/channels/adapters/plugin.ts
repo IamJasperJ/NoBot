@@ -51,7 +51,7 @@ export class PluginChannelClient {
       this.check()
     }
   }
-  private async sendOperation(work: () => Promise<{ id: string }>) {
+  private async sendOperation(work: () => Promise<{ id: string }>, isCurrent?: () => boolean) {
     const limits = this.definition.limits
     const interval = Math.max(this.config.rateLimit.minIntervalMs, limits.minIntervalMs ?? 0)
     const minute = Math.min(this.config.rateLimit.perMinute, limits.perMinute ?? Infinity)
@@ -64,6 +64,7 @@ export class PluginChannelClient {
         this.signal,
       )
       await this.ready()
+      if (isCurrent && !isCurrent()) throw new ChannelSendError('not-sent', 'BINDING_CHANGED')
       this.lastAt = this.now()
       this.sent.push(this.lastAt)
       try {
@@ -96,13 +97,17 @@ export class PluginChannelClient {
       }
     }
   }
-  private send(chatId: string, text: string, replyTo?: string) {
-    return this.sendOperation(() => this.definition.send(this.account, { chatId, text, replyTo }, this.signal))
+  private send(chatId: string, text: string, replyTo?: string, isCurrent?: () => boolean) {
+    return this.sendOperation(
+      () => this.definition.send(this.account, { chatId, text, replyTo }, this.signal),
+      isCurrent,
+    )
   }
   async call<T = boolean>(
     method: string,
     params: Record<string, unknown> | FormData = {},
     _signal?: AbortSignal,
+    isCurrent?: () => boolean,
   ): Promise<T> {
     this.check()
     const args = params instanceof FormData ? Object.fromEntries(params.entries()) : params
@@ -132,22 +137,24 @@ export class PluginChannelClient {
               if (!(photo.media instanceof Blob)) throw new ChannelSendError('not-sent', 'BAD_MEDIA')
               const blob = photo.media
               const bytes = new Uint8Array(await blob.arrayBuffer())
-              const result = await this.sendOperation(() =>
-                this.definition.sendImage!(
-                  this.account,
-                  {
-                    chatId: String(args.chat_id),
-                    bytes,
-                    mime: blob.type,
-                    replyTo: typeof args.reply_to_message_id === 'string' ? args.reply_to_message_id : undefined,
-                  },
-                  this.signal,
-                ),
+              const result = await this.sendOperation(
+                () =>
+                  this.definition.sendImage!(
+                    this.account,
+                    {
+                      chatId: String(args.chat_id),
+                      bytes,
+                      mime: blob.type,
+                      replyTo: typeof args.reply_to_message_id === 'string' ? args.reply_to_message_id : undefined,
+                    },
+                    this.signal,
+                  ),
+                isCurrent,
               )
               results.push({ message_id: result.id })
               // 图片已发出后 caption 失败不能让宿主重放图片。
               for (const text of splitOneBot(photo.caption ?? '', this.definition.limits.maxTextLength))
-                if (text) await this.send(String(args.chat_id), text)
+                if (text) await this.send(String(args.chat_id), text, undefined, isCurrent)
             }
           } catch (error) {
             if (results.length) throw new ChannelSendError('unknown', 'PARTIAL_MEDIA_DELIVERY')
@@ -160,6 +167,7 @@ export class PluginChannelClient {
             String(args.chat_id),
             text,
             typeof args.reply_to_message_id === 'string' ? args.reply_to_message_id : undefined,
+            isCurrent,
           )
           parts.push(result.id)
         }

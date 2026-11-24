@@ -260,6 +260,8 @@ test('双平台朗读命令：引用、最新、开关、权限、隐私与修�
               },
             },
           }
+          const appendChoice = () =>
+            host.appendMessage(chat.id, { role: 'assistant', content: choiceMessage.content, meta: choiceMessage.meta })
           const startOnly = calls.length
           const speechStart = speech.mock.calls.length
           await service.deliver(binding, choiceMessage)
@@ -287,7 +289,7 @@ test('双平台朗读命令：引用、最新、开关、权限、隐私与修�
             service.saveBinding(binding)
             const before = speech.mock.calls.length
             const callStart = calls.length
-            await service.deliver(binding, { ...choiceMessage, id: newId() })
+            await service.deliver(binding, appendChoice())
             const segments = speech.mock.calls.slice(before).flatMap((call) => call[2]?.segments ?? [])
             expect(segments.some((segment) => segment.speaker.kind === 'narrator')).toBe(narration === 'speak')
             expect(JSON.stringify(calls.slice(callStart))).not.toContain('Waves.')
@@ -296,7 +298,7 @@ test('双平台朗读命令：引用、最新、开关、权限、隐私与修�
           service.saveBinding(binding)
           const beforeLong = speech.mock.calls.length
           const longStart = calls.length
-          await service.deliver(binding, { ...choiceMessage, id: newId() })
+          await service.deliver(binding, appendChoice())
           expect(speech.mock.calls.length).toBe(beforeLong)
           expect(JSON.stringify(calls.slice(longStart))).toContain('One. Two. Three.')
           binding = { ...binding, settings: onlySettings }
@@ -319,7 +321,7 @@ test('双平台朗读命令：引用、最新、开关、权限、隐私与修�
               failure === 'timeout' ? spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort()) : undefined
             const callStart = calls.length
             const logs = log.mock.calls.length
-            await service.deliver(binding, { ...choiceMessage, id: newId() })
+            await service.deliver(binding, appendChoice())
             timeout?.mockRestore()
             expect(JSON.stringify(calls.slice(callStart))).toContain('One. Two. Three.')
             expect(

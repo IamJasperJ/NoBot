@@ -38,14 +38,22 @@ import {
   restoreChoices,
   resumeRoom,
   roundSnapshot,
+  stopRoomTimers,
 } from './trpg'
-import { rescheduleRoom } from './turns'
+import { rescheduleRoom, resetTurnState } from './turns'
 
 export type Room = typeof rooms.$inferSelect
 export const unavailable = () => new HttpError(404, 'NOT_FOUND', t('房间不存在或无法访问'))
 export const refused = () => new HttpError(403, 'ROOM_REFUSED', t('没有权限执行此房间操作'))
 export function findRoom(id: string) {
   return system().select().from(rooms).where(eq(rooms.id, id)).get()
+}
+export function findHostedRoom(chatId: string) {
+  return system()
+    .select()
+    .from(rooms)
+    .where(and(eq(rooms.chatId, chatId), eq(rooms.hostUserId, currentUser().id)))
+    .get()
 }
 export function roomRow(id: string): Room {
   const room = findRoom(id)
@@ -460,6 +468,8 @@ export function deleteRoom(id: string) {
     }),
   )
   system().delete(rooms).where(eq(rooms.id, id)).run()
+  stopRoomTimers(id)
+  resetTurnState(id)
 }
 export function createInvite(id: string, input: z.infer<typeof roomInviteInput>) {
   const { room, member } = membership(id)
@@ -771,10 +781,12 @@ export function usage(id: string) {
   return asHost(room, () => db.select().from(roomUsage).where(eq(roomUsage.roomId, id)).all())
 }
 export function checkWritable(room: Room, userId: string) {
-  const { member } = membership(room.id, userId)
+  const { room: latest, member } = membership(room.id, userId)
+  // 上传和代理可能跨越异步读取，旧快照不能授权写入转让前的会话。
+  if (latest.chatId !== room.chatId || latest.hostUserId !== room.hostUserId) throw unavailable()
   if (member.role === 'spectator') throw new HttpError(403, 'ROOM_SPECTATOR_READ_ONLY', t('旁观者只能查看房间'))
-  if (room.status !== 'active') throw new HttpError(409, 'ROOM_PAUSED', t('房间已暂停或归档'))
-  if (member.acceptedRulesVersion !== room.rulesVersion)
+  if (latest.status !== 'active') throw new HttpError(409, 'ROOM_PAUSED', t('房间已暂停或归档'))
+  if (member.acceptedRulesVersion !== latest.rulesVersion)
     throw new HttpError(409, 'RULES_CHANGED', t('请先同意最新房间规则'))
   return member
 }
@@ -859,7 +871,10 @@ export function visibleRoomFor(viewer: string, userId: string) {
 export function resumeRoomStates() {
   for (const room of system().select().from(rooms).all()) {
     try {
-      if (room.status === 'active') asHost(room, () => resumeRoom(room))
+      if (room.status === 'active') {
+        asHost(room, () => resumeRoom(room))
+        rescheduleRoom(room.id)
+      }
       resumeExtensions(room)
     } catch (error) {
       logError('room resume notifications', error)

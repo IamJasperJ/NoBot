@@ -16,7 +16,9 @@ export async function matchLoreVectors(
   history: readonly { content: string }[],
   settings: WorldInfoSettings,
   request: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<string[]> {
+  signal?.throwIfAborted()
   const candidates = entries.filter((entry) => entry.enabled && entry.vectorized && entry.content.trim())
   if (!settings.vectorEnabled || !settings.embeddingConnectionId || !candidates.length || !history.length) return []
   try {
@@ -24,6 +26,7 @@ export async function matchLoreVectors(
     if (!connection) throw new Error('Embedding connection not found')
     const model = settings.embeddingModel || connection.model
     const embed = async (input: string[]) => {
+      const timeout = AbortSignal.timeout(30_000)
       const response = await request(`${connection.baseUrl.replace(/\/+$/, '')}/embeddings`, {
         method: 'POST',
         headers: {
@@ -32,7 +35,7 @@ export async function matchLoreVectors(
           ...connection.headers,
         },
         body: JSON.stringify({ model, input }),
-        signal: AbortSignal.timeout(30_000),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       })
       if (!response.ok) throw new Error(`Embedding HTTP ${response.status}`)
       const data = responseSchema.parse(await response.json()).data
@@ -57,6 +60,7 @@ export async function matchLoreVectors(
       .map((message) => message.content)
       .join('\n')
     const vectors = await embed([...missing.map((item) => item.entry.content), queryText])
+    signal?.throwIfAborted()
     missing.forEach((item, index) => {
       item.vector = vectors[index]!
       db.insert(lorebookVectors)
@@ -71,6 +75,7 @@ export async function matchLoreVectors(
       settings.vectorMaxEntries,
     )
   } catch (error) {
+    signal?.throwIfAborted()
     console.warn('[World Info] Embedding failed:', error)
     return []
   }

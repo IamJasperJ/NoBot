@@ -109,7 +109,7 @@ describe('Telegram HTML', () => {
     }
   })
 })
-function fakeClient(respond?: (method: string, body: Record<string, unknown>) => Response) {
+function fakeClient(respond?: (method: string, body: Record<string, unknown>) => Response | Promise<Response>) {
   const calls: { method: string; body: Record<string, unknown> }[] = []
   const waits: number[] = []
   const client = new TelegramClient({
@@ -209,6 +209,46 @@ describe('Telegram 传输', () => {
       message_id: 12,
       allow_sending_without_reply: true,
     })
+  })
+  test('停止时撤回仍在发送的群预览，不再定稿', async () => {
+    const started = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const deleted = Promise.withResolvers<void>()
+    const { client, calls } = fakeClient(async (method) => {
+      if (method === 'sendMessage') {
+        started.resolve()
+        await release.promise
+      }
+      if (method === 'deleteMessage') deleted.resolve()
+      return Response.json({ ok: true, result: { message_id: 20 } })
+    })
+    const stream = new TelegramTextStream(client, { chat: '-1', private: false }, { draftId: 1 })
+    try {
+      stream.update('preview')
+      await started.promise
+      const committing = stream.commit('final')
+      stream.abort()
+      release.resolve()
+      expect(await committing).toEqual([])
+      await deleted.promise
+      expect(calls.filter((call) => call.method !== 'sendChatAction').map((call) => call.method)).toEqual([
+        'sendMessage',
+        'deleteMessage',
+      ])
+      expect(calls.at(-1)?.body).toEqual({ chat_id: '-1', message_id: 20 })
+    } finally {
+      stream.abort()
+      release.resolve()
+    }
+  })
+  test('重新生成期间已发送的群消息保持原样', async () => {
+    const { client, calls } = fakeClient()
+    const stream = new TelegramTextStream(client, { chat: '-1', private: false }, { draftId: 1, messageId: 12 })
+    stream.update('preview')
+    await Bun.sleep(10)
+    stream.abort()
+    expect(await stream.commit('final')).toEqual([])
+    expect(calls.map((call) => call.method)).toEqual(['sendChatAction'])
   })
   test('身份查验期间缓存增量，初始化前中止不会投递正文', async () => {
     const { client, calls } = fakeClient()

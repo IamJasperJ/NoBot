@@ -194,30 +194,31 @@ export function roomPermissions(
 ): RoomPermissions {
   const gm = role === 'owner' || role === 'gm'
   const participant = role !== 'spectator'
+  const writable = participant && active && accepted
   return {
     isSpectator: !participant,
-    canProposeCharacter: participant && active && accepted,
+    canProposeCharacter: writable,
     canApproveCharacters: role === 'owner',
     canExport: true,
     canSchedule: gm,
     canTransfer: role === 'owner',
-    canSend: participant && active && accepted,
-    canSendIc: participant && active && accepted,
-    canWhisper: participant && active && accepted,
-    canRoll: participant && active && accepted,
-    canPickChoice: participant && active && accepted,
-    canRegenerate: gm && participant && active && accepted,
-    canSwipe: gm,
-    canEditAi: gm,
-    canTrigger: gm && participant && active && accepted,
-    canContinue: gm && participant && active && accepted,
+    canSend: writable,
+    canSendIc: writable,
+    canWhisper: writable,
+    canRoll: writable,
+    canPickChoice: writable,
+    canRegenerate: gm && writable,
+    canSwipe: gm && writable,
+    canEditAi: gm && writable,
+    canTrigger: gm && writable,
+    canContinue: gm && writable,
     canAbort: gm,
     canInvite: gm || (participant && memberInvites),
     canKick: role === 'owner' || (role === 'gm' && gmKick),
-    canManageRounds: gm,
-    canManageInitiative: gm,
-    canCloseChoices: gm,
-    canGenerateImages: role === 'owner',
+    canManageRounds: gm && writable,
+    canManageInitiative: gm && writable,
+    canCloseChoices: gm && writable,
+    canGenerateImages: role === 'owner' && writable,
     canManage: role === 'owner',
   }
 }
@@ -260,6 +261,8 @@ export interface RoomChoiceState {
   picks: string[]
   closed: boolean
   winner: number | null
+  /** 结果已写入剧情，当前分支还在等待 AI 回复。 */
+  replyPending?: boolean
   deadline: number
   counts: number[]
 }

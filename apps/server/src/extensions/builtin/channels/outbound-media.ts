@@ -173,6 +173,7 @@ export class OutboundMedia {
     client: ChannelClient,
     accountId: string,
     native = false,
+    isCurrent?: () => boolean,
   ) {
     // 与文字相同的可见性边界；私信、暗骰和盲骰禁止降级到群媒体。
     if (
@@ -271,20 +272,31 @@ export class OutboundMedia {
     const photo = async (url: string, mode: 'send' | 'spoiler', caption?: string) => {
       const asset = await readMediaAsset(url)
       if (!asset) throw new Error('asset')
-      return sendCachedMedia(client, accountId, binding.chat, 'sendPhoto', asset, {
-        ...thread,
-        has_spoiler: mode === 'spoiler',
-        caption: caption?.slice(0, 1024),
-      })
+      return sendCachedMedia(
+        client,
+        accountId,
+        binding.chat,
+        'sendPhoto',
+        asset,
+        {
+          ...thread,
+          has_spoiler: mode === 'spoiler',
+          caption: caption?.slice(0, 1024),
+        },
+        isCurrent,
+      )
     }
     if ((explicit || settings.generatedImages !== 'off') && message.meta.imageGen?.status === 'error')
-      await once('error', 'error', () =>
-        client.call('sendMessage', {
+      await once('error', 'error', () => {
+        const data = {
           chat_id: binding.chat,
           ...thread,
           text: t('图片生成失败，请检查生图设置后重试'),
-        }),
-      )
+        }
+        return client instanceof PluginChannelClient
+          ? client.call('sendMessage', data, undefined, isCurrent)
+          : client.call('sendMessage', data)
+      })
     const images = (message.role === 'tool' && !message.meta.imageGen ? [] : (message.meta.images ?? [])).filter(
       (image) => {
         const cg = image.isCg || message.meta.cg?.some((item) => item.attachmentId === image.id)
@@ -316,10 +328,18 @@ export class OutboundMedia {
             binding.scope,
           )
         } else if (media.length === 1) {
-          await sendCachedMedia(client, accountId, binding.chat, 'sendPhoto', media[0]!.asset, {
-            ...thread,
-            has_spoiler: media[0]!.spoiler,
-          })
+          await sendCachedMedia(
+            client,
+            accountId,
+            binding.chat,
+            'sendPhoto',
+            media[0]!.asset,
+            {
+              ...thread,
+              has_spoiler: media[0]!.spoiler,
+            },
+            isCurrent,
+          )
         } else {
           const form = new FormData()
           form.set('chat_id', binding.chat)
@@ -333,7 +353,11 @@ export class OutboundMedia {
               }),
             ),
           )
-          await client.serialized(binding.chat, () => client.call('sendMediaGroup', form))
+          await client.serialized(binding.chat, () =>
+            client instanceof PluginChannelClient
+              ? client.call('sendMediaGroup', form, undefined, isCurrent)
+              : client.call('sendMediaGroup', form),
+          )
         }
       })
     }

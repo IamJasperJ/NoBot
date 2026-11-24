@@ -15,6 +15,7 @@ import { liveHub } from '../services/live/hub'
 import { asHost, listRooms, membership, projectRoomEvent, roomRow, unavailable } from '../services/rooms'
 import { roomPayload } from '../services/rooms/dto'
 import { roomActivity } from '../services/rooms/trpg'
+import { roomTurnSnapshot } from '../services/rooms/turns'
 import { friendIds, latestNotificationCursor, replayNotifications, unreadCount } from '../services/social'
 import { presence } from '../services/social/presence'
 import { currentUser } from '../user-context'
@@ -72,6 +73,13 @@ export const liveRoutes = new Hono()
               topic,
               data: projectRoomEvent(row, viewerId, room),
             })
+        // complete 不是持久事件，重连时即使没有在跑的任务，也要补发当前回合状态。
+        if (member.role !== 'spectator')
+          connection.send({
+            type: 'room.turn',
+            topic,
+            data: { roomId: room.id, type: 'room.turn', ...roomTurnSnapshot(room.id), createdAt: Date.now() },
+          })
         const job = generation.getJob(room.chatId)
         if (job && member.role !== 'spectator') {
           let messageId: string | undefined,
@@ -176,6 +184,8 @@ export const liveRoutes = new Hono()
       c.req.raw.signal.addEventListener('abort', cleanup, { once: true })
       try {
         await stream.write('retry: 3000\n\n')
+        // 读端可能在首个数据块等待消费时取消，不能在清理之后再注册在线状态。
+        if (disposed || c.req.raw.signal.aborted) return
         send({
           type: 'hello',
           topic: `user:${userId}`,
@@ -195,7 +205,6 @@ export const liveRoutes = new Hono()
             for (const item of replay) send({ type: 'notification', topic: `user:${userId}`, id: item.id, data: item })
         }
         presence.connect(userId, connectionId)
-        if (c.req.raw.signal.aborted) cleanup()
         await done
       } finally {
         cleanup()

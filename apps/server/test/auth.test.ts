@@ -1,14 +1,22 @@
 import { Database } from 'bun:sqlite'
 import { expect, spyOn, test } from 'bun:test'
-import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CharacterDTO, CurrentUserDTO, ExtensionDTO, SpriteDTO, UserDTO } from '@nobot/shared'
+import type { CharacterDTO, ChatDTO, ChatPage, CurrentUserDTO, ExtensionDTO, SpriteDTO, UserDTO } from '@nobot/shared'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import sharp from 'sharp'
 
-for (const scenario of ['setup', 'migration', 'rollback', 'accounts', 'recovery']) {
+for (const scenario of [
+  'setup',
+  'migration',
+  'resume-migration',
+  'rollback',
+  'accounts',
+  'recovery',
+  'interrupted-tasks',
+]) {
   test(`多用户鉴权与隔离：${scenario}`, async () => {
     if (process.env.AUTH_TEST_SCENARIO !== scenario) {
       if (process.env.AUTH_TEST_SCENARIO) return
@@ -37,12 +45,18 @@ for (const scenario of ['setup', 'migration', 'rollback', 'accounts', 'recovery'
       .png()
       .toBuffer()
     const legacyId = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
-    if (['migration', 'setup', 'rollback'].includes(scenario)) {
+    if (['migration', 'resume-migration', 'setup', 'rollback'].includes(scenario)) {
       const old = new Database(join(directory, 'app.db'))
       migrate(drizzle(old), { migrationsFolder: join(import.meta.dir, '../drizzle') })
       old.query('INSERT INTO characters (id, name, created_at, updated_at) VALUES (?, ?, 1, 1)').run(legacyId, '旧角色')
       old.close()
       await Bun.write(join(directory, 'assets/avatars', `${legacyId}.png`), png)
+      if (scenario === 'resume-migration') {
+        await mkdir(join(directory, 'users/admin'), { recursive: true })
+        await rename(join(directory, 'app.db'), join(directory, 'users/admin/app.db'))
+        await Bun.write(join(directory, 'tts-cache/recovered.wav'), 'legacy voice fixture')
+        await Bun.write(join(directory, 'extensions/.legacy'), 'legacy extension fixture')
+      }
     }
     const { bootstrap } = await import('../src/bootstrap')
     const { createServer } = await import('../src/server')
@@ -88,10 +102,13 @@ for (const scenario of ['setup', 'migration', 'rollback', 'accounts', 'recovery'
     try {
       if (scenario !== 'setup') process.env.NOBOT_ADMIN_PASSWORD = 'password-admin'
       if (scenario === 'rollback') {
-        await Bun.write(join(directory, 'users/admin/assets/keep.txt'), 'keep')
+        await Bun.write(join(directory, 'tts-cache/legacy.wav'), 'legacy')
+        await Bun.write(join(directory, 'users/admin/tts-cache/keep.txt'), 'keep')
         await expect(bootstrap()).rejects.toThrow('旧数据迁移失败')
         expect(await Bun.file(join(directory, 'app.db')).exists()).toBe(true)
         expect(await Bun.file(join(directory, 'assets/avatars', `${legacyId}.png`)).exists()).toBe(true)
+        expect(await Bun.file(join(directory, 'users/admin/assets/avatars', `${legacyId}.png`)).exists()).toBe(false)
+        expect(await Bun.file(join(directory, 'users/admin/tts-cache/keep.txt')).text()).toBe('keep')
         expect(await Bun.file(join(directory, 'users/admin/app.db')).exists()).toBe(false)
         expect(systemDatabase().select().from(users).all()).toHaveLength(0)
         return
@@ -115,7 +132,7 @@ for (const scenario of ['setup', 'migration', 'rollback', 'accounts', 'recovery'
       expect(stored.tokenHash).not.toBe(a.cookie.split('=')[1])
       expect(stored.tokenHash).toHaveLength(64)
       expect(systemDatabase().select().from(users).get()!.passwordHash).toStartWith('$argon2id$')
-      if (scenario === 'migration') {
+      if (scenario === 'migration' || scenario === 'resume-migration') {
         expect((await json<CharacterDTO[]>('/characters', 'GET', undefined, a.cookie)).map((row) => row.name)).toEqual([
           '旧角色',
         ])
@@ -132,6 +149,15 @@ for (const scenario of ['setup', 'migration', 'rollback', 'accounts', 'recovery'
         ).toBe('private, no-store')
         expect(await Bun.file(join(directory, 'app.db')).exists()).toBe(false)
         expect(await Bun.file(join(directory, 'users/admin/app.db')).exists()).toBe(true)
+        expect(await Bun.file(join(directory, 'assets/avatars', `${legacyId}.png`)).exists()).toBe(false)
+        if (scenario === 'resume-migration') {
+          expect(await Bun.file(join(directory, 'users/admin/tts-cache/recovered.wav')).text()).toBe(
+            'legacy voice fixture',
+          )
+          expect(await Bun.file(join(directory, 'users/admin/extensions/.legacy')).text()).toBe(
+            'legacy extension fixture',
+          )
+        }
         return
       }
       if (scenario === 'recovery') {
@@ -143,6 +169,71 @@ for (const scenario of ['setup', 'migration', 'rollback', 'accounts', 'recovery'
         await bootstrap()
         expect((await req('/auth/me', 'GET', undefined, a.cookie)).status).toBe(401)
         expect((await signIn('admin', 'recovered-password')).user.isAdmin).toBe(true)
+        return
+      }
+      if (scenario === 'interrupted-tasks') {
+        const actor = await json<CharacterDTO>('/characters', 'POST', { name: 'Fixture' }, a.cookie)
+        const chat = await json<ChatDTO>('/chats', 'POST', { characterId: actor.id }, a.cookie)
+        const { newId, getSetting, setSetting } = await import('../src/db/client')
+        const { chats, messages } = await import('../src/db/schema')
+        const { readTemporaryActors } = await import('../src/services/sprites/temporary-actors')
+        const id = newId()
+        const image = { id: 'existing', url: '/api/assets/attachments/existing.webp', width: 1, height: 1 }
+        const completedCg = { beat: 0, attachmentId: image.id, status: 'done' as const, prompt: 'saved scene' }
+        const pendingCg = { beat: 1, attachmentId: null, status: 'pending' as const, prompt: 'new scene' }
+        runAsUser(a.user, () => {
+          db.insert(messages)
+            .values({
+              id,
+              chatId: chat.id,
+              role: 'assistant',
+              status: 'streaming',
+              content: 'Saved partial reply',
+              createdAt: Date.now(),
+              meta: {
+                images: [image],
+                imageGen: { status: 'pending', mode: 'last', stage: 'queued', queuePosition: 2, prompt: 'new image' },
+                cg: [completedCg, pendingCg],
+                spriteGeneration: 'pending',
+                stage: { v: 1, ops: [], beats: [], classify: 'pending' },
+              },
+            })
+            .run()
+          db.update(chats).set({ activeLeafId: id }).where(eq(chats.id, chat.id)).run()
+          setSetting(`vn-actors:${chat.id}`, {
+            pending: {
+              key: 'pending',
+              name: 'Pending',
+              image,
+              prompt: 'another pose',
+              status: 'pending',
+              updatedAt: 1,
+            },
+            legacy: image,
+          })
+          setSetting('unrelated-task', { status: 'pending' })
+        })
+        const openPage = () => json<ChatPage>(`/chats/${chat.id}`, 'GET', undefined, a.cookie)
+        const active = await openPage()
+        expect(active.messages.at(-1)?.meta.imageGen?.status).toBe('pending')
+
+        closeUserDatabase('admin')
+        const recovered = (await openPage()).messages.at(-1)!
+        expect(recovered).toMatchObject({ id, status: 'aborted', content: 'Saved partial reply' })
+        expect(recovered.meta.images).toEqual([image])
+        expect(recovered.meta.imageGen).toMatchObject({ status: 'error', prompt: 'new image' })
+        expect(recovered.meta.imageGen?.queuePosition).toBeUndefined()
+        expect(recovered.meta.imageGen?.stage).toBeUndefined()
+        expect(recovered.meta.cg).toEqual([completedCg, { ...pendingCg, status: 'error' }])
+        expect(recovered.meta.spriteGeneration).toBeUndefined()
+        expect(recovered.meta.stage?.classify).toBeUndefined()
+        expect(runAsUser(a.user, () => readTemporaryActors(chat.id))).toMatchObject({
+          pending: { status: 'error', image, prompt: 'another pose' },
+          legacy: { status: 'done', image },
+        })
+        expect(runAsUser(a.user, () => getSetting('unrelated-task'))).toEqual({ status: 'pending' })
+        closeUserDatabase('admin')
+        expect((await openPage()).messages.at(-1)).toEqual(recovered)
         return
       }
       for (const path of [

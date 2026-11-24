@@ -1,6 +1,10 @@
 import { toDisplayText } from '@nobot/core/stage'
 import type { MessageDTO } from '@nobot/shared'
 
+/** 只把已经完整保存的内容当作渠道正式消息。 */
+export const canDeliverMessage = (message: Pick<MessageDTO, 'status' | 'meta'>) =>
+  message.status === 'done' && !message.meta.error
+
 export const isImageMessage = (message: MessageDTO) =>
   message.role !== 'user' && !!(message.meta.imageGen || message.meta.images?.length)
 

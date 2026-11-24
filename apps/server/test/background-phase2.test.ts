@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type {
   BackgroundDTO,
   BackgroundFolderDTO,
+  BookmarkDTO,
   CharacterDTO,
   ChatDTO,
   ChatPage,
@@ -45,6 +46,7 @@ test('背景二期：默认引用、世界书与定期切换、文件夹多对�
   const { saveBackground } = await import('../src/services/backgrounds/backgrounds')
   const { backgroundReplyCount } = await import('../src/services/backgrounds/auto-background')
   const { loadPath } = await import('../src/services/chats')
+  const { abortGeneration } = await import('../src/services/generation/generation')
   const model = mockLlm()
   const request = (path: string, method = 'GET', input?: unknown) =>
     app.request(`/api${path}`, {
@@ -61,6 +63,18 @@ test('背景二期：默认引用、世界书与定期切换、文件夹多对�
     id: string,
     input: unknown = { mode: 'send', text: 'enter forest' },
   ): Promise<GenerateEvent[]> => readSSE(await request(`/chats/${id}/generate`, 'POST', input))
+  const autoSelect = (id: string) => request('/backgrounds/auto', 'POST', { chatId: id })
+  const pauseChoice = (text: string) => {
+    const waiting = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    model.setScript(async (body) => {
+      if (body.stream) return { text: 'We reached the forest.' }
+      waiting.resolve()
+      await release.promise
+      return { text }
+    })
+    return { waiting: waiting.promise, finish: release.resolve }
+  }
   try {
     const png = new Uint8Array(await Bun.file('fixtures/images/test.png').arrayBuffer())
     const forest = await saveBackground(png, { name: 'Forest', source: 'upload' })
@@ -186,6 +200,17 @@ test('背景二期：默认引用、世界书与定期切换、文件夹多对�
     const failedAuto = await generate(chat.id)
     expect(failedAuto.some((event) => event.type === 'error')).toBe(false)
     expect((await page(chat.id)).chat.backgroundId).toBe(forest.id)
+
+    model.setScript((body) => {
+      if (body.stream) return { text: 'Keep this reply.' }
+      abortGeneration(chat.id)
+      return { text: 'Castle' }
+    })
+    const stoppedAuto = await generate(chat.id)
+    expect(stoppedAuto.filter((event) => event.type === 'done' || event.type === 'error')).toMatchObject([
+      { type: 'done', message: { content: 'Keep this reply.', status: 'done' } },
+    ])
+    expect((await page(chat.id)).chat.backgroundId).toBe(forest.id)
     const path = loadPath((await page(chat.id)).chat.activeLeafId)
     const reply = path.at(-1)!
     const variants: MessageDTO[] = [
@@ -198,6 +223,47 @@ test('背景二期：默认引用、世界书与定期切换、文件夹多对�
       reply,
     ]
     expect(backgroundReplyCount(variants)).toBe(1)
+
+    // 手动调用模型时可以切换分支，迟到的结果不能写入当前会话。
+    const branchChoice = pauseChoice('Castle')
+    const choosingOnBranch = autoSelect(chat.id)
+    await branchChoice.waiting
+    await json(`/chats/${chat.id}/activate`, 'POST', { messageId: path[0]!.id, exact: true })
+    branchChoice.finish()
+    const staleBranch = await choosingOnBranch
+    expect(staleBranch.status).toBe(409)
+    expect(await staleBranch.json()).toMatchObject({ error: { code: 'BACKGROUND_CONTEXT_CHANGED' } })
+    expect((await page(chat.id)).chat.backgroundId).toBe(forest.id)
+    await json(`/chats/${chat.id}/activate`, 'POST', { messageId: reply.id, exact: true })
+
+    const temporary = await saveBackground(png, { name: 'Temporary', source: 'upload' })
+    const removedChoice = pauseChoice('Temporary')
+    const choosingRemoved = autoSelect(chat.id)
+    await removedChoice.waiting
+    await json(`/backgrounds/${temporary.id}`, 'DELETE')
+    removedChoice.finish()
+    const staleCandidate = await choosingRemoved
+    expect(staleCandidate.status).toBe(409)
+    expect(await staleCandidate.json()).toMatchObject({ error: { code: 'BACKGROUND_UNAVAILABLE' } })
+    expect((await page(chat.id)).chat.backgroundId).toBe(forest.id)
+
+    await json(`/chats/${chat.id}`, 'PATCH', { autoBackground: { lore: true, everyN: 1 } })
+    const scheduledChoice = pauseChoice('Forest')
+    const generatingWithChoice = generate(chat.id)
+    await scheduledChoice.waiting
+    await json(`/chats/${chat.id}`, 'PATCH', { backgroundId: castle.id, backgroundPinned: true })
+    scheduledChoice.finish()
+    expect(await generatingWithChoice).toContainEqual(expect.objectContaining({ type: 'done' }))
+    expect((await page(chat.id)).chat).toMatchObject({ backgroundId: castle.id, backgroundPinned: true })
+
+    const disabledChoice = pauseChoice('Forest')
+    const generatingWhileDisabling = generate(chat.id)
+    await disabledChoice.waiting
+    await json(`/chats/${chat.id}`, 'PATCH', { autoBackground: { lore: false, everyN: 0 } })
+    disabledChoice.finish()
+    expect(await generatingWhileDisabling).toContainEqual(expect.objectContaining({ type: 'done' }))
+    expect((await page(chat.id)).chat.backgroundId).toBe(castle.id)
+    await json(`/chats/${chat.id}`, 'PATCH', { backgroundId: forest.id, backgroundPinned: false })
 
     await json('/backgrounds/settings', 'PUT', { globalId: forest.id })
     await json(`/backgrounds/folders/${folder.id}`, 'PATCH', { coverBackgroundId: forest.id })
@@ -219,6 +285,77 @@ test('背景二期：默认引用、世界书与定期切换、文件夹多对�
     expect(await json(`/backgrounds?folderId=${folder.id}`)).toEqual([])
     await json(`/backgrounds/folders/${folder.id}`, 'DELETE')
     expect(await json('/backgrounds/folders')).toEqual([])
+
+    const origin = await json<ChatDTO>('/chats', 'POST', { characterId: actor.id })
+    const owned = (name: string) => saveBackground(png, { name, source: 'generated', chatId: origin.id })
+    const [
+      characterDefault,
+      groupDefault,
+      loreDefault,
+      folderItem,
+      folderCover,
+      savedBackground,
+      unused,
+      otherChatBackground,
+      globalDefault,
+    ] = await Promise.all([
+      owned('Character'),
+      owned('Group'),
+      owned('Lore'),
+      owned('Folder item'),
+      owned('Folder cover'),
+      owned('Save'),
+      owned('Unused'),
+      owned('Other chat'),
+      owned('Global'),
+    ])
+    await json(`/characters/${actor.id}`, 'PATCH', { defaultBackgroundId: characterDefault.id })
+    await json(`/groups/${group.id}`, 'PATCH', { defaultBackgroundId: groupDefault.id })
+    await json(`/lorebooks/entries/${entry.id}`, 'PATCH', { backgroundId: loreDefault.id })
+    const retainedFolder = await json<BackgroundFolderDTO>('/backgrounds/folders', 'POST', {
+      name: 'Keep scenes',
+      coverBackgroundId: folderCover.id,
+    })
+    await json('/backgrounds/folders/add', 'POST', { folderId: retainedFolder.id, backgroundIds: [folderItem.id] })
+    await json(`/chats/${chat.id}`, 'PATCH', { backgroundId: savedBackground.id, backgroundPinned: true })
+    const save = await json<BookmarkDTO>(`/chats/${chat.id}/saves`, 'POST', {})
+    expect(save.snapshot?.backgroundUrl).toBe(savedBackground.url)
+    await json(`/chats/${chat.id}`, 'PATCH', { backgroundId: null, backgroundPinned: false })
+    await json(`/chats/${groupChat.id}`, 'PATCH', { backgroundId: otherChatBackground.id })
+    await json('/backgrounds/settings', 'PUT', { globalId: globalDefault.id })
+    await json(`/chats/${origin.id}`, 'PATCH', { backgroundId: unused.id, backgroundPinned: true })
+    const deletedSave = await json<BookmarkDTO>(`/chats/${origin.id}/saves`, 'POST', {})
+    expect(deletedSave.snapshot?.backgroundUrl).toBe(unused.url)
+    await json(`/chats/${origin.id}`, 'DELETE')
+
+    const afterDelete = await json<BackgroundDTO[]>('/backgrounds')
+    for (const background of [
+      characterDefault,
+      groupDefault,
+      loreDefault,
+      folderItem,
+      folderCover,
+      savedBackground,
+      otherChatBackground,
+      globalDefault,
+    ]) {
+      expect(afterDelete.find((item) => item.id === background.id)?.chatId).toBeNull()
+      expect(await Bun.file(join(paths.backgrounds, `${background.id}.webp`)).exists()).toBe(true)
+    }
+    expect(afterDelete.some((item) => item.id === unused.id)).toBe(false)
+    expect(await Bun.file(join(paths.backgrounds, `${unused.id}.webp`)).exists()).toBe(false)
+    expect((await page(groupChat.id)).chat.backgroundId).toBe(otherChatBackground.id)
+    expect(await json('/backgrounds/settings')).toEqual({ globalId: globalDefault.id })
+    expect((await json<CharacterDTO>(`/characters/${actor.id}`)).defaultBackgroundId).toBe(characterDefault.id)
+    expect((await json<GroupDTO>(`/groups/${group.id}`)).defaultBackgroundId).toBe(groupDefault.id)
+    expect(
+      (await json<{ entries: LorebookEntryDTO[] }>(`/lorebooks/${book.id}`)).entries.find((e) => e.id === entry.id)
+        ?.backgroundId,
+    ).toBe(loreDefault.id)
+    expect((await json<BackgroundFolderDTO[]>('/backgrounds/folders'))[0]?.coverBackgroundId).toBe(folderCover.id)
+    expect((await json<BackgroundDTO[]>(`/backgrounds?folderId=${retainedFolder.id}`)).map((item) => item.id)).toEqual([
+      folderItem.id,
+    ])
     expect(sqlite.query('PRAGMA foreign_key_check').all()).toEqual([])
   } finally {
     await model.stop()

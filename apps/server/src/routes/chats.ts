@@ -29,9 +29,19 @@ import { assembleWithVectors, loadGenerationContext } from '../services/generati
 import * as generation from '../services/generation/generation'
 import { computeStage, initialVars } from '../services/generation/stage'
 import { resolvedProfileDTO } from '../services/profiles'
+import { checkWritable, findHostedRoom } from '../services/rooms'
 import { readableMessage } from '../services/rooms/dto'
+import { setRoomVars, swipeRoom } from '../services/rooms/turns'
 import { readTemporaryActors } from '../services/sprites/temporary-actors'
 import { performCheck } from '../services/trpg/trpg'
+import { currentUser } from '../user-context'
+
+/** 房主桌面会直接使用会话接口，剧情写入也必须校验房间状态和规则版本。 */
+function writableChatId(chatId: string) {
+  const room = findHostedRoom(chatId)
+  if (room) checkWritable(room, currentUser().id)
+  return chatId
+}
 
 /** 把一个生成任务的事件流推给浏览器，直到任务结束或浏览器断开 */
 function streamJob(c: Context, job: NonNullable<ReturnType<typeof generation.getJob>>) {
@@ -56,11 +66,13 @@ function streamJob(c: Context, job: NonNullable<ReturnType<typeof generation.get
     try {
       while (!closed) {
         let e = queue.shift()
-        while (e) {
+        while (e && !closed) {
           await stream.writeSSE({ event: e.type, data: JSON.stringify(e) })
           if (e.type === 'complete') return
           e = queue.shift()
         }
+        // 写入等待期间读端可能已经断开，此时不会再收到下一次唤醒。
+        if (closed) break
         await new Promise<void>((resolve) => {
           wake = resolve
         })
@@ -114,7 +126,6 @@ export const chatRoutes = new Hono()
     c.json(chats.updateChat(c.req.param('id'), c.req.valid('json'))),
   )
   .delete('/:id', async (c) => {
-    generation.abortGeneration(c.req.param('id'))
     await chats.deleteChat(c.req.param('id'))
     return c.json({ ok: true })
   })
@@ -124,40 +135,50 @@ export const chatRoutes = new Hono()
     c.json(bookmarks.createBookmark(c.req.param('id'), c.req.valid('json'))),
   )
   .post('/:id/messages', validate('json', z.object({ role: z.enum(['user', 'system']), content: z.string() })), (c) =>
-    c.json(createExtensionHost(emitServerEvent).appendMessage(c.req.param('id'), c.req.valid('json'))),
+    c.json(createExtensionHost(emitServerEvent).appendMessage(writableChatId(c.req.param('id')), c.req.valid('json'))),
   )
   .post('/:id/check', validate('json', choiceCheckInput), (c) =>
     c.json(performCheck(c.req.param('id'), c.req.valid('json'))),
   )
   .post('/:id/roll', validate('json', z.object({ expression: z.string().max(100) })), (c) => {
+    const chatId = writableChatId(c.req.param('id'))
     const expression = c.req.valid('json').expression
     const value = rollDice(expression, Math.random)
     if (value === null || !Number.isFinite(value)) throw new HttpError(400, 'INVALID_DICE', t('掷骰表达式无效'))
     const result = `${expression} = ${value}`
-    createExtensionHost(emitServerEvent).appendMessage(c.req.param('id'), { role: 'system', content: result })
+    createExtensionHost(emitServerEvent).appendMessage(chatId, { role: 'system', content: result })
     return c.json({ result })
   })
-  .post('/:id/vars', validate('json', setVarsInput), (c) =>
-    c.json(chats.setVars(c.req.param('id'), c.req.valid('json'))),
-  )
+  .post('/:id/vars', validate('json', setVarsInput), (c) => {
+    const chatId = c.req.param('id')
+    const room = findHostedRoom(chatId)
+    const input = c.req.valid('json')
+    return c.json(room ? setRoomVars(room.id, input) : chats.setVars(chatId, input))
+  })
   .post('/:id/saves', validate('json', createSaveInput), (c) =>
     c.json(bookmarks.createSave(c.req.param('id'), c.req.valid('json'))),
   )
   .post('/:id/exclude', validate('json', excludeMessagesInput), (c) =>
-    c.json(chats.excludeMessages(c.req.param('id'), c.req.valid('json'))),
+    c.json(chats.excludeMessages(writableChatId(c.req.param('id')), c.req.valid('json'))),
   )
   .post('/:id/activate', validate('json', activateMessageInput), (c) =>
     c.json({
-      leafId: chats.activateMessage(c.req.param('id'), c.req.valid('json').messageId, c.req.valid('json').exact),
+      leafId: chats.activateMessage(
+        writableChatId(c.req.param('id')),
+        c.req.valid('json').messageId,
+        c.req.valid('json').exact,
+      ),
     }),
   )
   .post('/:id/move', validate('json', moveMessageInput), (c) => {
     const { messageId, direction } = c.req.valid('json')
-    return c.json({ leafId: chats.moveMessage(c.req.param('id'), messageId, direction) })
+    return c.json({ leafId: chats.moveMessage(writableChatId(c.req.param('id')), messageId, direction) })
   })
   .post('/:id/swipe', validate('json', swipeInput), (c) => {
-    const { messageId, direction } = c.req.valid('json')
-    return c.json({ leafId: chats.swipe(c.req.param('id'), messageId, direction) })
+    const chatId = c.req.param('id')
+    const room = findHostedRoom(chatId)
+    const input = c.req.valid('json')
+    return c.json(room ? swipeRoom(room.id, input) : { leafId: chats.swipe(chatId, input.messageId, input.direction) })
   })
   .post('/:id/branch', validate('json', branchInput), (c) =>
     c.json(chats.branchChat(c.req.param('id'), c.req.valid('json').messageId)),
@@ -186,7 +207,7 @@ export const chatRoutes = new Hono()
     },
   )
   .post('/:id/generate', validate('json', generateInput), (c) => {
-    const job = generation.startGeneration(c.req.param('id'), c.req.valid('json'))
+    const job = generation.startGeneration(writableChatId(c.req.param('id')), c.req.valid('json'))
     return streamJob(c, job)
   })
   /** 刷新页面后重新接上正在进行的生成 */
@@ -201,7 +222,7 @@ export const chatRoutes = new Hono()
   })
   /** 代写：只推文本，不入库。浏览器断开（或点停止）时中止上游请求 */
   .post('/:id/impersonate', (c) => {
-    const chatId = c.req.param('id')
+    const chatId = writableChatId(c.req.param('id'))
     // 先同步校验（没配置连接等），出错直接返回普通错误而不是 SSE
     loadGenerationContext(chatId, { requireConnection: true })
     const controller = new AbortController()

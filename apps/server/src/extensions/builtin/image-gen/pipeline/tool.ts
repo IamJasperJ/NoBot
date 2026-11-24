@@ -1,16 +1,17 @@
-import type { ImageGenMeta } from '@nobot/shared'
+import type { AttachmentDTO, BackgroundDTO, ImageGenMeta } from '@nobot/shared'
 import { t } from '../../../../i18n'
-import { editMessage } from '../../../../services/chats'
+import { removeAttachmentFiles } from '../../../../services/attachments'
+import { editMessage, loadPath } from '../../../../services/chats'
 import type { ToolResult } from '../../../../tools'
 import type { ExtensionContext } from '../../../types'
 import { backendDimensions } from '../backends'
 import { characterPrompt, composePrompt, dimensions } from '../composition'
 import type { Mode } from '../modes'
-import { background } from './background'
+import { applyGeneratedBackground, discardCancelledBackground, saveGeneratedBackground } from './background'
 import { caption } from './message'
 import { errorText, freeze, safeError, writePrompt } from './prompt'
 import { renderImage } from './render'
-import { tasks } from './state'
+import { imageTaskSignal, tasks } from './state'
 
 export async function runImageTool(
   ctx: ExtensionContext,
@@ -18,8 +19,10 @@ export async function runImageTool(
   options: { updateToolContent?: boolean; signal?: AbortSignal } = {},
 ): Promise<ToolResult> {
   let meta: ImageGenMeta = { status: 'error', mode: 'tool' }
+  const lifetime = imageTaskSignal()
+  const initialSignal = options.signal ? AbortSignal.any([lifetime, options.signal]) : lifetime
   try {
-    options.signal?.throwIfAborted()
+    initialSignal.throwIfAborted()
     const legacy = args.mode === undefined
     const requested =
       args.mode === 'portrait' ? 'face' : (args.mode ?? (args.as_background === true ? 'background' : 'free'))
@@ -48,6 +51,7 @@ export async function runImageTool(
       // 显式描述绕过依赖上下文的输入校验，但仍保留所选模式和角色。
       prompt: typeof args.prompt === 'string' ? args.prompt : undefined,
     })
+    initialSignal.throwIfAborted()
     const { settings, prepared } = snapshot
     const styleMode = legacy ? 'tool' : mode
     let size =
@@ -65,13 +69,16 @@ export async function runImageTool(
     Object.assign(snapshot, size)
     const run = async (messageId?: string): Promise<ToolResult> => {
       const controller = new AbortController()
-      const signal =
-        !messageId && options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
+      const signal = AbortSignal.any([controller.signal, messageId ? lifetime : initialSignal])
       if (messageId) {
         tasks.set(messageId, controller)
         ctx.storage.set(`request:${messageId}`, snapshot)
       }
+      let image: AttachmentDTO | undefined
+      let generatedBackground: BackgroundDTO | undefined
+      let committed = false
       try {
+        signal.throwIfAborted()
         const stage = (value: ImageGenMeta['stage'], position?: number) => {
           signal.throwIfAborted()
           meta = { ...meta, stage: value, queuePosition: position }
@@ -94,6 +101,7 @@ export async function runImageTool(
               const refined = rewritten.rawPrompt
               if (refined) prompt = refined
             } catch (error) {
+              signal.throwIfAborted()
               ctx.host.log({
                 chatId: ctx.chatId,
                 kind: 'image',
@@ -118,7 +126,7 @@ export async function runImageTool(
         )
         stage('saving')
         if (mode === 'background') {
-          await background(
+          generatedBackground = await saveGeneratedBackground(
             ctx,
             ctx.chatId,
             bytes,
@@ -129,16 +137,20 @@ export async function runImageTool(
             signal,
           )
         }
-        const image = await ctx.host.saveImage(bytes)
+        image = await ctx.host.saveImage(bytes)
         signal.throwIfAborted()
+        const finalMeta = { images: [image], imageIndex: 0, imageGen: { ...meta, status: 'done' as const } }
+        if (messageId) ctx.host.updateMessageMeta(messageId, finalMeta)
+        committed = true
+        const applied = generatedBackground && applyGeneratedBackground(ctx, prepared.info.chat, generatedBackground.id)
         const result = {
-          content:
-            mode === 'background'
-              ? 'Image generated and set as the chat background.'
+          content: applied
+            ? 'Image generated and set as the chat background.'
+            : generatedBackground
+              ? 'Image generated and saved in the background library.'
               : 'Image generated and shown to the user.',
-          meta: { images: [image], imageIndex: 0, imageGen: { ...meta, status: 'done' as const } },
+          meta: finalMeta,
         }
-        if (messageId) ctx.host.updateMessageMeta(messageId, result.meta)
         return result
       } catch (error) {
         ctx.host.log({
@@ -158,12 +170,18 @@ export async function runImageTool(
             },
           },
         }
-        if (messageId && tasks.get(messageId) === controller) ctx.host.updateMessageMeta(messageId, result.meta)
+        if (messageId && tasks.get(messageId) === controller && loadPath(messageId, 1).length)
+          ctx.host.updateMessageMeta(messageId, result.meta)
         return result
       } finally {
+        if (!committed) {
+          if (image) await removeAttachmentFiles(image.id).catch(console.error)
+          await discardCancelledBackground(generatedBackground, signal)
+        }
         if (messageId && tasks.get(messageId) === controller) {
           tasks.delete(messageId)
-          ctx.storage.set(`request:${messageId}`, snapshot)
+          if (loadPath(messageId, 1).length) ctx.storage.set(`request:${messageId}`, snapshot)
+          else ctx.storage.delete(`request:${messageId}`)
         }
       }
     }

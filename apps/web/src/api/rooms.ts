@@ -39,7 +39,7 @@ import { useStreaming } from '../stores/streaming'
 import { useUi } from '../stores/ui'
 import { readError } from './client'
 import { apiFetch } from './fetch'
-import { applyNewMessage, keys, markIdle, replaceMessage } from './queries'
+import { applyNewMessage, keys, replaceMessage, setChatGenerating } from './queries'
 import { queryClient } from './queryClient'
 import { removeRoomScope, scopeForChat, scopeRoomData, setRoomScope } from './room-scope'
 
@@ -66,9 +66,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 }
 /** 先切换路由并清除旧请求，再向订阅者发布新聊天 ID，避免渲染期间发出无作用域请求。 */
 function registerRoom(room: RoomDTO) {
-  const previous =
-    queryClient.getQueryData<RoomDTO>(roomKeys.detail(room.id)) ??
-    queryClient.getQueryData<RoomDTO[]>(roomKeys.list)?.find((r) => r.id === room.id)
+  const previous = cachedRoom(room.id)
   const oldIds = new Set(setRoomScope(room))
   if (previous && previous.chatId !== room.chatId) oldIds.add(previous.chatId)
   // 正开着旧会话的人先切到新会话，否则删掉旧查询后视图会立刻按旧 id 无作用域重新请求
@@ -78,8 +76,7 @@ function registerRoom(room: RoomDTO) {
     const filters = { predicate: (query: { queryKey: readonly unknown[] }) => query.queryKey[1] === chatId }
     void queryClient.cancelQueries(filters)
     queryClient.removeQueries(filters)
-    useStreaming.getState().end(chatId)
-    deltaIndexes.delete(chatId)
+    clearRoomStream(chatId)
   }
   return room
 }
@@ -202,8 +199,21 @@ export const roomsApi = {
     request<RoomInitiativeState>(`/${enc(id)}/initiative`, 'PUT', input),
   skipInitiative: (id: string) => request<RoomInitiativeState>(`/${enc(id)}/initiative/skip`, 'POST'),
   choice: (id: string, messageId: string) => request<RoomChoiceState>(`/${enc(id)}/choices/${enc(messageId)}`),
-  vote: ({ id, messageId, index }: { id: string; messageId: string; index: number }) =>
-    request<RoomChoiceState | MessageDTO>(`/${enc(id)}/choices/${enc(messageId)}/vote`, 'POST', { index }),
+  vote: ({
+    id,
+    messageId,
+    index,
+    messageVersion,
+  }: {
+    id: string
+    messageId: string
+    index: number
+    messageVersion?: number
+  }) =>
+    request<RoomChoiceState | MessageDTO>(`/${enc(id)}/choices/${enc(messageId)}/vote`, 'POST', {
+      index,
+      messageVersion,
+    }),
   closeChoice: ({ id, messageId, winner }: { id: string; messageId: string; winner?: number }) =>
     request<RoomChoiceState>(`/${enc(id)}/choices/${enc(messageId)}/close`, 'POST', { winner }),
 }
@@ -338,30 +348,47 @@ export function useRoomForChat(chatId: string | null) {
 const viewing = new Map<string, number>(),
   cursors = new Map<string, number>(),
   deltaIndexes = new Map<string, number>()
+function cachedRoom(id: string) {
+  return (
+    queryClient.getQueryData<RoomDTO>(roomKeys.detail(id)) ??
+    queryClient.getQueryData<RoomDTO[]>(roomKeys.list)?.find((room) => room.id === id)
+  )
+}
+function clearRoomStream(chatId: string) {
+  const stream = useStreaming.getState()
+  if (stream.streams[chatId]) stream.end(chatId)
+  deltaIndexes.delete(chatId)
+}
 let connectionId: string | undefined
-async function topic(id: string, unsubscribe = false) {
+function topic(id: string, unsubscribe = false) {
   if (!connectionId) return
-  await apiFetch('/api/live/topics', {
+  void apiFetch('/api/live/topics', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ connectionId, topic: `room:${id}`, since: cursors.get(id) ?? 0, unsubscribe }),
-  })
+  }).catch(() => {})
 }
 export function roomLiveConnected(id: string) {
+  if (connectionId === id) return
   connectionId = id
-  for (const room of viewing.keys()) void topic(room)
+  for (const roomId of viewing.keys()) {
+    const room = cachedRoom(roomId)
+    if (room) clearRoomStream(room.chatId)
+    topic(roomId)
+  }
 }
 export function viewRoom(room: RoomDTO) {
   setRoomScope(room)
   void queryClient.invalidateQueries({ queryKey: keys.chat(room.chatId) })
-  viewing.set(room.id, (viewing.get(room.id) ?? 0) + 1)
-  void topic(room.id)
+  const openViews = viewing.get(room.id) ?? 0
+  viewing.set(room.id, openViews + 1)
+  if (!openViews) topic(room.id)
   return () => {
     const n = (viewing.get(room.id) ?? 1) - 1
     if (n) viewing.set(room.id, n)
     else {
       viewing.delete(room.id)
-      void topic(room.id, true)
+      topic(room.id, true)
       removeRoomScope(room.chatId)
     }
   }
@@ -390,9 +417,7 @@ export const useJoinLobby = () => useRoomLobby(joinInviteFromPath())
 export function applyRoomLive(type: string, raw: unknown) {
   if (!raw || typeof raw !== 'object' || !('roomId' in raw) || typeof raw.roomId !== 'string') return
   const id = raw.roomId
-  const room =
-    queryClient.getQueryData<RoomDTO>(roomKeys.detail(id)) ??
-    queryClient.getQueryData<RoomDTO[]>(roomKeys.list)?.find((r) => r.id === id)
+  const room = cachedRoom(id)
   if (
     type === 'room.quota' &&
     'code' in raw &&
@@ -424,7 +449,7 @@ export function applyRoomLive(type: string, raw: unknown) {
       queryClient.removeQueries({ queryKey: ['vn-stage', room.chatId] })
       queryClient.removeQueries({ queryKey: roomKeys.invites(id) })
       queryClient.removeQueries({ queryKey: roomKeys.usage(id) })
-      useStreaming.getState().end(room.chatId)
+      clearRoomStream(room.chatId)
     }
     for (const key of [roomKeys.proposals(id), roomKeys.sessions(id), roomKeys.unread(id), roomKeys.transfer(id)])
       queryClient.removeQueries({ queryKey: key })
@@ -439,7 +464,10 @@ export function applyRoomLive(type: string, raw: unknown) {
   const event = raw as RoomEvent
   if (type === 'room.resync') {
     cursors.set(id, event.seq ?? 0)
-    if (room) void queryClient.invalidateQueries({ queryKey: keys.chat(room.chatId) })
+    if (room) {
+      clearRoomStream(room.chatId)
+      void queryClient.invalidateQueries({ queryKey: keys.chat(room.chatId) })
+    }
     return
   }
   if (event.seq) {
@@ -459,7 +487,13 @@ export function applyRoomLive(type: string, raw: unknown) {
     queryClient.setQueryData(['rooms', 'choice', id, p.messageId], p)
   if (type === 'room.typing' && typeof p.userId === 'string' && typeof p.expiresAt === 'number')
     useRoomLive.getState().setTyping(id, p.userId, p.expiresAt)
-  if (type === 'room.turn') useRoomLive.setState((s) => ({ turns: { ...s.turns, [id]: p } }))
+  if (type === 'room.turn') {
+    useRoomLive.setState((s) => ({ turns: { ...s.turns, [id]: p } }))
+    if (room && typeof p.running === 'boolean') {
+      if (!p.running) clearRoomStream(room.chatId)
+      setChatGenerating(queryClient, room.chatId, p.running)
+    }
+  }
   if (type === 'room.suggestion' && typeof p.messageId === 'string' && typeof p.userId === 'string') {
     const messageId = p.messageId,
       userId = p.userId
@@ -470,9 +504,16 @@ export function applyRoomLive(type: string, raw: unknown) {
       },
     }))
   }
-  if (type === 'room.message' && p.action === 'activated' && room)
+  if (type === 'room.message' && p.action === 'activated' && room) {
     void queryClient.invalidateQueries({ queryKey: keys.chat(room.chatId) })
-  if (type === 'room.message' && p.message) mergeMessage(scopeRoomData(p.message as MessageDTO, id))
+    void queryClient.invalidateQueries({ queryKey: ['rooms', 'choice', id] })
+  }
+  if (type === 'room.message' && p.message) {
+    const message = p.message as MessageDTO
+    mergeMessage(scopeRoomData(message, id))
+    if (message.role === 'assistant' && (p.action === 'updated' || p.action === 'deleted'))
+      void queryClient.invalidateQueries({ queryKey: ['rooms', 'choice', id, message.id] })
+  }
   if (type === 'room.generation' && room) {
     const stream = useStreaming.getState()
     if (p.type === 'start' && p.assistantMessage) {
@@ -495,16 +536,16 @@ export function applyRoomLive(type: string, raw: unknown) {
       if (p.type === 'done') stream.end(room.chatId)
     }
     if (p.type === 'complete') {
-      stream.end(room.chatId)
-      markIdle(queryClient, room.chatId)
+      clearRoomStream(room.chatId)
+      setChatGenerating(queryClient, room.chatId, false)
       void queryClient.invalidateQueries({ queryKey: keys.chat(room.chatId) })
+      void queryClient.invalidateQueries({ queryKey: ['rooms', 'choice', id] })
     }
     if (p.type === 'error' && typeof p.message === 'string') {
       const error = p.message
       useRoomLive.setState((s) => ({ turns: { ...s.turns, [id]: { ...s.turns[id], error } } }))
     }
   }
-  if (type === 'room.resync' && room) void queryClient.invalidateQueries({ queryKey: keys.chat(room.chatId) })
   if (type.startsWith('room.character.') || type === 'room.session' || type === 'room.transferred') {
     if (type === 'room.transferred' && room) {
       if (typeof p.chatId === 'string' && typeof p.hostUserId === 'string') {

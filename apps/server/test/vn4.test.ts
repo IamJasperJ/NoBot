@@ -205,6 +205,16 @@ test('VN4：手动变量、阶段世界书与固定存档快照', async () => {
       '😀'.repeat(70) +
       '」'
     const savedMessage = add(leaf, content)
+    const temporaryUrl = '/api/assets/attachments/temporary-bob.webp'
+    const { writeTemporaryActor } = await import('../src/services/sprites/temporary-actors')
+    writeTemporaryActor(chat.id, 'bob', {
+      key: 'bob',
+      name: 'Bob',
+      status: 'done',
+      prompt: '',
+      updatedAt: 1,
+      image: { id: 'temporary-bob', url: temporaryUrl, width: 1, height: 1 },
+    })
     const mark = await json<BookmarkDTO>(`/chats/${chat.id}/bookmarks`, 'POST', { messageId: savedMessage })
     expect(mark.kind).toBe('bookmark')
     expect(mark.snapshot).toBeNull()
@@ -221,7 +231,7 @@ test('VN4：手动变量、阶段世界书与固定存档快照', async () => {
           spriteUrl: `/api/assets/sprites/${actor.id}/${spriteId}.png?v=1`,
           avatarUrl: expect.stringContaining('alice.webp?v='),
         },
-        { name: 'Bob', characterId: null, spriteUrl: null, avatarUrl: null },
+        { name: 'Bob', characterId: null, spriteUrl: temporaryUrl, avatarUrl: null },
         { name: 'Carol', characterId: null, spriteUrl: null, avatarUrl: null },
       ],
       place: '花园',
@@ -244,8 +254,13 @@ test('VN4：手动变量、阶段世界书与固定存档快照', async () => {
     const secondSave = await json<BookmarkDTO>(`/chats/${chat.id}/saves`, 'POST', {})
     expect(secondSave.name).toBe('存档 2 · 新地点')
     expect(secondSave.snapshot?.backgroundUrl).toBe(`/api/assets/backgrounds/${fallbackBg}.webp`)
+    const pinnedMessage = add(savedMessage, content)
+    await json(`/chats/${chat.id}`, 'PATCH', { backgroundPinned: true })
+    const pinned = await json<BookmarkDTO>(`/chats/${chat.id}/saves`, 'POST', { messageId: pinnedMessage })
+    expect(pinned.snapshot?.backgroundUrl).toBe(`/api/assets/backgrounds/${fallbackBg}.webp`)
+    await json(`/chats/${chat.id}`, 'PATCH', { backgroundPinned: false })
     await json(`/chats/${chat.id}/activate`, 'POST', { messageId: sibling })
-    await json(`/chats/${chat.id}/activate`, 'POST', { messageId: save.messageId })
+    await json(`/chats/${chat.id}/activate`, 'POST', { messageId: save.messageId, exact: true })
     expect(service.loadPath((await page(chat.id)).chat.activeLeafId).map((message) => message.id)).toEqual([
       root,
       leaf,
@@ -255,6 +270,13 @@ test('VN4：手动变量、阶段世界书与固定存档快照', async () => {
     expect(explicit.name).toBe('起点')
     expect(explicit.snapshot?.backgroundUrl).toBe(`/api/assets/backgrounds/${fallbackBg}.webp`)
     expect(explicit.snapshot?.actors).toEqual([])
+    await json(`/chats/${chat.id}`, 'PATCH', { backgroundId: null })
+    await json(`/characters/${actor.id}`, 'PATCH', { defaultBackgroundId: fallbackBg })
+    await json('/backgrounds/settings', 'PUT', { globalId: bg })
+    const saveRoot = () => json<BookmarkDTO>(`/chats/${chat.id}/saves`, 'POST', { messageId: root })
+    expect((await saveRoot()).snapshot?.backgroundUrl).toBe(`/api/assets/backgrounds/${fallbackBg}.webp`)
+    await json(`/characters/${actor.id}`, 'PATCH', { defaultBackgroundId: null })
+    expect((await saveRoot()).snapshot?.backgroundUrl).toBe(`/api/assets/backgrounds/${bg}.webp`)
     const foreignChat = await json<ChatDTO>('/chats', 'POST', { characterId: actor.id })
     expect((await request(`/chats/${foreignChat.id}/saves`, 'POST', { messageId: root })).status).toBe(404)
     expect((await request(`/chats/${foreignChat.id}/stage?before=${root}`)).status).toBe(404)

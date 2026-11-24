@@ -17,7 +17,6 @@ import { createChatInput } from '@nobot/shared'
 import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm'
 import { db, getSetting, newId, sqlite } from '../db/client'
 import {
-  backgrounds,
   type ChatRow,
   characters,
   chatLorebooks,
@@ -35,8 +34,9 @@ import { emitServerEvent } from '../extensions/registry'
 import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
 import { currentUser } from '../user-context'
-import { deleteBackground, getBackgroundSettings, requireBackground } from './backgrounds/backgrounds'
-import { abortGeneration, isGenerating } from './generation/generation'
+import { removeAttachmentFiles } from './attachments'
+import { releaseChatBackgrounds, removeBackgroundFiles, requireBackground } from './backgrounds/backgrounds'
+import { abortGenerationForChatDeletion, isGenerating } from './generation/generation'
 import {
   applyStageParse,
   backfillStage,
@@ -46,10 +46,15 @@ import {
   resolveStateSchema,
 } from './generation/stage'
 import { liveHub } from './live/hub'
+import { interruptMessageTasks } from './message-task-state'
 import { getPlayPreset } from './playPresets'
 import { getProfile } from './profiles'
-import { quickReplyScope, setQuickReplyScope } from './quick-replies'
+import { getQuickReplies, quickReplyScope, setQuickReplyScope } from './quick-replies'
+import { readableMessage } from './rooms/dto'
+import { stopRoomTimers } from './rooms/trpg'
+import { resetTurnState } from './rooms/turns'
 import { SETTING_KEYS } from './settings'
+import { deleteTemporaryActors } from './sprites/temporary-actors'
 
 // ---------------------------------------------------------------------------
 // 消息树查询：用递归 CTE 从叶子沿 parent_id 往上走，一条 SQL 拿到整条路径。
@@ -376,35 +381,34 @@ export function createChat(input: CreateChatInput): ChatDTO {
 }
 
 /**
- * 打开会话：返回激活路径上的一页消息。
+ * 在调用方可见的激活路径上分页。
  * before 为空时取最新的 limit 条；否则取 before 之前（更旧）的 limit 条。
  */
+export function pageHistory(
+  path: MessageDTO[],
+  { before, limit: requestedLimit }: { before?: string; limit?: number },
+) {
+  const limit = Math.min(Math.max(requestedLimit ?? 100, 1), 500)
+  const end = before ? path.findIndex((message) => message.id === before) : path.length
+  if (end < 0) throw new HttpError(409, 'STALE_CHAT_CURSOR', t('会话历史已变化，请重新加载'))
+  return { messages: path.slice(Math.max(0, end - limit), end), hasMore: end > limit }
+}
+
 export function getChatPage(chatId: string, opts: { before?: string; limit?: number }, generating: boolean): ChatPage {
   const chat = getChatRow(chatId)
   // 开场白、开启指令前的旧消息还没解析过舞台指令，打开会话时补上（只在加载最新一页时做）
   if (!opts.before && !generating) backfillStage(chatId)
-  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500)
-
-  let start = chat.activeLeafId
-  if (opts.before) {
-    const before = db.select().from(messages).where(eq(messages.id, opts.before)).get()
-    if (!before || before.chatId !== chatId) throw notFound(t('消息'))
-    start = before.parentId
-  }
-
-  // 多取一条，用来判断是否还有更早的消息
-  const page = loadPath(start, limit + 1)
-  const hasMore = page.length > limit
+  const path = loadPath(chat.activeLeafId)
+  const page = pageHistory(path, opts)
   const play = resolvePlayPreset(chatId)
   return {
     chat: toDTO(chat),
     group: chat.groupId ? loadGroupDTO(chat.groupId) : null,
-    messages: hasMore ? page.slice(1) : page,
-    hasMore,
+    ...page,
     generating,
     // 状态变量要看整条路径；翻旧页时前端不用它
-    vars: opts.before ? {} : computeVars(loadPath(chat.activeLeafId), initialVars(chatId).vars),
-    stage: computeStage(chatId, loadPath(chat.activeLeafId)),
+    vars: opts.before ? {} : computeVars(path, initialVars(chatId).vars),
+    stage: computeStage(chatId, path),
     playPresetId: play.id,
     stateSchema: play.data.directives.enabled ? resolveStateSchema(chatId, play.data) : {},
   }
@@ -431,15 +435,17 @@ export function updateChat(chatId: string, input: UpdateChatInput): ChatDTO {
 }
 
 export async function deleteChat(chatId: string) {
+  const userId = currentUser().id
   // 正文删除后目录也删除；房主账号删除由系统库外键级联删除目录和 ACL。
   const room = systemDatabase()
     .select()
     .from(rooms)
-    .where(and(eq(rooms.chatId, chatId), eq(rooms.hostUserId, currentUser().id)))
+    .where(and(eq(rooms.chatId, chatId), eq(rooms.hostUserId, userId)))
     .get()
   if (room) {
-    abortGeneration(chatId)
     systemDatabase().delete(rooms).where(eq(rooms.id, room.id)).run()
+    stopRoomTimers(room.id)
+    resetTurnState(room.id)
     for (const id of liveHub.topicUsers(`room:${room.id}`)) {
       liveHub.publishToUser(id, {
         type: 'room.removed',
@@ -453,34 +459,21 @@ export async function deleteChat(chatId: string) {
       db.delete(roomUsage).where(eq(roomUsage.roomId, room.id)).run()
     })
   }
-  const disposable: string[] = []
-  db.transaction(() => {
-    const owned = db.select().from(backgrounds).where(eq(backgrounds.chatId, chatId)).all()
-    const globalId = getBackgroundSettings().globalId
-    const referenced = new Set(
-      db
-        .select({ id: chats.id, backgroundId: chats.backgroundId })
-        .from(chats)
-        .all()
-        .filter((chat) => chat.id !== chatId)
-        .map((chat) => chat.backgroundId),
-    )
-    for (const background of owned) {
-      if (background.id !== globalId && !referenced.has(background.id)) disposable.push(background.id)
-    }
-    // 先解除归属，文件清理失败也不能阻止会话删除。
-    db.update(backgrounds).set({ chatId: null }).where(eq(backgrounds.chatId, chatId)).run()
+  const disposable = db.transaction(() => {
+    const backgroundIds = releaseChatBackgrounds(chatId)
+    const actorImageIds = deleteTemporaryActors(chatId)
     db.delete(chats).where(eq(chats.id, chatId)).run()
+    return { backgroundIds, actorImageIds }
   })
-  await Promise.all(
-    disposable.map(async (id) => {
-      try {
-        await deleteBackground(id)
-      } catch (error) {
-        console.error('删除会话背景失败', id, error)
-      }
-    }),
-  )
+  abortGenerationForChatDeletion(chatId)
+  await Promise.all([
+    ...disposable.backgroundIds.map((id) =>
+      removeBackgroundFiles(id).catch((error) => console.error('删除会话背景失败', id, error)),
+    ),
+    ...Array.from(disposable.actorImageIds, (id) =>
+      removeAttachmentFiles(id).catch((error) => console.error('删除临时立绘失败', id, error)),
+    ),
+  ])
 }
 
 /** 读出整个会话的树结构（只要 id 和 parent_id，很轻） */
@@ -497,6 +490,7 @@ function loadTree(chatId: string) {
  * 没有兄弟可切时返回 null，前端据此决定是否重新生成。
  */
 export function swipe(chatId: string, messageId: string, direction: -1 | 1): string | null {
+  if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', t('正在生成，稍后再切换'))
   const nodes = loadTree(chatId)
   const node = nodes.find((n) => n.id === messageId)
   if (!node) throw notFound(t('消息'))
@@ -516,9 +510,11 @@ export function swipe(chatId: string, messageId: string, direction: -1 | 1): str
  */
 export function branchChat(chatId: string, messageId: string): ChatDTO {
   const chat = getChatRow(chatId)
-  const target = db.select().from(messages).where(eq(messages.id, messageId)).get()
-  if (!target || target.chatId !== chatId) throw notFound(t('消息'))
-  const path = loadPath(messageId)
+  const source = loadPath(messageId)
+  if (source.at(-1)?.chatId !== chatId) throw notFound(t('消息'))
+  // 创建独立会话前先投影原路径，房间消息的可见范围和日志裁剪在这里继续生效。
+  const path = source.map(readableMessage).filter((message) => !message.meta.hidden)
+  if (path.at(-1)?.id !== messageId) throw notFound(t('消息'))
   const now = Date.now()
   const newChatId = newId()
 
@@ -537,6 +533,15 @@ export function branchChat(chatId: string, messageId: string): ChatDTO {
     tx.update(chats).set({ activeLeafId: parentId }).where(eq(chats.id, newChatId)).run()
     for (const lorebookId of chatLorebookIds(chatId)) {
       tx.insert(chatLorebooks).values({ chatId: newChatId, lorebookId }).run()
+    }
+    const quickReplySetIds = quickReplyScope('chat', chatId)
+    if (quickReplySetIds.length) {
+      const known = new Set(getQuickReplies().sets.map((set) => set.id))
+      setQuickReplyScope(
+        'chat',
+        newChatId,
+        quickReplySetIds.filter((id) => known.has(id)),
+      )
     }
   })
   return toDTO(getChatRow(newChatId))
@@ -566,11 +571,15 @@ export function deleteMessage(messageId: string) {
   const chat = getChatRow(row.chatId)
   const nodes = loadTree(row.chatId)
   const removed = new Set(collectSubtree(buildChildrenMap(nodes), messageId))
+  const removesActivePath = chat.activeLeafId !== null && removed.has(chat.activeLeafId)
+  // 父节点可能已经完成，但级联删除会移除仍在生成的后代。
+  if (removesActivePath && isGenerating(row.chatId))
+    throw new HttpError(409, 'BUSY', t('这个会话正在生成中，请先等它结束或点停止'))
 
   db.transaction((tx) => {
     tx.delete(messages).where(eq(messages.id, messageId)).run()
 
-    if (chat.activeLeafId && removed.has(chat.activeLeafId)) {
+    if (removesActivePath) {
       const remaining = buildChildrenMap(nodes.filter((n) => !removed.has(n.id)))
       let leaf: string | null = null
       if (row.parentId) leaf = findLatestLeaf(remaining, row.parentId)
@@ -601,15 +610,32 @@ export function updateMessageImageIndex(messageId: string, imageIndex: number): 
   return saved
 }
 
-/** 复制路径时统一保留消息快照；调用方负责开启事务和切换激活叶子。 */
+function copyMessageMeta(meta: MessageMeta, ids: ReadonlyMap<string, string>, sameChat: boolean): MessageMeta {
+  const copied = { ...meta }
+  const reference = (id: string) => ids.get(id) ?? (sameChat ? id : undefined)
+  if (meta.replyTo) copied.replyTo = reference(meta.replyTo)
+  if (meta.choice) {
+    const messageId = reference(meta.choice.messageId)
+    copied.choice = messageId ? { ...meta.choice, messageId } : undefined
+  }
+  if (!sameChat) {
+    // 新会话保留历史内容，但复制的消息没有自己的外部入站记录和投递位置。
+    delete copied.clientMessageId
+    delete copied.channelVoice
+  }
+  return interruptMessageTasks(copied, () => t('复制时原图片任务尚未完成'))
+}
+
+/** 预先分配 ID，消息上移后指向后续副本的引用也能正确改写。 */
 function copyPath(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   chatId: string,
   parentId: string | null,
   path: MessageDTO[],
 ): string | null {
+  const ids = new Map(path.map((message) => [message.id, newId()]))
   for (const m of path) {
-    const id = newId()
+    const id = ids.get(m.id)!
     tx.insert(messages)
       .values({
         id,
@@ -618,7 +644,7 @@ function copyPath(
         role: m.role,
         content: m.content,
         status: m.status === 'streaming' ? 'aborted' : m.status,
-        meta: m.meta,
+        meta: copyMessageMeta(m.meta, ids, m.chatId === chatId),
         speakerId: m.speakerId,
         createdAt: m.createdAt,
       })
@@ -664,11 +690,12 @@ export function moveMessage(chatId: string, messageId: string, direction: 'up' |
 }
 
 export function excludeMessages(chatId: string, input: ExcludeMessagesInput): MessageDTO[] {
-  getChatRow(chatId)
+  const chat = getChatRow(chatId)
   const rows = db.select().from(messages).where(eq(messages.chatId, chatId)).all()
   const byId = new Map(rows.map((m) => [m.id, m]))
   for (const id of input.messageIds) if (!byId.has(id)) throw notFound(t('消息'))
   const children = buildChildrenMap(rows)
+  const activeChain = new Map(loadPath(chat.activeLeafId).map((message) => [message.parentId, message.id]))
   const selected = new Set(input.messageIds)
   for (const id of input.messageIds) {
     const message = byId.get(id)!
@@ -686,12 +713,13 @@ export function excludeMessages(chatId: string, input: ExcludeMessagesInput): Me
     if (caller.role !== 'assistant' || !caller.meta.toolCalls) continue
     selected.add(caller.id)
     const calls = new Set(caller.meta.toolCalls.map((c) => c.id))
-    // 从某条结果切换时沿它所在的链补齐；从发起者切换时沿最新子链，不扩散到兄弟备选。
-    const chain = new Map(loadPath(message.id).map((m) => [m.parentId, m.id]))
+    // 显式选中工具结果时优先沿它的祖先链，其余部分优先当前分支。
+    const resultChain = message.role === 'tool' ? new Map(loadPath(message.id).map((m) => [m.parentId, m.id])) : null
     let current = caller
     while (true) {
       const kids = children.get(current.id)
-      const next = kids?.find((m) => m.id === chain.get(current.id)) ?? kids?.at(-1)
+      const nextId = resultChain?.get(current.id) ?? activeChain.get(current.id)
+      const next = kids?.find((m) => m.id === nextId) ?? kids?.at(-1)
       if (next?.role !== 'tool') break
       if (next.meta.toolCallId && calls.has(next.meta.toolCallId)) selected.add(next.id)
       current = next

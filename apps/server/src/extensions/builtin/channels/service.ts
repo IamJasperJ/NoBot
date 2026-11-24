@@ -78,7 +78,7 @@ import { ChannelRuntime } from './runtime'
 import { locationKey, matchChannelBinding, resolveChannelSettings } from './settings'
 import { learnQqSticker, learnTelegramSticker, telegramStickerSchema } from './stickers'
 import { accountRow, bindingRow, listBindings, markReceived, primaryBindingId, recordActorSeen } from './store'
-import { cleanProtocolText, isImageMessage } from './visible-text'
+import { canDeliverMessage, cleanProtocolText, isImageMessage } from './visible-text'
 import { replyVoiceStyle, updateVoicePreference } from './voice-decision'
 
 export const refused = () => new HttpError(403, 'CHANNEL_REFUSED', t('没有渠道操作权限'))
@@ -1925,30 +1925,58 @@ export class ChannelService {
       const key = binding.id
       const job = getJob(binding.chatId)
       if (!job || this.generationSubscriptions.has(key)) continue
+      const streamKey = `${binding.id}:stream`
+      const stopPreview = () => {
+        this.streams.get(streamKey)?.stream.abort()
+        this.streams.delete(streamKey)
+      }
+      let ended = false
+      const unsubscribe = () => {
+        ended = true
+        this.generationSubscriptions.get(key)?.()
+        this.generationSubscriptions.delete(key)
+      }
       const dispose = this.host.subscribe(job, (event) => {
         if (event.type === 'start' && event.userMessage) this.acknowledgeInput(event.userMessage)
         if (event.type === 'message' && event.message.role === 'user') this.acknowledgeInput(event.message)
+        if (binding.roomId && !findRoom(binding.roomId)) {
+          stopPreview()
+          this.oneBotTurns.delete(binding.id)
+          unsubscribe()
+          return
+        }
+        if (event.type === 'error') {
+          // 错误事件可能早于保存与 complete。立即撤掉预览，继续等待本轮真正结束。
+          stopPreview()
+          if (getProvider(accountRow(binding.accountId).provider)?.definition)
+            this.runtime.log(binding.accountId, 'generation.failed')
+          return
+        }
+        if (event.type === 'complete') {
+          const unsaved = this.pendingInput?.get(binding.chatId)
+          if (unsaved) {
+            this.pendingInput.delete(binding.chatId)
+            unsaved.reject(new Error('CHANNEL_INPUT_NOT_SAVED'))
+          }
+          const turn = this.oneBotTurns.get(binding.id)
+          this.oneBotTurns.delete(binding.id)
+          stopPreview()
+          unsubscribe()
+          if (turn?.length)
+            void this.delivery
+              .deliverOneBotTurn(binding, turn)
+              .catch(() => this.runtime.log(binding.accountId, 'onebot.turn.failed'))
+          return
+        }
+        if (bindingRow(binding.id).state !== 'active') {
+          stopPreview()
+          return
+        }
         if (
-          (event.type === 'start' && suppressChannelRelay(event.assistantMessage)) ||
-          (event.type === 'done' && suppressChannelRelay(event.message))
+          event.type === 'start' &&
+          (suppressChannelRelay(event.assistantMessage) || !this.routesTo(binding, event.assistantMessage))
         )
           return
-        const streamKey = `${binding.id}:stream`
-        if (binding.roomId && !findRoom(binding.roomId)) {
-          this.streams.get(streamKey)?.stream.abort()
-          this.streams.delete(streamKey)
-          this.oneBotTurns.delete(binding.id)
-          this.generationSubscriptions.get(key)?.()
-          this.generationSubscriptions.delete(key)
-          return
-        }
-        if (event.type === 'start' && !this.routesTo(binding, event.assistantMessage)) return
-        if (event.type === 'done' && !this.routesTo(binding, event.message)) {
-          this.streams.get(streamKey)?.stream.abort()
-          this.streams.delete(streamKey)
-          return
-        }
-        if (event.type === 'start' && suppressChannelRelay(event.assistantMessage)) return
         if (
           event.type === 'start' &&
           this.settings(binding).values.burst === 'off' &&
@@ -2014,10 +2042,6 @@ export class ChannelService {
             reasoning: event.assistantMessage.meta.reasoning ?? '',
           })
         }
-        if (bindingRow(binding.id).state !== 'active') {
-          this.streams.get(streamKey)?.stream.abort()
-          return
-        }
         if (event.type === 'delta') {
           const state = this.streams.get(streamKey)
           if (state && !this.routesTo(binding, state.message)) {
@@ -2037,7 +2061,11 @@ export class ChannelService {
         if (event.type === 'done') {
           const state = this.streams.get(streamKey)
           this.streams.delete(streamKey)
-          if (suppressChannelRelay(event.message)) {
+          if (
+            !canDeliverMessage(event.message) ||
+            suppressChannelRelay(event.message) ||
+            !this.routesTo(binding, event.message)
+          ) {
             state?.stream.abort()
             return
           }
@@ -2052,27 +2080,9 @@ export class ChannelService {
             this.oneBotTurns.set(binding.id, [...(this.oneBotTurns.get(binding.id) ?? []), event.message])
           } else void this.deliver(binding, event.message, state?.stream).catch(() => {})
         }
-        if (event.type === 'complete' || event.type === 'error') {
-          if (event.type === 'error' && getProvider(accountRow(binding.accountId).provider)?.definition)
-            this.runtime.log(binding.accountId, 'generation.failed')
-          const unsaved = this.pendingInput?.get(binding.chatId)
-          if (unsaved) {
-            this.pendingInput.delete(binding.chatId)
-            unsaved.reject(new Error('CHANNEL_INPUT_NOT_SAVED'))
-          }
-          const turn = this.oneBotTurns.get(binding.id)
-          this.oneBotTurns.delete(binding.id)
-          if (turn?.length)
-            void this.delivery
-              .deliverOneBotTurn(binding, turn)
-              .catch(() => this.runtime.log(binding.accountId, 'onebot.turn.failed'))
-          this.streams.get(streamKey)?.stream.abort()
-          this.streams.delete(streamKey)
-          this.generationSubscriptions.get(key)?.()
-          this.generationSubscriptions.delete(key)
-        }
       })
-      this.generationSubscriptions.set(key, dispose)
+      if (ended) dispose()
+      else this.generationSubscriptions.set(key, dispose)
     }
   }
   /** 命令与按钮共用权限和公开性检查，合成仍走底层内容缓存，修订后自动使用新内容。 */

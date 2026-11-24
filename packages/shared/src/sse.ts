@@ -42,17 +42,19 @@ export async function* parseSSE(stream: ReadableStream<Uint8Array>): AsyncGenera
   let buffer = ''
   let event = 'message'
   let dataLines: string[] = []
+  let closed = false
 
   try {
-    while (true) {
+    while (!closed) {
       const { value, done } = await reader.read()
-      if (done) break
+      closed = done
       // stream: true 让被切断的多字节字符（比如中文）留到下一块再解码
-      buffer += decoder.decode(value, { stream: true })
+      const source = buffer + decoder.decode(value, { stream: !done })
 
-      // 按行切分，最后一段可能是不完整的行，留到下一轮
-      const lines = buffer.split(/\r?\n/)
-      buffer = lines.pop() ?? ''
+      // 末尾的 CR 可能与下一块开头的 LF 是同一个换行。
+      const splitCRLF = !done && source.endsWith('\r')
+      const lines = (splitCRLF ? source.slice(0, -1) : source).split(/\r\n?|\n/)
+      if (!done) buffer = (lines.pop() ?? '') + (splitCRLF ? '\r' : '')
 
       for (const line of lines) {
         if (line === '') {
@@ -76,6 +78,8 @@ export async function* parseSSE(stream: ReadableStream<Uint8Array>): AsyncGenera
       yield { event, data: dataLines.join('\n') }
     }
   } finally {
+    // 上游收到终止事件时可能仍保持连接；提前退出应通知流源释放资源。
+    if (!closed) void reader.cancel().catch(() => {})
     reader.releaseLock()
   }
 }

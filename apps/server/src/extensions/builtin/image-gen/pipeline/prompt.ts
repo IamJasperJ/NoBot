@@ -9,7 +9,7 @@ import { cleanPrompt, rawPrompt, templateEndings, templates } from '../modes'
 import { generatedPrompt, imageInstruction, imageSourceText } from '../prompting'
 import { parseSettings, type Settings } from '../settings'
 import { workflowSource } from '../workflow'
-import { previews } from './state'
+import { imageTaskSignal, previews } from './state'
 import type { Context, GenerateInput } from './types'
 
 export const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -134,7 +134,7 @@ export async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: Abo
       chatId: input.chatId,
       speakerId: prepared.character.id,
       includeHistory: settings.promptWithHistory,
-      leafId: prepared.info.chat.activeLeafId,
+      leafId: input.historyLeafId ?? prepared.info.chat.activeLeafId,
       purpose: 'image',
       instruction,
       connectionId: settings.promptConnectionId || undefined,
@@ -163,7 +163,11 @@ export async function writePrompt(ctx: Context, snapshot: Snapshot, signal?: Abo
   return snapshot
 }
 export async function promptPreview(ctx: Context, input: GenerateInput) {
-  const snapshot = await writePrompt(ctx, await freeze(ctx, input))
+  const signal = imageTaskSignal()
+  const snapshot = await freeze(ctx, input)
+  signal.throwIfAborted()
+  await writePrompt(ctx, snapshot, signal)
+  signal.throwIfAborted()
   for (const [id, item] of previews) if (item.expires < Date.now()) previews.delete(id)
   const snapshotId = crypto.randomUUID()
   previews.set(`${currentUser().handle}:${snapshotId}`, { expires: Date.now() + 3600000, snapshot })

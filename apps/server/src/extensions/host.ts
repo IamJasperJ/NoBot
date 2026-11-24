@@ -26,7 +26,7 @@ import {
   updateChat,
 } from '../services/chats'
 import { loadGenerationContext } from '../services/generation/context'
-import { abortGeneration, isGenerating, startGeneration, subscribe } from '../services/generation/generation'
+import { abortGeneration, getJob, isGenerating, startGeneration, subscribe } from '../services/generation/generation'
 import { complete, quietPrompt } from '../services/generation/quiet-prompt'
 import { insertLog } from '../services/logs'
 import { triggerTurn } from '../services/rooms/turns'
@@ -64,10 +64,13 @@ export function createExtensionHost(
         .get()
       if (room) {
         triggerTurn(room.id, room.hostUserId, false, input)
+        const job = getJob(chatId)
+        if (job && opts.onEvent) return subscribe(job, opts.onEvent)
         return
       }
       if (isGenerating(chatId)) throw new HttpError(409, 'GENERATING', t('这个会话正在生成中，请先等它结束或点停止'))
-      startGeneration(chatId, input)
+      const job = startGeneration(chatId, input)
+      if (opts.onEvent) return subscribe(job, opts.onEvent)
     },
     subscribe,
     abort: abortGeneration,
@@ -195,13 +198,15 @@ export function createExtensionHost(
         messages: limit <= 0 ? [] : loadPath(ctx.chat.activeLeafId, Math.max(1, Math.floor(limit))),
       }
     },
-    async waitIdle(chatId, timeoutMs) {
+    async waitIdle(chatId, timeoutMs, signal) {
       const deadline = Date.now() + timeoutMs
       while (isGenerating(chatId)) {
+        signal?.throwIfAborted()
         const remaining = deadline - Date.now()
         if (remaining <= 0) throw new HttpError(408, 'WAIT_IDLE_TIMEOUT', t('等待文本生成结束超时，请稍后再试'))
         await Bun.sleep(Math.min(300, remaining))
       }
+      signal?.throwIfAborted()
     },
     isGenerating(chatId) {
       return isGenerating(chatId)

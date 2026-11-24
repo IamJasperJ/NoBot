@@ -28,6 +28,7 @@ import { getDefault, listPlayPresets } from '../playPresets'
 import { readTemporaryActors } from '../sprites/temporary-actors'
 import { resolveWho } from '../trpg/trpg'
 import { readSheet } from '../trpg/trpg-sheet'
+import { reconcileCg } from './cg'
 import { loadLore, resolvePersona } from './context'
 
 export function stageMembers(chatId: string) {
@@ -143,6 +144,7 @@ export function applyStageParse(
   if (message.role !== 'assistant') return meta
   delete meta.stage
   delete meta.varsPatch
+  delete meta.cg
   const { data } = resolvePlayPreset(chatId)
   if (!data.directives.enabled || message.status === 'error' || !content.trim()) return meta
   const path = loadPath(message.parentId)
@@ -196,6 +198,10 @@ export function applyStageParse(
     if (beat.kind === 'stage') beat.ops = beat.ops.map((op) => resolved.get(op) ?? resolve(op))
   }
   meta.stage = result.stage
+  if (message.meta.cg?.length) {
+    const cg = reconcileCg(result.stage.beats, message.meta.cg)
+    if (cg.length) meta.cg = cg
+  }
   if (result.varsPatch !== null) meta.varsPatch = result.varsPatch
   return meta
 }
@@ -207,11 +213,25 @@ export function applyStageParse(
 export function backfillStage(chatId: string) {
   if (!resolvePlayPreset(chatId).data.directives.enabled) return
   const leaf = getChatRow(chatId).activeLeafId
-  const missing = loadPath(leaf).filter(
-    (m) => m.role === 'assistant' && m.status === 'done' && !m.meta.stage && m.content.trim(),
-  )
-  for (const message of missing) {
-    const meta = applyStageParse(chatId, message, message.content)
+  for (const message of loadPath(leaf)) {
+    if (message.role !== 'assistant' || message.status !== 'done') continue
+    const { stage, cg } = message.meta
+    let meta: MessageMeta
+    if (!stage && message.content.trim()) {
+      meta = applyStageParse(chatId, message, message.content)
+    } else {
+      // 旧版本编辑正文后可能留下已失效的拍序号，按现有正文中的指令修复。
+      if (
+        !cg?.length ||
+        cg.every((entry) => {
+          const beat = stage?.beats[entry.beat]
+          return beat?.kind === 'cg' && beat.prompt === entry.prompt
+        })
+      )
+        continue
+      const matched = reconcileCg(stage?.beats ?? [], cg)
+      meta = { ...message.meta, cg: matched.length ? matched : undefined }
+    }
     db.update(messages).set({ meta }).where(eq(messages.id, message.id)).run()
   }
 }

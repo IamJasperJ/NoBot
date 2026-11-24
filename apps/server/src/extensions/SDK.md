@@ -26,6 +26,13 @@ import type { Extension } from '../../apps/server/src/extensions/sdk'
 const defineExtension = (extension: Extension): Extension => extension
 ```
 
+## 跟踪主动生成的回复
+
+`ctx.host.trigger(chatId, { instruction, onEvent })` 可接收本次生成任务的事件，包含多角色和工具轮。
+保存的角色回复通过 `done` 事件返回，消息状态更新通过 `message` 返回，整个任务以 `complete` 结束。
+传入 `onEvent` 时返回取消订阅函数。取消订阅只释放监听器，生成继续运行。
+房间会话仍通过房主回合触发并执行权限校验。按任务事件关联回复，避免从当前消息路径误认历史回复。
+
 ## 统一后台任务
 
 在 `startBackground(ctx, signal)` 中注册稳定的任务 id：
@@ -160,6 +167,9 @@ export default defineExtension({
 providerId 用短 id 或完整 id，只能操作本扩展注册的平台。它在该平台的托管账号上把一个外部私聊位置直接绑到
 当前用户已有的会话，跳过新位置批准。幂等：已绑在同一会话直接返回；绑在别的会话就改绑过来（绑定 id 不变）；
 会话不存在或不属于当前用户时抛 NOT_FOUND。不改主渠道设置。目前只支持 `scope: 'private'`。
+
+主人位置变化时，`ctx.channels.releaseOwnerBinding(providerId, { externalId, chatId })` 可撤销当前账号声明的旧主人身份，
+并停用仍指向该会话的同一私聊绑定。绑定已被手动改到别处时保留该绑定，历史消息和投递记录均保留。
 
 经 `io.setOwner(id)` 声明的主人，其私聊（位置 id 等于主人的外部 id）享有 `canInitiate:false` 的豁免，
 即使主人还没从这个位置发过言：网页发言、定时任务等经主渠道投递的消息都能发出。

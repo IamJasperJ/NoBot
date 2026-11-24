@@ -6,6 +6,7 @@ import { getSetting, setSetting } from '../../../../../db/client'
 import { paths } from '../../../../../env'
 import { HttpError } from '../../../../../errors'
 import { t } from '../../../../../i18n'
+import { PluginChannelClient } from '../plugin'
 import type { ChannelClient } from '../types'
 import { TelegramError } from './client'
 
@@ -121,18 +122,23 @@ export async function sendCachedMedia(
   method: 'sendPhoto' | 'sendDocument' | 'sendVoice' | 'sendAudio',
   asset: { bytes: Uint8Array; mime: string; filename: string },
   params: Record<string, unknown> = {},
+  isCurrent?: () => boolean,
 ) {
   const field = { sendPhoto: 'photo', sendDocument: 'document', sendVoice: 'voice', sendAudio: 'audio' }[method]
   // 文档、照片和语音的 file_id 不能互换；账号和内容哈希共同隔离缓存。
   const key = `channels:media:${accountId}:${method}:${createHash('sha256').update(asset.bytes).digest('hex')}`
   const cached = getSetting<string>(key)
+  const call = (body: Record<string, unknown> | FormData) =>
+    client instanceof PluginChannelClient
+      ? client.call<Record<string, unknown>>(method, body, undefined, isCurrent)
+      : client.call<Record<string, unknown>>(method, body)
   const upload = async (fileId?: string) => {
-    if (fileId) return client.call<Record<string, unknown>>(method, { ...params, chat_id: chat, [field]: fileId })
+    if (fileId) return call({ ...params, chat_id: chat, [field]: fileId })
     const form = new FormData()
     for (const [key, value] of Object.entries({ ...params, chat_id: chat }))
       if (value !== undefined) form.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value))
     form.set(field, new Blob([new Uint8Array(asset.bytes)], { type: asset.mime }), asset.filename)
-    return client.call<Record<string, unknown>>(method, form)
+    return call(form)
   }
   const result = await client.serialized(chat, async () => {
     try {

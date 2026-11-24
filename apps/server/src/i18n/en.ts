@@ -312,6 +312,9 @@ export const en: Record<string, string> = {
   '已掷骰，结果隐藏': 'Rolled; result hidden',
   还没有轮到你行动: 'It is not your turn yet',
   选项投票已结束: 'Choice voting has ended',
+  自动结算房间投票失败: 'Could not automatically close the room vote',
+  '投票结算后无法启动 AI 回复': 'Could not start the AI reply after closing the vote',
+  '选项已更新，请重新选择': 'The options have changed. Please choose again.',
   你已经选择过此选项组: 'You have already picked from this choice block',
 
   多人场景: 'Multiplayer scene',
@@ -593,6 +596,7 @@ export const en: Record<string, string> = {
   '单张立绘不能超过 20 MB': 'A single sprite cannot exceed 20 MB',
   请指定要删除的服装: 'Please specify the outfit to delete',
   消息不在这个会话里: 'The message is not in this chat',
+  '会话历史已变化，请重新加载': 'Chat history has changed. Reload the chat and try again.',
   当前没有正在进行的生成: 'No generation is currently running',
   文件名不合法: 'Invalid filename',
   头像不存在: 'Avatar does not exist',
@@ -606,6 +610,9 @@ export const en: Record<string, string> = {
   背景名称不能为空: 'Background name cannot be empty',
   背景库是空的: 'The background library is empty',
   模型没有选择背景: 'The model did not select a background',
+  '会话分支或背景已变化，请重新选择背景': 'The chat branch or background has changed. Select a background again.',
+  '模型选中的背景已不可用，请重新选择背景':
+    'The selected background is no longer available. Select a background again.',
 
   // 模型请求
   图片附件尚未解析: 'Image attachment has not been resolved',
@@ -994,6 +1001,8 @@ export const en: Record<string, string> = {
   模型返回的名字为空: 'The model returned an empty name',
   '背景起名失败：{error}': 'Background naming failed: {error}',
   没有可取消的图片任务: 'No image task can be cancelled',
+  复制时原图片任务尚未完成: 'The original image task was still running when this message was copied',
+  服务重启前后台任务尚未完成: 'The background task was interrupted by a server restart',
   '提示词预览已过期，请重新生成预览': 'The prompt preview has expired. Please generate a new preview',
   只能放弃失败或已取消的图片任务: 'Only failed or cancelled image tasks can be dismissed',
   这张图片正在重新生成: 'This image is being regenerated',
@@ -1031,6 +1040,14 @@ export const en: Record<string, string> = {
   正在总结: 'Summarizing',
   没有新的内容可以总结: 'There is no new content to summarize',
   模型返回了空总结: 'The model returned an empty summary',
+  '总结期间对话已变化，请重试': 'The conversation changed during summarization. Please try again.',
+  模型回复上限必须是正整数: 'The model output limit must be a positive integer.',
+  '上下文预算放不下第一条待总结消息，请调整生成预设或总结设置':
+    'The first message to summarize exceeds the context budget. Adjust the generation preset or summary settings.',
+  '请求缺少所需的历史消息，请检查预设或增大上下文预算':
+    'Required messages are missing from the prompt. Check the preset or increase the context budget.',
+  '静默请求超出上下文预算，请缩短输入或调整生成预设':
+    'The background request exceeds the context budget. Shorten the input or adjust the generation preset.',
   剧情总结失败: 'Story summary failed',
   总结: 'Summary',
   总结参数不合法: 'Invalid summary parameters',

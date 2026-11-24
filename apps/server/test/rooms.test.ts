@@ -409,6 +409,11 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
       const idle = async (chatId: string) => {
         while (owner(() => generation.isGenerating(chatId))) await Bun.sleep(5)
       }
+      const decisionIdle = async (room: { id: string; chatId: string }) => {
+        for (let attempt = 0; turns.turnState(room.id).deciding && attempt < 400; attempt++) await Bun.sleep(5)
+        expect(turns.turnState(room.id).deciding).toBeUndefined()
+        await idle(room.chatId)
+      }
       const makeTurnRoom = (turnMode: 'auto' | 'mention' | 'smart' | 'every') =>
         owner(() =>
           r.createRoom(
@@ -526,10 +531,22 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
         await advance(3999)
         expect(owner(() => r.usage(undecided.id))).toHaveLength(0)
         await advance(1)
-        await Bun.sleep(10)
-        await idle(undecided.chatId)
+        await decisionIdle(undecided)
         expect(owner(() => r.usage(undecided.id))).toHaveLength(1)
         expect(model.requests.at(-2)?.messages.at(-1)?.content).toContain('strict JSON')
+        const failedDecision = makeTurnRoom('smart')
+        model.setScript((body) =>
+          body.messages.at(-1)?.content.includes('Decide whether')
+            ? { status: 500, error: 'Decision unavailable' }
+            : { text: 'Fallback reply' },
+        )
+        send(failedDecision.id, 'A new observation')
+        await advance(4000)
+        await decisionIdle(failedDecision)
+        expect(owner(() => r.usage(failedDecision.id))).toHaveLength(1)
+        expect(owner(() => loadPath(getChatRow(failedDecision.chatId).activeLeafId)).at(-1)?.content).toBe(
+          'Fallback reply',
+        )
         // 包在代码框里的「不接话」也能读懂
         const declined = makeTurnRoom('smart')
         model.setScript(() => ({
@@ -537,8 +554,49 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
         }))
         send(declined.id, 'Bob, I will meet you later')
         await advance(4000)
-        await Bun.sleep(10)
+        await decisionIdle(declined)
         expect(owner(() => r.usage(declined.id))).toHaveLength(0)
+        expect(turns.turnState(declined.id).pending).toEqual([])
+        expect(owner(() => loadPath(getChatRow(declined.chatId).activeLeafId)).at(-1)?.content).toBe(
+          'Bob, I will meet you later',
+        )
+        // 判断模型尚未返回时收到明确的提问，不能用旧的「不接话」拦截。
+        const interrupted = makeTurnRoom('smart')
+        const judging = Promise.withResolvers<void>()
+        const staleAnswer = Promise.withResolvers<{ text: string }>()
+        model.setScript((body) => {
+          if (!body.messages.at(-1)?.content.includes('Decide whether')) return { text: 'Reply to the new question' }
+          judging.resolve()
+          return staleAnswer.promise
+        })
+        send(interrupted.id, 'The room is quiet')
+        await advance(4000)
+        await judging.promise
+        send(interrupted.id, 'Alice AI, what is happening?')
+        staleAnswer.resolve({ text: '{"respond":false,"speaker":null,"replyTo":null,"reason":"side talk"}' })
+        await decisionIdle(interrupted)
+        expect(owner(() => r.usage(interrupted.id))).toHaveLength(0)
+        await advance(1500)
+        await idle(interrupted.chatId)
+        expect(owner(() => r.usage(interrupted.id))).toHaveLength(1)
+        expect(model.requests.at(-1)?.messages.some((m) => m.content.includes('what is happening?'))).toBe(true)
+        // 旧判断仍在进行时切到手动，返回的接话决定不能触发生成。
+        const switched = makeTurnRoom('smart')
+        const startedDecision = Promise.withResolvers<void>()
+        const lateDecision = Promise.withResolvers<{ text: string }>()
+        model.setScript(() => {
+          startedDecision.resolve()
+          return lateDecision.promise
+        })
+        send(switched.id, 'The rain is getting heavier')
+        await advance(4000)
+        await startedDecision.promise
+        expect(turns.turnState(switched.id).deciding).toBeDefined()
+        owner(() => r.updateRoom(switched.id, updateRoomInput.parse({ turnMode: 'host' })))
+        lateDecision.resolve({ text: '{"respond":true,"speaker":null,"replyTo":null,"reason":"join"}' })
+        await decisionIdle(switched)
+        expect(owner(() => r.usage(switched.id))).toHaveLength(0)
+        expect(turns.turnState(switched.id).pending).toHaveLength(1)
         // 每条都接：没点名、没问号也在 1 秒后回应，不发判断请求；刚回完话也不等冷却
         const every = makeTurnRoom('every')
         model.setScript(() => ({ text: 'Every reply' }))
@@ -555,6 +613,29 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
         await idle(every.chatId)
         expect(model.requests.length).toBe(beforeEvery + 2)
         expect(owner(() => r.usage(every.id))).toHaveLength(2)
+        const withdrawn = makeTurnRoom('every')
+        const message = send(withdrawn.id, 'Discard this message')
+        owner(() => turns.editRoomMessage(withdrawn.id, message.id, null))
+        await advance(1000)
+        expect(turns.turnState(withdrawn.id).pending).toEqual([])
+        expect(owner(() => r.usage(withdrawn.id))).toHaveLength(0)
+
+        const recovered = makeTurnRoom('every')
+        const saved = send(recovered.id, 'Continue after restart')
+        // 模拟旧版已接回消息、进程还没保存空队列就退出的窗口。
+        const oldState = turns.turnState(recovered.id)
+        oldState.queued = [saved.id]
+        oldState.running = true
+        owner(() => turns.persistTurn(recovered.id, oldState))
+        turns.resetTurnState(recovered.id)
+        expect(turns.turnState(recovered.id).queued).toEqual([])
+        expect(owner(() => loadPath(saved.id, 1))[0]?.parentId).toBe(saved.parentId)
+        turns.resetTurnState(recovered.id)
+        r.resumeRoomStates()
+        expect(turns.turnState(recovered.id).pending).toEqual([saved.id])
+        await advance(1000)
+        await idle(recovered.chatId)
+        expect(owner(() => r.usage(recovered.id))).toHaveLength(1)
         const { createGroup } = await import('../src/services/groups')
         const forcedId = newId()
         const groupRoom = owner(() => {
@@ -580,8 +661,7 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
         send(groupRoom.id, 'A shadow moves')
         send(groupRoom.id, 'Footsteps echo')
         await advance(4000)
-        await Bun.sleep(10)
-        await idle(groupRoom.chatId)
+        await decisionIdle(groupRoom)
         const groupPath = owner(() => loadPath(getChatRow(groupRoom.chatId).activeLeafId))
         expect(groupPath.at(-1)?.speakerId).toBe(forcedId)
         expect(
@@ -652,6 +732,10 @@ test('MP2 房间：双用户隔离、邀请同意、权限、回合与 live', as
     events.length = 0
     expect((await subscribe(1)).status).toBe(200)
     expect(events.some((e) => e.type === 'room.resync')).toBe(true)
+    expect(events.find((e) => e.type === 'room.turn')?.data).toMatchObject({
+      roomId: id,
+      payload: { running: false, pendingCount: expect.any(Number) },
+    })
     guest(() => turns.typing(id))
     expect(events.some((e) => e.type === 'room.typing')).toBe(true)
     owner(() => r.removeMember(id, bob.id, 'banned'))

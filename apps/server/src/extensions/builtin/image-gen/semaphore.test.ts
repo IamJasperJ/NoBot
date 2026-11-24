@@ -45,3 +45,35 @@ test('失败释放名额，调整上限后继续处理队列', async () => {
   finish()
   await first
 })
+
+test('排队位置回调失败与同批取消都不会占用后续名额', async () => {
+  const semaphore = new Semaphore(1)
+  const stale = new Error('占位已经删除')
+  const generate = async () => '完成'
+  const reportStale = () => {
+    throw stale
+  }
+  await expect(semaphore.run(generate, undefined, reportStale)).rejects.toBe(stale)
+
+  const gate = Promise.withResolvers<void>()
+  const running = semaphore.run(() => gate.promise)
+  const stop = new AbortController()
+  const reason = new Error('扩展已停止')
+  const queued = [
+    semaphore.run(generate, AbortSignal.any([stop.signal])).catch((error: unknown) => error),
+    semaphore
+      .run(generate, AbortSignal.any([stop.signal]), stop.signal.throwIfAborted.bind(stop.signal))
+      .catch((error: unknown) => error),
+    semaphore
+      .run(generate, undefined, (position) => {
+        if (position === 1) reportStale()
+      })
+      .catch((error: unknown) => error),
+  ]
+  const next = semaphore.run(generate)
+  stop.abort(reason)
+  expect(await Promise.all(queued)).toEqual([reason, reason, stale])
+  gate.resolve()
+  await running
+  expect(await next).toBe('完成')
+})

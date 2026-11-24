@@ -1,4 +1,3 @@
-import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   type AttachmentDTO,
@@ -15,35 +14,33 @@ import { HttpError, notFound } from '../../../errors'
 import { t } from '../../../i18n'
 import { readUpload } from '../../../lib/files'
 import { validate } from '../../../lib/validate'
-import { saveAttachment } from '../../../services/attachments'
+import { removeAttachmentFiles, saveAttachment } from '../../../services/attachments'
 import { getChatRow } from '../../../services/chats'
 import { cutoutSprite, mattingOptions } from '../../../services/sprites/matting'
 import { assertCutoutMode, recutImage } from '../../../services/sprites/sprite-cutout'
 import {
-  readTemporaryActors as readActors,
+  readTemporaryActors,
+  type TemporaryActorRecord,
   writeTemporaryActor as writeActor,
 } from '../../../services/sprites/temporary-actors'
 import { type Context, stageImage } from './pipeline'
+import { imageTaskSignal } from './pipeline/state'
 import { parseSettings } from './settings'
 
-type ActorRecord = Omit<TemporaryActorDTO, 'hasOriginal'> & { hasOriginal?: boolean; original?: AttachmentDTO }
-const readTemporaryActors = (chatId: string) => readActors(chatId) as Record<string, ActorRecord>
-function actorDTO(record: ActorRecord): TemporaryActorDTO {
+function actorDTO(record: TemporaryActorRecord): TemporaryActorDTO {
   const { original, ...dto } = record
   return { ...dto, hasOriginal: !!original }
 }
 async function cleanAttachments(...images: (AttachmentDTO | null | undefined)[]) {
   for (const image of images) {
     if (!image) continue
-    // 附件标识经过保存入口生成，只删除本地附件及其尺寸元数据。
-    if (!/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(image.id)) continue
-    await Promise.all(['webp', 'json'].map((ext) => rm(join(paths.attachments, `${image.id}.${ext}`), { force: true })))
+    await removeAttachmentFiles(image.id).catch((error) => console.error('删除临时立绘失败', image.id, error))
   }
 }
-function writeTemporaryActor(chatId: string, key: string, record: ActorRecord | null) {
+function writeTemporaryActor(chatId: string, key: string, record: TemporaryActorRecord | null) {
   writeActor(chatId, key, record ? { ...record, hasOriginal: !!record.original } : null)
 }
-async function replaceActor(chatId: string, key: string, record: ActorRecord | null) {
+async function replaceActor(chatId: string, key: string, record: TemporaryActorRecord | null) {
   const old = readTemporaryActors(chatId)[key]
   writeTemporaryActor(chatId, key, record)
   const retained = new Set([record?.image?.id, record?.original?.id])
@@ -59,6 +56,8 @@ function assertIdle(chatId: string, key: string) {
 
 /** 自动与手动生成共用外貌推断、固定构图和去背景流程。 */
 export function startTemporaryActor(ctx: Context, chatId: string, key: string, name: string, prompt = '') {
+  const signal = imageTaskSignal()
+  signal.throwIfAborted()
   getChatRow(chatId)
   assertIdle(chatId, key)
   const lock = actorTaskKey(chatId, key)
@@ -66,7 +65,7 @@ export function startTemporaryActor(ctx: Context, chatId: string, key: string, n
   // 重新生成期间和失败后保留旧图，舞台不会突然变成剪影；用户删掉的图不再恢复
   const previous = readTemporaryActors(chatId)[key]
   const image = previous?.status === 'removed' ? null : (previous?.image ?? null)
-  const record: ActorRecord = {
+  const record: TemporaryActorRecord = {
     key,
     name,
     image,
@@ -81,7 +80,14 @@ export function startTemporaryActor(ctx: Context, chatId: string, key: string, n
     actorTasks.delete(lock)
     throw error
   }
+  const stillPending = () => {
+    const current = readTemporaryActors(chatId)[key]
+    return current?.status === 'pending' && current.updatedAt === record.updatedAt
+  }
   const task = (async () => {
+    let newImage: AttachmentDTO | undefined
+    let newOriginal: AttachmentDTO | undefined
+    let committed = false
     try {
       const appearance =
         prompt ||
@@ -89,6 +95,7 @@ export function startTemporaryActor(ctx: Context, chatId: string, key: string, n
           chatId,
           instruction: `Describe the visible appearance of ${name} for a character sprite. Use the conversation to infer appearance. Output only an English image description, without framing or background instructions.`,
           includeHistory: true,
+          signal,
         }))
       const settings = parseSettings(ctx.settings)
       const backdrop = settings.spriteMatting === 'algorithm' ? settings.spriteBackdrop : 'white'
@@ -96,36 +103,45 @@ export function startTemporaryActor(ctx: Context, chatId: string, key: string, n
         backdrop === 'green'
           ? "plain solid chroma-key green (#00FF00) background, no green in the character's clothing or lighting"
           : 'simple white background'
-      const bytes = await stageImage(
-        ctx,
+      const bytes = await stageImage(ctx, {
         chatId,
-        `${appearance}. Full body, standing, neutral expression, ${background}, no other characters.`,
-        'free',
-        undefined,
-        false,
-        settings.spriteMatting === 'native',
-      )
-      const image = await ctx.host.saveImage(await cutoutSprite(bytes, mattingOptions(parseSettings(ctx.settings))))
-      const original = await ctx.host.saveImage(bytes)
+        prompt: `${appearance}. Full body, standing, neutral expression, ${background}, no other characters.`,
+        mode: 'free',
+        landscape: false,
+        transparent: settings.spriteMatting === 'native',
+        signal,
+      })
+      const cutout = await cutoutSprite(bytes, mattingOptions(parseSettings(ctx.settings)))
+      signal.throwIfAborted()
+      if (!stillPending()) return false
+      newImage = await ctx.host.saveImage(cutout)
+      signal.throwIfAborted()
+      if (!stillPending()) return false
+      newOriginal = await ctx.host.saveImage(bytes)
+      signal.throwIfAborted()
+      if (!stillPending()) return false
       await replaceActor(chatId, key, {
         ...record,
-        image,
-        original,
+        image: newImage,
+        original: newOriginal,
         prompt: appearance,
         status: 'done',
         updatedAt: Date.now(),
       })
+      committed = true
       return true
     } catch (error) {
+      if (!stillPending()) return false
       writeTemporaryActor(chatId, key, {
         ...record,
         status: 'error',
-        error: t('临时立绘生成失败，请重试'),
+        error: signal.aborted ? t('已取消') : t('临时立绘生成失败，请重试'),
         updatedAt: Date.now(),
       })
       ctx.host.log({ chatId, kind: 'image', status: 'error', summary: String(error) })
       return false
     } finally {
+      if (!committed) await cleanAttachments(newImage, newOriginal)
       actorTasks.delete(lock)
     }
   })()
@@ -151,6 +167,7 @@ export function temporaryActorRoutes(app: Hono, ctx: Context) {
     const lock = actorTaskKey(chatId, key)
     // 预览只检查生成任务，不占锁，允许开发模式重复 effect 并发读取同一原图。
     if (!preview) actorTasks.add(lock)
+    let saved: AttachmentDTO | undefined
     try {
       await assertCutoutMode(mode)
       const source = record.original ?? record.image
@@ -159,14 +176,18 @@ export function temporaryActorRoutes(app: Hono, ctx: Context) {
       if (preview)
         return new Response(result, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' } })
       // 无原图的旧记录保留当前附件，后续重抠始终使用同一份来源。
-      const updated: ActorRecord = {
+      saved = await saveAttachment(result)
+      const updated: TemporaryActorRecord = {
         ...record,
         original: record.original ?? record.image,
-        image: await saveAttachment(result),
+        image: saved,
         updatedAt: Math.max(Date.now(), record.updatedAt + 1),
       }
       await replaceActor(chatId, key, updated)
       return c.json(actorDTO(updated))
+    } catch (error) {
+      await cleanAttachments(saved)
+      throw error
     } finally {
       if (!preview) actorTasks.delete(lock)
     }
@@ -198,6 +219,8 @@ export function temporaryActorRoutes(app: Hono, ctx: Context) {
       assertIdle(chatId, key)
       const lock = actorTaskKey(chatId, key)
       actorTasks.add(lock)
+      let image: AttachmentDTO | undefined
+      let original: AttachmentDTO | undefined
       try {
         const bytes = await readUpload(body, 'file', 10)
         let processed = bytes
@@ -208,18 +231,22 @@ export function temporaryActorRoutes(app: Hono, ctx: Context) {
             throw new HttpError(400, 'BAD_IMAGE', t('无法识别的图片文件'))
           }
         }
-        const image = await saveAttachment(processed)
-        const record: ActorRecord = {
+        image = await saveAttachment(processed)
+        if (body.removeBackground === 'true') original = await saveAttachment(bytes)
+        const record: TemporaryActorRecord = {
           key,
           name: readTemporaryActors(chatId)[key]?.name ?? key,
           image,
-          original: body.removeBackground === 'true' ? await saveAttachment(bytes) : undefined,
+          original,
           prompt: '',
           status: 'done',
           updatedAt: Date.now(),
         }
         await replaceActor(chatId, key, record)
         return c.json(actorDTO(record))
+      } catch (error) {
+        await cleanAttachments(image, original)
+        throw error
       } finally {
         actorTasks.delete(lock)
       }

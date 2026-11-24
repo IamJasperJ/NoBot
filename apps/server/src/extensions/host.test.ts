@@ -2,6 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promptMessageTokens, promptTokenBudget } from '@nobot/core'
 import type { CharacterDTO, ChatDTO, MessageDTO, PromptPresetDTO } from '@nobot/shared'
 import type { ServerEvent } from './types'
 
@@ -269,6 +270,45 @@ test('扩展宿主：消息、静默请求、内置路由、动态工具及保�
       true,
     )
     expect(JSON.stringify(getLog(listLogs({ chatId: chat.id })[0]!.id))).not.toContain('ext2-secret-key')
+    const budgetPreset = await json<PromptPresetDTO>('/presets', {
+      name: '静默预算',
+      data: {
+        samplers: {
+          contextSize: 1024,
+          maxTokens: 128,
+          extraBody: JSON.stringify({
+            model: '旧模型',
+            messages: [{ role: 'user', content: '旧请求' }],
+            max_completion_tokens: 100,
+            stream: true,
+            temperature: 0.45,
+          }),
+        },
+      },
+    })
+    const budgetChat = await json<ChatDTO>('/chats', { characterId: actor.id })
+    await json(`/chats/${budgetChat.id}`, { promptPresetId: budgetPreset.id }, 'PATCH')
+    host.appendMessage(budgetChat.id, { role: 'user', content: `较早历史${' A'.repeat(340)}` })
+    host.appendMessage(budgetChat.id, { role: 'assistant', content: `最近历史${' B'.repeat(140)}` })
+    const instruction = `静默指令${' C'.repeat(250)}`
+    await host.quietPrompt({ chatId: budgetChat.id, instruction, maxTokens: 360 })
+    const budgeted = requests.at(-1)!
+    const sent = budgeted.messages as { role: string; content: string }[]
+    expect(budgeted).toMatchObject({ model: 'mock-ext2', max_completion_tokens: 360, stream: false, temperature: 0.45 })
+    expect(budgeted).not.toHaveProperty('max_tokens')
+    expect(sent.at(-1)?.content).toBe(instruction)
+    expect(sent.some((m) => m.content.includes('最近历史'))).toBe(true)
+    expect(sent.some((m) => m.content.includes('较早历史') || m.content.includes('旧请求'))).toBe(false)
+    expect(sent.reduce((sum, m) => sum + promptMessageTokens(m), 0)).toBeLessThanOrEqual(promptTokenBudget(1024, 360))
+    const beforeOverflow = requests.length
+    await expect(
+      host.complete({
+        chatId: budgetChat.id,
+        summary: '直接请求预算',
+        messages: [{ role: 'user', content: ' D'.repeat(900) }],
+      }),
+    ).rejects.toMatchObject({ code: 'PROMPT_TOO_LONG' })
+    expect(requests).toHaveLength(beforeOverflow)
     fail = true
     await expect(host.quietPrompt({ chatId: chat.id, instruction: '失败请求' })).rejects.toThrow('模拟失败')
     expect(listLogs({ chatId: chat.id }).some((log) => log.kind === 'extension' && log.status === 'error')).toBe(true)

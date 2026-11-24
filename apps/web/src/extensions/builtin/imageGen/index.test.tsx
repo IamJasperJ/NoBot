@@ -7,7 +7,39 @@ import { Composer } from '../../../features/chat/Composer'
 import { useExtensionsRuntime } from '../../runtime'
 import type { ClientExtensionAPI, SlotContribution } from '../../types'
 import activate, { subscribeChatCache } from './index'
+import { createRuntime } from './runtime'
 import { postDraft } from './settings'
+
+test('生成提示区分已存入背景库和已应用背景', async () => {
+  const qc = new QueryClient()
+  const infos: string[] = []
+  let backgroundApplied = false
+  const runtime = createRuntime({
+    React,
+    queryClient: qc,
+    getSettings: async () => ({}),
+    fetchServer: async () => Response.json({ background: { id: 'image' }, backgroundApplied }),
+    toast: {
+      info: (message: string) => {
+        infos.push(message)
+      },
+      error: (message: string) => {
+        throw new Error(message)
+      },
+    },
+  } as unknown as ClientExtensionAPI)
+  try {
+    qc.setQueryData(['backgrounds'], [])
+    await runtime.generate('chat', 'background')
+    expect(infos.at(-1)).toBe('已生成背景并保存到背景库')
+    expect(qc.getQueryState(['backgrounds'])?.isInvalidated).toBe(true)
+    backgroundApplied = true
+    await runtime.generate('chat', 'background')
+    expect(infos.at(-1)).toBe('已生成背景并设为聊天背景')
+  } finally {
+    qc.clear()
+  }
+})
 
 test('独立图片按钮打开菜单，连续选择发出两个请求，群聊按成员展开，+ 菜单无重复分组', async () => {
   const requests: { path: string; body: unknown }[] = []

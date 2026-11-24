@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect } from 'bun:test'
+import { afterAll, beforeAll, expect, spyOn } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -192,8 +192,20 @@ test('重新生成产生兄弟节点并可左右切换激活路径', async () =>
   const second = done(await generate(chat, { mode: 'regenerate', targetId: first.id }))[0]!
   expect(second).toMatchObject({ parentId: first.parentId, swipeIndex: 2, swipeCount: 2, content: '第二版' })
   expect(second.id).not.toBe(first.id)
+  const active = (await page(chat)).messages
+  const newest = await json<ChatPage>(`/chats/${chat.id}?limit=1`)
+  expect(newest.messages).toEqual(active.slice(-1))
+  expect(newest.hasMore).toBe(true)
+  const older = await json<ChatPage>(`/chats/${chat.id}?before=${second.id}&limit=1`)
+  expect(older.messages).toEqual(active.slice(-2, -1))
+  expect(older.hasMore).toBe(active.length > 2)
+  const invalid = await request(`/chats/${chat.id}?before=${first.id}&limit=1`)
+  expect(invalid.status).toBe(409)
+  expect(await invalid.json()).toMatchObject({ error: { code: 'STALE_CHAT_CURSOR' } })
   await json(`/chats/${chat.id}/swipe`, 'POST', { messageId: second.id, direction: -1 })
   expect(last((await page(chat)).messages)).toMatchObject({ id: first.id, content: '第一版', swipeCount: 2 })
+  expect((await request(`/chats/${chat.id}?before=${second.id}`)).status).toBe(409)
+  expect((await json<ChatPage>(`/chats/${chat.id}?before=${first.id}&limit=1`)).messages).toEqual(older.messages)
   await json(`/chats/${chat.id}/swipe`, 'POST', { messageId: first.id, direction: 1 })
   expect(last((await page(chat)).messages).id).toBe(second.id)
 })
@@ -216,6 +228,31 @@ test('续写拼接预设后缀且上游失败时保留原文与完成状态', as
   })
 })
 
+test('生成期间拒绝切换和删除激活路径，保留正在生成的回复', async () => {
+  const { chat } = await setup()
+  model.setScript(() => ({ text: '第一版' }))
+  const first = done(await generate(chat))[0]!
+  model.setScript(() => ({ text: '第二版' }))
+  const second = done(await generate(chat, { mode: 'regenerate', targetId: first.id }))[0]!
+
+  const { content, observed, reading } = await live(chat)
+  const start = observed.find((event) => event.type === 'start')!
+  const parent = start.userMessage!
+  const reply = start.assistantMessage
+  const swipe = await request(`/chats/${chat.id}/swipe`, 'POST', { messageId: second.id, direction: -1 })
+  expect(swipe.status).toBe(409)
+  expect(await swipe.json()).toMatchObject({ error: { code: 'GENERATING' } })
+  const removeParent = await request(`/messages/${parent.id}`, 'DELETE')
+  expect(removeParent.status).toBe(409)
+  expect(await removeParent.json()).toMatchObject({ error: { code: 'BUSY' } })
+  await json(`/messages/${first.id}`, 'DELETE')
+
+  expect(done(await reading).at(-1)).toMatchObject({ id: reply.id, parentId: parent.id, content, status: 'done' })
+  expect(last((await page(chat)).messages).id).toBe(reply.id)
+  await json(`/messages/${parent.id}`, 'DELETE')
+  expect(last((await page(chat)).messages).id).toBe(second.id)
+})
+
 test('中止生成保留已经收到的部分文本并标记中止', async () => {
   const { chat } = await setup()
   const { reading, observed, content } = await live(chat)
@@ -229,6 +266,17 @@ test('中止生成保留已经收到的部分文本并标记中止', async () =>
   expect(message.content.length).toBeLessThan(content.length)
   expect(message.content).toBe(text(events))
   expect(events.at(-1)?.type).toBe('complete')
+})
+
+test('删除正在生成的会话后正常关闭流，不写入迟到的生成日志', async () => {
+  const { chat } = await setup()
+  const { reading } = await live(chat)
+  await json(`/chats/${chat.id}`, 'DELETE')
+  const events = await reading
+  expect(events.at(-1)?.type).toBe('complete')
+  expect(events.some((event) => event.type === 'error' || event.type === 'done')).toBe(false)
+  expect((await request(`/chats/${chat.id}`)).status).toBe(404)
+  expect(await logs(chat)).toEqual([])
 })
 
 test('重新连接先回放开始和已有文本再接收剩余分片', async () => {
@@ -247,6 +295,26 @@ test('重新连接先回放开始和已有文本再接收剩余分片', async ()
   expect(done(events)[0]?.content).toBe(content)
   expect(events.at(-1)?.type).toBe('complete')
   expect(text(await reading)).toBe(content)
+})
+
+test('有积压的 SSE 读端断开时清理心跳，后端继续生成', async () => {
+  const { chat } = await setup()
+  const { reading, content } = await live(chat)
+  const interval = spyOn(globalThis, 'setInterval')
+  const clear = spyOn(globalThis, 'clearInterval')
+  try {
+    const response = await request(`/chats/${chat.id}/stream`)
+    expect(response.status).toBe(200)
+    const heartbeat = interval.mock.results[interval.mock.calls.findIndex(([, ms]) => ms === 15000)]?.value
+    expect(heartbeat).toBeDefined()
+    // 订阅会立即回放开始事件和已有分片，读端尚未消费，写入处于等待状态。
+    await response.body!.cancel()
+    await waitFor(() => clear.mock.calls.some(([handle]) => handle === heartbeat))
+    expect(text(await reading)).toBe(content)
+  } finally {
+    interval.mockRestore()
+    clear.mockRestore()
+  }
 })
 
 test('上游鉴权错误推送中文提示并保存错误消息和日志', async () => {

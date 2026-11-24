@@ -20,26 +20,16 @@ import { chatRoutes } from '../../routes/chats'
 import { currentUser } from '../../user-context'
 import { characterCgs, saveAttachment } from '../attachments'
 import { getCharacter } from '../characters'
-import { getChatPage, getChatRow, loadMessage, loadPath, setVars, swipe } from '../chats'
+import { getChatPage, getChatRow, loadMessage, loadPath, pageHistory } from '../chats'
 import { isGenerating } from '../generation/generation'
 import { computeStage } from '../generation/stage'
 import { readTemporaryActors } from '../sprites/temporary-actors'
 import { asRoomViewer, canReadMessage, roomCover, roomMessage } from './dto'
 import { visibleHistory } from './extensions'
-import {
-  asHost,
-  charactersForRoom,
-  checkWritable,
-  event,
-  members,
-  membership,
-  publish,
-  roomDetail,
-  unavailable,
-} from './index'
+import { asHost, charactersForRoom, checkWritable, event, members, membership, publish, unavailable } from './index'
 import { validateEdit } from './input'
 import { checkRoom, rollRoom } from './trpg'
-import { abortTurn, editRoomMessage, triggerTurn } from './turns'
+import { abortTurn, editRoomMessage, setRoomVars, swipeRoom, triggerTurn } from './turns'
 import { runAsRoomActor } from './usage'
 import { roomView } from './view'
 import { roomVoice } from './voice'
@@ -62,10 +52,9 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
   // 禁止编码路径、重复斜线与任何隐式路径归一化带来的白名单绕过。
   if (path.includes('%') || path.includes('..') || path.includes('//')) throw unavailable()
   if (method === 'POST' && path === '/ext/image-gen/commands/imagine') {
-    checkWritable(room, actor)
-    if (!roomDetail(roomId).permissions.canGenerateImages) throw unavailable()
     const body: unknown = await request.json()
     if (!body || typeof body !== 'object' || !('chatId' in body) || body.chatId !== room.chatId) throw unavailable()
+    if (checkWritable(room, actor).role !== 'owner') throw unavailable()
     return asHost(room, () =>
       runAsRoomActor(actor, () =>
         forwardExtension(
@@ -102,6 +91,7 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
   if (method === 'POST' && path === `/chats/${room.chatId}/roll`) {
     const input = roomRollInput.safeParse(await request.json())
     if (!input.success) throw unavailable()
+    checkWritable(room, actor)
     return Response.json(rollRoom(roomId, input.data))
   }
   if (method === 'POST' && path === `/chats/${room.chatId}/check`) {
@@ -109,6 +99,7 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
       .extend({ visibility: rollVisibility.default('public') })
       .safeParse(await request.json())
     if (!input.success) throw unavailable()
+    checkWritable(room, actor)
     return Response.json(checkRoom(roomId, input.data))
   }
   if (method === 'POST' && path === '/ext/audio/tts/line') return roomVoice(roomId, request)
@@ -118,8 +109,10 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
     if (body.get('chatId') !== room.chatId) throw unavailable()
     const file = body.get('file')
     if (!(file instanceof File) || file.size > 10 * 1024 * 1024) throw unavailable()
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    checkWritable(room, actor)
     return asHost(room, async () => {
-      const attachment = await saveAttachment(new Uint8Array(await file.arrayBuffer()))
+      const attachment = await saveAttachment(bytes)
       const data = db.transaction(() => event(room, 'room.asset', actor, { attachment }, attachment.id))
       publish(data)
       return Response.json(attachment)
@@ -132,10 +125,12 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
   if (method === 'POST' && path === `/chats/${room.chatId}/generate`) {
     const parsed = generateInput.safeParse(await request.json())
     if (!parsed.success || parsed.data.mode === 'send') throw unavailable()
+    checkWritable(room, actor)
     const input = parsed.data
     if ('targetId' in input)
       asHost(room, () => {
-        if (loadMessage(input.targetId).chatId !== room.chatId) throw unavailable()
+        const target = loadMessage(input.targetId)
+        if (target.chatId !== room.chatId || !canReadMessage(target, actor)) throw unavailable()
       })
     return Response.json(triggerTurn(roomId, actor, true, parsed.data))
   }
@@ -148,24 +143,29 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
         : null
     return Response.json(editRoomMessage(roomId, messageMatch[1]!, content))
   }
-  const body =
-    method === 'POST'
-      ? await request
-          .clone()
-          .json()
-          .catch(() => null)
-      : undefined
+  if (method === 'POST' && path === `/chats/${room.chatId}/swipe`) {
+    const parsed = swipeInput.safeParse(await request.json().catch(() => null))
+    if (!parsed.success) throw unavailable()
+    checkWritable(room, actor)
+    return Response.json(swipeRoom(roomId, parsed.data))
+  }
+  if (method === 'POST' && path === `/chats/${room.chatId}/vars`) {
+    const parsed = setVarsInput.safeParse(await request.json().catch(() => null))
+    if (!parsed.success) throw unavailable()
+    checkWritable(room, actor)
+    return Response.json(setRoomVars(roomId, parsed.data))
+  }
   return asHost(room, async () => {
     const chars = charactersForRoom(room),
       chatPath = `/chats/${room.chatId}`
     let allowed = false
     if (method === 'GET' && path === chatPath) {
       for (const k of url.searchParams.keys()) if (!['before', 'limit'].includes(k)) throw unavailable()
-      const page = getChatPage(
-        room.chatId,
-        { before: url.searchParams.get('before') ?? undefined, limit: Number(url.searchParams.get('limit') ?? 100) },
-        isGenerating(room.chatId),
-      )
+      const before = url.searchParams.get('before') ?? undefined
+      const limit = Number(url.searchParams.get('limit') ?? 100)
+      if (!Number.isInteger(limit)) throw unavailable()
+      const opts = { before, limit }
+      const page = getChatPage(room.chatId, opts, isGenerating(room.chatId))
       page.roomView = roomView(room)
       // 聊天界面只需要公开叙事数据，连接、提示词、人设与世界书引用不属于房间权限。
       page.chat = {
@@ -180,13 +180,7 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
       }
       if (page.group) page.group = { ...page.group, scenarioOverride: '' }
       if (member.role === 'spectator') {
-        const visible = visibleHistory(roomId, actor)
-        const before = url.searchParams.get('before')
-        const end = before ? visible.findIndex((m) => m.id === before) : visible.length
-        if (end < 0) throw unavailable()
-        const limit = Math.max(1, Math.min(500, Number(url.searchParams.get('limit') ?? 100)))
-        page.messages = visible.slice(Math.max(0, end - limit), end)
-        page.hasMore = end > limit
+        Object.assign(page, pageHistory(visibleHistory(roomId, actor), opts))
       }
       page.messages = page.messages
         .filter((m) => member.role !== 'spectator' || canReadMessage(m, actor, room.hostUserId))
@@ -202,27 +196,6 @@ async function dispatchRoomScope(roomId: string, request: Request, path: string)
       )
         throw unavailable()
       allowed = true
-    }
-    if (method === 'POST' && path === `${chatPath}/swipe` && ['owner', 'gm'].includes(member.role)) {
-      const parsed = swipeInput.safeParse(body)
-      if (!parsed.success || loadMessage(parsed.data.messageId).chatId !== room.chatId) throw unavailable()
-      const data = db.transaction(() => {
-        const leafId = swipe(room.chatId, parsed.data.messageId, parsed.data.direction)
-        return { leafId, event: event(room, 'room.message', actor, { action: 'activated', leafId }) }
-      })
-      publish(data.event)
-      return Response.json({ leafId: data.leafId })
-    }
-    if (method === 'POST' && path === `${chatPath}/vars` && ['owner', 'gm'].includes(member.role)) {
-      const parsed = setVarsInput.safeParse(body)
-      if (!parsed.success) throw unavailable()
-      const data = db.transaction(() => {
-        const result = setVars(room.chatId, parsed.data)
-        const message = loadMessage(getChatRow(room.chatId).activeLeafId!)
-        return { result, event: event(room, 'room.message', actor, { action: 'updated', message }, message.id) }
-      })
-      publish(data.event)
-      return Response.json(data.result)
     }
     const characterPath = /^\/characters\/([^/]+)$/.exec(path)
     if (method === 'GET' && characterPath) {

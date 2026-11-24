@@ -3,15 +3,20 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
+  BackgroundDTO,
   CharacterCgDTO,
   CharacterDTO,
   ChatDTO,
+  ChatPage,
   GroupDTO,
+  MessageDTO,
   PlayPresetDTO,
+  PromptPresetDTO,
   SpriteDTO,
   SpriteJobDTO,
 } from '@nobot/shared'
 import sharp from 'sharp'
+import { readSSE, waitFor } from './helpers/sse'
 
 test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetch mock', async () => {
   if (!process.env.VN6_CHILD) {
@@ -39,7 +44,7 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
   const { app } = await import('../src/app')
   const { createExtensionHost } = await import('../src/extensions/host')
   const { autoCgs, autoActors } = await import('../src/extensions/builtin/image-gen/vn6')
-  const { loadMessage, loadPath } = await import('../src/services/chats')
+  const { getChatRow, loadMessage, loadPath } = await import('../src/services/chats')
   const { computeStage, applyStageParse } = await import('../src/services/generation/stage')
   const { parseSettings } = await import('../src/extensions/builtin/image-gen/settings')
   const { updateExtension } = await import('../src/extensions/registry')
@@ -58,7 +63,7 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
   const preset = await json<PlayPresetDTO>('/play-presets', 'POST', {
     name: 'VN6 test',
     data: {
-      directives: { enabled: true, kinds: ['cg', 'cast'] },
+      directives: { enabled: true, kinds: ['cg', 'cast', 'scene'] },
       sprites: { classify: 'off' },
       stage: { unknownActor: 'generate', autoBackground: false },
     },
@@ -81,11 +86,22 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
     .toBuffer()
   const calls: Record<string, unknown>[] = []
   const referenceCalls: Record<string, unknown>[] = []
+  const cgRefinements: string[] = []
   let failImage = false
   let release: (() => void) | undefined
   let gate: Promise<void> | undefined
+  let textResponse: ((body: Record<string, unknown>) => Response | Promise<Response>) | undefined
   const fetchMock = spyOn(globalThis, 'fetch').mockImplementation((async (url: unknown, options?: RequestInit) => {
     const body = JSON.parse(String(options?.body ?? '{}')) as Record<string, unknown>
+    if (body.model === 'vn-text' && textResponse) return textResponse(body)
+    if (body.model === 'vn-cg-refinement') {
+      const request = JSON.stringify(body.messages)
+      cgRefinements.push(request)
+      const content = request.includes('The following describes a background image')
+        ? '{"name":"Courtyard","description":"A quiet courtyard."}'
+        : 'stone terraces, painted iron doors'
+      return Response.json({ choices: [{ message: { content } }] })
+    }
     if (body.model === 'gemini-sprite-test') {
       referenceCalls.push(body)
       return Response.json({ choices: [{ message: { content: `data:image/png;base64,${png.toString('base64')}` } }] })
@@ -116,8 +132,8 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
     gate = new Promise<void>((resolve) => {
       release = resolve
     })
-    const pending = autoCgs(ctx, chat.id)
-    await autoCgs(ctx, chat.id)
+    const pending = autoCgs(ctx, chat.id, message.id)
+    await autoCgs(ctx, chat.id, message.id)
     expect(loadMessage(message.id).meta.cg?.map((entry) => entry.status)).toEqual(['pending', 'pending'])
     release!()
     gate = undefined
@@ -134,7 +150,7 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
     ).toBe(true)
     expect(quiet).toHaveBeenCalledTimes(2)
     expect(calls[0]!.size).toBe('768x512')
-    await autoCgs(ctx, chat.id)
+    await autoCgs(ctx, chat.id, message.id)
     expect(calls).toHaveLength(2)
     const gallery = await json<CharacterCgDTO[]>(`/characters/${actor.id}/cgs`)
     expect(gallery).toHaveLength(2)
@@ -240,10 +256,10 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
     })
     expect(await waitJob(failedJob.jobId)).toEqual({ total: 1, done: 0, failed: 1, status: 'error' })
     const badCg = append({ role: 'assistant', content: '<cg prompt="bad" />' })
-    await autoCgs(ctx, chat.id)
+    await autoCgs(ctx, chat.id, badCg.id)
     expect(loadMessage(badCg.id).meta.cg?.[0]?.status).toBe('error')
     const count = calls.length
-    await autoCgs(ctx, chat.id)
+    await autoCgs(ctx, chat.id, badCg.id)
     expect(calls.length).toBe(count)
     failImage = false
     const npc = append({ role: 'assistant', content: '<show who="Merchant" />\n<show who="Bob" />' })
@@ -273,6 +289,192 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
     expect((await json<SpriteDTO[]>(`/characters/${other.id}/sprites`)).map((sprite) => sprite.expression)).toEqual([
       'neutral',
     ])
+
+    const edit = (id: string, content: string) => json<MessageDTO>(`/messages/${id}`, 'PATCH', { content })
+    const reordered = await edit(message.id, '<cg prompt="night" />\nA new line\n<cg prompt="garden" />')
+    const originalCgImages = new Map(saved.meta.cg!.map((entry) => [entry.prompt, entry.attachmentId]))
+    expect(reordered.meta.cg?.map(({ beat, prompt, attachmentId }) => ({ beat, prompt, attachmentId }))).toEqual([
+      { beat: beats[0], prompt: 'night', attachmentId: originalCgImages.get('night') },
+      { beat: beats[1], prompt: 'garden', attachmentId: originalCgImages.get('garden') },
+    ])
+    const replaced = await edit(message.id, '<cg prompt="river" />\nText\n<cg prompt="garden" />')
+    expect(replaced.meta.cg).toMatchObject([
+      { beat: beats[1], prompt: 'garden', attachmentId: originalCgImages.get('garden') },
+    ])
+    expect(replaced.meta.images).toHaveLength(3)
+    host.updateMessageMeta(message.id, { cg: saved.meta.cg })
+    await json(`/chats/${chat.id}`)
+    expect(loadMessage(message.id).meta.cg).toEqual(replaced.meta.cg)
+
+    // 旧任务迟到时，删掉的指令不恢复，移动过的指令仍可使用原任务的结果。
+    const changing = append({ role: 'assistant', content: '<cg prompt="discard" />\n<cg prompt="keep" />' })
+    const held = Promise.withResolvers<void>()
+    gate = held.promise
+    const beforeEdit = calls.length
+    const rendering = autoCgs(ctx, chat.id, changing.id)
+    try {
+      await waitFor(() => calls.length > beforeEdit)
+      const edited = await edit(changing.id, 'Narration\n<cg prompt="keep" />\n<cg prompt="new" />')
+      expect(edited.meta.cg).toMatchObject([{ beat: 1, prompt: 'keep', status: 'pending' }])
+    } finally {
+      gate = undefined
+      held.resolve()
+    }
+    await rendering
+    expect(loadMessage(changing.id).meta.cg).toMatchObject([{ beat: 1, prompt: 'keep', status: 'done' }])
+    expect(loadMessage(changing.id).meta.images).toHaveLength(1)
+    await autoCgs(ctx, chat.id, changing.id)
+    expect(loadMessage(changing.id).meta.cg).toMatchObject([
+      { beat: 1, prompt: 'keep', status: 'done' },
+      { beat: 2, prompt: 'new', status: 'done' },
+    ])
+
+    // CG 在续写请求等待期间完成时，文本落库必须保留最新的附件和 CG 状态。
+    const textConnection = await json<{ id: string }>('/connections', 'POST', {
+      name: 'VN text',
+      baseUrl: 'http://mock/v1',
+      model: 'vn-text',
+    })
+    await json(`/chats/${chat.id}`, 'PATCH', { apiPresetId: textConnection.id })
+    const continuing = append({ role: 'assistant', speakerId: actor.id, content: '<cg prompt="existing" />' })
+    const heldImage = Promise.withResolvers<void>()
+    const heldText = Promise.withResolvers<void>()
+    const requestedText = Promise.withResolvers<void>()
+    gate = heldImage.promise
+    textResponse = async () => {
+      requestedText.resolve()
+      await heldText.promise
+      const frame = JSON.stringify({ choices: [{ delta: { content: '\nNarration\n<cg prompt="continued" />' } }] })
+      return new Response(`data: ${frame}\n\ndata: [DONE]\n\n`, {
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    }
+    const beforeContinue = calls.length
+    const inFlightCg = autoCgs(ctx, chat.id, continuing.id)
+    await waitFor(() => calls.length > beforeContinue)
+    const continuation = readSSE(
+      await app.request(`/api/chats/${chat.id}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'continue', targetId: continuing.id }),
+      }),
+    )
+    try {
+      await Promise.race([
+        requestedText.promise,
+        continuation.then((events) => {
+          throw new Error(`续写未调用模拟模型：${JSON.stringify(events)}`)
+        }),
+      ])
+      gate = undefined
+      heldImage.resolve()
+      await inFlightCg
+      expect(loadMessage(continuing.id).meta.cg?.[0]?.status).toBe('done')
+    } finally {
+      gate = undefined
+      heldImage.resolve()
+      heldText.resolve()
+    }
+    expect((await continuation).some((event) => event.type === 'error')).toBe(false)
+    const continued = loadMessage(continuing.id)
+    expect(continued.meta.cg?.[0]).toMatchObject({ prompt: 'existing', status: 'done' })
+    expect(continued.meta.images?.[0]?.id).toBe(continued.meta.cg?.[0]?.attachmentId)
+    await autoCgs(ctx, chat.id, continuing.id)
+    await waitFor(() => loadMessage(continuing.id).meta.cg?.[1]?.status === 'done')
+    expect(loadMessage(continuing.id).meta.cg?.map(({ prompt }) => prompt)).toEqual(['existing', 'continued'])
+
+    // 两名角色各自生成 CG，工具调用轮不出图；先发言角色的第二张图不能读到后续角色的话。
+    await json(`/groups/${group.id}`, 'PATCH', { activation: 'list' })
+    await json(`/play-presets/${preset.id}`, 'PATCH', {
+      data: { ...preset.data, stage: { ...preset.data.stage, autoBackground: true } },
+    })
+    const toolPreset = await json<PromptPresetDTO>('/presets', 'POST', {
+      name: 'VN CG tool round',
+      data: { samplers: { functionCalling: true } },
+    })
+    const cgChat = await json<ChatDTO>('/chats', 'POST', { groupId: group.id })
+    await json(`/chats/${cgChat.id}`, 'PATCH', {
+      playPresetId: preset.id,
+      promptPresetId: toolPreset.id,
+      apiPresetId: textConnection.id,
+    })
+    updateExtension('image-gen', {
+      enabled: true,
+      settings: { ...settings, promptModel: 'vn-cg-refinement', promptConnectionId: textConnection.id },
+    })
+    const frames = [
+      {
+        delta: {
+          content: '<scene bg="Dice draft cave" />\n<cg prompt="dice draft" />',
+          tool_calls: [
+            {
+              index: 0,
+              id: 'cg-dice',
+              type: 'function',
+              function: { name: 'roll_dice', arguments: '{"expression":"1d6"}' },
+            },
+          ],
+        },
+        finish_reason: 'tool_calls',
+      },
+      {
+        delta: {
+          content:
+            'Alice enters the amber courtyard.\n<scene bg="Amber courtyard" place="Courtyard" />\n<cg prompt="Amber arches" />\n<cg prompt="Courtyard fountain" />',
+        },
+      },
+      { delta: { content: 'Bob opens the silver floodgate.\n<cg prompt="Silver floodgate" />' } },
+    ]
+    textResponse = () =>
+      new Response(`data: ${JSON.stringify({ choices: [frames.shift()] })}\n\ndata: [DONE]\n\n`, {
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    const heldGroupImages = Promise.withResolvers<void>()
+    gate = heldGroupImages.promise
+    const beforeGroupImages = calls.length
+    const groupEvents = await app
+      .request(`/api/chats/${cgChat.id}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'send', text: 'What is beyond those doors?' }),
+      })
+      .then((response) => readSSE(response))
+      .finally(() => {
+        gate = undefined
+        heldGroupImages.resolve()
+      })
+    expect(groupEvents.some((event) => event.type === 'error')).toBe(false)
+    const groupReplies = groupEvents.flatMap((event) => (event.type === 'done' ? [event.message] : []))
+    expect(groupReplies.map((reply) => reply.speakerId)).toEqual([actor.id, actor.id, other.id])
+    const [toolRound, aliceReply, bobReply] = groupReplies as [MessageDTO, MessageDTO, MessageDTO]
+    await waitFor(() =>
+      [aliceReply, bobReply].every(({ id }) => {
+        const cg = loadMessage(id).meta.cg
+        return cg?.length && cg.every(({ status }) => status === 'done')
+      }),
+    )
+    expect(loadMessage(toolRound.id).meta.cg).toBeUndefined()
+    expect(loadMessage(aliceReply.id).meta.cg?.map(({ prompt }) => prompt)).toEqual([
+      'Amber arches',
+      'Courtyard fountain',
+    ])
+    expect(loadMessage(bobReply.id).meta.cg?.map(({ prompt }) => prompt)).toEqual(['Silver floodgate'])
+    const secondAliceCg = cgRefinements.find((request) => request.includes('Courtyard fountain'))
+    expect(secondAliceCg).toContain('Alice enters the amber courtyard')
+    expect(secondAliceCg).not.toContain('Bob opens the silver floodgate')
+
+    // 第一位角色切换场景，第二位继续在原场景发言。背景应在这一轮正常出图并留在该路径。
+    await waitFor(() => loadPath(getChatRow(cgChat.id).activeLeafId, 1)[0]?.meta.imageGen?.mode === 'background')
+    const afterBackground = await json<ChatPage>(`/chats/${cgChat.id}`)
+    const backgrounds = (await json<BackgroundDTO[]>('/backgrounds')).filter((item) => item.chatId === cgChat.id)
+    expect(backgrounds.map(({ name }) => name)).toEqual(['Amber courtyard'])
+    expect(afterBackground.stage?.scene.backgroundId).toBe(backgrounds[0]?.id)
+    expect(afterBackground.messages.at(-1)).toMatchObject({ parentId: bobReply.id, speakerId: actor.id })
+    const backgroundPrompt = cgRefinements.find((request) => request.includes('Location name: Amber courtyard'))
+    expect(backgroundPrompt).toContain('Alice enters the amber courtyard')
+    expect(backgroundPrompt).not.toContain('Bob opens the silver floodgate')
+    expect(calls.length - beforeGroupImages).toBe(4)
+
     updateExtension('image-gen', { enabled: false })
     const disabled = await app.request(`/api/characters/${other.id}/sprites/generate`, {
       method: 'POST',
@@ -284,4 +486,4 @@ test('VN6：CG 附件、画廊归属、立绘任务与临时演员，使用 fetc
     quiet.mockRestore()
     fetchMock.mockRestore()
   }
-})
+}, 15000)

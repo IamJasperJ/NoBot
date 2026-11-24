@@ -4,6 +4,7 @@ import * as React from 'react'
 import { registerFreshMessage, useFreshMessages } from '../stores/freshMessages'
 import { message, setupHooks } from './hooks.test-utils'
 import { keys } from './queries'
+import { removeRoomScope, setRoomScope } from './room-scope'
 import { useFreshDice, usePickChoice, useTrpgSettings } from './trpg'
 
 test('跑团 hooks：预设开关、检定等待、透传、新消息与错误恢复', async () => {
@@ -146,6 +147,27 @@ test('跑团 hooks：预设开关、检定等待、透传、新消息与错误�
     await Bun.sleep(65)
     expect(render(() => useFreshDice('expire', 50))).toBe(false)
     if (typeof cleanup === 'function') cleanup()
+
+    setRoomScope({ id: 'room-for-vote', chatId: 'chat', myRole: 'player' })
+    try {
+      const source = {
+        ...message,
+        id: 'selected-options',
+        meta: { version: 3, stage: { ops: [], beats: [], choices: [option] } },
+      }
+      const duplicate = { ...source, id: 'newer-options', meta: { ...source.meta, version: 7 } }
+      qc.setQueryData(keys.chat('chat'), {
+        pages: [{ ...page, messages: [source, duplicate] }],
+        pageParams: [undefined],
+      })
+      await render(() => usePickChoice('chat')).pick(option, source.id)
+      expect(requests.findLast((request) => request.url.endsWith('/vote'))).toEqual({
+        url: '/api/rooms/room-for-vote/choices/selected-options/vote',
+        body: { index: 0, messageVersion: 3 },
+      })
+    } finally {
+      removeRoomScope('chat')
+    }
   } finally {
     effects.mockRestore()
     cancel.mockRestore()

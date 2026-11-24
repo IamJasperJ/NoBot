@@ -886,6 +886,26 @@ test('CH1 集成：用户隔离、外部成员、房间私密投递、资料、�
             .some((c) => c.url.includes('OTHER_SECRET') && c.method === 'editMessageText' && c.body.chat_id === '-600'),
         ).toBe(true)
         expect(calls.slice(startCalls).some((c) => c.body.chat_id === '-602')).toBe(false)
+        setSetting(`channels:primary:${streamed.chatId}`, streamed.id)
+        const unsent = host.appendMessage(streamed.chatId, { role: 'assistant', content: 'Cancelled delivery' })
+        const beforeUnsent = calls.length
+        let commits = 0
+        await service.deliver(streamed, unsent, {
+          accountId: account.id,
+          isClosed: false,
+          waitReady: async () => {},
+          update: () => {},
+          abort: () => {},
+          commit: async () => {
+            commits++
+            return []
+          },
+        })
+        expect(commits).toBe(1)
+        expect(
+          db.select().from(channelDeliveries).where(eq(channelDeliveries.messageId, unsent.id)).get(),
+        ).toBeUndefined()
+        expect(calls.slice(beforeUnsent).some((call) => call.method === 'editMessageReplyMarkup')).toBe(false)
         const onlyBinding = {
           ...streamed,
           id: newId(),

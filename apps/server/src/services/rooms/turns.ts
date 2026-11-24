@@ -1,4 +1,4 @@
-import type { GenerateInput, MessageMeta, RoomEvent, roomSendInput } from '@nobot/shared'
+import type { GenerateInput, MessageMeta, RoomEvent, roomSendInput, SetVarsInput, SwipeInput } from '@nobot/shared'
 import { and, eq } from 'drizzle-orm'
 import type { z } from 'zod'
 import { db, getSetting, newId, setSetting } from '../../db/client'
@@ -8,7 +8,7 @@ import { t } from '../../i18n'
 import { stripBidi } from '../../lib/input-text'
 import { currentUser } from '../../user-context'
 import { getAttachment } from '../attachments'
-import { editMessage, getChatRow, loadMessage, loadPath } from '../chats'
+import { editMessage, getChatRow, loadMessage, loadPath, setVars, swipe } from '../chats'
 import * as generation from '../generation/generation'
 import { quietPrompt } from '../generation/quiet-prompt'
 import { liveHub } from '../live/hub'
@@ -30,6 +30,7 @@ import {
   refused,
   reserveUsage,
   roomRow,
+  unavailable,
 } from './index'
 import { cleanMessageText, rateLimitMessage, validateEdit } from './input'
 import {
@@ -54,7 +55,7 @@ interface TurnState {
   replyTo?: string
   speakerId?: string
   inputPlayers?: string[]
-  deciding?: boolean
+  deciding?: AbortController
   /** 定时器预计触发的时间，给前端显示「等待中」 */
   dueAt?: number
 }
@@ -72,33 +73,51 @@ export function turnState(id: string) {
       typingUntil: 0,
     }
     const room = roomRow(id)
-    const saved = asHost(room, () => getSetting<Omit<TurnState, 'timer'>>(`room-turn:${id}`))
+    const saved = asHost(room, () => getSetting<Omit<TurnState, 'timer' | 'deciding'>>(`room-turn:${id}`))
     if (saved) {
-      Object.assign(state, saved, { running: false, deciding: false })
+      Object.assign(state, saved, {
+        running: false,
+        deciding: undefined,
+        dueAt: undefined,
+        replyTo: undefined,
+        speakerId: undefined,
+        inputPlayers: undefined,
+      })
       // 进程重启时旧生成已被标记中止；把生成期间已确认接收的玩家消息接回可见分支。
-      if (state.queued.length)
+      const restored = state
+      if (restored.queued.length)
         asHost(room, () =>
           db.transaction(() => {
-            db.update(messages)
-              .set({ parentId: getChatRow(room.chatId).activeLeafId })
-              .where(eq(messages.id, state!.queued[0]!))
-              .run()
-            db.update(chats)
-              .set({ activeLeafId: state!.queued.at(-1)! })
-              .where(eq(chats.id, room.chatId))
-              .run()
+            reconnectQueued(room, restored)
+            persistTurn(id, restored)
           }),
         )
-      state.queued = []
     }
     states.set(id, state)
   }
   return state
 }
 export function persistTurn(id: string, state: TurnState) {
-  const { timer: _, ...saved } = state
+  const { timer: _, deciding: _decision, ...saved } = state
   setSetting(`room-turn:${id}`, saved)
 }
+
+/** 调用方在同一事务里保存新叶子和清空后的队列，重启可安全重复恢复。 */
+function reconnectQueued(room: Room, state: TurnState) {
+  if (!state.queued.length) return
+  const queued = state.queued.filter((id) => loadPath(id, 1)[0]?.chatId === room.chatId)
+  const first = queued[0]
+  if (first) {
+    const leaf = getChatRow(room.chatId).activeLeafId
+    const last = queued.at(-1)!
+    // 兼容在旧版本中已经换过叶子、尚未来得及清队列的存档。
+    if (!leaf || !queued.includes(leaf)) db.update(messages).set({ parentId: leaf }).where(eq(messages.id, first)).run()
+    if (leaf !== last)
+      db.update(chats).set({ activeLeafId: last, updatedAt: Date.now() }).where(eq(chats.id, room.chatId)).run()
+  }
+  state.queued = []
+}
+
 function ephemeral(room: Room, type: string, actorId: string, payload: Record<string, unknown>) {
   const data: RoomEvent = { roomId: room.id, type, actorId, payload: roomPayload(payload), createdAt: Date.now() }
   const topic = `room:${room.id}`
@@ -124,14 +143,21 @@ function ephemeral(room: Room, type: string, actorId: string, payload: Record<st
   liveHub.publishToTopic(topic, { type, topic, data }, (userId) => privileged.has(userId))
   liveHub.publishToTopic(topic, { type, topic, data: masked }, (userId) => !privileged.has(userId))
 }
+export function roomTurnSnapshot(id: string) {
+  const state = turnState(id)
+  return {
+    actorId: state.actorId,
+    payload: {
+      running: state.running,
+      pendingCount: state.pending.length,
+      waitingUntil: state.timer ? (state.dueAt ?? null) : null,
+      cooldownUntil: state.cooldownUntil,
+    },
+  }
+}
 export function broadcastTurn(room: Room) {
-  const s = turnState(room.id)
-  ephemeral(room, 'room.turn', s.actorId, {
-    running: s.running,
-    pendingCount: s.pending.length,
-    waitingUntil: s.timer ? (s.dueAt ?? null) : null,
-    cooldownUntil: s.cooldownUntil,
-  })
+  const { actorId, payload } = roomTurnSnapshot(room.id)
+  ephemeral(room, 'room.turn', actorId, payload)
 }
 export function sendRoomMessage(
   id: string,
@@ -263,17 +289,32 @@ export function parseDecision(text: string): {
   }
   return { respond: false, speaker: null, replyTo: null, reason: '' }
 }
+
+/** 已撤回、删除或切离激活分支的消息不再参与待回复队列。 */
+function prunePending(room: Room, state: TurnState) {
+  if (!state.pending.length) return
+  const ids = new Set(state.pending)
+  const path = loadPath(getChatRow(room.chatId).activeLeafId)
+  const pending = path.filter((m) => ids.has(m.id) && m.role === 'user' && !m.meta.excluded)
+  if (pending.length === state.pending.length) return
+  state.pending = pending.map((m) => m.id)
+  state.firstAt = pending[0]?.createdAt ?? 0
+  state.actorId = pending.at(-1)?.meta.author?.userId ?? room.hostUserId
+  persistTurn(room.id, state)
+}
+
 /** 待回应的消息里有没有叫到 AI：点了角色名、回复了 AI 的消息；智能接话里带问号的提问也算 */
 function addressed(room: Room, s: TurnState) {
   const ai = charactersForRoom(room, false)
   return s.pending.some((id) => {
-    const m = loadMessage(id)
+    const m = loadPath(id, 1)[0]
+    if (!m || m.meta.excluded) return false
     return (
       mentions(
         m.content,
         ai.map((c) => c.name),
       ) ||
-      (m.meta.replyTo && loadMessage(m.meta.replyTo).role === 'assistant') ||
+      (m.meta.replyTo && loadPath(m.meta.replyTo, 1)[0]?.role === 'assistant') ||
       (room.turnMode === 'smart' && /[?？]/.test(m.content))
     )
   })
@@ -286,15 +327,16 @@ function schedule(room: Room) {
   const s = turnState(room.id)
   clearTimeout(s.timer)
   s.timer = undefined
-  if (
-    s.running ||
-    s.deciding ||
-    !s.pending.length ||
-    ['host', 'initiative'].includes(room.turnMode) ||
-    room.status !== 'active'
-  )
+  s.dueAt = undefined
+  if (s.deciding) {
+    s.deciding.abort()
     return
-  if (room.turnMode === 'mention' && !addressed(room, s)) return
+  }
+  if (!s.running) prunePending(room, s)
+  if (s.running || !s.pending.length || ['host', 'initiative'].includes(room.turnMode) || room.status !== 'active')
+    return broadcastTurn(room)
+  const mentioned = room.turnMode === 'mention' || room.turnMode === 'smart' ? addressed(room, s) : false
+  if (room.turnMode === 'mention' && !mentioned) return broadcastTurn(room)
   // 智能接话尽量多接：叫到、提问时很快回应，其余等大家安静几秒再判断；刚回完话的短冷却只推迟、不丢弃
   // 每条都接：不判断，只留 1 秒把连着发的几句合成一轮
   const wait =
@@ -302,7 +344,7 @@ function schedule(room: Room) {
       ? 1000
       : room.turnMode === 'auto'
         ? quietDelay(s)
-        : addressed(room, s)
+        : mentioned
           ? 1500
           : room.turnMode === 'smart'
             ? quietDelay(s)
@@ -312,48 +354,68 @@ function schedule(room: Room) {
   s.timer = setTimeout(() => {
     s.timer = undefined
     s.dueAt = undefined
-    const evaluated = s.pending.length
-    s.deciding = true
+    const decisionTask = new AbortController()
+    s.deciding = decisionTask
     void Promise.resolve()
       .then(() =>
         asHost(room, async () => {
           try {
             const latest = findRoom(room.id)
-            if (!latest) return
+            if (!latest || decisionTask.signal.aborted) return
+            prunePending(latest, s)
             if (latest.status !== 'active' || ['host', 'initiative'].includes(latest.turnMode) || !s.pending.length)
               return
             if (latest.turnMode === 'mention' && !addressed(latest, s)) return
             if (latest.turnMode === 'smart' && !addressed(latest, s)) {
-              const players = members(room.id).filter((m) => m.role !== 'spectator')
+              const leafId = getChatRow(room.chatId).activeLeafId
+              const lastPending = s.pending.at(-1)
               const answer = await quietPrompt({
                 chatId: room.chatId,
+                leafId,
                 instruction:
                   'Decide whether an AI character should respond in this multiplayer scene. The players want the AI characters to join in as often as possible, so lean strongly towards responding. Only answer false when the latest messages are clearly a private exchange between human players that a character would not take part in. Pick a speaker who fits the topic and respect each character\'s talkativeness. Return only strict JSON: {"respond": boolean, "speaker": "character name or null", "replyTo": "player name or null", "reason": "short reason"}. Use JSON null for missing names. Do not write dialogue. Write the reason in the same language as the conversation.',
                 maxTokens: 300,
-              })
-              if (!findRoom(room.id)) return
-              // AI 只回应玩家的新消息、不会自己接自己，判断失败时宁可接话也不冷场
-              const decision = parseDecision(answer)
-              if (decision && !decision.respond) return
+                signal: AbortSignal.any([decisionTask.signal, AbortSignal.timeout(30_000)]),
+              }).catch(() => null)
+              const current = findRoom(room.id)
+              if (decisionTask.signal.aborted || !current || current.status !== 'active' || s.running) return
+              // 消息和设置可在判断期间变化，旧结果不能替新一轮挑选角色。
+              if (current.turnMode !== latest.turnMode || s.pending.at(-1) !== lastPending) {
+                decisionTask.abort()
+                return
+              }
+              // 请求失败时沿用普通回复；明确拒绝的批次已经处理，正文仍在对话中。
+              const decision = answer === null ? null : parseDecision(answer)
+              if (decision && !decision.respond) {
+                s.pending = []
+                s.firstAt = 0
+                persistTurn(room.id, s)
+                broadcastTurn(current)
+                return
+              }
               if (decision) {
-                s.speakerId = charactersForRoom(room, false).find(
+                s.speakerId = charactersForRoom(current, false).find(
                   (c) => c.name === decision.speaker && c.talkativeness > 0,
                 )?.id
-                s.replyTo = players.find((p) => p.personaName === decision.replyTo)?.personaName
+                s.replyTo = members(current.id).find(
+                  (p) => p.role !== 'spectator' && p.personaName === decision.replyTo,
+                )?.personaName
               }
             }
             if (!s.running && s.pending.length) triggerTurn(room.id, s.actorId, false)
           } catch (error) {
+            s.replyTo = undefined
+            s.speakerId = undefined
             ephemeral(room, 'room.turn', s.actorId, { error: error instanceof Error ? error.message : String(error) })
           } finally {
-            s.deciding = false
+            s.deciding = undefined
             const latest = findRoom(room.id)
-            if (latest && !s.running && s.pending.length > evaluated) schedule(latest)
+            if (latest && states.get(room.id) === s && !s.running && decisionTask.signal.aborted) schedule(latest)
           }
         }),
       )
       .catch(() => {
-        s.deciding = false
+        s.deciding = undefined
       })
   }, delay)
   s.timer.unref()
@@ -396,9 +458,13 @@ export function triggerTurn(
     const s = turnState(id)
     if (s.running || generation.isGenerating(room.chatId)) throw new HttpError(409, 'GENERATING', t('房间正在生成回复'))
     checkQuota(room, actorId)
+    if (manual) s.deciding?.abort()
+    prunePending(room, s)
     clearTimeout(s.timer)
     s.timer = undefined
+    s.dueAt = undefined
     const pending = [...s.pending]
+    const { firstAt, actorId: pendingActor } = s
     s.running = true
     s.queued = []
     s.inputPlayers = [
@@ -456,6 +522,9 @@ export function triggerTurn(
     } catch (error) {
       s.running = false
       s.pending.unshift(...pending)
+      s.firstAt = firstAt
+      s.actorId = pendingActor
+      s.inputPlayers = undefined
       persistTurn(id, s)
       throw error
     }
@@ -482,25 +551,16 @@ export function triggerTurn(
       if (e.type === 'complete') {
         releaseUsage?.()
         releaseUsage = undefined
-        if (s.queued.length)
-          db.transaction(() => {
-            db.update(messages)
-              .set({ parentId: getChatRow(room.chatId).activeLeafId })
-              .where(eq(messages.id, s.queued[0]!))
-              .run()
-            db.update(chats)
-              .set({ activeLeafId: s.queued.at(-1)!, updatedAt: Date.now() })
-              .where(eq(chats.id, room.chatId))
-              .run()
-          })
-        s.running = false
-        s.queued = []
-        // 刚回完话的短冷却：避免连发两条，期间的新消息顺延到冷却结束
-        s.cooldownUntil = Date.now() + 3000
-        s.replyTo = undefined
-        s.speakerId = undefined
-        s.inputPlayers = undefined
-        persistTurn(id, s)
+        db.transaction(() => {
+          reconnectQueued(room, s)
+          s.running = false
+          // 刚回完话的短冷却：避免连发两条，期间的新消息顺延到冷却结束。
+          s.cooldownUntil = Date.now() + 3000
+          s.replyTo = undefined
+          s.speakerId = undefined
+          s.inputPlayers = undefined
+          persistTurn(id, s)
+        })
         broadcastTurn(room)
         afterAiTurn(latest)
         // complete 在任务移出锁之前广播，下一轮交给定时器启动。
@@ -527,15 +587,51 @@ export function abortTurn(id: string) {
   if (!['owner', 'gm'].includes(member.role)) throw refused()
   asHost(room, () => generation.abortGeneration(room.chatId))
 }
-export function editRoomMessage(id: string, messageId: string, content: string | null) {
-  const { room, member } = membership(id),
-    actor = currentUser().id
-  if (member.role === 'spectator') throw new HttpError(403, 'ROOM_SPECTATOR_READ_ONLY', t('旁观者只能查看房间'))
+export function swipeRoom(id: string, input: SwipeInput) {
+  const { room } = membership(id)
+  const actor = currentUser().id
+  const member = checkWritable(room, actor)
+  if (!['owner', 'gm'].includes(member.role)) throw unavailable()
+  return asHost(room, () => {
+    const message = loadMessage(input.messageId)
+    if (message.chatId !== room.chatId || !canReadMessage(message, actor)) throw unavailable()
+    const data = db.transaction(() => {
+      const leafId = swipe(room.chatId, input.messageId, input.direction)
+      return { leafId, event: event(room, 'room.message', actor, { action: 'activated', leafId }) }
+    })
+    publish(data.event)
+    if (data.leafId) schedule(room)
+    return { leafId: data.leafId }
+  })
+}
+export function setRoomVars(id: string, input: SetVarsInput) {
+  const { room } = membership(id)
+  const actor = currentUser().id
+  const member = checkWritable(room, actor)
+  if (!['owner', 'gm'].includes(member.role)) throw unavailable()
+  return asHost(room, () => {
+    const data = db.transaction(() => {
+      const leafId = getChatRow(room.chatId).activeLeafId
+      if (leafId && !canReadMessage(loadMessage(leafId), actor)) throw unavailable()
+      const result = setVars(room.chatId, input)
+      const message = loadMessage(leafId!)
+      return { result, event: event(room, 'room.message', actor, { action: 'updated', message }, message.id) }
+    })
+    publish(data.event)
+    if (turnState(id).deciding) schedule(room)
+    return data.result
+  })
+}
+export function editRoomMessage(id: string, messageId: string, content: string | null, reasoning?: string) {
+  const { room } = membership(id)
+  const actor = currentUser().id
+  const member = checkWritable(room, actor)
   if (content !== null) content = validateEdit(stripBidi(content))
   return asHost(room, () => {
     const m = loadMessage(messageId)
     if (m.chatId !== room.chatId || !canReadMessage(m, actor)) throw refused()
-    if (turnState(id).running || generation.isGenerating(room.chatId))
+    const state = turnState(id)
+    if (state.running || generation.isGenerating(room.chatId))
       throw new HttpError(409, 'GENERATING', t('房间正在生成回复'))
     const path = loadPath(getChatRow(room.chatId).activeLeafId)
     const position = path.findIndex((p) => p.id === messageId)
@@ -546,6 +642,7 @@ export function editRoomMessage(id: string, messageId: string, content: string |
     }
     if (content !== null) rateLimitMessage(`${id}:${actor}`, Date.now(), true)
     // 房间撤回保留节点与修订记录，避免删除子树时误删其他玩家的发言。
+    const pending = state.pending.includes(messageId)
     const data = db.transaction(() => {
       const meta = {
         ...m.meta,
@@ -556,7 +653,8 @@ export function editRoomMessage(id: string, messageId: string, content: string |
         ...(content === null ? { excluded: true } : {}),
       }
       db.update(messages).set({ meta }).where(eq(messages.id, messageId)).run()
-      const message = editMessage(messageId, content ?? '')
+      const message = editMessage(messageId, content ?? '', content === null ? '' : reasoning)
+      if (content === null && pending) prunePending(room, state)
       return {
         message,
         event: event(
@@ -569,6 +667,7 @@ export function editRoomMessage(id: string, messageId: string, content: string |
       }
     })
     publish(data.event)
+    if (pending || state.deciding) schedule(room)
     return roomMessage(data.message, actor, room.hostUserId)
   })
 }
@@ -591,6 +690,8 @@ export function rescheduleRoom(id: string) {
 
 /** 宿主切换后必须丢弃持有旧库上下文的唤醒器与内存状态。 */
 export function resetTurnState(id: string) {
-  clearTimeout(states.get(id)?.timer)
+  const state = states.get(id)
+  clearTimeout(state?.timer)
+  state?.deciding?.abort()
   states.delete(id)
 }

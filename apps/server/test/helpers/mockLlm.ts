@@ -9,7 +9,7 @@ export type MockReply =
   | { text: string; reasoning?: string; delayMs?: number }
   | { toolCalls: ToolCall[] }
   | { status: 401 | 500; error: string }
-export type MockScript = (body: MockRequest) => MockReply
+export type MockScript = (body: MockRequest) => MockReply | Promise<MockReply>
 
 /** 使用真实 HTTP 流，覆盖客户端的分片解析和中止逻辑。 */
 export function mockLlm() {
@@ -27,7 +27,7 @@ export function mockLlm() {
     }
     const body = (await request.json()) as MockRequest
     requests.push(body)
-    const reply = script(body)
+    const reply = await script(body)
     if ('status' in reply) return Response.json({ error: { message: reply.error } }, { status: reply.status })
     const calls = 'toolCalls' in reply ? reply.toolCalls : []
     const finishReason = calls.length ? 'tool_calls' : 'stop'

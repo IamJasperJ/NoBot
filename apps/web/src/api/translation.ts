@@ -1,7 +1,7 @@
 import type { MessageDTO } from '@nobot/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSyncExternalStore } from 'react'
-import { useFreshMessage } from '../stores/freshMessages'
+import { FRESH_MESSAGE_MAX_MS, useFreshMessage } from '../stores/freshMessages'
 import { api } from './client'
 import { keys, replaceMessage, useExtensions } from './queries'
 import { isRoomGuest } from './room-scope'
@@ -154,7 +154,7 @@ export function useTranslateText(): { translate: (text: string) => Promise<strin
 export function useTranslationPending(message: MessageDTO): boolean {
   const qc = useQueryClient()
   const extension = useExtensions().data?.find((item) => item.id === 'translate')
-  const fresh = useFreshMessage(message.id, 60000)
+  const fresh = useFreshMessage(message.id, FRESH_MESSAGE_MAX_MS)
   const pending =
     !isRoomGuest(message.chatId) &&
     !!extension?.enabled &&

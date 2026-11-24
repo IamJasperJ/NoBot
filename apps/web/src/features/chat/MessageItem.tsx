@@ -99,7 +99,19 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
   // 旁白 / 系统消息（/sys、/roll 等命令插入的）：居中的一行，不显示角色头像和名字
   // 带图片的系统消息（图片生成等插入的）照常按普通消息显示
   if (msg.role === 'system' && !msg.meta.images?.length && !msg.meta.imageGen)
-    return <NarrationMessage msg={msg} chatId={chatId} badge={privacy} canDelete={!room || room.myRole === 'owner'} />
+    return (
+      <>
+        <NarrationMessage msg={msg} chatId={chatId} badge={privacy} canDelete={!room || room.permissions.canEditAi} />
+        {room && msg.meta.choice?.counts && !msg.meta.excluded && (
+          <RoomChoiceStatus
+            chatId={chatId}
+            messageId={msg.meta.choice.messageId}
+            count={msg.meta.choice.counts.length}
+            replyOnly
+          />
+        )}
+      </>
+    )
 
   const isUser = msg.role === 'user'
   const speaker = msg.speakerId ? cast.speakers[msg.speakerId] : undefined
@@ -245,6 +257,7 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
               chatId={chatId}
               busy={busy}
               canRegenerate={canRegenerate}
+              canModify={room?.permissions.canEditAi}
               bookmark={bookmark}
               translateEnabled={translateEnabled}
               translation={translation}
@@ -269,7 +282,12 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
 
         <MessageMedia msg={msg} chatId={chatId} />
         {editing ? (
-          <MessageEditor msg={msg} chatId={chatId} busy={busy} onClose={() => setEditing(false)} />
+          <MessageEditor
+            msg={msg}
+            chatId={chatId}
+            busy={busy || (room !== undefined && !room.permissions.canSend)}
+            onClose={() => setEditing(false)}
+          />
         ) : text || isStreaming ? (
           <div className={cx(isUser && 'text-zinc-800 dark:text-zinc-200', isStreaming && 'streaming-cursor')}>
             {isUser && msg.meta.check && (
@@ -293,7 +311,9 @@ export const MessageItem = memo(function MessageItem({ msg, chatId, isLast, show
               options={choices}
               disabled={busy || pickChoice.busy || choiceGate.locked}
               showDc={trpg.showDc}
-              onPick={(option) => void pickChoice.pick(option).catch((e: unknown) => toast.error(errorMessage(e)))}
+              onPick={(option) =>
+                void pickChoice.pick(option, msg.id).catch((e: unknown) => toast.error(errorMessage(e)))
+              }
             />
             {choiceGate.hint && <p className="mt-1 text-xs text-zinc-500">{choiceGate.hint}</p>}
             <RoomChoiceStatus chatId={chatId} messageId={msg.id} count={choices.length} />

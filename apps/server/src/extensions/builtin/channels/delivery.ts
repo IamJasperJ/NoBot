@@ -22,14 +22,14 @@ import { ownerDirect, suppressChannelRelay } from './service'
 import { omitSpeakerPrefix } from './speaker-prefix'
 import { sendMessageStickers } from './sticker-delivery'
 import { accountRow, bindingRow } from './store'
-import { isImageMessage, visibleContent, visibleText } from './visible-text'
+import { canDeliverMessage, isImageMessage, visibleContent, visibleText } from './visible-text'
 import { reserveVoice, voiceDeliverySettings } from './voice-decision'
 
 export class ChannelDelivery {
   private privateDeliveryTails = new Map<string, Promise<unknown>>()
   constructor(private readonly service: ChannelService) {}
   async deliver(binding: ChannelBindingDTO, message: MessageDTO, stream?: TelegramStream) {
-    if (suppressChannelRelay(message) || !this.service.routesTo(binding, message)) {
+    if (!canDeliverMessage(message) || suppressChannelRelay(message) || !this.service.routesTo(binding, message)) {
       stream?.abort()
       return
     }
@@ -63,6 +63,16 @@ export class ChannelDelivery {
     }
   }
 
+  private savedForDelivery(message: MessageDTO) {
+    if (!canDeliverMessage(message)) return false
+    const saved = db
+      .select({ status: messages.status, meta: messages.meta })
+      .from(messages)
+      .where(eq(messages.id, message.id))
+      .get()
+    return !!saved && canDeliverMessage(saved)
+  }
+
   /**
    * 分条发送的「还要不要接着发」：绑定仍在用、消息没被删、正文没被改、仍在当前分支上（重新生成或切换备选后就停）。
    * 只比正文不比整行：翻译、语音等扩展会在发送期间往 meta 里写东西，不能因此中断
@@ -71,7 +81,16 @@ export class ChannelDelivery {
     return () => {
       const current = db.select().from(channelBindings).where(eq(channelBindings.id, binding.id)).get()
       const row = db.select().from(messages).where(eq(messages.id, message.id)).get()
-      if (current?.state !== 'active' || current.chatId !== binding.chatId || row?.content !== message.content)
+      if (
+        current?.state !== 'active' ||
+        current.chatId !== binding.chatId ||
+        current.accountId !== binding.accountId ||
+        current.chat !== binding.chat ||
+        current.thread !== binding.thread ||
+        !row ||
+        row.content !== message.content ||
+        !canDeliverMessage(row)
+      )
         return false
       try {
         return loadPath(getChatRow(binding.chatId).activeLeafId).some((item) => item.id === message.id)
@@ -97,7 +116,7 @@ export class ChannelDelivery {
   }
 
   private async deliverNow(binding: ChannelBindingDTO, message: MessageDTO, stream?: TelegramStream) {
-    if (suppressChannelRelay(message) || !this.service.routesTo(binding, message)) {
+    if (!this.savedForDelivery(message) || suppressChannelRelay(message) || !this.service.routesTo(binding, message)) {
       stream?.abort()
       return
     }
@@ -125,15 +144,24 @@ export class ChannelDelivery {
         message.meta.channel === 'whisper'
       )
         return
-      await this.deliverPlugin(binding, message, entry.client)
+      await this.deliverPlugin(binding, message, entry.client, burstCurrent)
       // CG 图片可能在文字投递后才补齐，媒体去重必须独立于文字回执。
       if (
+        burstCurrent() &&
         isImageMessage(message) &&
         entry.client.definition.media.outboundImages &&
         entry.client.definition.sendImage
       ) {
         await this.service.media
-          .deliver(binding, message, this.service.settings(binding).values, entry.client, binding.accountId)
+          .deliver(
+            binding,
+            message,
+            this.service.settings(binding).values,
+            entry.client,
+            binding.accountId,
+            false,
+            burstCurrent,
+          )
           .catch(() => this.service.runtime.log(binding.accountId, 'media.failed'))
       }
       return
@@ -548,6 +576,10 @@ export class ChannelDelivery {
       stream?.abort()
       stream = undefined
     }
+    if (entry.controller.signal.aborted) {
+      stream?.abort()
+      return
+    }
     const markup = { inline_keyboard: rows }
     if (stream?.isClosed) stream = undefined
     let ids: number[]
@@ -555,8 +587,10 @@ export class ChannelDelivery {
       stream.abort()
       stream = undefined
     }
-    if (stream) ids = await stream.commit(text, markup, segments)
-    else {
+    if (stream) {
+      ids = await stream.commit(text, markup, segments)
+      if (!ids.length) return
+    } else {
       const sender = entry
       const send = async () => {
         const sentIds: number[] = []
@@ -684,7 +718,10 @@ export class ChannelDelivery {
   }
 
   async deliverOneBotTurn(binding: ChannelBindingDTO, turn: MessageDTO[]) {
-    turn = turn.filter((message) => this.service.routesTo(binding, message) && !suppressChannelRelay(message))
+    turn = turn.filter(
+      (message) =>
+        this.savedForDelivery(message) && !suppressChannelRelay(message) && this.service.routesTo(binding, message),
+    )
     if (!turn.length) return
     const client = this.service.runtime.accounts.get(binding.accountId)?.client
     if (!(client instanceof OneBotClient) || bindingRow(binding.id).state !== 'active') return
@@ -875,7 +912,12 @@ export class ChannelDelivery {
     )
   }
 
-  private async deliverPlugin(binding: ChannelBindingDTO, message: MessageDTO, client: PluginChannelClient) {
+  private async deliverPlugin(
+    binding: ChannelBindingDTO,
+    message: MessageDTO,
+    client: PluginChannelClient,
+    isCurrent: () => boolean,
+  ) {
     const previous = db
       .select()
       .from(channelDeliveries)
@@ -897,7 +939,14 @@ export class ChannelDelivery {
       for (const part of burst) {
         // 每页即时保存回执；后续一页失败不能导致先前页重发。
         for (const page of splitOneBot(part, client.definition.limits.maxTextLength)) {
-          const sent = await client.call<{ message_id: string }>('sendMessage', { chat_id: binding.chat, text: page })
+          // 等待上一页期间可能切换会话、备选或修改正文，后续分页必须重新确认。
+          if (!isCurrent()) return
+          const sent = await client.call<{ message_id: string }>(
+            'sendMessage',
+            { chat_id: binding.chat, text: page },
+            undefined,
+            isCurrent,
+          )
           parts.push({ accountId: binding.accountId, externalChat: binding.chat, externalId: sent.message_id })
           this.recordBurst(
             `${binding.id}:${message.id}`,

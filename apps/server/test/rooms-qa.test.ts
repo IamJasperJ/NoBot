@@ -1,4 +1,5 @@
 import { afterAll, expect, spyOn, test } from 'bun:test'
+import { randomBytes } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,7 +27,7 @@ if (!process.env.ROOM_QA_CHILD) {
   const { eq } = await import('drizzle-orm')
   const { systemDatabase } = await import('../src/db/system-client')
   const { users, roomMembers, roomInvites, sessions } = await import('../src/db/system-schema')
-  const { db, newId, setSetting } = await import('../src/db/client')
+  const { db, getSetting, newId, setSetting } = await import('../src/db/client')
   const { characters, personas, messages, roomEvents } = await import('../src/db/schema')
   const { runAsUser, closeUserDatabase } = await import('../src/user-context')
   const { createChat } = await import('../src/services/chats')
@@ -699,6 +700,137 @@ if (!process.env.ROOM_QA_CHILD) {
     )
     expect(response.status).toBe(400)
   })
+  test('房间暂停或规则更新后，剧情写入在直接接口、房间代理和扩展入口一致受限', async () => {
+    const room = fixture()
+    const send = (actor: number, text: string) =>
+      as(actor, () => turns.sendRoomMessage(room.id, { text, channel: 'ooc', clientMessageId: newId() }))
+    const original = send(1, '原始房间消息')
+    const following = send(0, '撤回上一条后保留我')
+    const { chats } = await import('../src/db/schema')
+    const firstReply = newId()
+    const secondReply = newId()
+    as(0, () => {
+      for (const id of [firstReply, secondReply])
+        db.insert(messages)
+          .values({
+            id,
+            chatId: room.chatId,
+            parentId: following.id,
+            role: 'assistant',
+            content: id,
+            createdAt: Date.now(),
+          })
+          .run()
+      db.update(chats).set({ activeLeafId: firstReply }).where(eq(chats.id, room.chatId)).run()
+    })
+    as(0, () => r.changeMemberRole(room.id, 'player', 'gm'))
+    const server = createServer()
+    const now = Date.now()
+    const tokens = ['owner', 'player'].map((userId) => {
+      const token = randomBytes(32).toString('hex')
+      systemDatabase()
+        .insert(sessions)
+        .values({ tokenHash: hashToken(token), userId, renewedAt: now, expiresAt: now + 3600000 })
+        .run()
+      return token
+    })
+    const request = (actor: number, method: string, path: string, body?: unknown) =>
+      server.request(`/api${path}`, {
+        method,
+        headers: { Cookie: `nobot_session=${tokens[actor]}`, 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    const chat = `/chats/${room.chatId}`
+    const base = `/rooms/${room.id}`
+    const message = `/messages/${original.id}`
+    const target = { messageId: firstReply, direction: 1 }
+    const gmWrites = [
+      ['PATCH', `${base}${message}`, { content: '不能编辑' }],
+      ['DELETE', `${base}${message}`],
+      ['POST', `${base}/scope${chat}/swipe`, target],
+      ['POST', `${base}/scope${chat}/vars`, { set: { health: 1 } }],
+      ['POST', `${base}/round/next`],
+      ['POST', `${base}/initiative/skip`],
+      [
+        'POST',
+        `${base}/scope/ext/audio/tts/line`,
+        { chatId: room.chatId, messageId: original.id, text: '测试', speaker: { kind: 'narrator' } },
+      ],
+    ] as const
+
+    as(0, () => r.updateRoom(room.id, { status: 'paused' }))
+    for (const [method, path, body] of gmWrites) {
+      const response = await request(1, method, path, body)
+      expect(response.status, path).toBe(409)
+      expect(await response.json()).toMatchObject({ error: { code: 'ROOM_PAUSED' } })
+    }
+    for (const [method, path, body] of [
+      ['PATCH', message, { content: '房主也不能编辑' }],
+      ['DELETE', message],
+      ['POST', `${chat}/swipe`, target],
+      ['POST', `${chat}/messages`, { role: 'system', content: '不能追加旁白' }],
+      ['POST', `${chat}/generate`, { mode: 'trigger' }],
+      ['POST', `${base}/scope/ext/image-gen/commands/imagine`, { chatId: room.chatId }],
+    ] as const) {
+      const response = await request(0, method, path, body)
+      expect(response.status, path).toBe(409)
+      expect(await response.json()).toMatchObject({ error: { code: 'ROOM_PAUSED' } })
+    }
+    expect((await request(1, 'GET', `${base}/scope${chat}`)).status).toBe(200)
+    expect(await (await request(1, 'GET', base)).json()).toMatchObject({
+      permissions: {
+        canEditAi: false,
+        canSwipe: false,
+        canManageRounds: false,
+        canManageInitiative: false,
+        canAbort: true,
+      },
+    })
+
+    as(0, () => r.updateRoom(room.id, { status: 'active', rules: '需要玩家确认的新规则' }))
+    fail(() => as(1, () => r.checkWritable(room, 'player')), 'RULES_CHANGED', 409)
+    for (const [method, path, body] of gmWrites) {
+      const response = await request(1, method, path, body)
+      expect(response.status, path).toBe(409)
+      expect(await response.json()).toMatchObject({ error: { code: 'RULES_CHANGED' } })
+    }
+    const latest = as(0, () => r.roomDetail(room.id))
+    as(1, () => r.acceptRules(room.id, latest.rulesVersion))
+    const swapped = await request(1, 'POST', `${base}/scope${chat}/swipe`, target)
+    expect(swapped.status).toBe(200)
+    expect(await swapped.json()).toEqual({ leafId: secondReply })
+    const restored = await request(0, 'POST', `${chat}/swipe`, { messageId: secondReply, direction: -1 })
+    expect(restored.status).toBe(200)
+    expect(await restored.json()).toEqual({ leafId: firstReply })
+    expect(
+      as(0, () => db.select().from(roomEvents).where(eq(roomEvents.roomId, room.id)).all())
+        .filter((e) => e.payload.action === 'activated')
+        .map((e) => e.actorId),
+    ).toEqual(['player', 'owner'])
+    const revised = await request(1, 'PATCH', `${base}/scope${message}`, { content: '确认规则后可以编辑' })
+    expect(revised.status).toBe(200)
+    expect(await revised.json()).toMatchObject({ content: '确认规则后可以编辑', meta: { version: 2 } })
+    expect((await request(0, 'DELETE', message)).status).toBe(200)
+    const { loadPath } = await import('../src/services/chats')
+    expect(as(0, () => loadPath(following.id)).map((m) => [m.id, m.content])).toEqual([
+      [original.id, ''],
+      [following.id, '撤回上一条后保留我'],
+    ])
+  })
+  test('房间上传等待请求正文时暂停会在保存前重新检查权限', async () => {
+    const room = fixture()
+    const { dispatchScope } = await import('../src/services/rooms/scope')
+    const formData = Promise.withResolvers<FormData>()
+    const request = new Request('http://local/attachments', { method: 'POST' })
+    request.formData = () => formData.promise
+    const uploading = as(1, () => dispatchScope(room.id, request, '/attachments'))
+    as(0, () => r.updateRoom(room.id, { status: 'paused' }))
+    const form = new FormData()
+    form.set('chatId', room.chatId)
+    form.set('file', new File(['测试正文'], 'attachment.png'))
+    formData.resolve(form)
+    await expect(uploading).rejects.toMatchObject({ status: 409, code: 'ROOM_PAUSED' })
+  })
   test('邀请失效错误告知令牌持有者，封禁提示只给本人', () => {
     const room = fixture()
     for (const [changes, code] of [
@@ -907,13 +1039,219 @@ if (!process.env.ROOM_QA_CHILD) {
           role: 'assistant',
           content: 'choose',
           createdAt: Date.now(),
-          meta: { stage: { choices: [{ text: 'A' }, { text: 'B' }] } },
+          meta: { stage: { ops: [], beats: [], choices: [{ text: 'A' }, { text: 'B' }] } },
         })
         .run()
       return id
     })
     return { room, id }
   }
+  function enableChoiceChecks(chatId: string) {
+    const { chats, playPresets } = require('../src/db/schema') as typeof import('../src/db/schema')
+    const playPresetId = newId()
+    db.insert(playPresets)
+      .values({
+        id: playPresetId,
+        name: '投票检定',
+        data: shared.playPresetDataSchema.parse({ directives: { enabled: true }, trpg: { ruleSystem: 'dnd5e' } }),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      .run()
+    db.update(chats).set({ playPresetId }).where(eq(chats.id, chatId)).run()
+  }
+  test('编辑选项后重新开票，旧索引和旧票数不计入新版选项', () => {
+    const { room, id } = choiceFixture()
+    const initial = as(0, () => trpg.choiceSnapshot(room.id, id, Date.now() - 5000))
+    as(0, () => {
+      enableChoiceChecks(room.chatId)
+      const key = `room.choice:${room.id}:${id}`
+      const saved = getSetting<import('@nobot/shared').RoomChoiceState>(key)
+      setSetting(key, { ...saved, votes: { player: 0 }, counts: [1, 0] })
+      const edited = turns.editRoomMessage(room.id, id, '换一道题\n<choices>\n- B\n- A\n</choices>')
+      expect(edited.meta.stage?.choices?.map((choice) => choice.text)).toEqual(['B', 'A'])
+    })
+    const reset = as(1, () => trpg.choiceSnapshot(room.id, id))
+    expect(reset).toMatchObject({ closed: false, votes: {}, counts: [0, 0] })
+    expect(reset.deadline).toBeGreaterThan(initial.deadline)
+    fail(() => as(1, () => trpg.pickRoomChoice(room.id, id, 0, undefined, 0)), 'CHOICE_CHANGED', 409)
+    as(0, () => r.deleteRoom(room.id))
+  })
+  test('唯一投票者离开后保留票数并由房主执行获胜选项的检定', () => {
+    const { room, id } = choiceFixture()
+    as(0, () => {
+      enableChoiceChecks(room.chatId)
+      db.update(messages)
+        .set({ meta: { stage: { choices: [{ text: 'A', check: { skill: 'perception', dc: 12 } }, { text: 'B' }] } } })
+        .where(eq(messages.id, id))
+        .run()
+      const open = trpg.choiceSnapshot(room.id, id)
+      setSetting(`room.choice:${room.id}:${id}`, { ...open, votes: { player: 0 }, counts: [1, 0] })
+    })
+    as(1, () => r.removeMember(room.id, 'player', 'left'))
+    const trigger = spyOn(turns, 'triggerTurn').mockReturnValue({ ok: true })
+    try {
+      const result = as(0, () => trpg.closeChoice(room.id, id, undefined, () => 0.75))
+      expect(result).toMatchObject({ closed: true, winner: 0, counts: [1, 0], votes: { player: 0 } })
+      const reply = as(0, () => ext.visibleHistory(room.id)).at(-1)
+      expect(reply?.meta).toMatchObject({
+        check: { who: 'owner' },
+        choice: { messageId: id, index: 0, counts: [1, 0] },
+      })
+      expect(trigger).toHaveBeenCalledTimes(1)
+    } finally {
+      trigger.mockRestore()
+      as(0, () => r.deleteRoom(room.id))
+    }
+  })
+  test('投票结算成功后，模型启动失败仍可重试同一条剧情结果', () => {
+    const { room, id } = choiceFixture()
+    const open = as(0, () => trpg.choiceSnapshot(room.id, id))
+    as(0, () => setSetting(`room.choice:${room.id}:${id}`, { ...open, votes: { player: 0 }, counts: [1, 0] }))
+    const trigger = spyOn(turns, 'triggerTurn')
+      .mockImplementationOnce(() => {
+        throw new Error('模型连接暂时不可用')
+      })
+      .mockReturnValue({ ok: true })
+    try {
+      const settled = as(0, () => trpg.closeChoice(room.id, id))
+      expect(settled).toMatchObject({ closed: true, winner: 0, replyPending: true })
+      expect(settled).not.toHaveProperty('resultMessageId')
+      expect(as(0, () => trpg.choiceSnapshot(room.id, id)).replyPending).toBe(true)
+      as(0, () => trpg.closeChoice(room.id, id))
+      expect(trigger).toHaveBeenCalledTimes(2)
+      expect(as(0, () => ext.visibleHistory(room.id)).filter((m) => m.meta.choice?.messageId === id)).toHaveLength(1)
+    } finally {
+      trigger.mockRestore()
+      as(0, () => r.deleteRoom(room.id))
+    }
+  })
+  test('跑团定时器按房间状态取消和恢复，旧回调与详情读取不重复推进', () => {
+    let clock = Date.now()
+    const timers = new Map<object, { at: number; run: () => void }>()
+    const fakeHandles = new WeakSet<object>()
+    const realClearTimeout = globalThis.clearTimeout
+    const time = spyOn(Date, 'now').mockImplementation(() => clock)
+    const schedule = spyOn(globalThis, 'setTimeout').mockImplementation((handler, ms = 0) => {
+      const handle = { unref() {} }
+      fakeHandles.add(handle)
+      timers.set(handle, {
+        at: clock + Number(ms),
+        run: () => {
+          if (typeof handler === 'function') handler()
+        },
+      })
+      return handle as unknown as ReturnType<typeof setTimeout>
+    })
+    const cancel = spyOn(globalThis, 'clearTimeout').mockImplementation((handle) => {
+      if (typeof handle === 'object' && handle !== null && fakeHandles.has(handle)) timers.delete(handle)
+      else realClearTimeout(handle)
+    })
+    const trigger = spyOn(turns, 'triggerTurn').mockReturnValue({ ok: true })
+    const advance = (target: number) => {
+      for (;;) {
+        const next = [...timers].filter(([, timer]) => timer.at <= target).sort((a, b) => a[1].at - b[1].at)[0]
+        if (!next) break
+        timers.delete(next[0])
+        clock = next[1].at
+        next[1].run()
+      }
+      clock = target
+    }
+    const voteTimer = (deadline: number) => [...timers.values()].find((timer) => timer.at === deadline)
+    try {
+      for (const suspended of [{ status: 'paused' }, { status: 'archived' }, { choiceMode: 'each' }] as const) {
+        const { room, id } = choiceFixture()
+        const snapshot = () => as(0, () => trpg.choiceSnapshot(room.id, id))
+        const { deadline } = snapshot()
+        // 旧版保存投票和登记索引分两步；恢复快照时补齐遗漏的索引。
+        as(0, () => setSetting(`room-choices:${room.id}`, []))
+        expect(snapshot().deadline).toBe(deadline)
+        const cancelled = voteTimer(deadline)!
+        expect(cancelled).toBeDefined()
+        as(0, () => r.updateRoom(room.id, suspended))
+        expect(snapshot().deadline).toBe(deadline)
+        expect(voteTimer(deadline)).toBeUndefined()
+        cancelled.run()
+        advance(deadline + 1)
+        expect(snapshot().closed).toBe(false)
+        as(0, () => r.updateRoom(room.id, { status: 'active', choiceMode: 'vote' }))
+        advance(clock)
+        expect(snapshot()).toMatchObject({ closed: true, winner: null, deadline })
+        expect(as(0, () => ext.visibleHistory(room.id)).filter((m) => m.content.includes('无人投票'))).toHaveLength(1)
+        as(0, () => r.deleteRoom(room.id))
+      }
+
+      const busy = choiceFixture()
+      const initial = as(0, () => trpg.choiceSnapshot(busy.room.id, busy.id))
+      as(0, () =>
+        setSetting(`room.choice:${busy.room.id}:${busy.id}`, { ...initial, votes: { player: 0 }, counts: [1, 0] }),
+      )
+      turns.turnState(busy.room.id).running = true
+      advance(initial.deadline)
+      const retry = voteTimer(initial.deadline + 1000)
+      expect(retry).toBeDefined()
+      as(0, () => r.roomDetail(busy.room.id))
+      expect(voteTimer(initial.deadline + 1000)).toBe(retry)
+      turns.turnState(busy.room.id).running = false
+      advance(initial.deadline + 1000)
+      expect(as(0, () => trpg.choiceSnapshot(busy.room.id, busy.id))).toMatchObject({ closed: true, winner: 0 })
+      expect(trigger).toHaveBeenCalledTimes(1)
+      as(0, () => r.deleteRoom(busy.room.id))
+
+      const deleted = choiceFixture()
+      const { deadline } = as(0, () => trpg.choiceSnapshot(deleted.room.id, deleted.id))
+      const late = voteTimer(deadline)!
+      as(0, () => r.deleteRoom(deleted.room.id))
+      expect(voteTimer(deadline)).toBeUndefined()
+      late.run()
+      expect(trigger).toHaveBeenCalledTimes(1)
+
+      const withdrawn = choiceFixture()
+      const withdrawnDeadline = as(0, () => trpg.choiceSnapshot(withdrawn.room.id, withdrawn.id)).deadline
+      as(0, () => turns.editRoomMessage(withdrawn.room.id, withdrawn.id, null))
+      advance(withdrawnDeadline)
+      as(0, () => r.roomDetail(withdrawn.room.id))
+      expect(voteTimer(withdrawnDeadline)).toBeUndefined()
+      expect(as(0, () => ext.visibleHistory(withdrawn.room.id)).some((m) => m.content.includes('无人投票'))).toBe(false)
+      as(0, () => r.deleteRoom(withdrawn.room.id))
+
+      const round = fixture()
+      as(0, () => r.updateRoom(round.id, { asyncMode: true, roundDeadlineHours: 1 / 3600 }))
+      const roundDeadline = as(0, () => r.roomDetail(round.id)).round.deadline!
+      const roundCallback = voteTimer(roundDeadline)!
+      expect(roundCallback).toBeDefined()
+      as(0, () => r.updateRoom(round.id, { status: 'paused' }))
+      advance(roundDeadline + 1)
+      roundCallback.run()
+      expect(as(0, () => r.roomDetail(round.id)).round.members.player).toBe('pending')
+      as(0, () => r.updateRoom(round.id, { status: 'active' }))
+      expect(as(0, () => r.roomDetail(round.id)).round.members.player).toBe('passed')
+      expect(as(0, () => r.updateRoom(round.id, { asyncMode: false })).round.deadline).toBeUndefined()
+
+      const actor = fixture()
+      const characterId = as(0, () => r.charactersForRoom(r.roomRow(actor.id))[0]!.id)
+      as(0, () => r.updateRoom(actor.id, { turnMode: 'initiative' }))
+      as(0, () => trpg.setInitiative(actor.id, { order: [{ kind: 'character', id: characterId }] }))
+      const stale = voteTimer(clock)!
+      expect(stale).toBeDefined()
+      as(0, () => r.updateRoom(actor.id, { turnMode: 'host' }))
+      stale.run()
+      advance(clock)
+      expect(trigger).toHaveBeenCalledTimes(1)
+      as(0, () => r.updateRoom(actor.id, { turnMode: 'initiative' }))
+      advance(clock)
+      expect(trigger).toHaveBeenCalledTimes(2)
+      expect(trigger).toHaveBeenLastCalledWith(actor.id, 'owner', false, { mode: 'trigger', speakerId: characterId })
+      as(0, () => r.deleteRoom(actor.id))
+      as(0, () => r.deleteRoom(round.id))
+    } finally {
+      trigger.mockRestore()
+      cancel.mockRestore()
+      schedule.mockRestore()
+      time.mockRestore()
+    }
+  })
   test('R3 BUG-31：投票、私信具体错误，导出带恢复时间', () => {
     const { room, id } = choiceFixture()
     fail(() => as(2, () => trpg.pickRoomChoice(room.id, id, 0)), 'CHOICE_SPECTATOR', 403)

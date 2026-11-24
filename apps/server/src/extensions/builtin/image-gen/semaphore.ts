@@ -1,8 +1,13 @@
-import { t } from '../../../i18n'
+interface QueuedTask {
+  start: () => void
+  reject: (error: unknown) => void
+  position?: (n: number) => void
+}
+
 /** 图片接口共用先进先出队列；取消只移除本任务，不中断其他任务。 */
 export class Semaphore {
   private running = 0
-  private queue: { start: () => void; abort: () => void; position?: (n: number) => void }[] = []
+  private queue: QueuedTask[] = []
   constructor(private limit: number) {}
   setLimit(limit: number) {
     this.limit = limit
@@ -10,29 +15,49 @@ export class Semaphore {
   }
   private drain() {
     while (this.running < this.limit && this.queue.length) this.queue.shift()?.start()
-    this.queue.forEach((entry, index) => {
-      entry.position?.(index + 1)
-    })
+    for (let index = 0; index < this.queue.length; ) {
+      const entry = this.queue[index]!
+      try {
+        entry.position?.(index + 1)
+        if (this.queue[index] === entry) index++
+      } catch (error) {
+        // 占位消息可能已删除，失败的回调要释放排队项，避免阻塞后面的任务。
+        const position = this.queue.indexOf(entry)
+        if (position >= 0) this.queue.splice(position, 1)
+        entry.reject(error)
+      }
+    }
   }
   async run<T>(task: () => Promise<T>, signal?: AbortSignal, position?: (n: number) => void): Promise<T> {
     signal?.throwIfAborted()
     await new Promise<void>((resolve, reject) => {
-      const entry = {
+      const cancel = () => {
+        const index = this.queue.indexOf(entry)
+        if (index < 0) return
+        this.queue.splice(index, 1)
+        entry.reject(signal?.reason)
+        this.drain()
+      }
+      const entry: QueuedTask = {
         start: () => {
-          signal?.removeEventListener('abort', entry.abort)
+          if (signal?.aborted) {
+            entry.reject(signal.reason)
+            return
+          }
+          signal?.removeEventListener('abort', cancel)
           this.running++
           resolve()
         },
-        abort: () => {
-          this.queue = this.queue.filter((item) => item !== entry)
-          reject(new Error(t('已取消')))
-          this.drain()
+        reject: (error) => {
+          signal?.removeEventListener('abort', cancel)
+          reject(error)
         },
         position,
       }
-      signal?.addEventListener('abort', entry.abort, { once: true })
+      position?.(this.queue.length + 1)
+      signal?.throwIfAborted()
       this.queue.push(entry)
-      position?.(this.queue.length)
+      signal?.addEventListener('abort', cancel, { once: true })
       this.drain()
     })
     try {

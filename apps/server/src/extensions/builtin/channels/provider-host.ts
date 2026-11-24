@@ -7,6 +7,7 @@ import { channelRegistry, rooms } from '../../../db/system-schema'
 import { HttpError } from '../../../errors'
 import { t } from '../../../i18n'
 import { getChatRow } from '../../../services/chats'
+import { liveHub } from '../../../services/live/hub'
 import { currentUser, runAsUser } from '../../../user-context'
 import {
   type ChannelProviderDefinition,
@@ -68,6 +69,58 @@ export function lookupAll(chatId: string) {
     })
 }
 
+function setPluginOwner(id: string, userId: string, externalId: string | null) {
+  const { provider, providerState } = accountRow(id)
+  const previous = providerState.ownerExternalId
+  db.update(channelAccounts)
+    .set({ providerState: { ...providerState, ownerExternalId: externalId } })
+    .where(eq(channelAccounts.id, id))
+    .run()
+  if (
+    previous &&
+    previous !== externalId &&
+    !db
+      .select()
+      .from(channelAccounts)
+      .where(eq(channelAccounts.provider, provider))
+      .all()
+      .some((account) => account.providerState.ownerExternalId === previous)
+  )
+    db.update(channelActors)
+      .set({ role: 'player', linkedUserId: null })
+      .where(
+        and(
+          eq(channelActors.provider, provider),
+          eq(channelActors.externalId, previous),
+          eq(channelActors.role, 'owner'),
+        ),
+      )
+      .run()
+  if (externalId === null) return
+  const actor = db
+    .select()
+    .from(channelActors)
+    .where(and(eq(channelActors.provider, provider), eq(channelActors.externalId, externalId)))
+    .get()
+  if (actor)
+    db.update(channelActors)
+      .set({ role: 'owner', linkedUserId: userId, accountIds: [...new Set([...actor.accountIds, id])] })
+      .where(eq(channelActors.id, actor.id))
+      .run()
+  else
+    db.insert(channelActors)
+      .values({
+        id: crypto.randomUUID(),
+        provider,
+        externalId,
+        displayName: externalId,
+        role: 'owner',
+        linkedUserId: userId,
+        accountIds: [id],
+      })
+      .run()
+}
+
 export function startPluginAccount(
   runtime: ChannelRuntime,
   id: string,
@@ -123,57 +176,7 @@ export function startPluginAccount(
           .where(eq(channelAccounts.id, id))
           .run()
       }),
-    setOwner: (externalId: string | null) =>
-      use(() => {
-        const provider = row.provider
-        const previous = accountRow(id).providerState.ownerExternalId
-        db.update(channelAccounts)
-          .set({ providerState: { ...accountRow(id).providerState, ownerExternalId: externalId } })
-          .where(eq(channelAccounts.id, id))
-          .run()
-        const old = db
-          .select()
-          .from(channelActors)
-          .where(and(eq(channelActors.provider, provider), eq(channelActors.role, 'owner')))
-          .all()
-        for (const actor of old.filter(
-          (actor) =>
-            actor.externalId === previous &&
-            !db
-              .select()
-              .from(channelAccounts)
-              .where(eq(channelAccounts.provider, provider))
-              .all()
-              .some((account) => account.id !== id && account.providerState.ownerExternalId === actor.externalId),
-        ))
-          db.update(channelActors)
-            .set({ role: 'player', linkedUserId: null })
-            .where(eq(channelActors.id, actor.id))
-            .run()
-        if (externalId === null) return
-        const actor = db
-          .select()
-          .from(channelActors)
-          .where(and(eq(channelActors.provider, provider), eq(channelActors.externalId, externalId)))
-          .get()
-        if (actor)
-          db.update(channelActors)
-            .set({ role: 'owner', linkedUserId: owner.id, accountIds: [...new Set([...actor.accountIds, id])] })
-            .where(eq(channelActors.id, actor.id))
-            .run()
-        else
-          db.insert(channelActors)
-            .values({
-              id: crypto.randomUUID(),
-              provider,
-              externalId,
-              displayName: externalId,
-              role: 'owner',
-              linkedUserId: owner.id,
-              accountIds: [id],
-            })
-            .run()
-      }),
+    setOwner: (externalId: string | null) => use(() => setPluginOwner(id, owner.id, externalId)),
   }
   // 后台可能一直等待 signal；启动账号不等待插件轮询循环结束。
   try {
@@ -205,6 +208,14 @@ export function extensionChannels(
     if (!owned.has(id) || getProvider(id)?.extensionId !== extensionId)
       throw new HttpError(403, 'CHANNEL_PERMISSION_REQUIRED', t('没有渠道操作权限'))
     return id
+  }
+  const notifyBindings = (accountId: string) => {
+    const userId = currentUser().id
+    liveHub.publishToUser(userId, {
+      type: 'channel.account',
+      topic: `user:${userId}`,
+      data: accountDTO(accountRow(accountId)),
+    })
   }
   return {
     lookup: (chatId) => lookupAll(chatId)[0] ?? null,
@@ -333,7 +344,32 @@ export function extensionChannels(
         roomId: room?.id ?? null,
         state: 'active',
       })
+      notifyBindings(account.id)
       return { bindingId: base.id }
+    },
+    releaseOwnerBinding(providerId, { externalId, chatId }) {
+      check()
+      const provider = ownProvider(providerId)
+      const account = db.select().from(channelAccounts).where(eq(channelAccounts.provider, provider)).get()
+      if (!account || account.providerState.ownerExternalId !== externalId) return
+      db.transaction(() => {
+        // 会话或位置被手动改绑后，只撤销主人身份，保留用户选择的绑定。
+        db.update(channelBindings)
+          .set({ state: 'disabled' })
+          .where(
+            and(
+              eq(channelBindings.accountId, account.id),
+              eq(channelBindings.chat, externalId),
+              eq(channelBindings.chatId, chatId),
+              eq(channelBindings.thread, ''),
+              eq(channelBindings.scope, 'private'),
+              eq(channelBindings.state, 'active'),
+            ),
+          )
+          .run()
+        setPluginOwner(account.id, currentUser().id, null)
+      })
+      notifyBindings(account.id)
     },
     async ensureAccount(providerId, options) {
       check()

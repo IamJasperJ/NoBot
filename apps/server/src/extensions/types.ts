@@ -9,6 +9,7 @@ import type {
   CommandDescription,
   ExtensionPermissions,
   ExtensionSettingField,
+  GenerateEvent,
   MessageDTO,
   MessageMeta,
   MessageRole,
@@ -100,8 +101,13 @@ export interface ExtensionHost {
    * 让角色主动发言（不需要用户消息）。当前用户主持的房间走房间回合，以房主身份、非手动触发，
    * 房主不受访客额度限制，会广播房间事件；否则等同 generate 的 trigger 模式。正在生成时抛出 409 GENERATING。
    * instruction 只对这一轮生效、不入库；空白字符串视为没有指令。
+   * onEvent 只订阅本次任务（含房间回合），返回取消订阅函数；取消订阅不停止生成。
    */
-  trigger(chatId: string, opts?: { speakerId?: string; instruction?: string }): void
+  trigger(
+    chatId: string,
+    opts?: { speakerId?: string; instruction?: string; onEvent?: (event: GenerateEvent) => void },
+    // biome-ignore lint/suspicious/noConfusingVoidType: 兼容现有返回 void 的宿主实现和测试替身。
+  ): void | (() => void)
   subscribe: typeof import('../services/generation/generation').subscribe
   abort: typeof import('../services/generation/generation').abortGeneration
   swipe: typeof import('../services/chats').swipe
@@ -130,6 +136,8 @@ export interface ExtensionHost {
     includeHistory?: boolean
     /** 固定任务开始时的历史，防止异步占位或新消息改变提炼对象。 */
     leafId?: string | null
+    /** 如这些消息未进入组装结果，发请求前返回错误。 */
+    requiredHistoryIds?: readonly string[]
     /** 图片提炼保留剧情文字，不模仿舞台格式，并禁止历史工具调用。 */
     purpose?: 'image'
     maxTokens?: number
@@ -153,7 +161,7 @@ export interface ExtensionHost {
   saveImage(bytes: Uint8Array): Promise<AttachmentDTO>
   saveBackground(
     bytes: Uint8Array,
-    opts: { name: string; source: 'upload' | 'generated'; chatId?: string; description?: string },
+    opts: { name: string; source: 'upload' | 'generated'; chatId?: string; description?: string; signal?: AbortSignal },
   ): Promise<BackgroundDTO>
   setChatBackground(chatId: string, backgroundId: string | null): void
   /** 追加消息并切换叶子；生成期间拒绝追加。 */
@@ -181,8 +189,8 @@ export interface ExtensionHost {
     persona: { id?: string; name: string; description: string; avatarUrl: string | null }
     messages: MessageDTO[]
   }
-  /** 每 300ms 检查文本生成状态，空闲后返回；超过 timeoutMs 毫秒抛出超时错误。 */
-  waitIdle(chatId: string, timeoutMs: number): Promise<void>
+  /** 每 300ms 检查文本生成状态，空闲后返回；超时或 signal 中止都会结束等待。 */
+  waitIdle(chatId: string, timeoutMs: number, signal?: AbortSignal): Promise<void>
   isGenerating(chatId: string): boolean
   log(entry: {
     chatId?: string | null
@@ -411,6 +419,8 @@ export interface ExtensionChannels {
     providerId: string,
     options: { chat: { id: string; title: string; scope?: 'private' | 'group' }; chatId: string },
   ): { bindingId: string }
+  /** 停用仍指向指定会话的主人私聊绑定，并撤销账号的旧主人身份。 */
+  releaseOwnerBinding?(providerId: string, options: { externalId: string; chatId: string }): void
 }
 export class ChannelSendError extends Error {
   readonly name = 'ChannelSendError'

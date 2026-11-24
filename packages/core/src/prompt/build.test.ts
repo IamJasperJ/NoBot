@@ -571,6 +571,11 @@ describe('边界回归', () => {
     expect(contents(value)).toEqual(['开场', '注入', '你好', '您好'])
     value.history = []
     expect(contents(value)).toEqual(['注入'])
+
+    value.history = [history('u', 'user', '旧消息')]
+    value.reservedTokens = tokenCost('静默指令')
+    setBudget(value, tokenCost('注入') + value.reservedTokens)
+    expect(contents(value)).toEqual(['注入'])
   })
   test('无历史占位仍保留作者注释，角色备注和结尾计入固定预算', () => {
     const value = minimal()

@@ -124,18 +124,24 @@ test('消息操作：排除、思考过程、书签和分支式移动', async ()
     expect(paired.map((m) => m.id)).toEqual([caller, t1, t2])
     expect(paired.every((m) => m.meta.excluded === true)).toBe(true)
     expect(loadMessage(sibling).meta.excluded).toBeUndefined()
-    // 切回原结果链后从 assistant 恢复，默认子链规则使用最新备选。
-    db.delete(messages).where(eq(messages.id, sibling)).run()
+    // 发起者共享给两条路径；从已激活的旧结果链恢复时，不能改同级备选的结果。
     db.update(chats).set({ activeLeafId: after }).where(eq(chats.id, chat.id)).run()
     const restored = await exclude([caller], false)
-    expect(restored).toHaveLength(3)
+    expect(restored.map((m) => m.id)).toEqual([caller, t1, t2])
     expect(restored.every((m) => !Object.hasOwn(m.meta, 'excluded'))).toBe(true)
+    expect(loadMessage(sibling).meta.excluded).toBeUndefined()
     expect(loadMessage(after).meta.excluded).toBeUndefined()
+    db.delete(messages).where(eq(messages.id, sibling)).run()
 
     setSetting('defaultPersonaId', null)
     db.update(chats).set({ personaId: null }).where(eq(chats.id, chat.id)).run()
     const longText = `  ${'😀'.repeat(21)}\n${'文'.repeat(45)}  `
-    const marked = add(chat.id, after, 'user', longText, { name: '旧人设' })
+    const marked = add(chat.id, after, 'user', longText, {
+      name: '旧人设',
+      replyTo: b,
+      choice: { messageId: after, index: 0, counts: [2] },
+      clientMessageId: 'app-life.douyin:source:message',
+    })
     const mark = await json<BookmarkDTO>(`/chats/${chat.id}/bookmarks`, 'POST', { messageId: marked })
     expect(mark.name).toBe('😀'.repeat(20))
     expect(mark.preview.text).toBe(`${'😀'.repeat(21)} ${'文'.repeat(38)}…`)
@@ -148,7 +154,7 @@ test('消息操作：排除、思考过程、书签和分支式移动', async ()
     expect(mark.onPath).toBe(true)
     const descendant = add(chat.id, marked, 'assistant', '子树旧叶子')
     const latest = add(chat.id, marked, 'assistant', '子树最新叶子')
-    const alternate = add(chat.id, after, 'user', '备选')
+    const alternate = add(chat.id, after, 'user', '备选', { replyTo: descendant })
     await json(`/chats/${chat.id}/swipe`, 'POST', { messageId: alternate, direction: -1 })
     await json(`/chats/${chat.id}/swipe`, 'POST', { messageId: marked, direction: 1 })
     expect((await list())[0]?.onPath).toBe(false)
@@ -171,8 +177,19 @@ test('消息操作：排除、思考过程、书签和分支式移动', async ()
     await error(`/bookmarks/${mark.id}`, 404, 'NOT_FOUND', { name: '再改' }, 'PATCH')
     await error(`/bookmarks/${mark.id}`, 404, 'NOT_FOUND', undefined, 'DELETE')
     await json(`/chats/${chat.id}/bookmarks`, 'POST', { messageId: marked })
+    const shortcuts = await json<{ id: string }>('/quick-replies', 'POST', { name: '会话快捷回复', buttons: [] })
+    await json(`/chats/${chat.id}`, 'PATCH', { quickReplySetIds: [shortcuts.id] })
     const branched = await json<ChatDTO>(`/chats/${chat.id}/branch`, 'POST', { messageId: marked })
+    const branchPath = loadPath(branched.activeLeafId)
+    expect(branched.quickReplySetIds).toEqual([shortcuts.id])
+    expect(branchPath.at(-1)?.meta).toMatchObject({
+      replyTo: branchPath.find((m) => m.content === '回答')?.id,
+      choice: { messageId: branchPath.find((m) => m.content === '工具后续')?.id, index: 0, counts: [2] },
+    })
+    expect(branchPath.at(-1)?.meta.clientMessageId).toBeUndefined()
     expect(await json<BookmarkDTO[]>(`/chats/${branched.id}/bookmarks`)).toEqual([])
+    const detached = await json<ChatDTO>(`/chats/${chat.id}/branch`, 'POST', { messageId: alternate })
+    expect(loadPath(detached.activeLeafId).at(-1)?.meta.replyTo).toBeUndefined()
     await json(`/messages/${marked}`, 'DELETE')
     expect(await list()).toEqual([])
     const emptyChat = await createChat()
@@ -188,9 +205,14 @@ test('消息操作：排除、思考过程、书签和分支式移动', async ()
 
     const moving = await createChat()
     const ma = add(moving.id, null, 'user', 'A')
-    const mb = add(moving.id, ma, 'assistant', 'B', { reasoning: '完整保留', excluded: true })
-    const mc = add(moving.id, mb, 'user', 'C')
-    const md = add(moving.id, mc, 'assistant', 'D')
+    const mb = add(moving.id, ma, 'assistant', 'B', { reasoning: '完整保留', excluded: true, replyTo: ma })
+    const mc = add(moving.id, mb, 'user', 'C', { replyTo: mb })
+    const md = add(moving.id, mc, 'assistant', 'D', {
+      imageGen: { status: 'pending', mode: 'last', stage: 'queued', queuePosition: 1, prompt: 'night scene' },
+      cg: [{ beat: 0, attachmentId: null, status: 'pending', prompt: 'scene' }],
+      spriteGeneration: 'pending',
+      stage: { v: 1, beats: [], ops: [], classify: 'pending' },
+    })
     const move = (messageId: string, direction: 'up' | 'down') =>
       json<{ leafId: string }>(`/chats/${moving.id}/move`, 'POST', { messageId, direction })
     const original = loadPath(md)
@@ -201,6 +223,15 @@ test('消息操作：排除、思考过程、书签和分支式移动', async ()
     expect(movedPath.at(-1)?.id).not.toBe(md)
     expect(movedPath[0]?.id).toBe(ma)
     expect(movedPath[2]?.meta).toEqual(original[1]!.meta)
+    expect(movedPath[1]?.meta.replyTo).toBe(movedPath[2]?.id)
+    expect(movedPath[3]?.meta).toMatchObject({
+      imageGen: { status: 'error', prompt: 'night scene' },
+      cg: [{ status: 'error' }],
+    })
+    expect(movedPath[3]?.meta.imageGen?.queuePosition).toBeUndefined()
+    expect(movedPath[3]?.meta.spriteGeneration).not.toBe('pending')
+    expect(movedPath[3]?.meta.stage?.classify).not.toBe('pending')
+    expect(loadMessage(md).meta.imageGen?.status).toBe('pending')
     expect(movedPath.slice(1).map((m) => m.createdAt)).toEqual([
       original[2]!.createdAt,
       original[1]!.createdAt,

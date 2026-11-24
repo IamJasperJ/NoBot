@@ -12,13 +12,25 @@ import {
   type UpdateBackgroundInput,
   updateBackgroundInput,
 } from '@nobot/shared'
-import { and, asc, desc, eq, isNull, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, getSetting, newId, setSetting } from '../../db/client'
-import { backgroundFolderItems, backgroundFolders, backgrounds, lorebookEntries } from '../../db/schema'
+import {
+  backgroundFolderItems,
+  backgroundFolders,
+  backgrounds,
+  bookmarks,
+  characters,
+  chats,
+  groups,
+  lorebookEntries,
+} from '../../db/schema'
+import { systemDatabase } from '../../db/system-client'
+import { rooms } from '../../db/system-schema'
 import { paths } from '../../env'
 import { HttpError, notFound } from '../../errors'
 import { t } from '../../i18n'
+import { currentUser } from '../../user-context'
 import { SETTING_KEYS } from '../settings'
 
 function toDTO(row: typeof backgrounds.$inferSelect): BackgroundDTO {
@@ -56,17 +68,31 @@ export function backgroundsForChat(chatId: string): BackgroundDTO[] {
   return db
     .select()
     .from(backgrounds)
-    .where(or(isNull(backgrounds.chatId), eq(backgrounds.chatId, chatId)))
+    .where(backgroundScope(chatId))
     .orderBy(desc(backgrounds.createdAt), desc(backgrounds.id))
     .all()
     .map(toDTO)
 }
 
+export function findBackgroundForChat(chatId: string, backgroundId: string): BackgroundDTO | undefined {
+  const row = db
+    .select()
+    .from(backgrounds)
+    .where(and(eq(backgrounds.id, backgroundId), backgroundScope(chatId)))
+    .get()
+  return row && toDTO(row)
+}
+
+function backgroundScope(chatId: string) {
+  return or(isNull(backgrounds.chatId), eq(backgrounds.chatId, chatId))
+}
+
 /** 上传与图片生成共用此入口，持久化尺寸以旋转、缩放后的文件为准。 */
 export async function saveBackground(
   bytes: Uint8Array,
-  opts: { name: string; source: 'upload' | 'generated'; chatId?: string; description?: string },
+  opts: { name: string; source: 'upload' | 'generated'; chatId?: string; description?: string; signal?: AbortSignal },
 ): Promise<BackgroundDTO> {
+  opts.signal?.throwIfAborted()
   const { name, description = '' } = updateBackgroundInput.required({ name: true }).parse({
     name: opts.name,
     description: opts.description,
@@ -113,11 +139,13 @@ export async function saveBackground(
     join(paths.backgrounds, `${row.id}.thumb.webp`),
   ]
   try {
+    opts.signal?.throwIfAborted()
     await Bun.write(files[0]!, original)
     if (thumb) await Bun.write(files[1]!, thumb)
+    opts.signal?.throwIfAborted()
     db.insert(backgrounds).values(row).run()
   } catch (error) {
-    await Promise.all(files.map((file) => rm(file, { force: true })))
+    await Promise.allSettled(files.map((file) => rm(file, { force: true })))
     throw error
   }
   return toDTO(row)
@@ -135,11 +163,7 @@ export function updateBackground(id: string, input: UpdateBackgroundInput): Back
 
 export async function deleteBackground(id: string) {
   requireBackground(id)
-  await Promise.all(
-    ['webp', 'thumb.webp', 'gif', 'mp4', 'webm'].map((suffix) =>
-      rm(join(paths.backgrounds, `${id}.${suffix}`), { force: true }),
-    ),
-  )
+  await removeBackgroundFiles(id)
   db.transaction(() => {
     if (getBackgroundSettings().globalId === id) setSetting(SETTING_KEYS.backgrounds, { globalId: null })
     // 世界书字段存于 JSON，不能使用外键，由共用删除入口清理。
@@ -153,6 +177,91 @@ export async function deleteBackground(id: string) {
     }
     db.delete(backgrounds).where(eq(backgrounds.id, id)).run()
   })
+}
+
+export async function removeBackgroundFiles(id: string) {
+  await Promise.all(
+    ['webp', 'thumb.webp', 'gif', 'mp4', 'webm'].map((suffix) =>
+      rm(join(paths.backgrounds, `${id}.${suffix}`), { force: true }),
+    ),
+  )
+}
+
+function backgroundReferenceCheck(excludingChatId?: string) {
+  const retained = new Set([
+    getBackgroundSettings().globalId,
+    ...db
+      .select({ id: chats.backgroundId })
+      .from(chats)
+      .where(excludingChatId ? ne(chats.id, excludingChatId) : undefined)
+      .all()
+      .map((row) => row.id),
+    ...db
+      .select({ id: characters.defaultBackgroundId })
+      .from(characters)
+      .all()
+      .map((row) => row.id),
+    ...db
+      .select({ id: groups.defaultBackgroundId })
+      .from(groups)
+      .all()
+      .map((row) => row.id),
+    ...db
+      .select({ id: backgroundFolders.coverBackgroundId })
+      .from(backgroundFolders)
+      .all()
+      .map((row) => row.id),
+    ...db
+      .select({ id: backgroundFolderItems.backgroundId })
+      .from(backgroundFolderItems)
+      .all()
+      .map((row) => row.id),
+    ...db
+      .select({ data: lorebookEntries.data })
+      .from(lorebookEntries)
+      .all()
+      .map((row) => row.data.backgroundId),
+  ])
+  const roomCovers = systemDatabase()
+    .select({ asset: rooms.coverAsset })
+    .from(rooms)
+    .where(eq(rooms.hostUserId, currentUser().id))
+    .all()
+    .map(({ asset }) => asset)
+  const savedUrls = new Set(
+    [
+      ...roomCovers,
+      ...db
+        .select({ snapshot: bookmarks.snapshot })
+        .from(bookmarks)
+        .where(excludingChatId ? ne(bookmarks.chatId, excludingChatId) : undefined)
+        .all()
+        .map((row) => row.snapshot?.backgroundUrl),
+    ].map((url) => url?.split('?')[0]),
+  )
+  return ({ id, mime }: Pick<typeof backgrounds.$inferSelect, 'id' | 'mime'>) =>
+    retained.has(id) ||
+    savedUrls.has(`/api/assets/backgrounds/${id}.${extension(mime)}`) ||
+    savedUrls.has(`/api/assets/backgrounds/${id}.thumb.webp`)
+}
+
+/** 取消后的出图可能已经被其他会话选中，只移除没有引用的背景。 */
+export async function removeUnusedBackground(id: string) {
+  const row = db.select().from(backgrounds).where(eq(backgrounds.id, id)).get()
+  if (!row || backgroundReferenceCheck()(row)) return
+  db.delete(backgrounds).where(eq(backgrounds.id, id)).run()
+  await removeBackgroundFiles(id)
+}
+
+/** 在删除会话的事务中保留共享素材，先移除独占背景的记录，再由调用方清理这些文件。 */
+export function releaseChatBackgrounds(chatId: string): string[] {
+  const owned = db.select().from(backgrounds).where(eq(backgrounds.chatId, chatId)).all()
+  if (!owned.length) return []
+  const referenced = backgroundReferenceCheck(chatId)
+  const disposable = owned.filter((row) => !referenced(row)).map((row) => row.id)
+  if (disposable.length) db.delete(backgrounds).where(inArray(backgrounds.id, disposable)).run()
+  db.update(backgrounds).set({ chatId: null }).where(eq(backgrounds.chatId, chatId)).run()
+  return disposable
 }
 
 export function getBackgroundSettings(): BackgroundSettings {

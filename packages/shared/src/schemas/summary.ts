@@ -19,12 +19,14 @@ export interface SummaryEntryDTO {
   coveredCount: number
   /** 那条消息的摘要：发言人名 + 去掉舞台指令后的前 40 个字（Array.from 计数，超出加「…」） */
   preview: string
+  /** 覆盖的素材已变化，此总结仅在历史中可见。 */
+  stale?: boolean
 }
 
 export interface SummaryStateDTO {
-  /** 激活路径上最近的一份总结 */
+  /** 激活路径上最近的一份有效总结 */
   current: SummaryEntryDTO | null
-  /** 激活路径上更早的总结，新的在前 */
+  /** 激活路径上其余的总结，靠近叶子的在前 */
   history: SummaryEntryDTO[]
   /**
    * 上一份总结之后、还没总结的素材（不含激活路径的最后一条，和总结时的规则一致）：

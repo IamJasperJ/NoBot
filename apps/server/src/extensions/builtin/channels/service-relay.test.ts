@@ -61,7 +61,7 @@ test('自身禁止转发时在排队前退出，文字和工具附件都不触�
     await deliver.call(
       {} as ChannelDelivery,
       {} as never,
-      { meta } as MessageDTO,
+      { meta, status: 'done' } as MessageDTO,
       {
         abort: () => {
           aborted = true
@@ -103,7 +103,7 @@ test('生成事件从开始就不开流式，结束不投递、不进合并队�
   }
   try {
     service.watchJobs()
-    const assistant = row('assistant', 'assistant', 'user') as MessageDTO
+    const assistant = { ...row('assistant', 'assistant', 'user'), status: 'done' } as MessageDTO
     listener!({ type: 'start', assistantMessage: assistant } as GenerateEvent)
     expect(state.streams.size).toBe(0)
     listener!({ type: 'delta', text: 'secret' } as GenerateEvent)
@@ -121,7 +121,64 @@ test('生成事件从开始就不开流式，结束不投递、不进合并队�
   }
 })
 
+test('生成中止不投递，错误立即停止预览但等到任务结束才释放订阅', () => {
+  const binding = { id: 'binding', accountId: 'account', chatId: 'home', state: 'active' } as ChannelBindingDTO
+  const bindings = spyOn(store, 'listBindings').mockReturnValue([binding])
+  const bindingRow = spyOn(store, 'bindingRow').mockReturnValue(binding as never)
+  const account = spyOn(store, 'accountRow').mockReturnValue({ provider: 'test.plugin' } as never)
+  const provider = spyOn(providers, 'getProvider').mockReturnValue({ definition: {} } as never)
+  const job = spyOn(generation, 'getJob').mockReturnValue({} as never)
+  let listener!: (event: GenerateEvent) => void
+  const released: string[] = []
+  const previews: string[] = []
+  const delivered: MessageDTO[] = []
+  const turns: MessageDTO[][] = []
+  const stop = (name: string) => ({ stream: { abort: () => previews.push(name) } })
+  const state = {
+    runtime: { accounts: new Map([['account', { client: {} }]]), log: () => {} },
+    host: {
+      subscribe: (_job: unknown, callback: typeof listener) => {
+        listener = callback
+        return () => released.push('released')
+      },
+    },
+    generationSubscriptions: new Map(),
+    streams: new Map(),
+    oneBotTurns: new Map(),
+    deliveryInstance: {
+      deliverOneBotTurn: async (_binding: ChannelBindingDTO, turn: MessageDTO[]) => void turns.push(turn),
+    },
+    deliver: (_binding: ChannelBindingDTO, message: MessageDTO) => delivered.push(message),
+    routesTo: () => true,
+  }
+  const service = Object.assign(Object.create(ChannelService.prototype), state) as { watchJobs(): void }
+  const good = { ...row('done', 'assistant', null), status: 'done' } as MessageDTO
+  try {
+    service.watchJobs()
+    state.streams.set('binding:stream', stop('cancelled'))
+    listener({ type: 'done', message: { ...good, id: 'abort', status: 'aborted' } })
+    expect(delivered).toEqual([])
+    expect(previews).toEqual(['cancelled'])
+
+    state.oneBotTurns.set(binding.id, [good])
+    state.streams.set('binding:stream', stop('failed'))
+    listener({ type: 'error', code: 'MODEL', message: '模型失败' })
+    expect(previews).toEqual(['cancelled', 'failed'])
+    expect(released).toEqual([])
+    expect(turns).toEqual([])
+    listener({ type: 'done', message: { ...good, id: 'err', status: 'error' } })
+    listener({ type: 'complete' })
+    expect(delivered).toEqual([])
+    expect(turns).toEqual([[good]])
+    expect(released).toEqual(['released'])
+    expect(state.generationSubscriptions.size).toBe(0)
+  } finally {
+    for (const spy of [bindings, bindingRow, account, provider, job]) spy.mockRestore()
+  }
+})
+
 function pluginDelivery() {
+  let current = true
   const texts: string[] = []
   const images: { chatId: string; bytes: Uint8Array; mime: string; replyTo?: string }[] = []
   const events: string[] = []
@@ -183,7 +240,9 @@ function pluginDelivery() {
       status TEXT NOT NULL, content_hash TEXT NOT NULL
     );
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE messages (id TEXT PRIMARY KEY, status TEXT NOT NULL, meta TEXT NOT NULL);
   `)
+  sqlite.run('INSERT INTO messages (id, status, meta) VALUES (?, ?, ?)', [message.id, message.status, '{}'])
   const context = spyOn(userContext, 'currentContext').mockReturnValue({ db: drizzle(sqlite) } as never)
   const bindingSpy = spyOn(store, 'bindingRow').mockReturnValue(binding)
   const account = spyOn(store, 'accountRow').mockReturnValue({ provider: 'test.plugin' } as never)
@@ -210,12 +269,12 @@ function pluginDelivery() {
     runtime: { accounts: new Map([['account', { client }]]), log: (_id: string, code: string) => logs.push(code) },
     media,
     routesTo: () => true,
-    burstGuard: () => () => true,
     settings: () => ({ values: channelSettingsSchema.parse({ generatedImages: 'send', cg: 'send', voice: 'auto' }) }),
     oneBotTurns: new Map(),
     deliveryTails: new Map(),
     inboundScope: new AsyncLocalStorage(),
   }) as ChannelService
+  Object.assign(service.delivery, { burstGuard: () => () => current })
   return {
     definition,
     client,
@@ -227,6 +286,11 @@ function pluginDelivery() {
     events,
     logs,
     synthesizeSpeech,
+    deliveryTails: service.deliveryTails,
+    saveStatus: (status: MessageDTO['status']) => sqlite.run('UPDATE messages SET status = ?', [status]),
+    invalidate: () => {
+      current = false
+    },
     deliver: (value = message) => service.deliver(binding, value),
     close: () => {
       media.dispose()
@@ -235,6 +299,59 @@ function pluginDelivery() {
     },
   }
 }
+
+test('扩展平台分条发送期间会话或消息失效后停止余下正文和图片', async () => {
+  const f = pluginDelivery()
+  const send = f.definition.send
+  f.definition.limits.maxTextLength = 3
+  f.definition.send = async (...args) => {
+    const result = await send(...args)
+    f.invalidate()
+    return result
+  }
+  try {
+    await f.deliver({ ...f.message, role: 'assistant', content: 'abcdef' })
+    expect(f.texts).toEqual(['abc'])
+    expect(f.images).toEqual([])
+  } finally {
+    f.close()
+  }
+})
+
+test('扩展平台消息在排队期间失效时不发送正文或图片', async () => {
+  const f = pluginDelivery()
+  let release!: () => void
+  const queued = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  f.deliveryTails.set(f.binding.id, queued)
+  try {
+    const delivery = f.deliver({ ...f.message, role: 'assistant', content: 'hello' })
+    f.invalidate()
+    release()
+    await delivery
+    expect(f.texts).toEqual([])
+    expect(f.images).toEqual([])
+  } finally {
+    f.close()
+  }
+})
+
+test('排队的回复后来被中止时，不投递旧快照里的正文和附件', async () => {
+  const f = pluginDelivery()
+  const wait = Promise.withResolvers<void>()
+  f.deliveryTails.set(f.binding.id, wait.promise)
+  try {
+    const delivery = f.deliver({ ...f.message, role: 'assistant', content: '不完整的回复' })
+    f.saveStatus('aborted')
+    wait.resolve()
+    await delivery
+    expect(f.events).toEqual([])
+  } finally {
+    wait.resolve()
+    f.close()
+  }
+})
 
 test('扩展平台从 service 投递无正文工具图片，字节和位置正确，重复更新不重发', async () => {
   const f = pluginDelivery()

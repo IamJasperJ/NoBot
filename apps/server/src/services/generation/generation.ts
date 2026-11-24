@@ -48,6 +48,7 @@ interface Job {
   hooks?: GenerationHooks
   chatId: string
   controller: AbortController
+  deleted: boolean
   /** 正在生成的那条消息；两条消息之间为 null */
   current: { startEvent: GenerateEvent; base: string; content: string; reasoning: string } | null
   /** 任务结束后才有：结束时推送过的事件，结束后订阅的人会收到 */
@@ -60,6 +61,14 @@ const jobs = new Map<string, Job>()
 export const isGenerating = (chatId: string) => jobs.has(chatId)
 export const getJob = (chatId: string) => jobs.get(chatId)
 export const abortGeneration = (chatId: string) => jobs.get(chatId)?.controller.abort()
+
+/** 删除会话时放弃未保存的结果；普通停止仍保留输入和已生成的内容。 */
+export function abortGenerationForChatDeletion(chatId: string) {
+  const job = jobs.get(chatId)
+  if (!job) return
+  job.deleted = true
+  job.controller.abort()
+}
 
 /**
  * 订阅任务事件。会先「回放」当前这条消息到目前为止的状态（开始事件 + 已生成的内容），
@@ -269,6 +278,7 @@ export function startGeneration(chatId: string, input: GenerateInput, hooks?: Ge
     hooks,
     chatId,
     controller: new AbortController(),
+    deleted: false,
     current: null,
     finished: null,
     listeners: new Set(),
@@ -286,11 +296,14 @@ export function startGeneration(chatId: string, input: GenerateInput, hooks?: Ge
 
 async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
   const finished: GenerateEvent[] = []
+  const { signal } = job.controller
   let roomMessageCount = 0
   try {
     const room = multiplayerPrompt(job.chatId, plan.parentId)
     if (plan.pendingUser) {
-      const input = await prepareUserTranslation(plan.pendingUser, job.chatId)
+      const translated = await prepareUserTranslation(plan.pendingUser, job.chatId, signal)
+      if (job.deleted) return
+      const input = signal.aborted ? plan.pendingUser : translated
       const userId = newId()
       db.insert(messages)
         .values({
@@ -307,14 +320,15 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
       plan.parentId = userId
       plan.userMessage = loadMessage(userId)
       emitServerEvent({ type: 'message:saved', message: plan.userMessage })
-      if (ctx.group) plan.speakers = pickSpeakers(ctx, userId, true)
+      if (ctx.group && !signal.aborted) plan.speakers = pickSpeakers(ctx, userId, true)
     }
 
-    // 群聊手动模式下用户发了消息：只保存用户消息，不自动回复
-    if (plan.speakers.length === 0 && plan.userMessage) {
+    // 手动群聊或回复开始前停止时，仍要把已保存的用户消息推给客户端。
+    if (plan.userMessage && (signal.aborted || plan.speakers.length === 0)) {
       const e: GenerateEvent = { type: 'message', message: plan.userMessage }
       finished.push(e)
       emit(job, e)
+      return
     }
     let parentId = plan.parentId
     speakers: for (const [index, speakerId] of plan.speakers.entries()) {
@@ -323,9 +337,9 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
       let userMessage = index === 0 ? plan.userMessage : undefined
 
       for (let round = 0; ; round++) {
-        if (job.controller.signal.aborted || (room && roomMessageCount >= 3)) break speakers
+        if (signal.aborted || (room && roomMessageCount >= 3)) break speakers
         job.hooks?.beforeMessage?.()
-        if (job.controller.signal.aborted) break speakers
+        if (signal.aborted) break speakers
         roomMessageCount++
         const step = await generateOne(job, ctx, {
           speakerId,
@@ -335,6 +349,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
           userMessage,
           instruction: plan.instruction,
         })
+        if (job.deleted) return
         if (step.error) finished.push(step.error)
         parentId = step.message.id
         // 出错或被中止：整个任务停下（群聊后面的人也不再发言）
@@ -346,15 +361,16 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
         let endTurn = false
         for (const call of step.toolCalls) {
           const vars = computeVars(loadPath(parentId), initialVars(job.chatId).vars)
-          let result = job.controller.signal.aborted
+          let result = signal.aborted
             ? { content: 'Tool call aborted by user.' }
             : await runTool(
                 call.name,
                 call.arguments,
-                { chatId: job.chatId, speakerId, vars, signal: job.controller.signal },
+                { chatId: job.chatId, speakerId, vars, signal },
                 ctx.preset.samplers.disabledTools,
               )
-          if (job.controller.signal.aborted) result = { content: 'Tool call aborted by user.' }
+          if (job.deleted) return
+          if (signal.aborted) result = { content: 'Tool call aborted by user.' }
           if (result.endTurn) endTurn = true
           const toolId = newId()
           const meta: MessageMeta = { ...result.meta, toolCallId: call.id, toolName: call.name }
@@ -372,7 +388,7 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
               chatId: job.chatId,
               parentId,
               role: 'tool',
-              status: job.controller.signal.aborted ? 'aborted' : 'done',
+              status: signal.aborted ? 'aborted' : 'done',
               speakerId,
               content: result.content,
               meta,
@@ -383,15 +399,16 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
           parentId = toolId
           emitServerEvent({ type: 'message:saved', message: loadMessage(toolId) })
           emit(job, { type: 'message', message: loadMessage(toolId) })
-          if (result.onSaved && !job.controller.signal.aborted) {
+          if (result.onSaved && !signal.aborted) {
             try {
               await result.onSaved(toolId)
             } catch (error) {
               logError(t('扩展工具保存回调'), error)
             }
+            if (job.deleted) return
           }
         }
-        if (job.controller.signal.aborted) {
+        if (signal.aborted) {
           // 为本轮所有调用保存中止结果，保留完整配对；后续生成仍可阅读这条工具链。
           db.update(messages).set({ status: 'aborted' }).where(eq(messages.id, step.message.id)).run()
           emit(job, { type: 'message', message: loadMessage(step.message.id) })
@@ -406,13 +423,20 @@ async function runJob(job: Job, ctx: GenerationContext, plan: Plan) {
       }
     }
   } catch (e) {
-    console.error('生成任务出错：', e)
-    const err: GenerateEvent = { type: 'error', code: 'INTERNAL', message: e instanceof Error ? e.message : String(e) }
-    finished.push(err)
-    emit(job, err)
+    if (!job.deleted) {
+      console.error('生成任务出错：', e)
+      const err: GenerateEvent = {
+        type: 'error',
+        code: 'INTERNAL',
+        message: e instanceof Error ? e.message : String(e),
+      }
+      finished.push(err)
+      emit(job, err)
+    }
   } finally {
     try {
-      emitServerEvent({ type: 'generation:complete', chatId: job.chatId })
+      if (job.deleted) notifyChatChanged(job.chatId)
+      else emitServerEvent({ type: 'generation:complete', chatId: job.chatId })
     } catch (error) {
       logError('generation complete', error)
     }
@@ -439,6 +463,7 @@ async function generateOne(
   ctx: GenerationContext,
   step: StepInput,
 ): Promise<{ message: MessageDTO; toolCalls: ToolCall[]; error?: GenerateEvent }> {
+  const { signal } = job.controller
   const connection = ctx.connection
   if (!connection) throw new HttpError(400, 'NO_API_PRESET', t('还没有配置模型连接'))
   const speaker = (ctx.members.find((m) => m.id === step.speakerId) ?? ctx.members[0]) as PromptCharacter
@@ -492,13 +517,17 @@ async function generateOne(
   let lastFlush = Date.now()
 
   try {
-    const assembled = await assembleWithVectors(ctx, {
-      instruction: step.instruction,
-      type: step.type,
-      speakerId: speaker.id,
-      leafId: step.continueTarget ? step.continueTarget.id : step.parentId,
-      enabledTools,
-    })
+    const assembled = await assembleWithVectors(
+      ctx,
+      {
+        instruction: step.instruction,
+        type: step.type,
+        speakerId: speaker.id,
+        leafId: step.continueTarget ? step.continueTarget.id : step.parentId,
+        enabledTools,
+      },
+      signal,
+    )
     meta.lore = {
       activated: assembled.report.worldInfo.filter((entry) => entry.activated).map((entry) => entry.entryId),
       automationIds: [
@@ -513,6 +542,7 @@ async function generateOne(
     report = assembled.report
     loreId = loreBackgroundId(assembled.report.worldInfo, ctx.loreEntries)
     const images = await resolveImages(assembled.messages, ctx.preset.samplers.imageMaxSize)
+    signal.throwIfAborted()
     const body = buildRequestBody({
       images,
       model: connection.model,
@@ -530,8 +560,9 @@ async function generateOne(
     for await (const chunk of chatCompletion({
       connection: toLlmConnection(connection),
       body,
-      signal: job.controller.signal,
+      signal,
     })) {
+      signal.throwIfAborted()
       if (chunk.text) current.content += chunk.text
       if (chunk.reasoning) current.reasoning += chunk.reasoning
       if (chunk.finishReason) meta.finishReason = chunk.finishReason
@@ -546,8 +577,7 @@ async function generateOne(
       }
     }
   } catch (e) {
-    if (job.controller.signal.aborted) status = 'aborted'
-    else {
+    if (!signal.aborted) {
       status = 'error'
       meta.error = e instanceof Error ? e.message : String(e)
       errorEvent = { type: 'error', code: (e as { code?: string }).code ?? 'GENERATION_FAILED', message: meta.error }
@@ -555,12 +585,15 @@ async function generateOne(
     }
   }
 
+  if (job.deleted) signal.throwIfAborted()
+  if (signal.aborted) status = 'aborted'
+
   // 3. 收尾：扩展处理输出 → 记日志 → 写库
   let content = current.content
   if (status === 'done') content = runTransform('transformOutput', content, job.chatId)
   meta.durationMs = Date.now() - started
   if (current.reasoning) meta.reasoning = current.reasoning
-  if (toolCalls.length) meta.toolCalls = toolCalls
+  if (status === 'done' && toolCalls.length) meta.toolCalls = toolCalls
   else delete meta.toolCalls
 
   const generated = content.slice(base.length)
@@ -591,8 +624,13 @@ async function generateOne(
     content = step.continueTarget.content
     status = 'done'
   }
-  // 生成期间允许切换排除标记，落库前读取最新值，避免内存快照把用户操作覆盖。
-  if (loadMessage(messageId).meta.excluded === true) meta.excluded = true
+  // 续写期间原消息的 CG 可能已经完成，落库时合并最新附件和排除标记。
+  const latestMeta = loadMessage(messageId).meta
+  if (step.continueTarget) {
+    meta.cg = latestMeta.cg
+    meta.images = latestMeta.images
+  }
+  if (latestMeta.excluded === true) meta.excluded = true
   else delete meta.excluded
   const afterCommit = db.transaction(() => {
     db.update(messages)
@@ -610,10 +648,17 @@ async function generateOne(
   } catch (error) {
     logError('generation saved callback', error)
   }
-  if (status === 'done' && !errorEvent) {
+  if (status === 'done' && !errorEvent && !signal.aborted) {
     classifyMessage(messageId)
-    if (!toolCalls.length) await applyAutomaticBackground(job.chatId, loreId, !step.continueTarget)
+    if (!toolCalls.length) {
+      try {
+        await applyAutomaticBackground(job.chatId, messageId, loreId, !step.continueTarget, signal)
+      } catch (error) {
+        if (!signal.aborted) logError(t('自动选择背景失败'), error)
+      }
+    }
   }
+  if (job.deleted) signal.throwIfAborted()
   job.current = null
   const message = loadMessage(messageId)
   emitServerEvent({ type: 'message:saved', message })

@@ -33,6 +33,14 @@ import { applyMacros, type MacroContext } from './macros'
 /** 图片预算采用统一估算，避免 core 依赖实际文件或模型的视觉分词规则。 */
 export const IMAGE_TOKENS = 300
 
+export function promptMessageTokens(message: Pick<ChatMessage, 'content' | 'images'>): number {
+  return countTokens(message.content) + MESSAGE_OVERHEAD_TOKENS + (message.images?.length ?? 0) * IMAGE_TOKENS
+}
+
+export function promptTokenBudget(contextSize: number, maxTokens: number): number {
+  return Math.max(0, Math.floor((contextSize - maxTokens) * 0.95))
+}
+
 export class PromptBudgetError extends Error {}
 
 export interface PromptCharacter {
@@ -77,6 +85,8 @@ export interface PromptInjection {
 export interface BuildInput {
   /** 扩展 / 玩法注入的内容，同位置按数组顺序排列 */
   injections?: PromptInjection[]
+  /** 调用方在组装后追加的固定输入，包括独立的静默任务指令。 */
+  reservedTokens?: number
   type: GenerationType
   preset: PresetData
   /** 当前发言的角色 */
@@ -168,11 +178,11 @@ export interface BuildInput {
  *  （即识别原始文本里的 {{user}}: / {{char}}:），内容再做宏替换。
  *  预算：exampleBehavior = keep 时算入固定部分；gradual 时在历史之后用剩余预算按块逐个加入，放不下就停。
  *
- * 【4. 聊天记录与预算】固定部分 = 第 2 步全部片段 + 聊天内注入 + 第 6 步的结尾片段 + newChat 提示。
+ * 【4. 聊天记录与预算】固定部分 = 第 2 步全部片段 + 聊天内注入 + 第 6 步的结尾片段。
  *  固定部分超过 budget 时抛 PromptBudgetError（中文说明超了多少）。
  *  历史先按「单元」分组：带 toolCalls 的 assistant 消息和紧随其后对应的 tool 消息是一个单元，其余每条消息一个单元；
  *  从最新的单元往旧的填，放不下就停（保证工具调用和结果成对保留）。
- *  非空的 newChat 提示（群聊用 newGroupChat）作为一条 system 消息放在历史最前面（只有历史非空时）。
+ *  非空的 newChat 提示（群聊用 newGroupChat）随第一个保留的历史单元计费，作为 system 消息放在历史最前面。
  *  continue 模式且 behavior.continuePrefill 时：最后一条（被续写的）消息不放在历史里，而是放到整个 Prompt 最后（见 6）。
  *
  * 【5. 聊天内注入】需要按深度插入的内容：
@@ -217,7 +227,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
   const filtered = filterToolHistory(input.history, input.enabledTools)
   const promptHistory = compactToolResults(filtered.history)
   const { behavior, utility } = preset
-  const budget = Math.floor((preset.samplers.contextSize - preset.samplers.maxTokens) * 0.95)
+  const budget = promptTokenBudget(preset.samplers.contextSize, preset.samplers.maxTokens)
   const context: MacroContext = {
     char: speaker.name,
     user: input.persona.name,
@@ -234,8 +244,7 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
       ...context,
       original: original === undefined ? undefined : applyMacros(original, context),
     }).trim()
-  const cost = (message: ChatMessage) =>
-    countTokens(message.content) + MESSAGE_OVERHEAD_TOKENS + (message.images?.length ?? 0) * IMAGE_TOKENS
+  const cost = promptMessageTokens
   const sum = (pieces: Piece[]) => pieces.reduce((total, piece) => total + cost(piece.message), 0)
   const piece = (
     source: string,
@@ -602,25 +611,20 @@ export function buildPrompt(input: BuildInput): { messages: ChatMessage[]; repor
       : []
   const fixed = slots.flatMap((slot) => (slot.kind === 'piece' ? [slot.piece] : []))
   const keptExamples = behavior.exampleBehavior === 'keep' ? exampleBlocks.flat() : []
-  let used = sum([
-    ...fixed,
-    ...groupedInjections.map((item) => item.piece),
-    ...endInjections,
-    ...ending,
-    ...start,
-    ...keptExamples,
-  ])
+  // 先为调用方追加的内容留出位置，历史和渐进示例只使用余下的预算。
+  let used =
+    (input.reservedTokens ?? 0) +
+    sum([...fixed, ...groupedInjections.map((item) => item.piece), ...endInjections, ...ending, ...keptExamples])
   if (used > budget) throw new PromptBudgetError(`固定提示词超出预算 ${used - budget} token（预算 ${budget} token）`)
   const keptHistory: Piece[] = []
+  const startTokens = sum(start)
   for (let i = units.length - 1; i >= 0; i--) {
     const unit = units[i]!
-    const tokens = sum(unit)
+    const tokens = sum(unit) + (keptHistory.length === 0 ? startTokens : 0)
     if (used + tokens > budget) break
     used += tokens
     keptHistory.unshift(...unit)
   }
-  // 完全没留下历史时不发送开场提示，把预留预算还给渐进示例。
-  if (keptHistory.length === 0) used -= sum(start)
   if (behavior.exampleBehavior === 'gradual') {
     for (const block of exampleBlocks) {
       const tokens = sum(block)

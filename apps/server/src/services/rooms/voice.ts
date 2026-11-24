@@ -24,9 +24,9 @@ function copyResponse(response: Response) {
 }
 /** 合成只接受本房间消息；返回的缓存文件通过持久事件登记归属，不能按猜测的哈希下载。 */
 export async function roomVoice(roomId: string, request: Request) {
+  const input: unknown = await request.json()
   const { room, member } = membership(roomId)
   checkWritable(room, member.userId)
-  const input: unknown = await request.json()
   if (
     !input ||
     typeof input !== 'object' ||

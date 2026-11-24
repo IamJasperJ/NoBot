@@ -1,11 +1,12 @@
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync, rmSync, statSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AttachmentDTO, CharacterCgDTO, ChatMessage } from '@nobot/shared'
-import { eq } from 'drizzle-orm'
+import { and, eq, like, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import { decodeTime, ulid } from 'ulid'
 import { db } from '../db/client'
-import { chats, messages } from '../db/schema'
+import { bookmarks, chats, messages, settings } from '../db/schema'
 import { paths } from '../env'
 import { HttpError } from '../errors'
 import { t } from '../i18n'
@@ -33,9 +34,53 @@ export async function saveAttachment(bytes: Uint8Array): Promise<AttachmentDTO> 
   }
   const id = ulid()
   const attachment = { id, url: `/api/assets/attachments/${id}.webp`, width, height }
-  await Bun.write(imagePath(id), buffer)
-  await Bun.write(join(paths.attachments, `${id}.json`), JSON.stringify(attachment))
+  const dimensionsPath = join(paths.attachments, `${id}.json`)
+  try {
+    await Bun.write(imagePath(id), buffer)
+    await Bun.write(dimensionsPath, JSON.stringify(attachment))
+  } catch (error) {
+    await Promise.allSettled([rm(imagePath(id), { force: true }), rm(dimensionsPath, { force: true })])
+    throw error
+  }
   return attachment
+}
+
+/** 临时图片的引用解除后再清理；消息、存档和其他演员仍可保留同一附件。 */
+export async function removeAttachmentFiles(id: string) {
+  if (!validId(id)) return
+  const url = `/api/assets/attachments/${id}.webp`
+  const usedByMessage = db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(sql`
+    EXISTS (SELECT 1 FROM json_tree(${messages.meta}, '$.images') AS image WHERE image.key = 'id' AND image.atom = ${id})
+    OR EXISTS (SELECT 1 FROM json_tree(${messages.meta}, '$.cg') AS cg WHERE cg.key = 'attachmentId' AND cg.atom = ${id})
+  `)
+    .get()
+  if (usedByMessage) return
+  const usedBySave = db
+    .select({ id: bookmarks.id })
+    .from(bookmarks)
+    .where(sql`
+    EXISTS (SELECT 1 FROM json_tree(${bookmarks.snapshot}, '$.actors') AS actor
+      WHERE actor.key = 'spriteUrl' AND (actor.atom = ${url} OR actor.atom LIKE ${`${url}?%`}))
+  `)
+    .get()
+  if (usedBySave) return
+  const usedByActor = db
+    .select({ key: settings.key })
+    .from(settings)
+    .where(
+      and(
+        like(settings.key, 'vn-actors:%'),
+        sql`EXISTS (SELECT 1 FROM json_tree(${settings.value}) AS image WHERE image.key = 'id' AND image.atom = ${id})`,
+      ),
+    )
+    .get()
+  if (usedByActor) return
+  // 查询和删除之间不让出执行权，避免新的同步消息提交引用刚检查过的附件。
+  rmSync(imagePath(id), { force: true })
+  rmSync(join(paths.attachments, `${id}.json`), { force: true })
 }
 
 /** 生成入口同步检查全部附件，校验失败时不得插入用户消息。 */

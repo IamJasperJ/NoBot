@@ -1,7 +1,9 @@
-import type { ChatMessage } from '@nobot/shared'
+import { IMAGE_TOKENS, promptMessageTokens, promptTokenBudget } from '@nobot/core'
+import { type ChatMessage, providerInfo, type SamplerSettings } from '@nobot/shared'
 import { HttpError } from '../../errors'
 import type { ExtensionHost } from '../../extensions/types'
 import { t } from '../../i18n'
+import { parseExtraBody } from '../../llm/body'
 import { buildRequestBody, chatCompletion, toLlmConnection } from '../../llm/openai'
 import { redactImages, resolveImages } from '../attachments'
 import { replaceImageAttachments } from '../caption'
@@ -20,6 +22,21 @@ export function complete(opts: Parameters<ExtensionHost['complete']>[0]): Promis
   return requestCompletion(opts)
 }
 
+export function completionLimits(base: SamplerSettings, provider: string, requested?: number) {
+  const extra = parseExtraBody(base.extraBody)
+  const protocol = providerInfo(provider).protocol
+  const useCompletionLimit = (protocol === 'openai' || protocol === 'azure') && extra.max_completion_tokens != null
+  const maxTokens = requested ?? (useCompletionLimit ? extra.max_completion_tokens : extra.max_tokens) ?? base.maxTokens
+  if (typeof maxTokens !== 'number' || !Number.isInteger(maxTokens) || maxTokens < 1)
+    throw new HttpError(400, 'BAD_REQUEST', t('模型回复上限必须是正整数'))
+  const reasoning = extra.reasoning_effort ?? base.reasoningEffort
+  // Claude 的传统思考模式会在请求转换时抬高回复上限。
+  const reservedOutput =
+    protocol === 'anthropic' && reasoning && reasoning !== 'auto' ? Math.max(2048, maxTokens) : maxTokens
+  const budget = promptTokenBudget(base.contextSize, reservedOutput)
+  return { extra, useCompletionLimit, maxTokens, reservedOutput, budget }
+}
+
 async function requestCompletion(
   opts: Parameters<ExtensionHost['quietPrompt']>[0] | Parameters<ExtensionHost['complete']>[0],
 ): Promise<string> {
@@ -29,7 +46,11 @@ async function requestCompletion(
   let model: string | null = null
   let request: unknown
   try {
-    const ctx = opts.chatId ? loadGenerationContext(opts.chatId, { requireConnection: !opts.connectionId }) : null
+    opts.signal?.throwIfAborted()
+    const ctx =
+      'instruction' in opts || opts.chatId
+        ? loadGenerationContext(opts.chatId!, { requireConnection: !opts.connectionId })
+        : null
     const profile = ctx ?? resolveProfile(undefined, !opts.connectionId)
     if (ctx && 'purpose' in opts && opts.purpose === 'image') {
       // 酒馆按当前主体加载角色世界书；其他群成员的常驻条目不能抢占本次人物的身份资料。
@@ -38,21 +59,47 @@ async function requestCompletion(
     const connection = opts.connectionId ? getApiPresetRow(opts.connectionId) : profile.connection
     if (!connection) throw new HttpError(400, 'NO_CONNECTION', t('没有可用的模型连接'))
     model = opts.model || connection.model
-    let prompt =
-      'messages' in opts
-        ? [...opts.messages]
-        : (
-            await assembleWithVectors(ctx!, {
-              type: 'normal',
-              speakerId: opts.speakerId ?? ctx!.members[0]?.id ?? '',
-              leafId:
-                opts.includeHistory === false ? null : opts.leafId === undefined ? ctx!.chat.activeLeafId : opts.leafId,
-              toolsEnabled: false,
-              quiet: true,
-              plainHistory: opts.purpose === 'image',
-            })
-          ).messages
-    if ('instruction' in opts) {
+    const resolvedConnection = { ...connection, model }
+    const base = profile.preset.samplers
+    const { extra, useCompletionLimit, maxTokens, reservedOutput, budget } = completionLimits(
+      base,
+      connection.provider,
+      opts.maxTokens,
+    )
+    const samplers = { ...base, stream: false, maxTokens, extraBody: '' }
+    const avatarTokens = avatar ? IMAGE_TOKENS : 0
+    let prompt: ChatMessage[]
+    if ('messages' in opts) {
+      prompt = [...opts.messages]
+    } else {
+      const assembled = await assembleWithVectors(
+        {
+          ...ctx!,
+          connection: resolvedConnection,
+          preset: { ...profile.preset, samplers: { ...samplers, maxTokens: reservedOutput } },
+        },
+        {
+          type: 'normal',
+          speakerId: opts.speakerId ?? ctx!.members[0]?.id ?? '',
+          leafId:
+            opts.includeHistory === false ? null : opts.leafId === undefined ? ctx!.chat.activeLeafId : opts.leafId,
+          toolsEnabled: false,
+          quiet: true,
+          plainHistory: opts.purpose === 'image',
+          reservedTokens: promptMessageTokens({ content: opts.instruction }) + avatarTokens,
+        },
+        opts.signal,
+      )
+      if (opts.requiredHistoryIds?.length) {
+        const history = new Set(
+          assembled.report.segments.flatMap((segment) =>
+            segment.source === 'history' && segment.messageId ? [segment.messageId] : [],
+          ),
+        )
+        if (opts.requiredHistoryIds.some((id) => !history.has(id)))
+          throw new HttpError(400, 'PROMPT_HISTORY_OMITTED', t('请求缺少所需的历史消息，请检查预设或增大上下文预算'))
+      }
+      prompt = assembled.messages
       if (opts.purpose === 'image') prompt = textOnlyHistory(prompt)
       const role = instructionRole(prompt, opts.role)
       // 酒馆会把末尾静默指令与相邻的同角色消息合并，再交给模型，避免额外系统消息改变后处理语义。
@@ -60,18 +107,30 @@ async function requestCompletion(
       if (opts.purpose === 'image' && !avatar && tail?.role === role) tail.content += `\n\n${opts.instruction}`
       else prompt.push({ role, content: opts.instruction })
     }
-    prompt = replaceImageAttachments(prompt, { ...connection, model })
-    const images = await resolveImages(prompt, profile.preset.samplers.imageMaxSize)
+    prompt = replaceImageAttachments(prompt, resolvedConnection)
+    const inputTokens = prompt.reduce((total, message) => total + promptMessageTokens(message), avatarTokens)
+    if (inputTokens > budget || reservedOutput >= base.contextSize)
+      throw new HttpError(400, 'PROMPT_TOO_LONG', t('静默请求超出上下文预算，请缩短输入或调整生成预设'))
+    const images = await resolveImages(prompt, samplers.imageMaxSize)
     const body = buildRequestBody({
       model,
       messages: prompt,
       images,
-      samplers: {
-        ...profile.preset.samplers,
-        stream: false,
-        ...(opts.maxTokens === undefined ? {} : { maxTokens: opts.maxTokens }),
-      },
+      samplers,
     })
+    // 静默任务的模型与消息由调用方和实际组装确定，额外参数只补充其余配置。
+    const {
+      model: _model,
+      messages: _messages,
+      max_tokens: _limit,
+      max_completion_tokens: _completionLimit,
+      ...additional
+    } = extra
+    Object.assign(body, additional)
+    if (useCompletionLimit) {
+      delete body.max_tokens
+      body.max_completion_tokens = maxTokens
+    }
     if (avatar) {
       // 头像仅用于本次外貌提炼，不保存为聊天附件，日志也不写入图片数据。
       const sharp = (await import('sharp')).default
@@ -94,10 +153,10 @@ async function requestCompletion(
     delete body.function_call
     delete body.parallel_tool_calls
     if ('purpose' in opts && opts.purpose === 'image') body.tool_choice = 'none'
-    if (opts.maxTokens !== undefined) body.max_tokens = opts.maxTokens
     request = avatar
       ? { ...redactImages(body, images), messages: t('[头像外貌提炼，图片数据已隐藏]') }
       : redactImages(body, images)
+    opts.signal?.throwIfAborted()
     let text = ''
     for await (const chunk of chatCompletion({
       connection: toLlmConnection(connection),
@@ -105,6 +164,7 @@ async function requestCompletion(
       signal: opts.signal ?? new AbortController().signal,
     }))
       text += chunk.text ?? ''
+    opts.signal?.throwIfAborted()
     text = text.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '').trim()
     insertLog({
       chatId: opts.chatId,
@@ -121,7 +181,7 @@ async function requestCompletion(
     insertLog({
       chatId: opts.chatId,
       kind: 'extension',
-      status: 'error',
+      status: opts.signal?.aborted ? 'aborted' : 'error',
       model,
       durationMs: Date.now() - started,
       summary,

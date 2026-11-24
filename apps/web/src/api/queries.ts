@@ -10,7 +10,7 @@ import {
 } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { isMiniApp } from '../miniapp/context'
-import { api } from './client'
+import { ApiRequestError, api } from './client'
 import { isRoomGuest } from './room-scope'
 import { useRooms } from './rooms'
 
@@ -193,6 +193,7 @@ export function useChatPages(chatId: string | null) {
     getNextPageParam: (last) => (last.hasMore ? last.messages[0]?.id : undefined),
     enabled: !!chatId && rooms.isSuccess,
     staleTime: Number.POSITIVE_INFINITY,
+    retry: (failureCount, error) => !isStaleChatCursor(error) && failureCount < 1,
     refetchInterval: (query) =>
       query.state.data?.pages.some((page) =>
         page.messages.some(
@@ -203,6 +204,9 @@ export function useChatPages(chatId: string | null) {
         ? 1000
         : false,
   })
+  useEffect(() => {
+    if (chatId && isStaleChatCursor(query.error)) void resetChat(qc, chatId)
+  }, [qc, chatId, query.error])
   const completedSprites = query.data?.pages
     .flatMap((page) => page.messages)
     .filter((message) => message.meta.spriteGeneration === 'done' || message.meta.spriteGeneration === 'error')
@@ -224,6 +228,10 @@ export function useChatPages(chatId: string | null) {
     if (completedCgs) void qc.invalidateQueries({ queryKey: ['characterCgs'] })
   }, [qc, completedCgs])
   return query
+}
+
+export function isStaleChatCursor(error: unknown) {
+  return error instanceof ApiRequestError && error.code === 'STALE_CHAT_CURSOR'
 }
 
 type ChatCache = InfiniteData<ChatPage, string | undefined>
@@ -258,9 +266,14 @@ export function applyNewMessage(qc: QueryClient, chatId: string, msg: MessageDTO
       const i = page.messages.findIndex((m) => m.id === msg.parentId)
       if (i < 0) continue
       ok = true
-      const updated: ChatPage = { ...page, messages: [...page.messages.slice(0, i + 1), msg] }
+      const updated: ChatPage = {
+        ...data.pages[0]!,
+        messages: [...page.messages.slice(0, i + 1), msg],
+        hasMore: page.hasMore,
+      }
       // 比第 k 页更新的页都在父节点之后，整页丢掉
-      return { pages: [updated, ...data.pages.slice(k + 1)], pageParams: data.pageParams.slice(k) }
+      // 提升到首页时清除原游标，后续重新拉取必须从后端当前叶节点开始。
+      return { pages: [updated, ...data.pages.slice(k + 1)], pageParams: [undefined, ...data.pageParams.slice(k + 1)] }
     }
     return data
   })
@@ -269,14 +282,18 @@ export function applyNewMessage(qc: QueryClient, chatId: string, msg: MessageDTO
 
 /** 用新数据替换缓存里的某条消息（编辑完成、生成结束时用） */
 export function replaceMessage(qc: QueryClient, chatId: string, msg: MessageDTO) {
-  qc.setQueryData<ChatCache>(keys.chat(chatId), (data) =>
-    data
-      ? {
-          ...data,
-          pages: data.pages.map((p) => ({ ...p, messages: p.messages.map((m) => (m.id === msg.id ? msg : m)) })),
-        }
-      : data,
-  )
+  let found = false
+  qc.setQueryData<ChatCache>(keys.chat(chatId), (data) => {
+    if (!data) return data
+    const pages = data.pages.map((page) => {
+      const index = page.messages.findIndex((message) => message.id === msg.id)
+      if (index < 0) return page
+      found = true
+      return { ...page, messages: page.messages.with(index, msg) }
+    })
+    return found ? { ...data, pages } : data
+  })
+  return found
 }
 
 /**
@@ -287,7 +304,7 @@ export async function refreshChatState(qc: QueryClient, chatId: string) {
   try {
     const latest = await api.getChatPage(chatId)
     qc.setQueryData<ChatCache>(keys.chat(chatId), (data) =>
-      data
+      data && (data.pages[0]?.messages.at(-1)?.id ?? null) === latest.chat.activeLeafId
         ? {
             ...data,
             pages: data.pages.map((p) => ({
@@ -297,6 +314,7 @@ export async function refreshChatState(qc: QueryClient, chatId: string) {
               stage: latest.stage,
               vars: latest.vars,
               playPresetId: latest.playPresetId,
+              stateSchema: latest.stateSchema,
             })),
           }
         : data,
@@ -306,10 +324,10 @@ export async function refreshChatState(qc: QueryClient, chatId: string) {
   }
 }
 
-/** 把缓存里的「后端正在生成」标记清掉 */
-export function markIdle(qc: QueryClient, chatId: string) {
+/** 同步缓存里的后端任务状态，涵盖尚未开始输出和工具轮之间的等待。 */
+export function setChatGenerating(qc: QueryClient, chatId: string, generating: boolean) {
   qc.setQueryData<ChatCache>(keys.chat(chatId), (data) =>
-    data ? { ...data, pages: data.pages.map((p) => ({ ...p, generating: false })) } : data,
+    data ? { ...data, pages: data.pages.map((p) => ({ ...p, generating })) } : data,
   )
 }
 

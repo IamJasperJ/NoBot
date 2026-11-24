@@ -58,9 +58,8 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     let promptFail = false
     let promptReply = '<think>隐藏</think>Prompt: "1girl, blue hair"'
     const chatRequests: Record<string, unknown>[] = []
-    const requestSignals: AbortSignal[] = []
+    let imageGate: Promise<void> | undefined
     const respond = async (request: Request) => {
-      requestSignals.push(request.signal)
       remoteHeaders.push(new Headers(request.headers))
       const url = new URL(request.url)
       remoteRequests.push({ url: request.url, authorization: request.headers.get('authorization') })
@@ -73,6 +72,7 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
         imageRunning++
         imagePeak = Math.max(imagePeak, imageRunning)
         try {
+          if (imageGate) await imageGate
           await Bun.sleep(delay)
           if (fail || String(body.prompt).includes('FAIL') || body.model === 'unsupported-model')
             return Response.json({ error: { message: '模拟图片失败' } }, { status: 500 })
@@ -350,12 +350,16 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     expect(() => loadMessage(emptyFailure.message.id)).toThrow()
     expect(() => loadMessage(child.id)).toThrow()
     const beforeBackground = getChatRow(chat.id).activeLeafId
-    const bg = await json<{ background: BackgroundDTO; message: MessageDTO }>('/ext/image-gen/generate', {
-      chatId: chat.id,
-      mode: 'background',
-    })
+    const bg = await json<{ background: BackgroundDTO; backgroundApplied: boolean; message: MessageDTO }>(
+      '/ext/image-gen/generate',
+      {
+        chatId: chat.id,
+        mode: 'background',
+      },
+    )
     expect(bg.background.source).toBe('generated')
     expect(bg.background.name).toBe('1girl, blue hair')
+    expect(bg.backgroundApplied).toBe(true)
     expect(getChatRow(chat.id).backgroundId).toBe(bg.background.id)
     expect(bg.message.parentId).toBe(beforeBackground)
     expect(getChatRow(chat.id).activeLeafId).toBe(bg.message.id)
@@ -948,7 +952,128 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
     textGate = undefined
     await Bun.sleep(10)
     expect(loadMessage(cancelPrompt.message.id).meta.imageGen?.error).toBe('已取消')
+    const gated = Promise.withResolvers<void>()
+    imageGate = gated.promise
+    const startImage = (prompt: string) =>
+      json<{ message: MessageDTO }>('/ext/image-gen/generate', { chatId: chat.id, mode: 'free', prompt })
+    try {
+      const count = bodies.length
+      const running = await startImage('disable-running')
+      for (let i = 0; i < 100 && bodies.length === count; i++) await Bun.sleep(5)
+      expect(bodies).toHaveLength(count + 1)
+      const waiting = await startImage('disable-queued')
+      updateExtension('image-gen', { enabled: false })
+      updateExtension('image-gen', { enabled: true })
+      gated.resolve()
+      for (const { message } of [running, waiting]) {
+        const stopped = await wait(message.id, 'error')
+        expect(stopped.meta.imageGen?.error).toBe('已取消')
+        expect(stopped.meta.images).toBeUndefined()
+      }
+      expect(bodies).toHaveLength(count + 1)
+      const fresh = await startImage('enable-fresh')
+      expect((await wait(fresh.message.id)).meta.images).toHaveLength(1)
+    } finally {
+      gated.resolve()
+      imageGate = undefined
+    }
+    const syncGate = Promise.withResolvers<void>()
+    imageGate = syncGate.promise
+    configure({ async: false })
+    const previousCalls = bodies.length
+    const syncImage = app.request('/api/ext/image-gen/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: chat.id, mode: 'free', prompt: 'stop-sync' }),
+    })
+    try {
+      for (let i = 0; i < 100 && bodies.length === previousCalls; i++) await Bun.sleep(5)
+      expect(bodies).toHaveLength(previousCalls + 1)
+      updateExtension('image-gen', { enabled: false })
+      syncGate.resolve()
+      const response = await syncImage
+      expect(response.status).toBe(409)
+      expect(await response.json()).toMatchObject({ error: { code: 'IMAGE_CANCELLED' } })
+    } finally {
+      syncGate.resolve()
+      await syncImage
+      imageGate = undefined
+      updateExtension('image-gen', { enabled: true })
+      configure({ async: true })
+    }
     delay = 10
+    const { generate, retry, cancel } = await import('./pipeline/message')
+    const { tasks } = await import('./pipeline/state')
+    const { runImageTool } = await import('./pipeline/tool')
+    const { paths } = await import('../../../env')
+    const saveImage = host.saveImage.bind(host)
+    const lifecycleChat = await json<ChatDTO>('/chats', { characterId: actor.id })
+    const storage = new Map<string, unknown>()
+    const imageContext = {
+      host,
+      settings: { ...settings, async: true, refineModelPrompts: false, openaiModel: 'flux-dev' },
+      storage: {
+        get: <T>(key: string) => storage.get(key) as T | undefined,
+        set: (key: string, value: unknown) => {
+          storage.set(key, value)
+        },
+        delete: (key: string) => {
+          storage.delete(key)
+        },
+      },
+    }
+    const initialInput = { chatId: lifecycleChat.id, mode: 'free' as const, prompt: 'blue bird' }
+    let stoppedId: string | undefined
+    for (const action of ['generate', 'retry', 'delete'] as const) {
+      const saved = Promise.withResolvers<string>()
+      const release = Promise.withResolvers<void>()
+      const holdSave = spyOn(host, 'saveImage').mockImplementation(async (bytes) => {
+        const image = await saveImage(bytes)
+        saved.resolve(image.id)
+        await release.promise
+        return image
+      })
+      try {
+        const result =
+          action === 'retry' ? await retry(imageContext, stoppedId!) : await generate(imageContext, initialInput)
+        if (!('message' in result) || !result.message) throw new Error('预期生图任务返回占位消息')
+        const messageId = result.message.id
+        stoppedId = messageId
+        const id = await saved.promise
+        if (action === 'delete') await json(`/chats/${lifecycleChat.id}`, undefined, 'DELETE')
+        else cancel(imageContext, messageId)
+        release.resolve()
+        for (let i = 0; i < 100 && tasks.has(messageId); i++) await Bun.sleep(5)
+        expect(tasks.has(messageId)).toBe(false)
+        expect(await Bun.file(join(paths.attachments, `${id}.webp`)).exists()).toBe(false)
+        expect(await Bun.file(join(paths.attachments, `${id}.json`)).exists()).toBe(false)
+        if (action === 'delete') expect(storage.has(`request:${messageId}`)).toBe(false)
+        else expect(loadMessage(messageId).meta.imageGen).toMatchObject({ status: 'error', error: '已取消' })
+      } finally {
+        release.resolve()
+        holdSave.mockRestore()
+      }
+    }
+    const toolController = new AbortController()
+    let cancelledToolImage: string | undefined
+    const stopTool = spyOn(host, 'saveImage').mockImplementation(async (bytes) => {
+      const image = await saveImage(bytes)
+      cancelledToolImage = image.id
+      toolController.abort()
+      return image
+    })
+    try {
+      const toolResult = await runImageTool(
+        { ...imageContext, settings: { ...imageContext.settings, async: false }, chatId: chat.id },
+        { mode: 'free', prompt: 'blue bird' },
+        { signal: toolController.signal },
+      )
+      expect(toolResult.meta?.imageGen).toMatchObject({ status: 'error', error: '已取消' })
+      expect(cancelledToolImage).toBeString()
+      expect(await Bun.file(join(paths.attachments, `${cancelledToolImage}.webp`)).exists()).toBe(false)
+    } finally {
+      stopTool.mockRestore()
+    }
     configure({ interactiveMode: true, toolEnabled: false, openaiModel: 'flux-dev', visibleFromInteractive: false })
     const { emitServerEvent } = await import('../../registry')
     const userRequest = host.appendMessage(chat.id, { role: 'user', content: '画一张图：海边的小猫' })
@@ -1010,17 +1135,38 @@ test('图片扩展：路由、占位、重试、背景、ComfyUI、工具和日�
       expect(image.meta?.imageGen?.mode).toBe(mode === 'portrait' ? 'face' : mode)
       expect(chatRequests.length - beforePrompts).toBe(mode === 'raw_last' ? 0 : 1)
     }
-    const signalStart = requestSignals.length
-    const toolController = new AbortController()
-    const signalled = await runTool('generate_image', JSON.stringify({ mode: 'character' }), {
-      chatId: chat.id,
-      vars: {},
-      signal: toolController.signal,
-    })
-    expect(signalled.meta?.imageGen?.status).toBe('done')
-    expect(requestSignals.length - signalStart).toBe(2)
-    toolController.abort()
-    expect(requestSignals.slice(signalStart).every((signal) => signal.aborted)).toBe(true)
+    // 在上游请求进行中取消。已发送完响应后，HTTP 服务端不保证还能观察到客户端的取消。
+    for (const stage of ['prompt', 'image'] as const) {
+      const toolController = new AbortController()
+      let release = () => {}
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      if (stage === 'prompt') textGate = gate
+      else imageGate = gate
+      const requests = stage === 'prompt' ? chatRequests : bodies
+      const count = requests.length
+      const running = runTool(
+        'generate_image',
+        JSON.stringify({ mode: stage === 'prompt' ? 'character' : 'raw_last' }),
+        {
+          chatId: chat.id,
+          vars: {},
+          signal: toolController.signal,
+        },
+      )
+      try {
+        for (let attempt = 0; requests.length === count && attempt < 200; attempt++) await Bun.sleep(5)
+        expect(requests).toHaveLength(count + 1)
+        toolController.abort()
+        expect(await running).toEqual({ content: 'Tool call aborted by user.' })
+      } finally {
+        toolController.abort()
+        release()
+        textGate = undefined
+        imageGate = undefined
+      }
+    }
     const beforeDirect = chatRequests.length
     const direct = await invoke({ mode: 'portrait', prompt: 'original final description', orientation: 'landscape' })
     expect(chatRequests).toHaveLength(beforeDirect)

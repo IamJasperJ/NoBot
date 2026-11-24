@@ -443,11 +443,8 @@ test('CH2a：ASR 限制、宿主合成、媒体缓存、入站附件、隐私、
         ).toBe(true)
     }
     const beforeFailure = calls.length
-    await service.deliver(binding, {
-      ...legacy,
-      id: 'failed-tool',
-      meta: { imageGen: { status: 'error', mode: 'tool', error: 'SECRET STACK' } },
-    })
+    const failedImageMeta = { imageGen: { status: 'error' as const, mode: 'tool' as const, error: 'SECRET STACK' } }
+    await service.deliver(binding, host.appendMessage(chat.id, { ...legacy, meta: failedImageMeta }))
     expect(calls.slice(beforeFailure).map((c) => c.method)).toEqual(['sendMessage'])
     expect(String(calls.at(-1)!.body.text)).toMatch(/图片生成失败|Image generation failed/)
     expect(JSON.stringify(calls.at(-1)!.body)).not.toContain('SECRET')
@@ -494,20 +491,21 @@ test('CH2a：ASR 限制、宿主合成、媒体缓存、入站附件、隐私、
     entry.client = oneClient
     try {
       const before = oneCalls.length
-      const genericOneStart = calls.length
-      await service.deliver(binding, { ...genericTool, id: 'one-generic-tool' })
-      expect(calls.slice(genericOneStart).some((call) => JSON.stringify(call.body).includes('base64://'))).toBe(false)
-      await service.deliver(binding, { ...toolImage, id: 'one-pending' })
+      await service.deliver(binding, host.appendMessage(chat.id, genericTool))
       expect(oneCalls.length).toBe(before)
-      service.onEvent({ type: 'message:updated', message: { ...toolDone, id: 'one-pending' } })
+      const onePending = host.appendMessage(chat.id, toolImage)
+      await service.deliver(binding, onePending)
+      expect(oneCalls.length).toBe(before)
+      const oneReady = host.updateMessageMeta(onePending.id, toolDone.meta)
+      service.onEvent({ type: 'message:updated', message: oneReady })
       await Bun.sleep(1800)
       expect(oneCalls.slice(before)).toHaveLength(1)
       expect(oneCalls.at(-1)!.params.message).toMatchObject([{ type: 'image' }])
-      await service.deliver(binding, { ...legacy, id: 'one-legacy' })
+      await service.deliver(binding, host.appendMessage(chat.id, legacy))
       expect(oneCalls.at(-1)!.params.message).toMatchObject([{ type: 'image' }])
       expect(oneCalls.at(-1)!.params.message).toHaveLength(1)
       const mixedStart = oneCalls.length
-      await service.deliver(binding, { ...mixed, id: 'one-mixed' })
+      await service.deliver(binding, host.appendMessage(chat.id, mixed))
       expect(
         oneCalls
           .slice(mixedStart)
@@ -529,11 +527,7 @@ test('CH2a：ASR 限制、宿主合成、媒体缓存、入站附件、隐私、
             { type: 'image', data: { type: 'flash' } },
           ])
       }
-      await service.deliver(binding, {
-        ...toolImage,
-        id: 'one-error',
-        meta: { imageGen: { status: 'error', mode: 'tool', error: 'SECRET STACK' } },
-      })
+      await service.deliver(binding, host.appendMessage(chat.id, { ...toolImage, meta: failedImageMeta }))
       expect(JSON.stringify(oneCalls.at(-1))).toMatch(/图片生成失败|Image generation failed/)
       expect(JSON.stringify(oneCalls)).not.toContain('SECRET')
     } finally {
@@ -565,7 +559,7 @@ test('CH2a：ASR 限制、宿主合成、媒体缓存、入站附件、隐私、
       calls.slice(privacyStart).some((call) => call.method === 'sendPhoto' && String(call.body.chat_id) === '11'),
     ).toBe(true)
     const privateMixedStart = calls.length
-    await service.deliver(group, { ...whisperImage, id: 'private-mixed', content: 'Private reply.' })
+    await service.deliver(group, host.appendMessage(groupChat.id, { ...whisperImage, content: 'Private reply.' }))
     expect(
       calls
         .slice(privateMixedStart)
@@ -576,7 +570,7 @@ test('CH2a：ASR 限制、宿主合成、媒体缓存、入站附件、隐私、
 
     const offStart = calls.length
     service.saveBinding({ ...binding, settings: { generatedImages: 'off' } })
-    await service.deliver(binding, { ...legacy, id: 'off-legacy' })
+    await service.deliver(binding, host.appendMessage(chat.id, legacy))
     expect(calls.length).toBe(offStart)
     service.saveBinding(binding)
     const speakStart = calls.length

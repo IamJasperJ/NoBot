@@ -29,6 +29,9 @@ test('CG 使用原始拍下标，pending 和 done 停，error、无任务和流�
   }
   expect(shownBeatIndexes(beats, done.cg)).toEqual([1, 2, 4])
   expect(currentCg(beats, 2, done)?.url).toBe('/cg.png')
+  const stale: MessageMeta = { ...done, cg: [{ ...done.cg![0]!, beat: 3 }] }
+  expect(shownBeatIndexes(beats, stale.cg)).toEqual([1, 4])
+  expect(currentCg(beats, 3, stale)).toBeUndefined()
 })
 
 test('自动播放等待 pending，CG 完成后等待双倍，文字时长封顶', () => {

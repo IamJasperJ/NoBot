@@ -2,6 +2,7 @@ import type { SummaryEntryDTO, SummaryStateDTO } from '@nobot/shared'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { api as http } from '../../api/client'
+import { keys } from '../../api/queries'
 import { Toggle } from '../../components/form'
 import { BookIcon, ChevronRightIcon, EditIcon, RefreshIcon, TrashIcon } from '../../components/icons'
 import { Button, cx, IconButton, inputClass } from '../../components/ui'
@@ -62,6 +63,16 @@ function MemorySection({ chatId, ext }: { chatId: string; ext: ClientExtensionAP
     refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
   })
   const [busy, setBusy] = useState(false)
+  // 设置面板可以在编辑、排除或切换分支时保持打开，聊天缓存变化后同步有效总结。
+  useEffect(() => {
+    const [scope, id] = keys.chat(chatId)
+    return qc.getQueryCache().subscribe((event) => {
+      if (event.type !== 'updated' || event.action.type !== 'success') return
+      const key = event.query.queryKey
+      if (key.length === 2 && key[0] === scope && key[1] === id)
+        void qc.invalidateQueries({ queryKey: stateKey(chatId) })
+    })
+  }, [qc, chatId])
   // 每轮生成完可能触发了自动总结，刷新一下状态
   useEffect(
     () =>
@@ -75,7 +86,7 @@ function MemorySection({ chatId, ext }: { chatId: string; ext: ClientExtensionAP
   const [wasRunning, setWasRunning] = useState(running)
   if (wasRunning !== running) {
     setWasRunning(running)
-    if (!running) void qc.invalidateQueries({ queryKey: ['chat', chatId] })
+    if (!running) void qc.invalidateQueries({ queryKey: keys.chat(chatId) })
   }
 
   const act = async (fn: () => Promise<SummaryStateDTO>, done?: string) => {
@@ -84,7 +95,7 @@ function MemorySection({ chatId, ext }: { chatId: string; ext: ClientExtensionAP
     try {
       const next = await fn()
       qc.setQueryData(stateKey(chatId), next)
-      void qc.invalidateQueries({ queryKey: ['chat', chatId] })
+      void qc.invalidateQueries({ queryKey: keys.chat(chatId) })
       // 总结失败时后端不报错，而是记在 lastError 里（自动总结也是这样），这里按它提示
       if (next.lastError) toast.error(t('总结失败：{error}', { error: next.lastError }))
       else if (done) toast.info(done)
@@ -149,21 +160,18 @@ function MemorySection({ chatId, ext }: { chatId: string; ext: ClientExtensionAP
           busy={busy}
           onSave={(text) => act(() => http.editSummary(chatId, s.current!.messageId, text), t('已保存总结'))}
           onDelete={() => {
-            if (confirm(t('删除这份总结？之前更早的总结会重新生效。')))
-              void act(() => http.deleteSummary(chatId, s.current!.messageId))
+            if (confirm(t('删除这份剧情总结？'))) void act(() => http.deleteSummary(chatId, s.current!.messageId))
           }}
         />
       ) : (
-        <p className="text-xs text-zinc-400">
-          {t('当前分支还没有总结。聊到设定的条数会自动总结，也可以点「立即总结」。')}
-        </p>
+        <p className="text-xs text-zinc-400">{t('当前分支没有可用的总结。')}</p>
       )}
 
       {s.history.length > 0 && (
         <details className="group/history">
           <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-zinc-500 select-none [&::-webkit-details-marker]:hidden">
             <ChevronRightIcon className="size-3.5 transition-transform group-open/history:rotate-90" />
-            {t('更早的总结（{count}）', { count: s.history.length })}
+            {t('历史总结（{count}）', { count: s.history.length })}
           </summary>
           <div className="mt-2 space-y-2">
             {s.history.map((entry) => (
@@ -226,6 +234,7 @@ function SummaryCard({
           })}
         </span>
       </div>
+      {entry.stale && <p className="mb-1.5 text-xs text-zinc-500">{t('原消息已变化，这份总结已暂停使用。')}</p>}
       {draft === null ? (
         <div className="group/card relative">
           <p className="leading-relaxed whitespace-pre-wrap">{entry.text}</p>

@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -228,6 +228,43 @@ test('渠道平台群聊与主人私信直接绑定：新位置批准、房间�
       const other = createChat({ characterId: character.id })
       expect(api.bind('dy', { chat: dm, chatId: other.id }).bindingId).toBe(bindingId)
       expect(bindingRow(bindingId).chatId).toBe(other.id)
+      expect(() => api.releaseOwnerBinding!('other', { externalId: dm.id, chatId: other.id })).toThrow()
+      api.releaseOwnerBinding!('dy', { externalId: dm.id, chatId: home.id })
+      expect(bindingRow(bindingId).state).toBe('active')
+      expect(accountRow(accountId).providerState.ownerExternalId).toBeNull()
+      io.setOwner(dm.id)
+      // bind 也会复用已批准建立的私聊，撤销时不限于新建的 attached 记录。
+      db.update(channelBindings).set({ source: 'new' }).where(eq(channelBindings.id, bindingId)).run()
+      io.status('paused')
+      before = sends.length
+      const call = spyOn(client, 'call')
+      try {
+        host.trigger(other.id)
+        await host.waitIdle(other.id, 5000)
+        await settle(() =>
+          call.mock.calls.some(
+            ([method, args]) => method === 'sendMessage' && !(args instanceof FormData) && args?.chat_id === dm.id,
+          ),
+        )
+        api.releaseOwnerBinding!('group-plugin.dy', { externalId: dm.id, chatId: other.id })
+        io.status('online')
+        // 同账号串行发送一条标记，等排在前面的旧位置投递结束。
+        await client.call('sendMessage', { chat_id: 'queue-check', text: 'drain' })
+        expect(sends.slice(before).map((message) => message.chatId)).toEqual(['queue-check'])
+      } finally {
+        io.status('online')
+        call.mockRestore()
+      }
+      expect(bindingRow(bindingId)).toMatchObject({ state: 'disabled', chatId: other.id })
+      expect(api.lookup(other.id)?.ownerPresent).toBe(false)
+      await io.emit({
+        id: 'dm-revoked',
+        chat: dm,
+        from: { id: dm.id, name: 'Old owner' },
+        text: 'revoked',
+        sentAt: Date.now(),
+      })
+      expect(host.getChatInfo(other.id, 30).messages.some((message) => message.content === 'revoked')).toBe(false)
     })
   } finally {
     signal.abort()

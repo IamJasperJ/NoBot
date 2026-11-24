@@ -65,12 +65,16 @@ export function deleteTranslation(ctx: Context, messageId: string): MessageDTO {
 }
 
 /** 同步输入钩子无法等待网络；生成任务在入库前调用，开关和设置与内置扩展注册表保持一致。 */
-export async function prepareUserTranslation(input: { text: string; meta: MessageMeta }, chatId: string) {
+export async function prepareUserTranslation(
+  input: { text: string; meta: MessageMeta },
+  chatId: string,
+  signal?: AbortSignal,
+) {
   if (!getSetting<Record<string, boolean>>(SETTING_KEYS.extensionsEnabled)?.translate) return input
   try {
     const config = translationSettings.parse(getSetting(SETTING_KEYS.extensionSettings('translate')) ?? {})
     if (!['inputs', 'both'].includes(config.autoMode) || !input.text.trim()) return input
-    const text = await translateText(input.text, config.internalLanguage, config, chatId)
+    const text = await translateText(input.text, config.internalLanguage, config, chatId, signal)
     return {
       text,
       meta: {
@@ -86,7 +90,7 @@ export async function prepareUserTranslation(input: { text: string; meta: Messag
       },
     }
   } catch (error) {
-    console.error(t('自动翻译失败'), error)
+    if (!signal?.aborted) console.error(t('自动翻译失败'), error)
     return input
   }
 }

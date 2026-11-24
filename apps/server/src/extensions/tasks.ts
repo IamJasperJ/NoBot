@@ -177,6 +177,7 @@ export function backgroundTasks(owner: string, signal: AbortSignal): BackgroundT
       const id = `${owner}:${definition.id}`
       const old = getSetting<ScheduledTaskDTO>(prefix + id)
       const same = old && JSON.stringify(old.schedule) === JSON.stringify(schedule)
+      const replacingRun = old?.status === 'running' && runtime.running.has(id)
       const task: ScheduledTaskDTO = {
         id,
         owner: `extension:${owner}`,
@@ -186,14 +187,15 @@ export function backgroundTasks(owner: string, signal: AbortSignal): BackgroundT
         enabled: old?.enabled ?? true,
         nextRunAt: same ? old.nextRunAt : schedule.kind === 'once' ? schedule.at : nextTaskTime(schedule, Date.now()),
         lastRunAt: old?.lastRunAt ?? null,
-        finishedAt: old?.finishedAt ?? null,
-        status: old?.status ?? 'idle',
-        error: old?.error ?? null,
+        finishedAt: replacingRun ? Date.now() : (old?.finishedAt ?? null),
+        status: replacingRun ? 'interrupted' : (old?.status ?? 'idle'),
+        error: replacingRun ? 'INTERRUPTED' : (old?.error ?? null),
         runCount: old?.runCount ?? 0,
       }
       save(task)
       const handler = { run, signal }
       runtime.handlers.set(id, handler)
+      if (replacingRun) runtime.controllers.get(id)?.abort()
       signal.addEventListener(
         'abort',
         () => {
@@ -239,7 +241,8 @@ export async function runScheduledTask(id: string, now = Date.now(), manual = tr
   task.finishedAt = null
   task.error = null
   task.runCount++
-  if (!manual || task.schedule.kind === 'once') task.nextRunAt = nextTaskTime(task.schedule, now)
+  if (task.schedule.kind === 'once') task.nextRunAt = null
+  else if (!manual) task.nextRunAt = nextTaskTime(task.schedule, now)
   save(task)
   syncIndex()
   const controller = new AbortController()
@@ -257,13 +260,14 @@ export async function runScheduledTask(id: string, now = Date.now(), manual = tr
   } finally {
     runtime.running.delete(id)
     runtime.controllers.delete(id)
-    // 关闭用户库或卸载扩展后，旧回调不能写回已删除的状态。
-    if (!runtime.stop.signal.aborted && (!handler || runtime.handlers.get(id) === handler) && getSetting(prefix + id)) {
+    const registered = runtime.handlers.get(id)
+    // 仅停用时保留最后一次执行结果；卸载删除记录，重新注册由新回调接管。
+    if (!runtime.stop.signal.aborted && (!registered || registered === handler) && getSetting(prefix + id)) {
       // 仅合并本次执行结果；调度时间、开关及配置以执行期间的最新记录为准。
       const latest = get(id)
       Object.assign(task, latest, {
         status: task.status,
-        error: signal.aborted ? (latest.error ?? task.error) : task.error,
+        error: signal.aborted ? (latest.error ?? task.error ?? 'INTERRUPTED') : task.error,
         finishedAt: Date.now(),
       })
       save(task)

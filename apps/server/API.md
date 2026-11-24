@@ -205,7 +205,7 @@ Azure 模型就是部署名，因此返回空模型列表。所有聊天、静�
 | --- | --- | --- | --- | --- |
 | GET | `/chats?characterId=&groupId=` | 获取列表 | — | `ChatSummary[]` |
 | POST | `/chats` | 创建 | `CreateChatInput` | `ChatDTO` |
-| GET | `/chats/:id?before=&limit=` | 获取详情 | — | `ChatPage` |
+| GET | `/chats/:id?before=&limit=` | 获取激活路径上的一页消息 | `before` 失效时返回 `409 STALE_CHAT_CURSOR`，重新从最新一页开始 | `ChatPage` |
 | GET | `/chats/:id/stage?before=` | 获取消息前的舞台和变量 | 必填消息 id | `{ stage: StageState \| null, vars }`（该消息之前的舞台和变量） |
 | GET | `/chats/:id/profile` | 获取生效配置组 | — | `ResolvedProfileDTO`（实际生效的配置组和来源） |
 | GET | `/chats/:id/bookmarks` | 获取详情 | — | `BookmarkDTO[]`（含书签与存档） |
@@ -226,6 +226,9 @@ Azure 模型就是部署名，因此返回空模型列表。所有聊天、静�
 | GET | `/chats/:id/stream` | 重连生成流 | — | SSE：重新接上进行中的生成 |
 | POST | `/chats/:id/abort` | 中止生成 | — | ok |
 | POST | `/chats/:id/impersonate` | 代写用户消息 | — | SSE：`ImpersonateEvent` |
+
+停止已接受的 `send` 会保留用户消息。在输入翻译完成前停止时，服务端保存原文，并通过 `message` 事件返回，再发送 `complete`。
+删除会话时，进行中的生成流以 `complete` 收尾，未保存的生成结果会被丢弃。
 
 ## 书签 / 存档 `/bookmarks`
 
@@ -337,13 +340,13 @@ mode 为 `free / character / portrait / face / user / last / raw_last / scene / 
 | 方法 | 路径 | 说明 | 请求 | 返回 |
 | --- | --- | --- | --- | --- |
 | GET | `/ext/image-gen/background-status?chatId=` | 查询后台自动生成背景状态 | 会话 id | `{ running }` |
-| POST | `/ext/image-gen/generate` | 生成图片并保存消息，背景模式同时设置背景 | 生成请求 | `{ message: MessageDTO, background?: BackgroundDTO }`（异步时先返回占位消息） |
+| POST | `/ext/image-gen/generate` | 生成图片并保存消息，背景模式按当前会话状态应用背景 | 生成请求 | `{ message?: MessageDTO, background?: BackgroundDTO, backgroundApplied?: boolean }`（异步时先返回占位消息，切到其他分支时保留背景素材） |
 | POST | `/ext/image-gen/prompt` | 预览并冻结绘图参数 | 生成请求 | `{ snapshotId, prompt, negative, width, height, source, model, workflow }` |
 | POST | `/ext/image-gen/cancel` | 取消图片任务 | `{ messageId }` | `{ message: MessageDTO }` |
 | POST | `/ext/image-gen/dismiss` | 放弃失败 / 已取消任务 | `{ messageId }` | `{ message: MessageDTO }` 或 `{ deleted: true }` |
 | POST | `/ext/image-gen/retry` | 重试 / 追加另一张图片 | `{ messageId, append?: boolean, prompt?, negative? }`（append 默认 true） | `{ message: MessageDTO }` |
-| POST | `/ext/image-gen/to-background` | 将消息图片存入背景库并应用 | `{ messageId, index? }`（默认 0） | `{ background: BackgroundDTO }` |
-| POST | `/ext/image-gen/gallery-background` | 将图库图片应用到目标会话背景 | `{ chatId, messageId, imageId }` | `{ background: BackgroundDTO }` |
+| POST | `/ext/image-gen/to-background` | 将消息图片存入背景库并应用 | `{ messageId, index? }`（默认 0） | `{ background: BackgroundDTO }`，会话分支或背景设置变更时返回 `409 BACKGROUND_CONTEXT_CHANGED` |
+| POST | `/ext/image-gen/gallery-background` | 将图库图片应用到目标会话背景 | `{ chatId, messageId, imageId }` | `{ background: BackgroundDTO }`，会话分支或背景设置变更时返回 `409 BACKGROUND_CONTEXT_CHANGED` |
 | POST | `/ext/image-gen/test` | 按草稿测试出图 | 草稿 | `{ image: AttachmentDTO, durationMs }` |
 | POST | `/ext/image-gen/test-connection` | 按草稿测试图片连接 | 草稿 | `{ ok: true, message }` |
 | POST | `/ext/image-gen/connections` | 列出连接候选 | — | `{ options: [{ value, label }] }` |
@@ -439,7 +442,7 @@ mode 为 `free / character / portrait / face / user / last / raw_last / scene / 
 | PATCH | `/backgrounds/:id` | 修改名称、描述或设为公共背景 | `UpdateBackgroundInput`（chatId 只允许 null） | `BackgroundDTO` |
 | DELETE | `/backgrounds/:id` | 删除背景 | — | ok |
 | POST | `/backgrounds/batch-delete` | 批量删除背景 | `batchDeleteBackgroundsInput`（ids，1–2000 个） | ok |
-| POST | `/backgrounds/auto` | 让模型选背景并应用到会话 | `autoBackgroundInput`（chatId） | `{ background: BackgroundDTO, reply }` |
+| POST | `/backgrounds/auto` | 让模型选背景并应用到会话 | `autoBackgroundInput`（chatId） | `{ background: BackgroundDTO, reply }`。分支或背景设置变更、所选素材已不可用时返回 `409` |
 | GET | `/backgrounds/folders` | 获取文件夹 | — | `BackgroundFolderDTO[]` |
 | POST | `/backgrounds/folders` | 新建文件夹 | `BackgroundFolderInput` | `BackgroundFolderDTO` |
 | PATCH | `/backgrounds/folders/:id` | 修改文件夹 | `backgroundFolderInput.partial()` | `BackgroundFolderDTO` |

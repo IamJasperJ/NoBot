@@ -324,6 +324,8 @@ export interface AssembleOptions {
   /** 静默任务不遵循聊天正文的舞台输出格式。 */
   vectorMatches?: readonly string[]
   quiet?: boolean
+  /** 静默指令在后处理完成后追加，组装历史时也要预留空间。 */
+  reservedTokens?: number
   /** 图片等纯文本辅助任务不需要保留历史舞台协议。 */
   plainHistory?: boolean
   /** 兼容无工具的静默生成；实际启用名单在此按会话统一解析。 */
@@ -353,6 +355,7 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
   let input: BuildInput = {
     type: opts.type,
     preset: ctx.preset,
+    reservedTokens: opts.reservedTokens,
     // 房间里必须保留每个真人的名字；角色那一侧按预设原样处理，强加前缀只会被模型模仿进回复
     forceUserNames: !!multiplayer,
     speaker,
@@ -514,7 +517,8 @@ export function assemble(ctx: GenerationContext, opts: AssembleOptions): PromptP
 }
 
 /** 网络与缓存留在服务层，向量命中后仍走同一套纯扫描和预算。 */
-export async function assembleWithVectors(ctx: GenerationContext, opts: AssembleOptions) {
+export async function assembleWithVectors(ctx: GenerationContext, opts: AssembleOptions, signal?: AbortSignal) {
+  signal?.throwIfAborted()
   const settings = getWorldInfoSettings()
   // 向量检索只读取正文，避免外部素材触发世界书；总结素材也始终直接读取数据库正文。
   const history = toHistory(ctx, opts.leafId, opts.plainHistory, false).filter(
@@ -530,6 +534,7 @@ export async function assembleWithVectors(ctx: GenerationContext, opts: Assemble
       name: ctx.persona.name,
       speakerId: null,
     })
-  const vectorMatches = await matchLoreVectors(ctx.loreEntries, history, settings)
+  const vectorMatches = await matchLoreVectors(ctx.loreEntries, history, settings, fetch, signal)
+  signal?.throwIfAborted()
   return assemble(ctx, { ...opts, vectorMatches })
 }

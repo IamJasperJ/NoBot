@@ -32,8 +32,8 @@ export function RoomMessageActions({
   const suggest = useSuggestRegenerate()
   const suggested = useRoomLive((s) => s.suggestions[room.id]?.[msg.id] ?? NONE)
   const mine = msg.role === 'user' && msg.meta.author?.userId === room.myUserId
-  const editable = mine && !consumed
-  const canSuggest = isLast && msg.role === 'assistant' && !room.permissions.canRegenerate
+  const editable = room.permissions.canEditAi || (room.permissions.canSend && mine && !consumed)
+  const canSuggest = room.permissions.canSend && isLast && msg.role === 'assistant' && !room.permissions.canRegenerate
   return (
     <div className="ml-auto flex items-center opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
       <IconButton

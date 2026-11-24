@@ -23,6 +23,7 @@ import {
   testImage,
   toBackground,
 } from './pipeline'
+import { trackImageLifetime } from './pipeline/state'
 import { applyProfileImage } from './profile'
 import { defaultSettings, parseSettings, settingsSchema } from './settings'
 import { temporaryActorRoutes } from './temporary-actors'
@@ -43,6 +44,9 @@ const generateInput = z.object({
 const messageInput = z.object({ messageId: z.string().min(1), index: z.number().int().nonnegative().default(0) })
 export default defineExtension({
   id: 'image-gen',
+  startBackground(_ctx, signal) {
+    trackImageLifetime(signal)
+  },
   commands: [
     {
       name: 'imagine',
@@ -277,9 +281,17 @@ export default defineExtension({
   hooks: {
     onEvent(event, ctx) {
       if (event.type === 'generation:complete') {
-        void autoBackground(ctx, event.chatId)
-        void autoCgs(ctx, event.chatId)
         void autoActors(ctx, event.chatId)
+        return
+      }
+      if (
+        event.type === 'message:saved' &&
+        event.message.role === 'assistant' &&
+        event.message.meta.logId &&
+        event.message.meta.stage
+      ) {
+        void autoBackground(ctx, event.message.chatId, event.message.id)
+        void autoCgs(ctx, event.message.chatId, event.message.id)
         return
       }
       if (

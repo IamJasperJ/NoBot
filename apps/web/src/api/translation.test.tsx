@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from 'bun:test'
 import type { MessageDTO } from '@nobot/shared'
 import { InfiniteQueryObserver } from '@tanstack/react-query'
-import { registerFreshMessage, useFreshMessages } from '../stores/freshMessages'
+import { FRESH_MESSAGE_MAX_MS, registerFreshMessage, useFreshMessages } from '../stores/freshMessages'
 import { extension, message, setupHooks } from './hooks.test-utils'
 import { keys } from './queries'
 import {
@@ -11,6 +11,27 @@ import {
   useTranslationPending,
   useTranslationView,
 } from './translation'
+
+test('登记新消息时清理已经超过翻译等待期的消息 id', () => {
+  const at = 100_000
+  const now = spyOn(Date, 'now').mockReturnValue(at)
+  try {
+    useFreshMessages.setState({
+      completedAt: new Map([
+        ['expired', at - FRESH_MESSAGE_MAX_MS],
+        ['recent', at - FRESH_MESSAGE_MAX_MS + 1],
+      ]),
+    })
+    registerFreshMessage('new')
+    expect([...useFreshMessages.getState().completedAt]).toEqual([
+      ['recent', at - FRESH_MESSAGE_MAX_MS + 1],
+      ['new', at],
+    ])
+  } finally {
+    now.mockRestore()
+    useFreshMessages.setState({ completedAt: new Map() })
+  }
+})
 
 test('翻译 hooks：开关、缓存替换、视图记忆、SHA-256、输入语言与自动翻译刷新', async () => {
   if (!process.env.TRANSLATION_HOOK_TEST_CHILD) {

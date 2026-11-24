@@ -178,8 +178,13 @@ export const roomRoutes = new Hono()
   )
   .post('/:id/initiative/skip', (c) => c.json(trpg.skipInitiative(c.req.param('id'))))
   .get('/:id/choices/:messageId', (c) => c.json(trpg.choiceSnapshot(c.req.param('id'), c.req.param('messageId'))))
-  .post('/:id/choices/:messageId/vote', validate('json', z.object({ index: z.number().int().min(0) })), (c) =>
-    c.json(trpg.pickRoomChoice(c.req.param('id'), c.req.param('messageId'), c.req.valid('json').index)),
+  .post(
+    '/:id/choices/:messageId/vote',
+    validate('json', z.object({ index: z.number().int().min(0), messageVersion: z.number().int().min(0).optional() })),
+    (c) => {
+      const { index, messageVersion } = c.req.valid('json')
+      return c.json(trpg.pickRoomChoice(c.req.param('id'), c.req.param('messageId'), index, undefined, messageVersion))
+    },
   )
   .post(
     '/:id/choices/:messageId/close',

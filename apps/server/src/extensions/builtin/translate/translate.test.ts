@@ -2,7 +2,7 @@ import { expect, spyOn, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CharacterDTO, ChatDTO, MessageDTO } from '@nobot/shared'
+import type { CharacterDTO, ChatDTO, GenerateEvent, MessageDTO } from '@nobot/shared'
 
 // 隔离数据库和 fetch 单例，保证整个后端测试并行运行时不相互污染。
 test('翻译扩展：服务、保护标记、路由、命令与真实生成流程', async () => {
@@ -47,7 +47,7 @@ test('翻译扩展：服务、保护标记、路由、命令与真实生成流�
     const llmRequests: Record<string, unknown>[] = []
     let fail = false
     let damage = false
-    let pause: (() => Promise<void>) | undefined
+    let pause: ((signal?: AbortSignal | null) => Promise<void>) | undefined
     const mock = spyOn(globalThis, 'fetch').mockImplementation(
       Object.assign(
         async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -58,7 +58,7 @@ test('翻译扩展：服务、保护标记、路由、命令与真实生成流�
             ? JSON.parse(raw)
             : Object.fromEntries(new URLSearchParams(raw))
           requests.push({ url, body, headers })
-          await pause?.()
+          await pause?.(init?.signal)
           if (fail && !url.includes('/chat/completions')) return new Response('service unavailable', { status: 503 })
           const convert = (text: string) =>
             damage
@@ -269,7 +269,7 @@ test('翻译扩展：服务、保护标记、路由、命令与真实生成流�
       result: '你好 世界',
     })
     client.setSetting('ext:translate', { ...config, autoMode: 'both' })
-    const { startGeneration, subscribe } = await import('../../../services/generation/generation')
+    const { isGenerating, startGeneration, subscribe } = await import('../../../services/generation/generation')
     async function generate(text: string) {
       const job = startGeneration(chat.id, { mode: 'send', text, images: [] })
       await new Promise<void>((resolve) =>
@@ -293,6 +293,43 @@ test('翻译扩展：服务、保护标记、路由、命令与真实生成流�
     expect(savedUser.content).toBe('Translated input')
     expect(savedUser.meta.translation).toMatchObject({ direction: 'source', text: '原文', lang: 'auto', auto: true })
     expect(JSON.stringify(llmRequests.at(-1)!.messages)).toContain('Translated input')
+    const translationStarted = Promise.withResolvers<AbortSignal | null | undefined>()
+    const releaseTranslation = Promise.withResolvers<void>()
+    pause = (signal) => {
+      translationStarted.resolve(signal)
+      return new Promise((resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+        void releaseTranslation.promise.then(resolve)
+      })
+    }
+    const modelCalls = llmRequests.length
+    const stoppedEvents: GenerateEvent[] = []
+    const stopping = startGeneration(chat.id, { mode: 'send', text: '取消时保留原文', images: [] })
+    const stopped = new Promise<void>((resolve) =>
+      subscribe(stopping, (event) => {
+        stoppedEvents.push(event)
+        if (event.type === 'complete') resolve()
+      }),
+    )
+    try {
+      const signal = await translationStarted.promise
+      await json(`/chats/${chat.id}/abort`)
+      expect(signal?.aborted).toBe(true)
+      await stopped
+      expect(isGenerating(chat.id)).toBe(false)
+      expect(stoppedEvents).toMatchObject([
+        { type: 'message', message: { role: 'user', content: '取消时保留原文' } },
+        { type: 'complete' },
+      ])
+      const saved = loadMessage(getChatRow(chat.id).activeLeafId!)
+      expect(saved.content).toBe('取消时保留原文')
+      expect(saved.meta.translation).toBeUndefined()
+      expect(llmRequests).toHaveLength(modelCalls)
+    } finally {
+      pause = undefined
+      releaseTranslation.resolve()
+      await stopped
+    }
     const { toHistory, loadGenerationContext } = await import('../../../services/generation/context')
     const history = toHistory(loadGenerationContext(chat.id, { requireConnection: true }), reply.id)
     expect(history.find((message) => message.id === reply.id)!.content).toContain('Hello world')

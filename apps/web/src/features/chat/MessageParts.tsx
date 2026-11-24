@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../../api/client'
 import { resetChat } from '../../api/queries'
+import { scopeForChat } from '../../api/room-scope'
 import { useFreshDice, useTrpgSettings } from '../../api/trpg'
 import { TrashIcon } from '../../components/icons'
 import { cx, IconButton } from '../../components/ui'
@@ -13,9 +14,12 @@ import { CheckCard, DiceCard } from '../trpg/DiceCard'
 import { checkSkillLabel } from '../trpg/labels'
 import { MessageMedia } from './MessageMedia'
 
-/** 删除一条消息（连同后面的分支），确认后刷新消息树 */
+/** 房间消息撤回和普通消息删除共用确认及消息树刷新。 */
 export async function deleteMessage(qc: ReturnType<typeof useQueryClient>, chatId: string, messageId: string) {
-  if (!confirm(t('删除这条消息？它后面的所有分支也会一起删除。'))) return
+  const prompt = scopeForChat(chatId)
+    ? t('撤回这条房间消息？后续消息会保留。')
+    : t('删除这条消息？它后面的所有分支也会一起删除。')
+  if (!confirm(prompt)) return
   try {
     await api.deleteMessage(messageId)
     await resetChat(qc, chatId)

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useChoiceVotes, useCloseChoice } from '../../api/rooms'
 import { Button, cx } from '../../components/ui'
 import { t } from '../../i18n'
+import { useRoomLive } from '../../stores/room'
 import { errorMessage, toast } from '../../stores/toast'
 import { useRoomInfo } from './shared'
 
@@ -27,14 +28,17 @@ export function RoomChoiceStatus({
   messageId,
   count,
   className,
+  replyOnly = false,
 }: {
   chatId: string
   messageId: string
   count: number
   className?: string
+  replyOnly?: boolean
 }) {
   const room = useRoomInfo(chatId)
   const active = !!room && room.choiceMode !== 'gm'
+  const running = useRoomLive((s) => !!room && s.turns[room.id]?.running === true)
   const votes = useChoiceVotes(active ? room.id : '', active ? messageId : '')
   const close = useCloseChoice()
   const [now, setNow] = useState(Date.now)
@@ -44,7 +48,7 @@ export function RoomChoiceStatus({
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [state])
-  if (!room || !active || !state) return null
+  if (!room || !active || !state || (replyOnly && (!state.replyPending || running))) return null
   const voters = room.members.filter((m) => m.state === 'active' && m.role !== 'owner').length || 1
   const mine = state.votes[room.myUserId]
   const left = Math.max(0, Math.ceil((state.deadline - now) / 1000))
@@ -56,7 +60,9 @@ export function RoomChoiceStatus({
         className,
       )}
     >
-      {state.closed ? (
+      {replyOnly ? (
+        <span>{t('等待 AI 回复')}</span>
+      ) : state.closed ? (
         <span className="font-medium">
           {state.winner === null ? t('投票已结束') : t('投票结束，选了第 {n} 项', { n: state.winner + 1 })}
         </span>
@@ -81,15 +87,16 @@ export function RoomChoiceStatus({
       {mine !== undefined && !state.closed && room.choiceMode === 'vote' && (
         <span>{t('你投了第 {n} 项', { n: mine + 1 })}</span>
       )}
-      {!state.closed && room.permissions.canCloseChoices && (
+      {(replyOnly || !state.closed) && room.choiceMode === 'vote' && room.permissions.canCloseChoices && (
         <Button
           size="sm"
           className="ml-auto"
+          disabled={close.isPending}
           onClick={() =>
             void close.mutateAsync({ id: room.id, messageId }).catch((e: unknown) => toast.error(errorMessage(e)))
           }
         >
-          {t('现在结束')}
+          {replyOnly ? t('重试 AI 回复') : t('现在结束')}
         </Button>
       )}
     </div>

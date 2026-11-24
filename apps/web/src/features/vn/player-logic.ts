@@ -5,12 +5,12 @@ export type ShownBeat = Extract<Beat, { kind: 'line' | 'narration' | 'choices' |
 
 /** 返回原始拍序号，不能先过滤再编号：CG 元数据引用的是 stage.beats 下标。 */
 export function shownBeatIndexes(beats: Beat[], cg: MessageMeta['cg'] = []): number[] {
-  const stops = new Set(cg.filter((entry) => entry.status !== 'error').map((entry) => entry.beat))
+  const stops = new Map(cg.filter((entry) => entry.status !== 'error').map((entry) => [entry.beat, entry.prompt]))
   return beats.flatMap((beat, index) =>
     beat.kind === 'line' ||
     beat.kind === 'narration' ||
     beat.kind === 'choices' ||
-    (beat.kind === 'cg' && stops.has(index))
+    (beat.kind === 'cg' && stops.get(index) === beat.prompt)
       ? [index]
       : [],
   )
@@ -21,8 +21,11 @@ export const beatText = (beat: ShownBeat | undefined) =>
 
 export function currentCg(beats: Beat[], index: number | undefined, meta?: MessageMeta) {
   const beat = index === undefined ? undefined : beats[index]
-  const entry = meta?.cg?.find((entry) => entry.beat === index && entry.status !== 'error')
-  if (beat?.kind !== 'cg' || !entry) return undefined
+  if (beat?.kind !== 'cg') return undefined
+  const entry = meta?.cg?.find(
+    (entry) => entry.beat === index && entry.prompt === beat.prompt && entry.status !== 'error',
+  )
+  if (!entry) return undefined
   return {
     status: entry.status,
     url: meta?.images?.find((image) => image.id === entry.attachmentId)?.url,

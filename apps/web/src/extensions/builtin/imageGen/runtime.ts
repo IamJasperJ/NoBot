@@ -18,6 +18,7 @@ export function createRuntime(api: ClientExtensionAPI) {
     return data as {
       message?: MessageDTO
       background?: unknown
+      backgroundApplied?: boolean
       image?: AttachmentDTO
       durationMs?: number
       options?: { value: string; label: string }[]
@@ -72,7 +73,8 @@ export function createRuntime(api: ClientExtensionAPI) {
         confirmed = { ...edited, snapshotId: id }
       }
       const data = await request('generate', { chatId, mode, ...extra, ...confirmed })
-      if (data.background) api.toast.info(t('已生成背景并设为聊天背景'))
+      if (data.background)
+        api.toast.info(data.backgroundApplied === false ? t('已生成背景并保存到背景库') : t('已生成背景并设为聊天背景'))
       await refresh(chatId, !!data.background)
     } catch (error) {
       api.toast.error(t('{name}生成失败：{error}', { name, error: errorText(error) }))

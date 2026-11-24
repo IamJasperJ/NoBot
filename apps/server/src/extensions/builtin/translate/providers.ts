@@ -18,8 +18,8 @@ function endpoint(base: string, path: string) {
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error(t('翻译服务地址无效'))
   return url.toString()
 }
-async function request(url: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(60000) })
+async function request(url: string, signal: AbortSignal, init?: RequestInit): Promise<unknown> {
+  const response = await fetch(url, { ...init, signal })
   const body = await response.text()
   if (!response.ok) throw new Error(`${response.status}: ${body.slice(0, 300)}`)
   try {
@@ -45,7 +45,13 @@ async function request(url: string, init?: RequestInit): Promise<unknown> {
 function json(body: unknown): RequestInit {
   return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
-async function translateChunk(text: string, lang: string, config: TranslationSettings, chatId?: string) {
+async function translateChunk(
+  text: string,
+  lang: string,
+  config: TranslationSettings,
+  chatId: string | undefined,
+  signal: AbortSignal,
+) {
   switch (config.provider) {
     case 'llm': {
       const { connection, model } = resolveTranslationConnection(config, chatId)
@@ -65,14 +71,14 @@ async function translateChunk(text: string, lang: string, config: TranslationSet
       for await (const chunk of chatCompletion({
         connection: toLlmConnection(connection),
         body,
-        signal: AbortSignal.timeout(60000),
+        signal,
       }))
         result += chunk.text ?? ''
       return result.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '').trim()
     }
     case 'google': {
       const query = new URLSearchParams({ client: 'gtx', sl: 'auto', tl: lang, dt: 't' })
-      const data = await request(`https://translate.googleapis.com/translate_a/single?${query}`, {
+      const data = await request(`https://translate.googleapis.com/translate_a/single?${query}`, signal, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ q: text }).toString(),
@@ -88,6 +94,7 @@ async function translateChunk(text: string, lang: string, config: TranslationSet
       if (!config.deeplKey) throw new Error(t('请先配置翻译服务密钥'))
       const data = await request(
         `https://${config.deeplEndpoint === 'pro' ? 'api' : 'api-free'}.deepl.com/v2/translate`,
+        signal,
         {
           ...json({ text: [text], target_lang: deeplLanguage(lang) }),
           headers: { 'Content-Type': 'application/json', Authorization: `DeepL-Auth-Key ${config.deeplKey}` },
@@ -99,6 +106,7 @@ async function translateChunk(text: string, lang: string, config: TranslationSet
     case 'deeplx': {
       const data = await request(
         endpoint(config.deeplxUrl, '/translate'),
+        signal,
         json({ text, source_lang: 'auto', target_lang: deeplLanguage(lang) }),
       )
       return z.object({ data: z.string() }).parse(data).data
@@ -107,6 +115,7 @@ async function translateChunk(text: string, lang: string, config: TranslationSet
       const target = ({ 'zh-CN': 'zh', 'zh-TW': 'zt' } as Record<string, string>)[lang] ?? lang.split('-')[0]!
       const data = await request(
         endpoint(config.libreUrl, '/translate'),
+        signal,
         json({ q: text, source: 'auto', target, format: 'text', api_key: config.libreKey }),
       )
       return z.object({ translatedText: z.string() }).parse(data).translatedText
@@ -115,6 +124,7 @@ async function translateChunk(text: string, lang: string, config: TranslationSet
       const target = lang.startsWith('zh') ? 'zh' : lang.split('-')[0]!
       const data = await request(
         endpoint(config.lingvaUrl, `/api/v1/auto/${encodeURIComponent(target)}/${encodeURIComponent(text)}`),
+        signal,
       )
       return z.object({ translation: z.string() }).parse(data).translation
     }
@@ -122,8 +132,15 @@ async function translateChunk(text: string, lang: string, config: TranslationSet
 }
 
 /** 所有服务共用结构保护和错误边界，禁止把损坏的译文存入消息。 */
-export async function translateText(text: string, lang: string, config: TranslationSettings, chatId?: string) {
+export async function translateText(
+  text: string,
+  lang: string,
+  config: TranslationSettings,
+  chatId?: string,
+  signal?: AbortSignal,
+) {
   try {
+    signal?.throwIfAborted()
     const protectedText = protect(text)
     const chunks = splitTranslation(protectedText.text, config.provider === 'deepl' ? 1500 : 5000, protectedText.tokens)
     let result = ''
@@ -135,12 +152,21 @@ export async function translateText(text: string, lang: string, config: Translat
       // 服务通常会修剪空白，边界空白由本地保留。
       const leading = /^\s*/.exec(chunk)![0]
       const trailing = /\s*$/.exec(chunk)![0]
-      const translated = await translateChunk(chunk.trim(), lang, config, chatId)
+      const timeout = AbortSignal.timeout(60_000)
+      const translated = await translateChunk(
+        chunk.trim(),
+        lang,
+        config,
+        chatId,
+        signal ? AbortSignal.any([signal, timeout]) : timeout,
+      )
+      signal?.throwIfAborted()
       if (!translated.trim()) throw new Error(t('翻译结果为空'))
       result += leading + translated.trim() + trailing
     }
     return protectedText.restore(result)
   } catch (error) {
+    signal?.throwIfAborted()
     if (error instanceof HttpError) throw error
     const detail =
       error instanceof z.ZodError ? t('翻译服务返回无效数据') : error instanceof Error ? error.message : String(error)

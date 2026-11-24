@@ -112,14 +112,16 @@ export function exportRoom(id: string, format: 'markdown' | 'json', now = Date.n
       resetAt,
     })
   }
-  const rewrite = (v: unknown): unknown => {
-    if (typeof v === 'string' && v.startsWith('/api/assets/'))
-      return `/api/rooms/${encodeURIComponent(id)}/scope${v.slice(4)}`
-    if (Array.isArray(v)) return v.map(rewrite)
-    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, rewrite(x)]))
-    return v
-  }
-  const history = rewrite(visibleHistory(id)) as MessageDTO[]
+  const scopeAsset = (url: string) =>
+    url.startsWith('/api/assets/') ? `/api/rooms/${encodeURIComponent(id)}/scope${url.slice(4)}` : url
+  const history = visibleHistory(id).map((message) => ({
+    ...message,
+    meta: {
+      ...message.meta,
+      images: message.meta.images?.map((image) => ({ ...image, url: scopeAsset(image.url) })),
+      ttsCache: message.meta.ttsCache?.map((voice) => ({ ...voice, url: scopeAsset(voice.url) })),
+    },
+  }))
   const choices = asHost(room, () =>
     history
       .filter((m) => !m.meta.hidden && m.meta.stage?.choices?.length)

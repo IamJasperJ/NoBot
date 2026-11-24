@@ -49,7 +49,7 @@ for (const directives of [false, true]) {
     let deactivate: Awaited<ReturnType<typeof activate>>
     const append = async (text: string) => {
       for (const char of text) {
-        useStreaming.getState().append(char, '')
+        useStreaming.getState().append(char, '', 'chat')
         await flush()
       }
     }
@@ -65,12 +65,18 @@ for (const directives of [false, true]) {
       expect(line.mock.calls.map((call) => call[1].text)).toEqual(['她望着雨幕。'])
       await append('雨天像一首安静的诗」')
       expect(line).toHaveBeenCalledTimes(1)
+      const beforeOtherStream = page.mock.calls.length
+      useStreaming.getState().begin('other-chat', 'other-reply')
+      useStreaming.getState().append('另一个会话的回复。', '', 'other-chat')
+      await flush()
+      expect(page.mock.calls).toHaveLength(beforeOtherStream)
       await append('。')
-      expect(useStreaming.getState().messageId).toBe(reply.id)
+      expect(useStreaming.getState().streams.chat?.messageId).toBe(reply.id)
       expect(line.mock.calls.map((call) => call[1].text)).toEqual(['她望着雨幕。', '雨天像一首安静的诗'])
       expect(line.mock.calls[1]?.[1].speaker).toEqual({ kind: 'character', characterId: 'alice' })
-      pageValue.messages[1] = { ...reply, content: useStreaming.getState().text, status: 'done' }
-      useStreaming.getState().end()
+      pageValue.messages[1] = { ...reply, content: useStreaming.getState().streams.chat!.text, status: 'done' }
+      useStreaming.getState().end('chat')
+      useStreaming.getState().end('other-chat')
       handlers.get('generation:complete')!({ chatId: 'chat' })
       await flush()
       await flush()
@@ -81,7 +87,8 @@ for (const directives of [false, true]) {
     } finally {
       cleanup?.()
       if (typeof deactivate === 'function') deactivate()
-      useStreaming.getState().end()
+      useStreaming.getState().end('chat')
+      useStreaming.getState().end('other-chat')
       effect.mockRestore()
       voice.mockRestore()
       page.mockRestore()

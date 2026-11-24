@@ -11,6 +11,7 @@ import type {
   PromptPreview,
   WorldInfoSettings,
 } from '@nobot/shared'
+import { readSSE } from '../../test/helpers/sse'
 
 test('世界书服务集成：向量缓存、扫描设置、消息树定时效果及生成元数据', async () => {
   // 数据库和注册表是单例，独立进程避免污染其他服务测试。
@@ -93,6 +94,8 @@ test('世界书服务集成：向量缓存、扫描设置、消息树定时效�
   )
   expect(settings).toMatchObject({ embeddingModel: 'embed-1', vectorThreshold: 0.25, maxDepth: 5 })
   const embeddingInputs: string[][] = []
+  let pauseEmbedding: ((signal?: AbortSignal | null) => Promise<void>) | undefined
+  let modelRequests = 0
   let fail = false
   const fetchMock = spyOn(globalThis, 'fetch').mockImplementation(
     Object.assign(
@@ -104,14 +107,17 @@ test('世界书服务集成：向量缓存、扫描设置、消息树定时效�
           const body = JSON.parse(String(init?.body)) as { model: string; input: string[] }
           expect(body.model).toMatch(/^embed-/)
           embeddingInputs.push(body.input)
+          await pauseEmbedding?.(init?.signal)
           if (fail) return new Response('failed', { status: 503 })
           return Response.json({ data: body.input.map((_, index) => ({ index, embedding: [1, 0] })).reverse() })
         }
-        if (String(url).endsWith('/chat/completions'))
+        if (String(url).endsWith('/chat/completions')) {
+          modelRequests++
           return new Response(
             'data: {"choices":[{"delta":{"content":"Reply"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
             { headers: { 'Content-Type': 'text/event-stream' } },
           )
+        }
         throw new Error(`Unexpected URL ${String(url)}`)
       },
       { preconnect: fetch.preconnect },
@@ -158,6 +164,39 @@ test('世界书服务集成：向量缓存、扫描设置、消息树定时效�
     expect(reply.status, events).toBe('done')
     expect(reply.meta.lore?.activated).toContain(semantic.id)
     expect(reply.meta.lore?.automationIds).toContain('quick')
+
+    const pendingEmbedding = Promise.withResolvers<AbortSignal | null | undefined>()
+    const releaseEmbedding = Promise.withResolvers<void>()
+    pauseEmbedding = (signal) => {
+      pendingEmbedding.resolve(signal)
+      return new Promise((resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+        void releaseEmbedding.promise.then(resolve)
+      })
+    }
+    const cancelChat = await json<ChatDTO>('/chats', { characterId: actor.id, apiPresetId: connection.id })
+    const requestsBefore = modelRequests
+    const cancelled = await app.request(`/api/chats/${cancelChat.id}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'send', text: 'Stop before the reply' }),
+    })
+    const reading = readSSE(cancelled)
+    try {
+      const signal = await pendingEmbedding.promise
+      await json(`/chats/${cancelChat.id}/abort`, undefined, 'POST')
+      expect(signal?.aborted).toBe(true)
+      expect(await reading).toMatchObject([
+        { type: 'start', userMessage: { content: 'Stop before the reply' } },
+        { type: 'done', message: { status: 'aborted', content: '' } },
+        { type: 'complete' },
+      ])
+      expect(modelRequests).toBe(requestsBefore)
+    } finally {
+      pauseEmbedding = undefined
+      releaseEmbedding.resolve()
+      await reading
+    }
 
     // 后续扫描关闭向量；粘滞仍生效，并且重新生成不会继承被替换回复的激活。
     settings = await json<WorldInfoSettings>(

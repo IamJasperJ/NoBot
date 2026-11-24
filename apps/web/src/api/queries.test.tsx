@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { runGeneration } from '../features/chat/generate'
 import { api } from './client'
 import { message } from './hooks.test-utils'
-import { applyNewMessage, flattenPages, keys, resetChat, useChatPages } from './queries'
+import { applyNewMessage, flattenPages, keys, refreshChatState, resetChat, useChatPages } from './queries'
 
 const chatId = 'first-round'
 const makeMessage = (id: string, parentId: string | null, role: MessageDTO['role'] = 'assistant'): MessageDTO => ({
@@ -46,6 +46,77 @@ test('空消息缓存接受 null 父节点；根分支替换清空后续消息�
     expect(qc.getQueryData(keys.chat('uncached'))).toBeUndefined()
   } finally {
     reset.mockRestore()
+    qc.clear()
+  }
+})
+
+test('旧页上的父节点开启新分支时，保留祖先和会话状态并从最新页重新拉取', async () => {
+  const qc = makeClient()
+  const ancestor = makeMessage('ancestor', null)
+  const parent = makeMessage('parent', ancestor.id, 'user')
+  const oldReply = makeMessage('old-reply', parent.id)
+  const discarded = makeMessage('discarded', oldReply.id)
+  const reply = makeMessage('new-reply', parent.id)
+  const head = { ...makePage([discarded], true), vars: { hp: 10 } }
+  const oldest = makePage([ancestor])
+  const latest = makePage([ancestor, parent, reply])
+  qc.setQueryData(keys.chat(chatId), {
+    pages: [head, { ...makePage([parent, oldReply], true), vars: {} }, oldest],
+    pageParams: [undefined, discarded.id, parent.id],
+  })
+  const getPage = spyOn(api, 'getChatPage').mockResolvedValue(latest)
+  const observer = new InfiniteQueryObserver(qc, {
+    queryKey: keys.chat(chatId),
+    queryFn: ({ pageParam }) => api.getChatPage(chatId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last: ChatPage) => (last.hasMore ? last.messages[0]?.id : undefined),
+  })
+  try {
+    expect(applyNewMessage(qc, chatId, reply)).toBe(true)
+    expect(qc.getQueryData(keys.chat(chatId))).toEqual({
+      pages: [{ ...head, messages: [parent, reply] }, oldest],
+      pageParams: [undefined, parent.id],
+    })
+    await observer.refetch()
+    expect(getPage.mock.calls).toEqual([[chatId, undefined]])
+    expect(flattenPages(qc.getQueryData(keys.chat(chatId)))).toEqual([ancestor, parent, reply])
+  } finally {
+    getPage.mockRestore()
+    qc.clear()
+  }
+})
+
+test('切换分支后丢弃之前请求的变量快照，同一叶节点可更新状态 schema', async () => {
+  const qc = makeClient()
+  const previous = makeMessage('old-branch', null)
+  const current = makeMessage('current-branch', null)
+  const statePage = (message: MessageDTO, hp: number) => {
+    const page = makePage([message])
+    return { ...page, chat: { ...page.chat, activeLeafId: message.id }, vars: { hp }, stateSchema: {} }
+  }
+  const cached = statePage(current, 20)
+  const previousSnapshot = statePage(previous, 9)
+  let release!: (page: ChatPage) => void
+  const snapshot = new Promise<ChatPage>((resolve) => {
+    release = resolve
+  })
+  const getPage = spyOn(api, 'getChatPage').mockReturnValueOnce(snapshot)
+  try {
+    qc.setQueryData(keys.chat(chatId), { pages: [previousSnapshot], pageParams: [undefined] })
+    const refreshing = refreshChatState(qc, chatId)
+    qc.setQueryData(keys.chat(chatId), { pages: [cached], pageParams: [undefined] })
+    release(previousSnapshot)
+    await refreshing
+    expect(qc.getQueryData(keys.chat(chatId))).toEqual({ pages: [cached], pageParams: [undefined] })
+
+    const latest: ChatPage = { ...cached, vars: { hp: 22 }, stateSchema: { hp: { type: 'number' } } }
+    getPage.mockResolvedValueOnce(latest)
+    await refreshChatState(qc, chatId)
+    const data = qc.getQueryData<{ pages: ChatPage[] }>(keys.chat(chatId))
+    expect(data?.pages[0]).toMatchObject({ vars: latest.vars, stateSchema: latest.stateSchema })
+    expect(data?.pages[0]?.messages).toEqual([current])
+  } finally {
+    getPage.mockRestore()
     qc.clear()
   }
 })

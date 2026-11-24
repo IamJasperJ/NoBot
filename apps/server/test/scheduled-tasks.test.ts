@@ -120,6 +120,44 @@ test('定时任务持久化、补跑、防重叠、忙时延迟、停用隔离�
     })
     concurrent.abort()
     const controller = new AbortController()
+    const future = now + 20000
+    let earlyRuns = 0
+    const plugin = tasks.backgroundTasks('plugin', controller.signal)
+    plugin.register({ id: 'early', name: 'early', schedule: { kind: 'once', at: future } }, () => {
+      earlyRuns++
+    })
+    await tasks.runScheduledTask('plugin:early', now)
+    await tasks.tickScheduledTasks(future)
+    expect(earlyRuns).toBe(1)
+    expect(tasks.listScheduledTasks().find((task) => task.id === 'plugin:early')?.nextRunAt).toBeNull()
+    const stop = new AbortController()
+    tasks
+      .backgroundTasks('stopped', stop.signal)
+      .register(
+        { id: 'work', name: 'work', schedule: { kind: 'once', at: now } },
+        (signal) => new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true })),
+      )
+    const stopped = tasks.runScheduledTask('stopped:work', now)
+    stop.abort()
+    await stopped
+    expect(tasks.listScheduledTasks().find((task) => task.id === 'stopped:work')).toMatchObject({
+      status: 'interrupted',
+      error: 'INTERRUPTED',
+      finishedAt: expect.any(Number),
+    })
+    plugin.register(
+      { id: 'replaced', name: 'old', schedule: { kind: 'once', at: now } },
+      (signal) => new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true })),
+    )
+    const replaced = tasks.runScheduledTask('plugin:replaced', now)
+    plugin.register({ id: 'replaced', name: 'new', schedule: { kind: 'once', at: future } }, () => {})
+    await replaced
+    expect(tasks.listScheduledTasks().find((task) => task.id === 'plugin:replaced')).toMatchObject({
+      name: 'new',
+      status: 'interrupted',
+      nextRunAt: future,
+      runCount: 1,
+    })
     let release!: () => void
     tasks.backgroundTasks('plugin', controller.signal).register(
       { id: 'work', name: 'work', schedule: { kind: 'once', at: now } },

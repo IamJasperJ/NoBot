@@ -11,14 +11,19 @@ import { createUser } from './services/auth'
 import './extensions/registry'
 
 async function moveLegacyData(handle: string) {
-  if (!existsSync(join(env.dataDir, 'app.db'))) return
   const destination = join(env.dataDir, 'users', handle)
+  // 旧实现先搬数据库，进程中断后可能只剩附件和扩展在旧目录；管理员尚未创建时继续搬完。
+  if (!existsSync(join(env.dataDir, 'app.db')) && !existsSync(join(destination, 'app.db'))) return
+  // 主库最后搬，让此版本的中断在恢复时仍能通过旧目录识别到待迁移数据。
+  const pending = ['app.db-wal', 'app.db-shm', 'assets', 'tts-cache', 'extensions', 'app.db'].filter((name) =>
+    existsSync(join(env.dataDir, name)),
+  )
+  if (!pending.length) return
   await mkdir(destination, { recursive: true })
   const moved: string[] = []
   try {
-    for (const name of ['app.db', 'app.db-wal', 'app.db-shm', 'assets', 'tts-cache', 'extensions']) {
+    for (const name of pending) {
       const source = join(env.dataDir, name)
-      if (!existsSync(source)) continue
       if (existsSync(join(destination, name))) throw new Error(`迁移目标已存在 / Migration target exists: ${name}`)
       await rename(source, join(destination, name))
       moved.push(name)

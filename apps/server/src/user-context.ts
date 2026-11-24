@@ -3,12 +3,14 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { CurrentUserDTO } from '@nobot/shared'
+import { and, eq, like, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import * as schema from './db/schema'
 import { seedUserDatabase } from './db/seed'
 import { env } from './env'
 import { t } from './i18n'
+import { interruptMessageTasks } from './services/message-task-state'
 
 export function userPaths(handle: string, dataDir = env.dataDir) {
   const root = join(dataDir, 'users', handle)
@@ -45,6 +47,43 @@ function assertOpen(ctx: UserContext) {
   if (closedConnections.has(ctx.sqlite)) throw new Error(t('当前用户数据库已关闭'))
   return ctx
 }
+
+/** 数据库重新打开时旧进程的任务已不存在，结束等待并保留已保存的正文与素材。 */
+function recoverInterruptedTasks(ctx: UserContext) {
+  const { messages, settings } = schema
+  const reason = () => t('服务重启前后台任务尚未完成')
+  ctx.db.transaction((tx) => {
+    tx.update(messages).set({ status: 'aborted' }).where(eq(messages.status, 'streaming')).run()
+    const pending = tx
+      .select({ id: messages.id, meta: messages.meta })
+      .from(messages)
+      .where(and(sql`json_valid(${messages.meta})`, like(messages.meta, '%"pending"%')))
+      .all()
+    for (const { id, meta } of pending) {
+      const updated = interruptMessageTasks(meta, reason)
+      if (updated !== meta) tx.update(messages).set({ meta: updated }).where(eq(messages.id, id)).run()
+    }
+    const actorSettings = tx
+      .select()
+      .from(settings)
+      .where(
+        and(like(settings.key, 'vn-actors:%'), sql`json_valid(${settings.value})`, like(settings.value, '%"pending"%')),
+      )
+      .all()
+    for (const { key, value } of actorSettings) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+      const actors: Record<string, unknown> = { ...value }
+      let changed = false
+      for (const [actorKey, actor] of Object.entries(actors)) {
+        if (!actor || typeof actor !== 'object' || !('status' in actor) || actor.status !== 'pending') continue
+        actors[actorKey] = { ...actor, status: 'error', error: reason() }
+        changed = true
+      }
+      if (changed) tx.update(settings).set({ value: actors }).where(eq(settings.key, key)).run()
+    }
+  })
+}
+
 function openUser(user: CurrentUserDTO, dataDir: string, paths = userPaths(user.handle, dataDir)) {
   const key = join(dataDir, user.handle)
   const cached = connections.get(key)
@@ -57,9 +96,11 @@ function openUser(user: CurrentUserDTO, dataDir: string, paths = userPaths(user.
   try {
     sqlite.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON')
     migrate(ctx.db, { migrationsFolder: env.migrationsDir })
-    sqlite.exec("UPDATE messages SET status = 'aborted' WHERE status = 'streaming'")
     // 种子数据和翻译都必须看到新用户自己的数据库。
-    scope.run(ctx, seedUserDatabase)
+    scope.run(ctx, () => {
+      recoverInterruptedTasks(ctx)
+      seedUserDatabase()
+    })
     connections.set(key, ctx)
     return ctx
   } catch (error) {

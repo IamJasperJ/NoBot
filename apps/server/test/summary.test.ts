@@ -3,7 +3,15 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { countTokens } from '@nobot/core'
-import type { CharacterDTO, ChatDTO, MessageMeta, MessageRole, PromptPreview, SummaryStateDTO } from '@nobot/shared'
+import type {
+  CharacterDTO,
+  ChatDTO,
+  MessageMeta,
+  MessageRole,
+  PromptPresetDTO,
+  PromptPreview,
+  SummaryStateDTO,
+} from '@nobot/shared'
 import { eq } from 'drizzle-orm'
 import { readSSE } from './helpers/sse'
 
@@ -262,32 +270,122 @@ test('剧情总结：素材、增量、注入、分支、自动、编辑、并�
     fail = false
     expect((await run(chat.id)).lastError).toBeNull()
 
-    // 条数与 token 预算都优先保留前面的消息，至少带一条。
+    // 先扣除实际指令和回复上限，在预算内从早到晚选择素材。
     const limited = await create()
     const l1 = add(limited.id, null, 'user', '一'.repeat(1000))
-    const l2 = add(limited.id, l1, 'assistant', '第二条')
+    const l2Content = `第二条${'二'.repeat(280)}`
+    const l2 = add(limited.id, l1, 'assistant', l2Content)
     add(limited.id, l2, 'user', '末条')
     await settings({ maxTokens: 16000, words: 50 })
+    const beforeOverflow = requests.length
+    expect(await run(limited.id)).toMatchObject({
+      current: null,
+      lastError: '上下文预算放不下第一条待总结消息，请调整生成预设或总结设置',
+    })
+    expect(requests).toHaveLength(beforeOverflow)
+    await settings({ maxTokens: 15100, words: 50 })
     result = await run(limited.id)
     expect(result.current).toMatchObject({ messageId: l1, coveredCount: 1 })
-    expect(result.pending.tokens).toBe(countTokens('角色甲：第二条'))
+    expect(result.pending.tokens).toBe(countTokens(`角色甲：${l2Content}`))
     await settings({ mode: 'full', maxTokens: 123, model: 'override' })
     result = await run(limited.id)
     expect(result.current?.messageId).toBe(l2)
     expect(requests.at(-1)?.messages.length).toBeGreaterThan(2)
     expect(requests.at(-1)?.max_tokens).toBe(123)
     expect(requests.at(-1)?.model).toBe('override')
+    expect(requests.at(-1)?.messages.some((m) => m.content.includes('第二条'))).toBe(true)
+    expect(requests.at(-1)?.messages.some((m) => m.content.includes('末条'))).toBe(false)
+
+    const budgeted = await create()
+    const budgetPreset = await json<PromptPresetDTO>('/presets', 'POST', {
+      name: '总结预算',
+      data: { samplers: { contextSize: 1024, maxTokens: 128 } },
+    })
+    await json(`/chats/${budgeted.id}`, 'PATCH', { promptPresetId: budgetPreset.id })
+    const early = add(budgeted.id, null, 'user', `较早素材${' A'.repeat(390)}`)
+    const recent = add(budgeted.id, early, 'assistant', `稍晚素材${' B'.repeat(390)}`)
+    add(budgeted.id, recent, 'user', '最后一条不参与总结')
+    await settings({ mode: 'full', maxTokens: 210 })
+    const beforeRetry = requests.length
+    expect(await run(budgeted.id)).toMatchObject({
+      current: { messageId: early, coveredCount: 1 },
+      pending: { messages: 1 },
+    })
+    expect(requests).toHaveLength(beforeRetry + 1)
+    expect(requests.at(-1)?.messages.some((m) => m.content.includes('较早素材'))).toBe(true)
+    expect(requests.at(-1)?.messages.some((m) => m.content.includes('稍晚素材'))).toBe(false)
 
     const capped = await create()
     const cap1 = add(capped.id, null, 'user', '第一条素材')
     const cap2 = add(capped.id, cap1, 'assistant', '第二条素材')
-    add(capped.id, cap2, 'user', '保留末条')
-    await settings({ maxMessages: 1 })
-    expect((await run(capped.id)).current).toMatchObject({ messageId: cap1, coveredCount: 1 })
+    const cap3 = add(capped.id, cap2, 'user', '保留末条')
+    await settings({ mode: 'full', maxMessages: 1, skipSummarized: true, keepRecent: 0 })
+    const firstCappedSummary = (await run(capped.id)).current!
+    expect(firstCappedSummary).toMatchObject({ messageId: cap1, coveredCount: 1 })
     expect((await state(capped.id)).pending.messages).toBe(1)
-    expect(requests.at(-1)?.messages[1]?.content).not.toContain('第二条素材')
+    const fullRequest = requests
+      .at(-1)
+      ?.messages.map((m) => m.content)
+      .join('\n')
+    expect(fullRequest).toContain('第一条素材')
+    expect(fullRequest).not.toContain('第二条素材')
+    expect(fullRequest).not.toContain('保留末条')
+
+    const branch = await json<ChatDTO>(`/chats/${capped.id}/branch`, 'POST', { messageId: cap3 })
+    expect((await state(branch.id)).current?.text).toBe(firstCappedSummary.text)
+
+    hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const editing = run(capped.id)
+    await until(async () => (await state(capped.id)).running)
+    await json(`/messages/${cap2}`, 'PATCH', { content: '更正了第二条素材' })
+    release()
+    expect(await editing).toMatchObject({ current: firstCappedSummary, lastError: '总结期间对话已变化，请重试' })
+    hold = undefined
+    expect(loadMessage(cap2).meta.summary).toBeUndefined()
+
+    hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const switching = run(capped.id)
+    await until(async () => (await state(capped.id)).running)
+    add(capped.id, cap1, 'assistant', '共享同一条早期总结的另一分支')
+    release()
+    expect(await switching).toMatchObject({ current: firstCappedSummary, lastError: null })
+    hold = undefined
+    expect(loadMessage(cap2).meta.summary).toBeDefined()
+    await json(`/chats/${capped.id}/activate`, 'POST', { messageId: cap3 })
+    const secondCappedSummary = (await state(capped.id)).current!
+    expect(secondCappedSummary.messageId).toBe(cap2)
+
+    // 排除旧素材后回到有效总结；取消排除后素材与快照一致，可以复用。
+    await json(`/chats/${capped.id}/exclude`, 'POST', { messageIds: [cap2], excluded: true })
+    result = await state(capped.id)
+    expect(result.current).toEqual(firstCappedSummary)
+    expect(result.history).toEqual([{ ...secondCappedSummary, stale: true }])
+    expect((await preview(capped.id)).messages.some((m) => m.content.includes(secondCappedSummary.text))).toBe(false)
+    await json(`/chats/${capped.id}/exclude`, 'POST', { messageIds: [cap2], excluded: false })
+    expect((await state(capped.id)).current).toEqual(secondCappedSummary)
+
+    await json(`/messages/${cap2}`, 'PATCH', { content: '再次更正了第二条素材' })
+    expect((await state(capped.id)).current).toEqual(firstCappedSummary)
+    expect((await preview(capped.id)).messages.some((m) => m.content.includes('再次更正了第二条素材'))).toBe(true)
+    result = await json<SummaryStateDTO>('/ext/summary/entry', 'PATCH', {
+      chatId: capped.id,
+      messageId: cap2,
+      text: '核对后的剧情总结',
+    })
+    expect(result.current).toMatchObject({ messageId: cap2, text: '核对后的剧情总结' })
+
+    await json(`/chats/${capped.id}/move`, 'POST', { messageId: cap2, direction: 'up' })
+    result = await state(capped.id)
+    expect(result.current).toBeNull()
+    expect(result.history.map((item) => item.stale)).toEqual([true, true])
+    expect((await preview(capped.id)).report.segments.some((segment) => segment.source === 'summary')).toBe(false)
 
     // 工具调用和结果一起过滤，keepRecent 落在结果上也跟随调用者。
+    await settings({})
     const tools = await create()
     const call = add(tools.id, null, 'assistant', '调用正文', {
       toolCalls: [{ id: 'call', name: 'search', arguments: '{}' }],
@@ -309,6 +407,20 @@ test('剧情总结：素材、增量、注入、分支、自动、编辑、并�
     expect(summaryExtension.hooks!.beforePrompt!(input, context).history).toEqual([])
     context.settings.keepRecent = 2
     expect(summaryExtension.hooks!.beforePrompt!(input, context).history.map((m) => m.id)).toEqual([call, tool])
+    const nextCall = add(tools.id, tool, 'assistant', '下一轮复用调用 ID', {
+      toolCalls: [{ id: 'call', name: 'search', arguments: '{}' }],
+    })
+    const nextTool = add(tools.id, nextCall, 'tool', '下一轮结果', { toolCallId: 'call' })
+    const nextInput = assemble(loadGenerationContext(tools.id, { requireConnection: false }), {
+      type: 'normal',
+      speakerId: character.id,
+      leafId: nextTool,
+    }).input
+    context.settings.keepRecent = 0
+    expect(summaryExtension.hooks!.beforePrompt!(nextInput, context).history.map((m) => m.id)).toEqual([
+      nextCall,
+      nextTool,
+    ])
 
     await settings({ auto: true, interval: 2 })
     const automatic = await create()

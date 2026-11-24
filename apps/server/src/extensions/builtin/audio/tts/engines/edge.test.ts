@@ -52,7 +52,7 @@ test('握手失败后按服务端 Date 校正 GEC 并重试一次，重新生成
     const ws = fakeSocket()
     sockets.push(ws)
     queueMicrotask(() => {
-      if (calls.length === 1) ws.onerror?.(new Event('error'))
+      if (calls.length === 1) ws.onerror?.(new ErrorEvent('error'))
       else audioReply(ws)
     })
     return ws
@@ -96,7 +96,7 @@ test('打开连接后的合成失败不走握手重试', async () => {
   const ws = fakeSocket()
   const result = edgeSynthesize(input, undefined, () => ws)
   ws.onopen?.(new Event('open'))
-  ws.onerror?.(new Event('error'))
+  ws.onerror?.(new ErrorEvent('error'))
   await expect(result).rejects.toThrow('Edge 朗读失败，接口可能已变化')
 })
 

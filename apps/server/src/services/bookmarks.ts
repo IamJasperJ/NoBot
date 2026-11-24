@@ -1,4 +1,4 @@
-import { castKey, pickSprite, toDisplayText } from '@nobot/core/stage'
+import { castKey, pickSprite, resolveBackgroundId, toDisplayText } from '@nobot/core/stage'
 import type { BookmarkDTO, CreateBookmarkInput, CreateSaveInput, MessageDTO, SaveSnapshot } from '@nobot/shared'
 import { asc, eq } from 'drizzle-orm'
 import { db, newId } from '../db/client'
@@ -6,8 +6,8 @@ import { bookmarks, characters } from '../db/schema'
 import { HttpError, notFound } from '../errors'
 import { t } from '../i18n'
 import { avatarUrl } from '../lib/files'
-import { backgroundsForChat, listBackgrounds } from './backgrounds/backgrounds'
-import { computeVars, getChatRow, loadMessage, loadPath } from './chats'
+import { getBackgroundSettings, listBackgrounds } from './backgrounds/backgrounds'
+import { computeVars, getChatRow, loadGroupDTO, loadMessage, loadPath } from './chats'
 import { resolvePersona } from './generation/context'
 import { computeStage, initialVars, resolvePlayPreset, resolveStateSchema, stageMembers } from './generation/stage'
 import { readableMessage } from './rooms/dto'
@@ -105,13 +105,19 @@ export function createSave(chatId: string, input: CreateSaveInput): BookmarkDTO 
   const cast = stage?.cast ?? []
   const focused = cast.find((actor) => actor.key === speaker)
   const actors = (focused ? [focused, ...cast.filter((actor) => actor !== focused)] : cast).slice(0, 3)
-  const library = backgroundsForChat(chatId)
+  const backgroundId = resolveBackgroundId({
+    backgroundId: chat.backgroundId,
+    backgroundPinned: chat.backgroundPinned,
+    stageBackgroundId: stage?.scene.backgroundId,
+    defaultBackgroundId: chat.groupId
+      ? loadGroupDTO(chat.groupId).defaultBackgroundId
+      : members[0]?.defaultBackgroundId,
+    globalId: getBackgroundSettings().globalId,
+  })
   const snapshot: SaveSnapshot = {
-    backgroundUrl:
-      (
-        library.find((background) => background.id === stage?.scene.backgroundId) ??
-        listBackgrounds().find((background) => background.id === chat.backgroundId)
-      )?.url ?? null,
+    backgroundUrl: backgroundId
+      ? (listBackgrounds().find((background) => background.id === backgroundId)?.url ?? null)
+      : null,
     actors: actors.map((actor) => {
       const character = members.find((member) => member.id === actor.characterId)
       const sprite = character
@@ -126,7 +132,7 @@ export function createSave(chatId: string, input: CreateSaveInput): BookmarkDTO 
       return {
         name: actor.name,
         characterId: actor.characterId ?? null,
-        spriteUrl: sprite?.url ?? null,
+        spriteUrl: sprite?.url ?? actor.spriteUrl ?? null,
         avatarUrl: character ? avatarUrl(character.avatarFile, character.updatedAt) : null,
       }
     }),

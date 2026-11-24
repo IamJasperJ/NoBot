@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import { db, newId } from '../../db/client'
@@ -14,10 +14,72 @@ import { resolveProfile } from '../profiles'
 import { notifyRoom, resumeExtensions } from './extensions'
 import { asHost, changed, hasRoomReservations, members, membership, refused, requireRole, roomDetail } from './index'
 import { resumeRoom, stopRoomTimers } from './trpg'
-import { resetTurnState, turnState } from './turns'
+import { rescheduleRoom, resetTurnState, turnState } from './turns'
 import { roomView } from './view'
 
 type Row = Record<string, string | number | null>
+
+// 只改写数据库引用和结构化数据里的引用字段，正文和自定义变量原样迁移。
+const referenceColumns = new Set([
+  'id',
+  'active_leaf_id',
+  'avatar_file',
+  'background_id',
+  'character_id',
+  'chat_id',
+  'default_background_id',
+  'entity_id',
+  'group_id',
+  'lorebook_id',
+  'message_id',
+  'parent_id',
+  'play_preset_id',
+  'prompt_preset_id',
+  'speaker_id',
+])
+const referenceFields = new Set([
+  'id',
+  'activeLeafId',
+  'attachmentId',
+  'backgroundId',
+  'characterId',
+  'chatId',
+  'copyId',
+  'defaultBackgroundId',
+  'groupId',
+  'leafId',
+  'messageId',
+  'parentId',
+  'replyTo',
+  'speakerId',
+  'pending',
+  'queued',
+  'activated',
+  'automationIds',
+  'messageIds',
+])
+const assetFields = new Set(['url', 'thumbUrl', 'spriteUrl', 'avatarUrl', 'coverAsset'])
+const structuredColumns: Record<string, string> = {
+  characters: 'extensions',
+  lorebook_entries: 'data',
+  messages: 'meta',
+  room_events: 'payload',
+  settings: 'value',
+}
+
+function mapReferences(value: unknown, map: (value: string, field: string) => string, field = ''): unknown {
+  if (typeof value === 'string') return map(value, field)
+  if (Array.isArray(value)) return value.map((item) => mapReferences(item, map, field))
+  if (value && typeof value === 'object' && !['varsPatch', 'varsManual'].includes(field)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        field === 'characters' ? map(key, 'characterId') : key,
+        mapReferences(item, map, key),
+      ]),
+    )
+  }
+  return value
+}
 export function transferOffer(id: string, userId: string) {
   const { room } = requireRole(id, ['owner'])
   const target = membership(id, userId).member
@@ -100,7 +162,7 @@ export function acceptTransfer(id: string) {
   const settings = rows('settings', '1 = 1').filter((s) => {
     const key = String(s.key)
     return (
-      (key.includes(room.id) && key.startsWith('room')) ||
+      (key.startsWith('room') && key.split(':')[1] === id) ||
       key === `vn-actors:${room.chatId}` ||
       key === `extdata:audio:tts-chat:${room.chatId}`
     )
@@ -110,19 +172,31 @@ export function acceptTransfer(id: string) {
   const usage = rows('room_usage', 'room_id = ?', [id])
   const rendered = asHost(room, () => roomView(room))
   if (!chat.background_id && rendered.globalBackgroundId) chat.background_id = rendered.globalBackgroundId
-  const references = JSON.stringify([
-    chat,
-    cards,
-    group,
-    messageRows,
-    settings,
-    events,
-    room.coverAsset,
-    rendered.backgrounds,
+  const values = [
+    ...messageRows.map((row) => row.meta),
+    ...settings.map((row) => row.value),
+    ...events.map((row) => row.payload),
+    ...cards.map((row) => row.extensions),
+    ...entries.map((row) => row.data),
+  ]
+  const backgroundIds = new Set([
+    chat.background_id,
+    ...[...cards, ...group].map((row) => row.default_background_id),
+    ...rendered.backgrounds.map((row) => row.id),
   ])
-  const backgrounds = rows('backgrounds', '1 = 1').filter(
-    (b) => b.chat_id === room.chatId || references.includes(String(b.id)),
-  )
+  const assetUrls = new Set<string>()
+  const collectReference = (value: string, field: string) => {
+    if (['backgroundId', 'defaultBackgroundId'].includes(field)) backgroundIds.add(value)
+    if (assetFields.has(field) && value.startsWith('/api/assets/')) assetUrls.add(value.split('?')[0]!)
+    return value
+  }
+  for (const value of values) if (typeof value === 'string') mapReferences(JSON.parse(value), collectReference)
+  if (room.coverAsset) collectReference(room.coverAsset, 'coverAsset')
+  for (const url of assetUrls) {
+    const backgroundId = url.match(/^\/api\/assets\/backgrounds\/([^/.]+)\./)?.[1]
+    if (backgroundId) backgroundIds.add(backgroundId)
+  }
+  const backgrounds = rows('backgrounds', '1 = 1').filter((b) => b.chat_id === room.chatId || backgroundIds.has(b.id))
   const effectivePlay = asHost(room, () => resolvePlayPreset(room.chatId))
   const play = rows('play_presets', 'id = ?', [effectivePlay.id])
   chat.play_preset_id = effectivePlay.id
@@ -160,6 +234,7 @@ export function acceptTransfer(id: string) {
     if (row.id) mapping.set(String(row.id), newId())
   const files: string[] = []
   const copied = new Map<string, string>()
+  const assets = new Map<string, string>()
   const copy = (
     kind: 'avatars' | 'attachments' | 'backgrounds' | 'ttsCache' | 'sprites',
     sourceName: string,
@@ -176,29 +251,42 @@ export function acceptTransfer(id: string) {
     copied.set(key, name)
     return name
   }
-  const replace = (text: string) => {
-    let result = text
-    for (const [from, to] of mapping) result = result.replaceAll(from, to)
-    return result
+  const copyAsset = (kind: Parameters<typeof copy>[0], sourceName: string, targetName?: string) => {
+    const path = `/api/assets/${kind === 'ttsCache' ? 'tts-cache' : kind}/`
+    const name = copy(kind, sourceName, targetName)
+    assets.set(`${path}${sourceName}`, `${path}${name}`)
+    return name
   }
-  const rewrite = (value: unknown): unknown => {
-    if (typeof value === 'string') return replace(value)
-    if (Array.isArray(value)) return value.map(rewrite)
-    if (value && typeof value === 'object')
-      return Object.fromEntries(
-        Object.entries(value).map(([k, v]) => [replace(k), k === 'sourceCharacterId' ? v : rewrite(v)]),
-      )
-    return value
+  const mapAsset = (url: string) => {
+    const path = url.split('?')[0]!
+    const replacement = assets.get(path)
+    return replacement ? replacement + url.slice(path.length) : url
   }
-  const transform = (row: Row): Row =>
+  const rewrite = (value: string, field: string) => {
+    if (assetFields.has(field)) return mapAsset(value)
+    return referenceFields.has(field) ? (mapping.get(value) ?? value) : value
+  }
+  const transform = (table: string, row: Row): Row =>
     Object.fromEntries(
       Object.entries(row).map(([key, value]) => {
         if (typeof value !== 'string') return [key, value]
-        try {
-          return [key, JSON.stringify(rewrite(JSON.parse(value)))]
-        } catch {
-          return [key, replace(value)]
-        }
+        if (referenceColumns.has(key)) return [key, mapping.get(value) ?? value]
+        if (table === 'settings' && key === 'key')
+          return [
+            key,
+            value
+              .split(':')
+              .map((part) => mapping.get(part) ?? part)
+              .join(':'),
+          ]
+        if (key === structuredColumns[table])
+          return [
+            key,
+            JSON.stringify(
+              mapReferences(JSON.parse(value), rewrite, row.key === `room-choices:${id}` ? 'messageIds' : ''),
+            ),
+          ]
+        return [key, value]
       }),
     )
   const newProfileId = newId()
@@ -209,53 +297,55 @@ export function acceptTransfer(id: string) {
     for (const c of cards)
       if (c.avatar_file) {
         const original = String(c.avatar_file).replace(/\.png$/, '.webp')
-        const name = copy('avatars', original)
+        const name = copyAsset('avatars', original)
+        assets.set(`/api/assets/avatars/${c.avatar_file}`, `/api/assets/avatars/${name}`)
         mapping.set(String(c.avatar_file), name)
-        mapping.set(original, name)
       }
     const personas = members(id).filter((m) => m.personaAvatarFile)
     for (const m of personas) {
       const file = m.personaAvatarFile!.replace(/\.png$/, '.webp')
-      const name = copy('avatars', file)
+      const name = copyAsset('avatars', file)
+      assets.set(`/api/assets/avatars/${m.personaAvatarFile}`, `/api/assets/avatars/${name}`)
       mapping.set(m.personaAvatarFile!, name)
     }
     for (const s of spriteRows) {
       const cid = String(s.character_id),
         sid = String(s.id)
       for (const suffix of [String(s.ext), 'thumb.webp'])
-        copy('sprites', `${cid}/${sid}.${suffix}`, `${mapping.get(cid)}/${mapping.get(sid)}.${suffix}`)
+        copyAsset('sprites', `${cid}/${sid}.${suffix}`, `${mapping.get(cid)}/${mapping.get(sid)}.${suffix}`)
     }
     for (const b of backgrounds) {
       const suffix = String(b.mime).split('/')[1]!
-      copy('backgrounds', `${b.id}.${suffix}`, `${mapping.get(String(b.id))}.${suffix}`)
+      copyAsset('backgrounds', `${b.id}.${suffix}`, `${mapping.get(String(b.id))}.${suffix}`)
       // 视频背景可以没有缩略图，原素材仍必须完整存在。
       if (existsSync(join(source.paths.backgrounds, `${b.id}.thumb.webp`)))
-        copy('backgrounds', `${b.id}.thumb.webp`, `${mapping.get(String(b.id))}.thumb.webp`)
+        copyAsset('backgrounds', `${b.id}.thumb.webp`, `${mapping.get(String(b.id))}.thumb.webp`)
     }
-    // 临时舞台角色可能没有角色表记录，但其立绘仍属于会话引用的素材。
-    for (const match of references.matchAll(
-      /\/api\/assets\/sprites\/([0-9A-Z]{26})\/([0-9A-Z]{26})\.(png|webp|gif|jpg)/g,
-    )) {
-      const [, cid, sid, ext] = match
-      if (!mapping.has(cid!)) mapping.set(cid!, newId())
-      if (!mapping.has(sid!)) mapping.set(sid!, newId())
-      copy('sprites', `${cid}/${sid}.${ext}`, `${mapping.get(cid!)}/${mapping.get(sid!)}.${ext}`)
-      if (existsSync(join(source.paths.sprites, cid!, `${sid}.thumb.webp`)))
-        copy('sprites', `${cid}/${sid}.thumb.webp`, `${mapping.get(cid!)}/${mapping.get(sid!)}.thumb.webp`)
-    }
-    // 仅复制已引用的附件和语音缓存，不扫描或复制私人聊天资源。
-    for (const [kind, urlKind] of [
-      ['attachments', 'attachments'],
-      ['ttsCache', 'tts-cache'],
-    ] as const) {
-      for (const name of readdirSync(source.paths[kind]))
-        if (references.includes(name) || references.includes(name.split('.')[0]!)) {
-          const sourceId = name.split('.')[0]!
-          const destinationId = mapping.get(sourceId) ?? newId()
-          mapping.set(sourceId, destinationId)
-          const newName = copy(kind, name, `${destinationId}.${name.split('.').slice(1).join('.')}`)
-          mapping.set(`/api/assets/${urlKind}/${name}`, `/api/assets/${urlKind}/${newName}`)
-        }
+    for (const url of assetUrls) {
+      const sprite = url.match(
+        /^\/api\/assets\/sprites\/([0-9A-Z]{26})\/([0-9A-Z]{26})\.(png|webp|gif|jpg|thumb\.webp)$/,
+      )
+      if (sprite) {
+        // 临时舞台角色可能没有角色表记录，仍要保留立绘和缩略图。
+        const [, characterId, spriteId, ext] = sprite as [string, string, string, string]
+        if (!mapping.has(characterId)) mapping.set(characterId, newId())
+        if (!mapping.has(spriteId)) mapping.set(spriteId, newId())
+        const original = `${characterId}/${spriteId}`
+        const destination = `${mapping.get(characterId)}/${mapping.get(spriteId)}`
+        copyAsset('sprites', `${original}.${ext}`, `${destination}.${ext}`)
+        if (existsSync(join(source.paths.sprites, `${original}.thumb.webp`)))
+          copyAsset('sprites', `${original}.thumb.webp`, `${destination}.thumb.webp`)
+      }
+      const attachmentId = url.match(/^\/api\/assets\/attachments\/([0-9A-Z]{26})\.webp$/)?.[1]
+      if (attachmentId && existsSync(join(source.paths.attachments, `${attachmentId}.webp`))) {
+        const destination = mapping.get(attachmentId) ?? newId()
+        mapping.set(attachmentId, destination)
+        copyAsset('attachments', `${attachmentId}.webp`, `${destination}.webp`)
+        if (existsSync(join(source.paths.attachments, `${attachmentId}.json`)))
+          copy('attachments', `${attachmentId}.json`, `${destination}.json`)
+      }
+      const voice = url.match(/^\/api\/assets\/tts-cache\/([\w-]+\.(?:mp3|wav))$/)?.[1]
+      if (voice && existsSync(join(source.paths.ttsCache, voice))) copyAsset('ttsCache', voice)
     }
     const newChatId = mapping.get(room.chatId)!
     statement.query('ATTACH DATABASE ? AS transfer_story').run(target.paths.db)
@@ -319,7 +409,7 @@ export function acceptTransfer(id: string) {
             ],
           ],
           ['chats', [{ ...chat, persona_id: null, profile_id: newProfileId, api_preset_id: connection.id }]],
-          ['backgrounds', backgrounds],
+          ['backgrounds', backgrounds.map((row) => ({ ...row, chat_id: row.chat_id === null ? null : room.chatId }))],
           ['chat_lorebooks', chatLinks],
           ['messages', messageRows],
           ['room_message_index', messageIndex],
@@ -327,7 +417,7 @@ export function acceptTransfer(id: string) {
           ['room_events', events],
           ['room_usage', usage],
         ]
-        for (const [table, records] of tables) for (const record of records) insert(table, transform(record))
+        for (const [table, records] of tables) for (const record of records) insert(table, transform(table, record))
         for (const row of settings) statement.query('DELETE FROM transfer_source.settings WHERE key = ?').run(row.key!)
         for (const m of personas)
           system()
@@ -361,7 +451,7 @@ export function acceptTransfer(id: string) {
           .set({
             hostUserId: member.userId,
             chatId: newChatId,
-            coverAsset: room.coverAsset ? replace(room.coverAsset) : null,
+            coverAsset: room.coverAsset ? mapAsset(room.coverAsset) : null,
             updatedAt: Date.now(),
           })
           .where(eq(rooms.id, id))
@@ -390,6 +480,7 @@ export function acceptTransfer(id: string) {
   const moved = roomDetail(id)
   changed(moved, 'room.transferred', member.userId, { hostUserId: member.userId, chatId: moved.chatId })
   asHost(moved, () => resumeRoom(moved))
+  rescheduleRoom(id)
   resumeExtensions(moved)
   return moved
 }

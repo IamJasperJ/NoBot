@@ -92,9 +92,10 @@ const activate: ActivateFn = (api) => {
   const offStream = useStreaming.subscribe((state, previous) => {
     const view = getVisibleTtsChat()
     if (!view) return
-    const ended = previous.chatId === view.chatId && previous.messageId && previous.messageId !== state.messageId
-    const live = state.chatId === view.chatId && state.messageId ? { ...state } : null
-    if (!ended && (!live || (state.text === previous.text && state.messageId === previous.messageId))) return
+    const before = previous.streams[view.chatId]
+    const live = state.streams[view.chatId]
+    const ended = before && before.messageId !== live?.messageId
+    if (!ended && (!live || (live.text === before?.text && live.messageId === before?.messageId))) return
     // 在回调时保存快照；网络请求串行完成后仍按生成顺序提交，不丢失短回复。
     pending = pending
       .then(async () => {
@@ -103,7 +104,7 @@ const activate: ActivateFn = (api) => {
         if (ended) {
           const page = await client.getChatPage(view.chatId)
           if (!allowed(view, data)) return
-          const message = page.messages.find((m) => m.id === previous.messageId)
+          const message = page.messages.find((m) => m.id === before.messageId)
           if (message && message.status !== 'streaming')
             reader.read(view.chatId, message, data.voice.members, false, true)
         }

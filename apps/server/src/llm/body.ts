@@ -1,6 +1,17 @@
 import type { ChatMessage, SamplerSettings } from '@nobot/shared'
 import { t } from '../i18n'
 import { LlmError } from './types'
+
+export function parseExtraBody(extraBody: string): Record<string, unknown> {
+  if (!extraBody.trim()) return {}
+  try {
+    const extra: unknown = JSON.parse(extraBody)
+    if (extra && typeof extra === 'object' && !Array.isArray(extra)) return extra as Record<string, unknown>
+    return {}
+  } catch {
+    throw new LlmError('BAD_EXTRA_BODY', t('生成预设里的「额外请求参数」不是合法的 JSON 对象'))
+  }
+}
 /**
  * 根据生成预设的采样参数生成请求体。
  * 非 OpenAI 标准的参数（top_k、min_p、top_a、repetition_penalty）只在不是默认值时才发送，
@@ -49,13 +60,6 @@ export function buildRequestBody(opts: {
   if (opts.tools && opts.tools.length > 0) body.tools = opts.tools
 
   // 额外参数：用户写的 JSON 原样合并，可以覆盖上面的任何字段
-  if (s.extraBody.trim()) {
-    try {
-      const extra = JSON.parse(s.extraBody)
-      if (extra && typeof extra === 'object' && !Array.isArray(extra)) Object.assign(body, extra)
-    } catch {
-      throw new LlmError('BAD_EXTRA_BODY', t('生成预设里的「额外请求参数」不是合法的 JSON 对象'))
-    }
-  }
+  Object.assign(body, parseExtraBody(s.extraBody))
   return body
 }

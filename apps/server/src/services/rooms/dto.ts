@@ -91,5 +91,7 @@ export function asRoomViewer<T>(viewerId: string, fn: () => T): T {
 export function readableMessage(message: MessageDTO): MessageDTO {
   const viewerId = viewers.getStore() ?? currentUser().id
   const room = systemDatabase().select().from(rooms).where(eq(rooms.chatId, message.chatId)).get()
-  return room ? roomMessage(message, viewerId, room.hostUserId) : message
+  if (room) return roomMessage(message, viewerId, room.hostUserId)
+  // 房间关闭或历史被复制后，消息自身的可见范围仍然有效。
+  return canReadMessage({ meta: message.meta }, viewerId) ? message : roomMessage(message, viewerId, viewerId)
 }

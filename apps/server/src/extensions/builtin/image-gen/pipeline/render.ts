@@ -80,6 +80,7 @@ export async function renderImage(
         error: signal?.aborted ? t('已取消') : safeError(error, settings),
       },
     })
+    signal?.throwIfAborted()
     throw error
   } finally {
     roomUsage?.release()

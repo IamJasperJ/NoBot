@@ -1,7 +1,15 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef } from 'react'
 import { ApiRequestError } from '../../api/client'
-import { flattenPages, keys, useCharacter, useChatPages, usePersonas, usePlayPresets } from '../../api/queries'
+import {
+  flattenPages,
+  isStaleChatCursor,
+  keys,
+  useCharacter,
+  useChatPages,
+  usePersonas,
+  usePlayPresets,
+} from '../../api/queries'
 import { useRoomForChat } from '../../api/rooms'
 import { MenuIcon } from '../../components/icons'
 import { IconButton } from '../../components/ui'
@@ -110,7 +118,7 @@ export function ChatView({ chatId }: { chatId: string }) {
   const selectingChat = useChatOps((s) => s.selectingChat)
   // 换会话时退出多选
   useEffect(() => () => useChatOps.getState().stopSelect(), [chatId])
-  if (pages.isError) {
+  if (pages.isError && !isStaleChatCursor(pages.error)) {
     return (
       <div className="p-8 text-center text-sm text-zinc-500">
         {t('会话加载失败：{error}', { error: errorMessage(pages.error) })}

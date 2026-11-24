@@ -207,6 +207,7 @@ test('渠道原生表情：导入、学习、管理、工具、冷却、投递�
         status: 'done' as const,
         createdAt: Date.now(),
       }
+      db.insert(schema.messages).values(native).run()
       await sendMessageStickers(
         bindingRow(bindingId),
         { ...native, meta: { ...native.meta, visibility: { level: 'whisper', userIds: [] } } },
@@ -277,12 +278,18 @@ test('渠道原生表情：导入、学习、管理、工具、冷却、投递�
       ).toBe(true)
 
       const beforePrivate = calls.length
-      await service.deliver(bindingRow(group.id), {
+      const privateSticker = {
         ...native,
         id: 'whisper-sticker',
         chatId: roomChat.id,
-        meta: { ...native.meta, channel: 'whisper', visibility: { level: 'whisper', userIds: [owner.id] } },
-      })
+        meta: {
+          ...native.meta,
+          channel: 'whisper' as const,
+          visibility: { level: 'whisper' as const, userIds: [owner.id] },
+        },
+      }
+      db.insert(schema.messages).values(privateSticker).run()
+      await service.deliver(bindingRow(group.id), privateSticker)
       const privateStickers = calls.slice(beforePrivate).filter((call) => call.method === 'sendSticker')
       expect(privateStickers).toHaveLength(1)
       expect(privateStickers[0]?.params.chat_id).toBe('111')

@@ -96,7 +96,14 @@ export interface MessageMeta {
   /** 自动补全演员立绘的异步状态，供数据层刷新舞台。 */
   spriteGeneration?: 'pending' | 'done' | 'error'
   /** CG 拍在 beats 中的下标与生成附件的对应，失败不阻塞正文播放。 */
-  cg?: { beat: number; attachmentId: string | null; status: 'pending' | 'done' | 'error'; prompt: string }[]
+  cg?: {
+    beat: number
+    attachmentId: string | null
+    status: 'pending' | 'done' | 'error'
+    prompt: string
+    /** 仅生成期间用于确认异步结果仍属于当前指令。 */
+    taskId?: string
+  }[]
   /**
    * 消息附带的图片（附件 id 和原图尺寸），文件在 data/assets/attachments/。
    * 用户消息的图片会发给模型（看图）；其他角色的图片（比如生成的图片）只显示，不发给模型
@@ -137,6 +144,8 @@ export interface MessageSummary {
   auto: boolean
   /** 这次总结新纳入了多少条消息（上一份总结之后的） */
   coveredCount: number
+  /** 总结时覆盖的消息路径指纹，用来识别后续编辑和移动。旧版总结可能没有。 */
+  sourceHash?: string
 }
 
 /** 图片生成任务的状态，界面据此显示占位框 / 错误 / 重试 */

@@ -10,7 +10,7 @@ export interface TreeNode {
 }
 
 /** 构建 父节点 id → 子节点列表 的映射。根节点的父 id 记作 null */
-export function buildChildrenMap<T extends TreeNode>(nodes: T[]): Map<string | null, T[]> {
+export function buildChildrenMap<T extends TreeNode>(nodes: Iterable<T>): Map<string | null, T[]> {
   const map = new Map<string | null, T[]>()
   for (const node of nodes) {
     const list = map.get(node.parentId)

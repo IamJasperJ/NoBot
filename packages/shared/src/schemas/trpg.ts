@@ -76,74 +76,49 @@ export type CharacterSheet = z.infer<typeof characterSheetSchema>
 
 /** DiceResult 的运行时 schema（前端随消息发回检定结果时校验用） */
 export const diceResultSchema = z.object({
+  /** 规范化后的表达式，如 2d20kh1+5 */
   expression: z.string(),
+  /** 每一组骰子：几面骰、每颗点数、是否计入（取高 / 取低时被舍弃的为 false） */
   groups: z.array(
     z.object({
       sides: z.number().int().min(2),
       rolls: z.array(z.object({ value: z.number().int(), kept: z.boolean() })),
     }),
   ),
+  /** 常数修正值之和 */
   modifier: z.number().int(),
   total: z.number().int(),
+  /** 只对单颗 d20（含优势 / 劣势取到的那颗）判定：自然 20 / 自然 1 */
   natural: z.enum(['crit', 'fumble']).optional(),
   advantage: z.enum(['advantage', 'disadvantage']).optional(),
+  /** 掷骰目的，如「攻击哥布林」 */
   reason: z.string().optional(),
 })
-
-/** 一次掷骰的完整结果（存进消息 meta.dice，前端据此演出动画） */
-export interface DiceResult {
-  /** 规范化后的表达式，如 2d20kh1+5 */
-  expression: string
-  /** 每一组骰子：几面骰、每颗点数、是否计入（取高 / 取低时被舍弃的为 false） */
-  groups: { sides: number; rolls: { value: number; kept: boolean }[] }[]
-  /** 常数修正值之和 */
-  modifier: number
-  total: number
-  /** 只对单颗 d20（含优势 / 劣势取到的那颗）判定：自然 20 / 自然 1 */
-  natural?: 'crit' | 'fumble'
-  advantage?: 'advantage' | 'disadvantage'
-  /** 掷骰目的，如「攻击哥布林」 */
-  reason?: string
-}
-
-/** 检定（属性 / 技能 / 豁免）的结果，存进消息 meta.check */
-export interface CheckResult {
-  /** 谁在检定（显示名） */
-  who: string
-  /** 技能 id、属性 id，或模型写的原文（无法识别时按纯属性 0 加值处理） */
-  skill: string
-  kind: 'skill' | 'ability' | 'save'
-  ability: Ability
-  dc: number | null
-  roll: DiceResult
-  /** 属性调整值 + 熟练 / 专精 */
-  bonus: number
-  total: number
-  /** 没有 DC 时为 null */
-  success: boolean | null
-  /** total - dc */
-  margin: number | null
-  /** 大成功 / 大失败规则生效后的结论（关闭该规则时只看点数） */
-  outcome: 'crit_success' | 'success' | 'fail' | 'crit_fail' | null
-  /** 加值是从哪里来的：角色卡、会话变量，或没找到属性（按 0） */
-  source: 'sheet' | 'vars' | 'none'
-}
+export type DiceResult = z.infer<typeof diceResultSchema>
 
 /** CheckResult 的运行时 schema：选项检定的结果随 send 请求发回后端时校验 */
 export const checkResultSchema = z.object({
+  /** 谁在检定（显示名） */
   who: z.string(),
+  /** 技能 id、属性 id，或模型写的原文（无法识别时按纯属性 0 加值处理） */
   skill: z.string(),
   kind: z.enum(['skill', 'ability', 'save']),
   ability: z.enum(ABILITIES),
   dc: z.number().int().min(0).max(100).nullable(),
   roll: diceResultSchema,
+  /** 属性调整值 + 熟练 / 专精 */
   bonus: z.number().int(),
   total: z.number().int(),
+  /** 没有 DC 时为 null */
   success: z.boolean().nullable(),
+  /** total - dc */
   margin: z.number().int().nullable(),
+  /** 大成功 / 大失败规则生效后的结论（关闭该规则时只看点数） */
   outcome: z.enum(['crit_success', 'success', 'fail', 'crit_fail']).nullable(),
+  /** 加值是从哪里来的：角色卡、会话变量，或没找到属性（按 0） */
   source: z.enum(['sheet', 'vars', 'none']),
 })
+export type CheckResult = z.infer<typeof checkResultSchema>
 
 /** 战斗中的一个参与者（舞台状态 combat.order 的一项） */
 export interface CombatantState {

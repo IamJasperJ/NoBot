@@ -1,4 +1,4 @@
-import { buildChildrenMap, collectSubtree, findLatestLeaf, siblingOf } from '@nobot/core'
+import { buildChildrenMap, collectSubtree, expandToolSelection, findLatestLeaf, siblingOf } from '@nobot/core'
 import type {
   ChatDTO,
   ChatPage,
@@ -693,38 +693,12 @@ export function excludeMessages(chatId: string, input: ExcludeMessagesInput): Me
   const chat = getChatRow(chatId)
   const rows = db.select().from(messages).where(eq(messages.chatId, chatId)).all()
   const byId = new Map(rows.map((m) => [m.id, m]))
-  for (const id of input.messageIds) if (!byId.has(id)) throw notFound(t('消息'))
-  const children = buildChildrenMap(rows)
-  const activeChain = new Map(loadPath(chat.activeLeafId).map((message) => [message.parentId, message.id]))
-  const selected = new Set(input.messageIds)
-  for (const id of input.messageIds) {
-    const message = byId.get(id)!
-    let caller = message
-    // 结果只向上寻找连续工具链的发起者，不能跨过下一轮普通消息。
-    if (message.role === 'tool' && message.meta.toolCallId) {
-      while (caller.parentId) {
-        const parent = byId.get(caller.parentId)
-        if (!parent) break
-        caller = parent
-        if (caller.role !== 'tool') break
-      }
-      if (caller.role !== 'assistant' || !caller.meta.toolCalls?.some((c) => c.id === message.meta.toolCallId)) continue
-    }
-    if (caller.role !== 'assistant' || !caller.meta.toolCalls) continue
-    selected.add(caller.id)
-    const calls = new Set(caller.meta.toolCalls.map((c) => c.id))
-    // 显式选中工具结果时优先沿它的祖先链，其余部分优先当前分支。
-    const resultChain = message.role === 'tool' ? new Map(loadPath(message.id).map((m) => [m.parentId, m.id])) : null
-    let current = caller
-    while (true) {
-      const kids = children.get(current.id)
-      const nextId = resultChain?.get(current.id) ?? activeChain.get(current.id)
-      const next = kids?.find((m) => m.id === nextId) ?? kids?.at(-1)
-      if (next?.role !== 'tool') break
-      if (next.meta.toolCallId && calls.has(next.meta.toolCallId)) selected.add(next.id)
-      current = next
-    }
-  }
+  const selection = input.messageIds.map((id) => {
+    const message = byId.get(id)
+    if (!message) throw notFound(t('消息'))
+    return message
+  })
+  const selected = expandToolSelection(byId, selection, chat.activeLeafId)
   db.transaction((tx) => {
     for (const id of selected) {
       const row = byId.get(id)!

@@ -37,9 +37,10 @@ import { isMiniApp } from '../miniapp/context'
 import { useRoomLive } from '../stores/room'
 import { useStreaming } from '../stores/streaming'
 import { useUi } from '../stores/ui'
+import { applyNewMessage, removeCachedMessages, replaceMessage, setChatGenerating } from './chat-cache'
 import { readError } from './client'
 import { apiFetch } from './fetch'
-import { applyNewMessage, keys, replaceMessage, setChatGenerating } from './queries'
+import { keys } from './query-keys'
 import { queryClient } from './queryClient'
 import { removeRoomScope, scopeForChat, scopeRoomData, setRoomScope } from './room-scope'
 
@@ -301,15 +302,7 @@ export function useSendRoomMessage() {
     },
     onSuccess: (message, { id }) => mergeMessage(scopeRoomData(message, id)),
     onError: (_error, _input, context) => {
-      if (context)
-        queryClient.setQueryData<InfiniteData<ChatPage>>(keys.chat(context.chatId), (old) =>
-          old
-            ? {
-                ...old,
-                pages: old.pages.map((p) => ({ ...p, messages: p.messages.filter((m) => m.id !== context.messageId) })),
-              }
-            : old,
-        )
+      if (context) removeCachedMessages(queryClient, context.chatId, (m) => m.id === context.messageId)
     },
   })
 }
@@ -319,18 +312,10 @@ export function mergeMessage(message: MessageDTO) {
   if (cache?.pages.some((p) => p.messages.some((m) => m.id === message.id)))
     replaceMessage(queryClient, message.chatId, message)
   else {
-    queryClient.setQueryData<InfiniteData<ChatPage>>(keys.chat(message.chatId), (old) =>
-      old
-        ? {
-            ...old,
-            pages: old.pages.map((p) => ({
-              ...p,
-              messages: p.messages.filter(
-                (m) => !(m.id.startsWith('optimistic:') && m.meta.clientMessageId === message.meta.clientMessageId),
-              ),
-            })),
-          }
-        : old,
+    removeCachedMessages(
+      queryClient,
+      message.chatId,
+      (m) => m.id.startsWith('optimistic:') && m.meta.clientMessageId === message.meta.clientMessageId,
     )
     if (!applyNewMessage(queryClient, message.chatId, message))
       void queryClient.invalidateQueries({ queryKey: keys.chat(message.chatId) })
